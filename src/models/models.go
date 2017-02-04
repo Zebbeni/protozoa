@@ -9,7 +9,7 @@ const NUM_PROTISTS = 100
 const NUM_CYCLES = 1000
 const MAX_PARAM = 100
 
-type Nucleotide struct {
+type SequenceNode struct {
 	IsAction bool
 	Index    int
 	Arg      int
@@ -23,6 +23,11 @@ type Environment struct {
 }
 
 func (e *Environment) UpdateEnvironment() {
+	e.UpdateTemperature()
+	fmt.Println("Temp:", e.Temperature, "degrees")
+}
+
+func (e *Environment) UpdateTemperature() {
 	e.Temperature += rand.Intn(21) - 10
 	if e.Temperature > 100 {
 		e.Temperature = 100
@@ -35,17 +40,16 @@ func (e *Environment) UpdateEnvironment() {
 	} else {
 		e.GoodWeather++
 	}
-	fmt.Println("Temp:", e.Temperature, "degrees")
 }
 
 type Protist struct {
-	Id          int
+	ID          int
 	Health      int
 	Food        int
 	Days_lived  int
 	Covered     bool
 	Alive       bool
-	Dna         []Nucleotide
+	Sequence    []SequenceNode
 	Action      func()
 	Environment *Environment
 }
@@ -104,10 +108,10 @@ func isHot(p *Protist, arg int) bool {
 func (p *Protist) Update() {
 	fmt.Println("\nhealth:", p.Health, "food:", p.Food, "covered:", p.Covered)
 	if p.Environment.Temperature < 25 && p.Covered == false {
-		fmt.Println("models.Protist", p.Id, "is freezing to death")
+		fmt.Println("models.Protist", p.ID, "is freezing to death")
 		p.Health -= 2
 	} else if p.Environment.Temperature > 75 && p.Covered == true {
-		fmt.Println("models.Protist", p.Id, "is dying of heat")
+		fmt.Println("models.Protist", p.ID, "is dying of heat")
 		p.Health -= 2
 	} else {
 		p.Health++
@@ -128,7 +132,7 @@ func (p *Protist) Update() {
 	if p.Health <= 0 {
 		p.Alive = false
 		p.Environment.NumDead++
-		fmt.Println("models.Protist", p.Id, "is dead")
+		fmt.Println("models.Protist", p.ID, "is dead")
 	} else if p.Health > 100 {
 		p.Health = 100
 	}
@@ -136,13 +140,13 @@ func (p *Protist) Update() {
 
 func (p *Protist) DoCycle() {
 	if p.Alive {
-		fmt.Print("\nmodels.Protist ", p.Id, " ")
+		fmt.Print("\nmodels.Protist ", p.ID, " ")
 		p.Action() //do models.Protist Actions
 		p.Update()
 	}
 }
 
-func generateNucleotide(isAct bool) Nucleotide {
+func generateSequenceNode(isAct bool) SequenceNode {
 	numOptions := len(conditions)
 
 	if isAct {
@@ -150,18 +154,18 @@ func generateNucleotide(isAct bool) Nucleotide {
 	}
 	idx := rand.Intn(numOptions)
 	param := rand.Intn(MAX_PARAM)
-	newNucleotide := Nucleotide{IsAction: isAct, Index: idx, Arg: param}
-	return newNucleotide
+	newSequenceNode := SequenceNode{IsAction: isAct, Index: idx, Arg: param}
+	return newSequenceNode
 }
 
-func (p *Protist) GenerateDNA() {
-	p.Dna = []Nucleotide{generateNucleotide(false), generateNucleotide(true), generateNucleotide(true)}
+func (p *Protist) GenerateSequence() {
+	p.Sequence = []SequenceNode{generateSequenceNode(false), generateSequenceNode(true), generateSequenceNode(true)}
 }
 
-func (p *Protist) GenerateActionFromDNA() {
-	cond := p.Dna[0]
-	action1 := p.Dna[1]
-	action2 := p.Dna[2]
+func (p *Protist) GenerateActionFromSequence() {
+	cond := p.Sequence[0]
+	action1 := p.Sequence[1]
+	action2 := p.Sequence[2]
 	p.Action = func() {
 		if p.Alive {
 			if conditions[cond.Index](p, cond.Arg) {

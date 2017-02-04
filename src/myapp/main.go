@@ -12,12 +12,9 @@ const MAX_PARAM = 100
 
 var protists [NUM_PROTISTS]*models.Protist
 
-// var conditions = []func(*models.Protist, int)bool{ isHealthAbove, isFoodAbove, isCold, isHot }
-// var actions = []func(*models.Protist, int){ actionCover, actionUncover, actionEat }
-
 func generateProtist(num int, environment *models.Environment) *models.Protist {
-	newPro := &models.Protist{
-		Id:          num,
+	newProtist := &models.Protist{
+		ID:          num,
 		Health:      100,
 		Food:        100,
 		Days_lived:  0,
@@ -25,9 +22,9 @@ func generateProtist(num int, environment *models.Environment) *models.Protist {
 		Alive:       true,
 		Environment: environment,
 	}
-	newPro.GenerateDNA()
-	newPro.GenerateActionFromDNA()
-	return newPro
+	newProtist.GenerateSequence()
+	newProtist.GenerateActionFromSequence()
+	return newProtist
 }
 
 func generateEnvironment() *models.Environment {
@@ -62,7 +59,7 @@ func main() {
 		fmt.Println("\nStill alive: ")
 		for _, p := range protists {
 			if p.Alive {
-				fmt.Print(" models.Protist ", p.Id, ", ")
+				fmt.Print(" models.Protist ", p.ID, ", ")
 			}
 		}
 		if environment.NumDead >= NUM_PROTISTS {
@@ -72,7 +69,7 @@ func main() {
 	fmt.Println("\nDays of Bad weather: ", environment.BadWeather)
 	fmt.Println("Days of Good weather: ", environment.GoodWeather)
 	for i, p := range protists {
-		fmt.Println("models.Protist", i, "\tDNA: ", p.Dna, "\tDays lived: ", p.Days_lived)
+		fmt.Println("models.Protist", i, "\tSequence: ", p.Sequence, "\tDays lived: ", p.Days_lived)
 	}
 
 	// print details of last surviving protists
