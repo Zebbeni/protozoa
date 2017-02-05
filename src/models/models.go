@@ -5,8 +5,6 @@ import (
 	"math/rand"
 )
 
-const NUM_PROTISTS = 100
-const NUM_CYCLES = 1000
 const MAX_PARAM = 100
 
 type SequenceNode struct {

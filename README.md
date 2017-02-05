@@ -9,5 +9,5 @@ go run src/myapp/main.go
 
 To deploy:
 ```
-gcloud app deploy app.yaml --project <projectname>
+gcloud beta app deploy src/app.yaml --project <projectid>
 ```

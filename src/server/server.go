@@ -1,8 +1,8 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
+	"simulation"
 )
 
 func init() {
@@ -10,5 +10,5 @@ func init() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "What up, world!")
+	simulation.RunSimulation(w)
 }
