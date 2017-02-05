@@ -1,14 +1,14 @@
-package main
+package simulation
 
 import (
 	"fmt"
 	"math/rand"
 	"models"
+	"net/http"
 )
 
 const NUM_PROTISTS = 100
 const NUM_CYCLES = 1000
-const MAX_PARAM = 100
 
 var protists [NUM_PROTISTS]*models.Protist
 
@@ -39,8 +39,8 @@ func generateEnvironment() *models.Environment {
 	return environment
 }
 
-func main() {
-	rand.Seed(10)
+func RunSimulation(w http.ResponseWriter) {
+	rand.Seed(12)
 
 	environment := generateEnvironment()
 
@@ -69,7 +69,7 @@ func main() {
 	fmt.Println("\nDays of Bad weather: ", environment.BadWeather)
 	fmt.Println("Days of Good weather: ", environment.GoodWeather)
 	for i, p := range protists {
-		fmt.Println("models.Protist", i, "\tSequence: ", p.Sequence, "\tDays lived: ", p.Days_lived)
+		fmt.Fprintf(w, "<p>Protist %d\tDays lived: %d\t\tSequence: %v</p>", i, p.Days_lived, p.Sequence)
 	}
 
 	// print details of last surviving protists
