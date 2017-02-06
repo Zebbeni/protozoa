@@ -1,19 +1,24 @@
 package simulation
 
 import (
-	"fmt"
 	"math/rand"
 	"models"
-	"net/http"
 )
 
-const NUM_PROTISTS = 100
-const NUM_CYCLES = 1000
+const NUM_PROTISTS = 10
+const NUM_CYCLES = 100
 
-var protists [NUM_PROTISTS]*models.Protist
+func generateProtists(num_to_generate int, environment *models.Environment) []models.Protist {
+	protists := make([]models.Protist, num_to_generate)
+	for i := 0; i < num_to_generate; i++ {
+		newPro := generateProtist(i, environment)
+		protists[i] = newPro
+	}
+	return protists
+}
 
-func generateProtist(num int, environment *models.Environment) *models.Protist {
-	newProtist := &models.Protist{
+func generateProtist(num int, environment *models.Environment) models.Protist {
+	newProtist := models.Protist{
 		ID:          num,
 		Health:      100,
 		Food:        100,
@@ -39,38 +44,29 @@ func generateEnvironment() *models.Environment {
 	return environment
 }
 
-func RunSimulation(w http.ResponseWriter) {
+type Simulation struct{
+	Protists 	[]models.Protist
+	Environment 	*models.Environment
+	NumCycles 	int
+}
+
+func NewSimulation() *Simulation {
 	rand.Seed(12)
-
 	environment := generateEnvironment()
-
-	// create a ton of random protists
-	for i := 0; i < NUM_PROTISTS; i++ {
-		newPro := generateProtist(i, environment)
-		protists[i] = newPro
+	protists := generateProtists(NUM_PROTISTS, environment)
+	simulation := &Simulation{
+		Protists: protists,
+		Environment: environment,
+		NumCycles: NUM_CYCLES,
 	}
+	return simulation
+}
 
-	for cycle := 0; cycle < NUM_CYCLES; cycle++ {
-		fmt.Println("\n\nDay", cycle+1)
-		environment.UpdateEnvironment()
-		for _, p := range protists {
-			p.DoCycle()
-		}
-		fmt.Println("\nStill alive: ")
-		for _, p := range protists {
-			if p.Alive {
-				fmt.Print(" models.Protist ", p.ID, ", ")
-			}
-		}
-		if environment.NumDead >= NUM_PROTISTS {
-			cycle = NUM_CYCLES
-		}
-	}
-	fmt.Println("\nDays of Bad weather: ", environment.BadWeather)
-	fmt.Println("Days of Good weather: ", environment.GoodWeather)
-	for i, p := range protists {
-		fmt.Fprintf(w, "<p>Protist %d\tDays lived: %d\t\tSequence: %v</p>", i, p.Days_lived, p.Sequence)
-	}
+func (s *Simulation) DoCycle() {
 
-	// print details of last surviving protists
+	s.Environment.UpdateEnvironment()
+	for _, p := range s.Protists {
+		p.DoCycle()
+	}
+	s.NumCycles++
 }
