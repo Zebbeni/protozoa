@@ -9,8 +9,9 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
-var forceColor = color.RGBA{0x80, 0x80, 0xFF, 0xFF}
-var particleColor = color.RGBA{0x80, 0xFF, 0x80, 0xFF}
+// var forceColor = color.RGBA{0x80, 0x80, 0xFF, 0x40}
+var forceColor = color.RGBA{100, 100, 255, 255}
+var particleColor = color.RGBA{100, 255, 150, 255}
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
@@ -54,13 +55,10 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 
 // renderForce draws a force to the screen
 func renderForce(f m.Force, screen *ebiten.Image) {
-	size := c.MaxForceSize * (f.Force / c.MaxForce)
-	ebitenutil.DrawRect(screen, f.X-(size/2.0), f.Y-(size/2.0), size, size, forceColor)
-	ebitenutil.DrawLine(screen, f.X, f.Y, f.X+f.ForceX*5.0, f.Y+f.ForceY*5.0, forceColor)
+	ebitenutil.DrawLine(screen, f.X, f.Y, f.X+f.ForceX*50.0, f.Y+f.ForceY*50.0, forceColor)
 }
 
 // renderParticle draws a particle to the screen
 func renderParticle(p m.Particle, screen *ebiten.Image) {
-	size := c.ParticleSize
-	ebitenutil.DrawRect(screen, p.X-(size/2.0), p.Y-(size/2.0), size, size, particleColor)
+	ebitenutil.DrawLine(screen, p.X, p.Y, p.PrevX, p.PrevY, particleColor)
 }

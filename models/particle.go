@@ -12,14 +12,18 @@ type Particle struct {
 	X, Y, PrevX, PrevY, vX, vY float64
 }
 
+// NewParticle returns a new Particle object with newly initialized attributes
+func NewParticle() Particle {
+	var newParticle Particle
+	newParticle.initializeAttributes()
+	return newParticle
+}
+
 // Update calcuates particle velocity and location based on surrounding forces
 func (p *Particle) Update(forces [c.NumForces]Force) {
 	// if particle if offscreen, re-center and muffle current velocity
 	if p.X < 0 || p.Y < 0 || p.X > c.ScreenWidth || p.Y > c.ScreenHeight {
-		p.X = c.ScreenWidth / 2.0
-		p.Y = c.ScreenHeight / 2.0
-		p.vX *= 0.1
-		p.vY *= 0.1
+		p.initializeAttributes()
 	}
 	// update velocity
 	for _, force := range forces {
@@ -36,11 +40,12 @@ func (p *Particle) Update(forces [c.NumForces]Force) {
 	p.Y += p.vY
 }
 
-// NewParticle returns a new Particle object randomly placed within 1.0 of the
-// center of the screen
-func NewParticle() Particle {
-	x := (rand.Float64() * c.ScreenWidth) + rand.Float64()
-	y := (rand.Float64() * c.ScreenHeight) + rand.Float64()
-	newParticle := Particle{X: x, Y: y, PrevX: x, PrevY: y, vX: 0.0, vY: 0.0}
-	return newParticle
+// initializeAttributes randomly places a particle within 1.0 of the center
+func (p *Particle) initializeAttributes() {
+	p.X = (c.ScreenWidth / 2.0) + rand.Float64()
+	p.Y = (c.ScreenHeight / 2.0) + rand.Float64()
+	p.PrevX = p.X
+	p.PrevY = p.Y
+	p.vX = 0.0
+	p.vY = 0.0
 }

@@ -15,8 +15,8 @@ type Force struct {
 // Update changes angle by a small amount and calculates force magnitude's
 // x and y components
 func (f *Force) Update() {
-	f.angle += rand.Float64()
-	f.Force = math.Max(0, math.Min(f.Force+rand.Float64()-0.5, c.MaxForce))
+	f.angle += rand.Float64()*0.5 - 0.25
+	f.Force = math.Max(0, math.Min(f.Force+rand.Float64()*0.5-0.25, c.MaxForce))
 	f.ForceX = math.Cos(f.angle) * f.Force
 	f.ForceY = math.Sin(f.angle) * f.Force
 }

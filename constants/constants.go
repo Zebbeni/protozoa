@@ -5,13 +5,13 @@ const (
 	// Drawing constants
 	ScreenWidth  = 800
 	ScreenHeight = 600
-	ParticleSize = 4.0
+	ParticleSize = 2.0
 	MaxForceSize = 100.0
 
 	// Physics constants
-	MaxForce = 5.0
+	MaxForce = 1.0
 
 	// Simulation constants
-	NumParticles = 1000
-	NumForces    = 50
+	NumParticles = 2000
+	NumForces    = 40
 )
