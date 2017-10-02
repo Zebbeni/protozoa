@@ -3,6 +3,9 @@ package constants
 // Constants
 const (
 	// Drawing constants
+	GridWidth    = 80
+	GridHeight   = 60
+	GridUnitSize = 10.0
 	ScreenWidth  = 800
 	ScreenHeight = 600
 	ParticleSize = 2.0
@@ -12,6 +15,6 @@ const (
 	MaxForce = 1.0
 
 	// Simulation constants
-	NumParticles = 2000
-	NumForces    = 40
+	NumFood         = 20
+	MaxFoodLifespan = 600
 )
