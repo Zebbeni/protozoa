@@ -3,11 +3,11 @@ package constants
 // Constants
 const (
 	// Drawing constants
-	GridWidth    = 80
-	GridHeight   = 60
+	GridWidth    = 120
+	GridHeight   = 80
 	GridUnitSize = 10.0
-	ScreenWidth  = 800
-	ScreenHeight = 600
+	ScreenWidth  = 1200
+	ScreenHeight = 800
 	ParticleSize = 2.0
 	MaxForceSize = 100.0
 

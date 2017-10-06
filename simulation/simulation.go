@@ -4,7 +4,7 @@ import (
 	"image/color"
 
 	c "../constants"
-	m "../models"
+	w "../world"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
@@ -13,24 +13,24 @@ var foodColor = color.RGBA{255, 100, 100, 255}
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	foodGrid m.FoodGrid
+	worldController w.Controller
 }
 
 // NewSimulation returns a simulation with generated particles and forces
 func NewSimulation() Simulation {
-	foodGrid := m.NewFoodGrid()
-	simulation := Simulation{foodGrid: foodGrid}
+	worldController := w.NewController()
+	simulation := Simulation{worldController: worldController}
 	return simulation
 }
 
-// Update calls Update functions for all particles and forces in simulation
+// Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
-	s.foodGrid.Update()
+	s.worldController.Update()
 }
 
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
-	for _, food := range s.foodGrid.FoodItems {
+	for _, food := range s.worldController.GetFoodItems() {
 		renderFood(food, screen)
 	}
 }
