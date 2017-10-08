@@ -1,3 +1,11 @@
 # IDE-specific files #
 ######################
 launch.json
+
+# Build-specific files #
+######################
+.vscode/
+GoGameBoilerplate
+debug
+pkg/
+src/

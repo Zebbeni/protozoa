@@ -25,14 +25,21 @@ type FoodManager struct {
 // NewFoodManager initializes a new food grid with random food
 func NewFoodManager() FoodManager {
 	var foodItems [c.NumFood]FoodItem
-	foodManager := FoodManager{FoodItems: foodItems}
+	var grid [c.GridWidth][c.GridHeight]int
+	for i := 0; i < c.GridWidth; i++ {
+		for j := 0; j < c.GridHeight; j++ {
+			grid[i][j] = 0
+		}
+	}
+	foodManager := FoodManager{FoodItems: foodItems, Grid: grid}
 	return foodManager
 }
 
 // RelocateFood sets Food's grid location to new x, y
-func (fm *FoodManager) RelocateFood(index, x, y int) {
+func (fm *FoodManager) RelocateFood(index, x, y, lifespan int) {
 	fm.FoodItems[index].X = x
 	fm.FoodItems[index].Y = y
+	fm.Grid[x][y] += lifespan
 }
 
 // Update decrements all food on grid, moves food to new x, y if food <= 0
@@ -44,8 +51,8 @@ func (fm *FoodManager) Update() {
 		} else {
 			x := rand.Intn(c.GridWidth)
 			y := rand.Intn(c.GridHeight)
-			fm.RelocateFood(i, x, y)
-			fm.Grid[x][y] += rand.Intn(c.MaxFoodLifespan)
+			lifespan := rand.Intn(c.MaxFoodLifespan)
+			fm.RelocateFood(i, x, y, lifespan)
 		}
 	}
 }

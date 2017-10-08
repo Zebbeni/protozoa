@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"math/rand"
 
 	c "../constants"
@@ -14,9 +15,9 @@ import (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	X, Y, DirX, DirY int
-	DecisionSequence d.Sequence
-	DecisionTree     d.Node
+	X, Y, DirX, DirY, Score int
+	DecisionSequence        d.Sequence
+	DecisionTree            d.Node
 }
 
 // NewOrganism initializes organism at with random grid location and direction
@@ -58,7 +59,7 @@ func NewOrganismManager(environment *Environment) OrganismManager {
 func (om *OrganismManager) Update() {
 	for o, organism := range om.Organisms {
 		action := om.chooseAction(organism, organism.DecisionTree)
-		om.applyAction(o, action)
+		om.applyAction(&om.Organisms[o], action)
 	}
 }
 
@@ -79,6 +80,8 @@ func (om *OrganismManager) isConditionTrue(o Organism, cond interface{}) bool {
 	switch cond {
 	case d.CanMove:
 		return om.canMove(o)
+	case d.IsOnFood:
+		return om.isOnFood(o)
 	}
 	return false
 }
@@ -95,30 +98,44 @@ func (om *OrganismManager) canMove(o Organism) bool {
 	return true
 }
 
-func (om *OrganismManager) applyAction(index int, action interface{}) {
+func (om *OrganismManager) isOnFood(o Organism) bool {
+	value := om.Environment.GetFoodAtGridLocation(o.X, o.Y)
+	return value > 0
+}
+
+func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 	switch action {
+	case d.ActEat:
+		om.applyEat(o)
+		break
 	case d.ActMove:
-		om.applyMove(index)
+		om.applyMove(o)
 		break
 	case d.ActTurnLeft:
-		om.applyTurnLeft(index)
+		om.applyTurnLeft(o)
 		break
 	case d.ActTurnRight:
-		om.applyTurnLeft(index)
+		om.applyTurnLeft(o)
 		break
 	}
 }
 
-func (om *OrganismManager) applyMove(index int) {
-	o := &om.Organisms[index]
-	if om.canMove(om.Organisms[index]) {
-		o.X += o.DirX
-		o.Y += o.DirY
+func (om *OrganismManager) applyEat(o *Organism) {
+	if om.isOnFood(*o) {
+		o.Score++
 	}
 }
 
-func (om *OrganismManager) applyTurnLeft(index int) {
-	o := &om.Organisms[index]
+func (om *OrganismManager) applyMove(o *Organism) {
+	if om.canMove(*o) {
+		om.Grid[o.X][o.Y] = false
+		o.X += o.DirX
+		o.Y += o.DirY
+		om.Grid[o.X][o.Y] = true
+	}
+}
+
+func (om *OrganismManager) applyTurnLeft(o *Organism) {
 	if o.DirX == 0 {
 		if o.DirY == 1 {
 			o.DirX = 1
@@ -136,8 +153,7 @@ func (om *OrganismManager) applyTurnLeft(index int) {
 	}
 }
 
-func (om *OrganismManager) applyTurnRight(index int) {
-	o := &om.Organisms[index]
+func (om *OrganismManager) applyTurnRight(o *Organism) {
 	if o.DirX == 0 {
 		if o.DirY == 1 {
 			o.DirX = -1
@@ -160,4 +176,17 @@ func (om *OrganismManager) applyTurnRight(index int) {
 // GetOrganisms returns an array of all Organisms from organism manager
 func (om *OrganismManager) GetOrganisms() [c.NumOrganisms]Organism {
 	return om.Organisms
+}
+
+// PrintMaxScore prints the highest current score of any Organism (and their index)
+func (om *OrganismManager) PrintMaxScore() {
+	maxScore := -1
+	winningOrganism := -1
+	for o, organism := range om.Organisms {
+		if organism.Score > maxScore {
+			maxScore = organism.Score
+			winningOrganism = o
+		}
+	}
+	fmt.Printf("\nBest #%d. Score: %2d", winningOrganism, maxScore)
 }

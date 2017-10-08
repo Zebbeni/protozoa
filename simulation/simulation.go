@@ -38,6 +38,7 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, organism := range s.world.GetOrganisms() {
 		renderOrganism(organism, screen)
 	}
+	s.world.PrintStats()
 }
 
 // renderFood draws a food source to the screen

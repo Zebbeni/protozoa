@@ -17,16 +17,18 @@ type Sequence []interface{}
 
 // Define all possible actions for Organism
 const (
-	ActMove Action = iota
+	ActEat Action = iota
+	ActMove
 	ActTurnLeft
 	ActTurnRight
 	CanMove Condition = iota
+	IsOnFood
 )
 
 // Define slices
 var (
-	Actions    = [...]Action{ActMove, ActTurnLeft, ActTurnRight}
-	Conditions = [...]Condition{CanMove}
+	Actions    = [...]Action{ActEat, ActMove, ActTurnLeft, ActTurnRight}
+	Conditions = [...]Condition{CanMove, IsOnFood}
 )
 
 // Node includes an Action or Condition value

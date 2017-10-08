@@ -18,7 +18,11 @@ func (e *Environment) Update() {
 	e.foodManager.Update()
 }
 
-// For drawing
+// GetFoodAtGridLocation returns current lifespan of food item at x, y
+func (e *Environment) GetFoodAtGridLocation(x, y int) int {
+	value := e.foodManager.Grid[x][y]
+	return value
+}
 
 // GetFoodItems returns array of all Food Items from food manager
 func (e *Environment) GetFoodItems() [c.NumFood]FoodItem {
