@@ -6,36 +6,46 @@ import (
 	c "../constants"
 )
 
-// FoodGrid contains 2D array of all food values
-type FoodGrid struct {
-	FoodItems [c.NumFood][2]int
+// FoodItem contains x and y value for a given food item
+type FoodItem struct {
+	X, Y int
+}
+
+// NewFood creates a new Food object
+func NewFood() FoodItem {
+	return FoodItem{X: rand.Intn(c.GridWidth), Y: rand.Intn(c.GridHeight)}
+}
+
+// FoodManager contains 2D array of all food values
+type FoodManager struct {
+	FoodItems [c.NumFood]FoodItem
 	Grid      [c.GridWidth][c.GridHeight]int
 }
 
-// NewFoodGrid initializes a new food grid with random food
-func NewFoodGrid() FoodGrid {
-	var foodItems [c.NumFood][2]int
-	foodGrid := FoodGrid{FoodItems: foodItems}
-	return foodGrid
+// NewFoodManager initializes a new food grid with random food
+func NewFoodManager() FoodManager {
+	var foodItems [c.NumFood]FoodItem
+	foodManager := FoodManager{FoodItems: foodItems}
+	return foodManager
 }
 
-// Update decrements all food on grid. Plants food at new x, y if food <= 0
-func (foodGrid *FoodGrid) Update() {
-	for f, food := range foodGrid.FoodItems {
-		x := food[0]
-		y := food[1]
-		value := foodGrid.Grid[x][y]
+// RelocateFood sets Food's grid location to new x, y
+func (fm *FoodManager) RelocateFood(index, x, y int) {
+	fm.FoodItems[index].X = x
+	fm.FoodItems[index].Y = y
+}
+
+// Update decrements all food on grid, moves food to new x, y if food <= 0
+func (fm *FoodManager) Update() {
+	for i, food := range fm.FoodItems {
+		value := fm.Grid[food.X][food.Y]
 		if value > 0 {
-			// decrement food grid item
-			foodGrid.Grid[x][y]--
+			fm.Grid[food.X][food.Y]--
 		} else {
-			// move food to new location and reset lifespan
-			x = rand.Intn(c.GridWidth)
-			y = rand.Intn(c.GridHeight)
-			timeToLive := rand.Intn(c.MaxFoodLifespan)
-			foodGrid.Grid[x][y] += timeToLive
-			foodGrid.FoodItems[f][0] = x
-			foodGrid.FoodItems[f][1] = y
+			x := rand.Intn(c.GridWidth)
+			y := rand.Intn(c.GridHeight)
+			fm.RelocateFood(i, x, y)
+			fm.Grid[x][y] += rand.Intn(c.MaxFoodLifespan)
 		}
 	}
 }

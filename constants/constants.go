@@ -15,6 +15,8 @@ const (
 	MaxForce = 1.0
 
 	// Simulation constants
-	NumFood         = 20
-	MaxFoodLifespan = 600
+	NumFood               = 20
+	MaxFoodLifespan       = 600
+	NumOrganisms          = 5
+	MaxSequenceConditions = 5
 )
