@@ -2,8 +2,6 @@ package decisions
 
 import (
 	"math/rand"
-
-	c "../constants"
 )
 
 // Action is the custom type for all Organism actions
@@ -46,21 +44,29 @@ func (n *Node) IsAction() bool {
 
 // NewRandomSequence generates a new Sequence of random length
 func NewRandomSequence() Sequence {
-	sequence := newRandomSubSequence()
-	conditionCount := 1
-	// pick random number of conditions to include in sequence
-	targetConditions := rand.Intn(c.MaxSequenceConditions)
-	for conditionCount < targetConditions {
-		index := rand.Intn(len(sequence))
-		if isAction(sequence[index]) {
-			subSequence := newRandomSubSequence()
-			// insert subsquence in place of action index to be replaced
-			subSequence = append(subSequence, sequence[index+1:]...)
-			sequence = append(sequence[:index], subSequence...)
-			conditionCount++
-		}
-	}
+	sequence := MutateSequence(newRandomSubSequence())
 	return sequence
+}
+
+// MutateSequence mutates a given sequence by replacing a random number of
+// actions with condition - action - action blocks
+func MutateSequence(sequence Sequence) Sequence {
+	mutatedSequence := sequence
+	index := rand.Intn(len(sequence))
+	if isAction(sequence[index]) {
+		// in 25 % of cases where the node is an Action, replace with C-A-A
+		if rand.Float32() < 0.25 {
+			// insert random subsquence in place of action index to be replaced
+			subSequence := newRandomSubSequence()
+			subSequence = append(subSequence, mutatedSequence[index+1:]...)
+			mutatedSequence = append(mutatedSequence[:index], subSequence...)
+		} else {
+			mutatedSequence[index] = GetRandomAction()
+		}
+	} else {
+		mutatedSequence[index] = GetRandomCondition()
+	}
+	return mutatedSequence
 }
 
 // TreeFromSequence recursively calls itself to create a Node and its

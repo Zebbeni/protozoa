@@ -10,8 +10,8 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
-var organismColor = color.RGBA{150, 150, 255, 255}
 var foodColor = color.RGBA{100, 255, 100, 255}
+var frames = 0
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
@@ -35,22 +35,30 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, food := range s.world.GetFoodItems() {
 		renderFood(food, screen)
 	}
-	for _, organism := range s.world.GetOrganisms() {
-		renderOrganism(organism, screen)
+	for o, organism := range s.world.GetOrganisms() {
+		isBest := s.world.GetBestOrganism() == o
+		renderOrganism(organism, isBest, screen)
 	}
-	s.world.PrintStats()
+	frames++
 }
 
 // renderFood draws a food source to the screen
 func renderFood(foodItem m.FoodItem, screen *ebiten.Image) {
 	x := float64(foodItem.X) * c.GridUnitSize
 	y := float64(foodItem.Y) * c.GridUnitSize
-	ebitenutil.DrawRect(screen, x, y, c.GridUnitSize, c.GridUnitSize, foodColor)
+	ebitenutil.DrawRect(screen, x+2, y+2, c.GridUnitSize-4, c.GridUnitSize-4, foodColor)
 }
 
 // renderOrganism draws a food source to the screen
-func renderOrganism(organism m.Organism, screen *ebiten.Image) {
+func renderOrganism(organism m.Organism, isBest bool, screen *ebiten.Image) {
 	x := float64(organism.X) * c.GridUnitSize
 	y := float64(organism.Y) * c.GridUnitSize
-	ebitenutil.DrawRect(screen, x, y, c.GridUnitSize, c.GridUnitSize, organismColor)
+	var alpha uint8
+	alpha = 100 + uint8(155.0*organism.Health/100.0)
+	organismColor := color.RGBA{100, 100, 255, alpha}
+	if isBest {
+		ebitenutil.DrawRect(screen, x-2, y-2, c.GridUnitSize+4, c.GridUnitSize+4, organismColor)
+	} else {
+		ebitenutil.DrawRect(screen, x+1, y+1, c.GridUnitSize-2, c.GridUnitSize-2, organismColor)
+	}
 }

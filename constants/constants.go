@@ -8,15 +8,16 @@ const (
 	GridUnitSize = 10.0
 	ScreenWidth  = 1200
 	ScreenHeight = 800
-	ParticleSize = 2.0
-	MaxForceSize = 100.0
 
-	// Physics constants
-	MaxForce = 1.0
+	// Environment constants
+	NumFood         = 500
+	MaxFoodLifespan = 600
 
-	// Simulation constants
-	NumFood               = 1000
-	MaxFoodLifespan       = 600
-	NumOrganisms          = 50
-	MaxSequenceConditions = 5
+	// Organism constants
+	NumOrganisms           = 50
+	MaxHealth              = 100
+	HealthChangePerTurn    = -0.5
+	HealthChangeFromMoving = -1.0
+	HealthChangeFromEating = 10
+	MaxSequenceConditions  = 5
 )

@@ -2,10 +2,21 @@ package models
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 
 	c "../constants"
 	d "../decisions"
+)
+
+// OrganismState defines type of action Organism is doing
+type OrganismState int
+
+// Define Organism States
+const (
+	StateIdle OrganismState = iota
+	StateMoving
+	StateEating
 )
 
 // Organism has stuff
@@ -15,32 +26,39 @@ import (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	X, Y, DirX, DirY, Score int
-	DecisionSequence        d.Sequence
-	DecisionTree            d.Node
+	Age, DirX, DirY, X, Y int
+	Health, AvgHealth     float32
+	State                 OrganismState
+	DecisionSequence      d.Sequence
+	DecisionTree          d.Node
 }
 
 // NewOrganism initializes organism at with random grid location and direction
 func NewOrganism() Organism {
-	x := rand.Intn(c.GridWidth)
-	y := rand.Intn(c.GridHeight)
-	dirX := 1
-	dirY := 0
 	decisionSequence := d.NewRandomSequence()
 	decisionNode := d.TreeFromSequence(decisionSequence)
 	organism := Organism{
-		X: x, Y: y, DirX: dirX, DirY: dirY,
+		Age:              0,
+		AvgHealth:        50,
+		Health:           50,
 		DecisionSequence: decisionSequence,
 		DecisionTree:     decisionNode,
+		DirX:             1,
+		DirY:             0,
+		X:                rand.Intn(c.GridWidth),
+		Y:                rand.Intn(c.GridHeight),
 	}
 	return organism
 }
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
-	Environment *Environment
-	Organisms   [c.NumOrganisms]Organism
-	Grid        [c.GridWidth][c.GridHeight]bool
+	Environment       *Environment
+	Organisms         [c.NumOrganisms]Organism
+	Grid              [c.GridWidth][c.GridHeight]bool
+	BestOrganismIndex int
+	bestAge           int
+	bestSequence      d.Sequence
 }
 
 // NewOrganismManager creates all Organisms and updates grid
@@ -57,15 +75,39 @@ func NewOrganismManager(environment *Environment) OrganismManager {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (om *OrganismManager) Update() {
-	for o, organism := range om.Organisms {
-		action := om.chooseAction(organism, organism.DecisionTree)
-		om.applyAction(&om.Organisms[o], action)
+	for i, o := range om.Organisms {
+		om.updateOrganism(i, &om.Organisms[i])
+		if o.Age > om.bestAge {
+			om.bestAge = o.Age
+			om.bestSequence = o.DecisionSequence
+			if i != om.BestOrganismIndex {
+				om.BestOrganismIndex = i
+				om.PrintOldest()
+			}
+		}
 	}
+}
+
+// UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
+// its Health, and replaces it if its Health <= 0
+func (om *OrganismManager) updateOrganism(index int, o *Organism) {
+	o.Age++
+	om.applyAction(o, om.chooseAction(o, o.DecisionTree))
+	om.updateHealth(o)
+	if o.Health <= 0.0 {
+		om.replaceOrganism(index)
+	}
+}
+
+func (om *OrganismManager) replaceOrganism(index int) {
+	fmt.Printf("\nDead: #%2d, Age: %d | Best: %d", index, om.Organisms[index].Age, om.bestAge)
+	om.Organisms[index] = NewOrganism()
+	om.Organisms[index].DecisionSequence = d.MutateSequence(om.bestSequence)
 }
 
 // doDecisionTree recursively walks through nodes of an organism's
 // decision tree, finally applying the chosen action
-func (om *OrganismManager) chooseAction(o Organism, tree d.Node) interface{} {
+func (om *OrganismManager) chooseAction(o *Organism, tree d.Node) interface{} {
 	if tree.IsAction() {
 		return tree.NodeType
 	}
@@ -76,7 +118,7 @@ func (om *OrganismManager) chooseAction(o Organism, tree d.Node) interface{} {
 	return om.chooseAction(o, *tree.NoNode)
 }
 
-func (om *OrganismManager) isConditionTrue(o Organism, cond interface{}) bool {
+func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 	switch cond {
 	case d.CanMove:
 		return om.canMove(o)
@@ -86,7 +128,7 @@ func (om *OrganismManager) isConditionTrue(o Organism, cond interface{}) bool {
 	return false
 }
 
-func (om *OrganismManager) canMove(o Organism) bool {
+func (om *OrganismManager) canMove(o *Organism) bool {
 	newX := o.X + o.DirX
 	newY := o.Y + o.DirY
 	if newX < 0 || newY < 0 || newX >= c.GridWidth || newY >= c.GridHeight {
@@ -98,7 +140,7 @@ func (om *OrganismManager) canMove(o Organism) bool {
 	return true
 }
 
-func (om *OrganismManager) isOnFood(o Organism) bool {
+func (om *OrganismManager) isOnFood(o *Organism) bool {
 	value := om.Environment.GetFoodAtGridLocation(o.X, o.Y)
 	return value > 0
 }
@@ -120,14 +162,33 @@ func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 	}
 }
 
+func (om *OrganismManager) updateHealth(o *Organism) {
+	switch o.State {
+	case StateIdle:
+		break
+	case StateMoving:
+		o.Health += c.HealthChangeFromMoving
+		break
+	case StateEating:
+		o.Health += c.HealthChangeFromEating
+		break
+	}
+	o.Health += c.HealthChangePerTurn
+	o.Health = float32(math.Min(float64(o.Health), c.MaxHealth))
+	o.AvgHealth = (o.AvgHealth*float32(o.Age-1) + o.Health) / float32(o.Age)
+}
+
 func (om *OrganismManager) applyEat(o *Organism) {
-	if om.isOnFood(*o) {
-		o.Score++
+	if om.isOnFood(o) {
+		o.State = StateEating
+	} else {
+		o.State = StateIdle
 	}
 }
 
 func (om *OrganismManager) applyMove(o *Organism) {
-	if om.canMove(*o) {
+	o.State = StateMoving
+	if om.canMove(o) {
 		om.Grid[o.X][o.Y] = false
 		o.X += o.DirX
 		o.Y += o.DirY
@@ -136,6 +197,7 @@ func (om *OrganismManager) applyMove(o *Organism) {
 }
 
 func (om *OrganismManager) applyTurnLeft(o *Organism) {
+	o.State = StateIdle
 	if o.DirX == 0 {
 		if o.DirY == 1 {
 			o.DirX = 1
@@ -154,6 +216,7 @@ func (om *OrganismManager) applyTurnLeft(o *Organism) {
 }
 
 func (om *OrganismManager) applyTurnRight(o *Organism) {
+	o.State = StateIdle
 	if o.DirX == 0 {
 		if o.DirY == 1 {
 			o.DirX = -1
@@ -178,15 +241,8 @@ func (om *OrganismManager) GetOrganisms() [c.NumOrganisms]Organism {
 	return om.Organisms
 }
 
-// PrintMaxScore prints the highest current score of any Organism (and their index)
-func (om *OrganismManager) PrintMaxScore() {
-	maxScore := -1
-	winningOrganism := -1
-	for o, organism := range om.Organisms {
-		if organism.Score > maxScore {
-			maxScore = organism.Score
-			winningOrganism = o
-		}
-	}
-	fmt.Printf("\nBest #%d. Score: %2d", winningOrganism, maxScore)
+// PrintOldest prints the highest current score of any Organism (and their index)
+func (om *OrganismManager) PrintOldest() {
+	index := om.BestOrganismIndex
+	fmt.Printf("\nBest #%2d. Age: %d", index, om.Organisms[index].Age)
 }
