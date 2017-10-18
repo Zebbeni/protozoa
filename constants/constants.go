@@ -14,10 +14,10 @@ const (
 	MaxFoodLifespan = 600
 
 	// Organism constants
-	NumOrganisms           = 50
-	MaxHealth              = 100
-	HealthChangePerTurn    = -0.5
-	HealthChangeFromMoving = -1.0
-	HealthChangeFromEating = 10
+	NumOrganisms           = 200
+	MaxHealth              = 200
+	HealthChangePerTurn    = -1
+	HealthChangeFromMoving = -1
+	HealthChangeFromEating = 100
 	MaxSequenceConditions  = 5
 )

@@ -37,10 +37,10 @@ func (w *World) GetOrganisms() [c.NumOrganisms]m.Organism {
 
 // GetBestOrganism returns the index of the most successful organism
 func (w *World) GetBestOrganism() int {
-	return w.organismManager.BestOrganismIndex
+	return w.organismManager.BestOrganismCurrent
 }
 
 // PrintStats shows various info about current simulation
 func (w *World) PrintStats() {
-	w.organismManager.PrintOldest()
+	w.organismManager.PrintBest()
 }

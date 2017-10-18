@@ -39,6 +39,10 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 		isBest := s.world.GetBestOrganism() == o
 		renderOrganism(organism, isBest, screen)
 	}
+	// if frames%100 == 0 {
+	// 	fmt.Printf("\nFrame %d", frames)
+	// 	s.world.PrintStats()
+	// }
 	frames++
 }
 

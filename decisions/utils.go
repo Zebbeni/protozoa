@@ -5,7 +5,7 @@ import (
 )
 
 // NewRandomSubSequence returns random, minimum length sequence
-func newRandomSubSequence() Sequence {
+func NewRandomSubSequence() Sequence {
 	subSequence := []interface{}{
 		GetRandomCondition(),
 		GetRandomAction(),
