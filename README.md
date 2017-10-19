@@ -1,2 +1,10 @@
-# GoGameBoilerplate
-Simple game boilerplate using golang and ebiten game library
+# Setup
+```
+go get github.com/hajimehoshi/ebiten/...
+go run main.go
+```
+
+# Test
+```
+go test test/utils_test.go
+```
