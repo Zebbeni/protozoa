@@ -1,13 +1,10 @@
-# protozoa
-A genetic programming / pond simulation experiment
-
-To run:
+# Setup
 ```
-export GOPATH=/path/to/protozoa
-go run src/myapp/main.go
+go get github.com/hajimehoshi/ebiten/...
+go run main.go
 ```
 
-To deploy:
+# Test
 ```
-gcloud beta app deploy src/app.yaml --project <projectid>
+go test test/utils_test.go
 ```
