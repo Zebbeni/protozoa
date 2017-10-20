@@ -20,4 +20,7 @@ const (
 	HealthChangeFromMoving = -1
 	HealthChangeFromEating = 100
 	MaxSequenceConditions  = 5
+
+	// Time trial constants
+	OrganismAgeToEndSimulation = 10000
 )

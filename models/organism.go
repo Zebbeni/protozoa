@@ -93,11 +93,13 @@ func (om *OrganismManager) Update() {
 			om.BestOrganismCurrent = i
 			om.BestAgeCurrent = o.Age
 			if o.Age > om.BestAgeAllTime {
-				isNewBest = true
 				om.BestAgeAllTime = o.Age
-				om.BestOrganismAllTime = i
 				om.BestSequence = make(d.Sequence, len(o.DecisionSequence))
 				copy(om.BestSequence, o.DecisionSequence)
+				if i != om.BestOrganismAllTime {
+					isNewBest = true
+					om.BestOrganismAllTime = i
+				}
 			}
 		}
 	}
@@ -109,10 +111,12 @@ func (om *OrganismManager) Update() {
 // UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
 // its Health, and replaces it if its Health <= 0
 func (om *OrganismManager) updateOrganism(index int, o *Organism) {
-	o.Age++
-	om.applyAction(o, om.chooseAction(o, o.DecisionTree))
-	om.updateHealth(o)
-	if o.Health <= 0.0 {
+	if o.Health > 0.0 {
+		o.Age++
+		om.applyAction(o, om.chooseAction(o, o.DecisionTree))
+		om.updateHealth(o)
+	} else {
+		// fmt.Printf("\nOrganism #%d is dead", index)
 		om.replaceOrganism(index)
 	}
 }

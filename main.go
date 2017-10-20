@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"image/color"
 	"log"
+	"time"
 
 	c "./constants"
 	s "./simulation"
@@ -13,7 +15,7 @@ import (
 )
 
 var (
-	fadeColor  = color.RGBA{0, 0, 0, 15}
+	fadeColor  = color.RGBA{0, 0, 0, 100}
 	filter     = ebiten.FilterLinear
 	prevScreen *ebiten.Image
 	simulation s.Simulation
@@ -45,9 +47,32 @@ func initializePreviousScreen() {
 }
 
 func main() {
-	initializePreviousScreen()
-	simulation = s.NewSimulation()
-	if err := ebiten.Run(update, c.ScreenWidth, c.ScreenHeight, 1, "Shapes (Ebiten Demo)"); err != nil {
-		log.Fatal(err)
+	isHeadless := flag.Bool("headless", false, "Run simulation without visualising")
+	flag.Parse()
+
+	if *isHeadless {
+		numTrials := 5
+		sumCycles := 0
+		for count := 0; count < numTrials; count++ {
+			simulation = s.NewSimulation()
+			start := time.Now()
+			cycles := 0
+			for !simulation.IsDone() {
+				simulation.Update()
+				cycles++
+			}
+			sumCycles += cycles
+			elapsed := time.Since(start)
+			fmt.Printf("\n\nSimulation #%d Complete:\n%d cycles for an organism to live to %d.", count, cycles, c.OrganismAgeToEndSimulation)
+			fmt.Printf("\nTotal runtime: %s\n", elapsed)
+		}
+		avgCycles := sumCycles / numTrials
+		fmt.Printf("\nAverage number of cycles to reach 10000: %d\n", avgCycles)
+	} else {
+		simulation = s.NewSimulation()
+		initializePreviousScreen()
+		if err := ebiten.Run(update, c.ScreenWidth, c.ScreenHeight, 1, "Shapes (Ebiten Demo)"); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

@@ -40,6 +40,11 @@ func (w *World) GetBestOrganism() int {
 	return w.organismManager.BestOrganismCurrent
 }
 
+// GetBestOrganismAge returns the index of the most successful organism
+func (w *World) GetBestOrganismAge() int {
+	return w.organismManager.BestAgeAllTime
+}
+
 // PrintStats shows various info about current simulation
 func (w *World) PrintStats() {
 	w.organismManager.PrintBest()

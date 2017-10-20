@@ -30,6 +30,11 @@ func (s *Simulation) Update() {
 	s.world.Update()
 }
 
+// IsDone returns true if end condition met
+func (s *Simulation) IsDone() bool {
+	return s.world.GetBestOrganismAge() >= c.OrganismAgeToEndSimulation
+}
+
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, food := range s.world.GetFoodItems() {
@@ -39,10 +44,6 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 		isBest := s.world.GetBestOrganism() == o
 		renderOrganism(organism, isBest, screen)
 	}
-	// if frames%100 == 0 {
-	// 	fmt.Printf("\nFrame %d", frames)
-	// 	s.world.PrintStats()
-	// }
 	frames++
 }
 
@@ -60,8 +61,9 @@ func renderOrganism(organism m.Organism, isBest bool, screen *ebiten.Image) {
 	var alpha uint8
 	alpha = 100 + uint8(155.0*organism.Health/100.0)
 	organismColor := color.RGBA{100, 100, 255, alpha}
+	bestOrganismColor := color.RGBA{255, 255, 100, 255}
 	if isBest {
-		ebitenutil.DrawRect(screen, x-2, y-2, c.GridUnitSize+4, c.GridUnitSize+4, organismColor)
+		ebitenutil.DrawRect(screen, x-2, y-2, c.GridUnitSize+4, c.GridUnitSize+4, bestOrganismColor)
 	} else {
 		ebitenutil.DrawRect(screen, x+1, y+1, c.GridUnitSize-2, c.GridUnitSize-2, organismColor)
 	}

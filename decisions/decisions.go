@@ -72,18 +72,12 @@ func MutateSequence(sequence Sequence) Sequence {
 	index := rand.Intn(len(mutatedSequence))
 	if isAction(mutatedSequence[index]) {
 		// in 25 % of cases where the node is an Action, replace with C-A-A
-		if rand.Float32() < 0.25 {
+		if rand.Float32() < 1.0 {
 			return MutateByAddingSubSequence(mutatedSequence, index)
 		}
-		// fmt.Println("\nMutating (changing action)")
-		// fmt.Printf("\nBefore: %s", PrintSequence(mutatedSequence))
 		mutatedSequence[index] = GetRandomAction()
-		// fmt.Printf("\nAfter: %s\n", PrintSequence(mutatedSequence))
 	} else {
-		// fmt.Println("\nMutating (changing condition)")
-		// fmt.Printf("\nBefore: %s", PrintSequence(mutatedSequence))
 		mutatedSequence[index] = GetRandomCondition()
-		// fmt.Printf("\nAfter: %s\n", PrintSequence(mutatedSequence))
 	}
 	return mutatedSequence
 }
