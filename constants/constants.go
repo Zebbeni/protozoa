@@ -14,12 +14,13 @@ const (
 	MaxFoodLifespan = 600
 
 	// Organism constants
-	NumOrganisms           = 200
-	MaxHealth              = 200
-	HealthChangePerTurn    = -1
-	HealthChangeFromMoving = -1
-	HealthChangeFromEating = 100
-	MaxSequenceConditions  = 5
+	NumOrganisms             = 200
+	MaxHealth                = 200
+	HealthChangePerTurn      = -1
+	HealthChangeFromMoving   = -1
+	HealthChangeFromEating   = 100
+	MaxSequenceConditions    = 5
+	HealthThresholdForEating = 20
 
 	// Time trial constants
 	OrganismAgeToEndSimulation = 10000

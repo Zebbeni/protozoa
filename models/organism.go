@@ -30,7 +30,7 @@ const (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	Age, DirX, DirY, X, Y        int
+	Age, DirX, DirY, X, Y, Index int
 	Direction, Health, AvgHealth float64
 	State                        OrganismState
 	DecisionSequence             d.Sequence
@@ -38,7 +38,7 @@ type Organism struct {
 }
 
 // NewOrganism initializes organism at with random grid location and direction
-func NewOrganism() Organism {
+func NewOrganism(index int) Organism {
 	decisionSequence := d.NewRandomSequence()
 	decisionNode := d.TreeFromSequence(decisionSequence, decisionSequence)
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
@@ -48,6 +48,7 @@ func NewOrganism() Organism {
 		Age:              0,
 		AvgHealth:        50,
 		Health:           50,
+		Index:            index,
 		DecisionSequence: decisionSequence,
 		DecisionTree:     decisionNode,
 		Direction:        direction,
@@ -63,7 +64,7 @@ func NewOrganism() Organism {
 type OrganismManager struct {
 	Environment         *Environment
 	Organisms           [c.NumOrganisms]Organism
-	Grid                [c.GridWidth][c.GridHeight]bool
+	Grid                [c.GridWidth][c.GridHeight]int
 	BestOrganismCurrent int
 	BestAgeCurrent      int
 	BestOrganismAllTime int
@@ -74,11 +75,17 @@ type OrganismManager struct {
 // NewOrganismManager creates all Organisms and updates grid
 func NewOrganismManager(environment *Environment) OrganismManager {
 	organismManager := OrganismManager{Environment: environment}
-	for i := range organismManager.Organisms {
-		organism := NewOrganism()
-		organismManager.Organisms[i] = organism
-		organismManager.Grid[organism.X][organism.Y] = true
+	for x := 0; x < c.GridWidth; x++ {
+		for y := 0; y < c.GridHeight; y++ {
+			organismManager.Grid[x][y] = -1
+		}
 	}
+	for i := range organismManager.Organisms {
+		organism := NewOrganism(i)
+		organismManager.Organisms[i] = organism
+		organismManager.Grid[organism.X][organism.Y] = i
+	}
+	organismManager.BestSequence = d.NewRandomSequence()
 	return organismManager
 }
 
@@ -122,11 +129,9 @@ func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 }
 
 func (om *OrganismManager) replaceOrganism(index int) {
-	// fmt.Printf("\nDead: #%2d, Age: %d | Best: %d", index, om.Organisms[index].Age, om.BestAgeCurrent)
 	o := om.Organisms[index]
-	om.Grid[o.X][o.Y] = false
-	om.Organisms[index] = NewOrganism()
-	// fmt.Printf("Replacing Organism %d: %s", index, d.PrintSequence(om.BestSequence))
+	om.Grid[o.X][o.Y] = -1
+	om.Organisms[index] = NewOrganism(index)
 	om.Organisms[index].DecisionSequence = d.MutateSequence(om.BestSequence)
 	om.Organisms[index].DecisionTree = d.TreeFromSequence(om.Organisms[index].DecisionSequence, om.Organisms[index].DecisionSequence)
 }
@@ -158,10 +163,25 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 	return false
 }
 
+func (om *OrganismManager) getOrganismAt(x, y int) *Organism {
+	if u.IsOnGrid(x, y) && om.Grid[x][y] != -1 {
+		index := om.Grid[x][y]
+		return &om.Organisms[index]
+	}
+	return nil
+}
+
 func (om *OrganismManager) isFoodAhead(o *Organism) bool {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	return om.Environment.IsFoodAtGridLocation(x, y)
+	if om.Environment.IsFoodAtGridLocation(x, y) {
+		return true
+	}
+	organismAhead := om.getOrganismAt(x, y)
+	if organismAhead != nil {
+		return organismAhead.Health < c.HealthThresholdForEating
+	}
+	return false
 }
 
 func (om *OrganismManager) isFoodLeft(o *Organism) bool {
@@ -182,7 +202,7 @@ func (om *OrganismManager) canMove(o *Organism) bool {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
 	if u.IsOnGrid(x, y) {
-		return !(om.Grid[x][y] || om.Environment.IsFoodAtGridLocation(x, y))
+		return !(om.Grid[x][y] != -1 || om.Environment.IsFoodAtGridLocation(x, y))
 	}
 	return false
 }
@@ -227,16 +247,22 @@ func (om *OrganismManager) applyEat(o *Organism) {
 	if om.Environment.IsFoodAtGridLocation(x, y) {
 		o.State = StateEating
 		om.Environment.RemoveFood(x, y)
+	} else {
+		organismAhead := om.getOrganismAt(x, y)
+		if organismAhead != nil {
+			o.State = StateEating
+			om.replaceOrganism(organismAhead.Index)
+		}
 	}
 }
 
 func (om *OrganismManager) applyMove(o *Organism) {
 	o.State = StateMoving
 	if om.canMove(o) {
-		om.Grid[o.X][o.Y] = false
+		om.Grid[o.X][o.Y] = -1
 		o.X += o.DirX
 		o.Y += o.DirY
-		om.Grid[o.X][o.Y] = true
+		om.Grid[o.X][o.Y] = o.Index
 	}
 }
 

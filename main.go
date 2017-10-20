@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	fadeColor  = color.RGBA{0, 0, 0, 100}
+	fadeColor  = color.RGBA{0, 0, 0, 255}
 	filter     = ebiten.FilterLinear
 	prevScreen *ebiten.Image
 	simulation s.Simulation
