@@ -3,6 +3,8 @@ package decisions
 import (
 	"bytes"
 	"math/rand"
+
+	c "../constants"
 )
 
 // Action is the custom type for all Organism actions
@@ -57,64 +59,36 @@ func (n *Node) IsAction() bool {
 	return isAction(n.NodeType)
 }
 
-// NewRandomSequence generates a new Sequence of random length
-func NewRandomSequence() Sequence {
-	sequence := NewRandomSubSequence()
-	return sequence
-}
-
-// MutateSequence mutates a given sequence by replacing a random number of
-// actions with condition - action - action blocks
+// MutateSequence mutates a given sequence by replacing a random sequence node
+// with either a condition or an action
 func MutateSequence(sequence Sequence) Sequence {
 	mutatedSequence := make(Sequence, len(sequence))
 	copy(mutatedSequence, sequence)
-	index := rand.Intn(len(mutatedSequence))
-	if isAction(mutatedSequence[index]) {
-		// in 25 % of cases where the node is an Action, replace with C-A-A
-		if rand.Float32() < 1.0 {
-			return MutateByAddingSubSequence(mutatedSequence, index)
+	// make several passes and mutate multiple nodes
+	for n := 0; n < rand.Intn(c.MaxNodesToMutate); n++ {
+		index := rand.Intn(len(mutatedSequence))
+		if rand.Float32() < c.PercentActions {
+			mutatedSequence[index] = GetRandomAction()
+		} else {
+			mutatedSequence[index] = GetRandomCondition()
 		}
-		mutatedSequence[index] = GetRandomAction()
-	} else {
-		mutatedSequence[index] = GetRandomCondition()
 	}
-	return mutatedSequence
-}
-
-// MutateByAddingSubSequence takes a sequence and index of an action in that
-// sequence. Replaces the action with a randomly generated sub-sequence and
-// returns the result
-func MutateByAddingSubSequence(sequence Sequence, index int) Sequence {
-	mutatedSequence := sequence
-	// insert random subsquence in place of action index to be replaced
-	// fmt.Println("\nMutating (adding 2 nodes)")
-	// fmt.Printf("\nBefore: %s", PrintSequence(sequence))
-	subSequence := NewRandomSubSequence()
-	subSequence = append(subSequence, mutatedSequence[index+1:]...)
-	mutatedSequence = append(mutatedSequence[:index], subSequence...)
-	// fmt.Printf("\nAfter: %s\n", PrintSequence(mutatedSequence))
-	return mutatedSequence
-}
-
-func MutateByChangingAction(sequence Sequence, index int) Sequence {
-	mutatedSequence := sequence
-	// insert random subsquence in place of action index to be replaced
-	subSequence := NewRandomSubSequence()
-	subSequence = append(subSequence, mutatedSequence[index+1:]...)
-	mutatedSequence = append(mutatedSequence[:index], subSequence...)
 	return mutatedSequence
 }
 
 // TreeFromSequence recursively calls itself to create a Node and its
 // children from a sequence slice.
 func TreeFromSequence(sequence Sequence) Node {
+	if sequence == nil || len(sequence) == 0 {
+		return Node{NodeType: ActIdle, UseCount: 0}
+	}
 	nodeType := sequence[0]
 	if isAction(nodeType) {
 		return Node{NodeType: nodeType, UseCount: 0}
 	}
-	index := 1
+	index := 0
 	numActionsMinusConditions := 0
-	for numActionsMinusConditions < 1 {
+	for numActionsMinusConditions < 1 && index < len(sequence) {
 		sequenceItem := sequence[index]
 		if isAction(sequenceItem) {
 			numActionsMinusConditions++
@@ -139,7 +113,7 @@ func PrintSequence(sequence Sequence) string {
 	var buffer bytes.Buffer
 	for i, s := range sequence {
 		if i > 0 {
-			buffer.WriteString("-")
+			buffer.WriteString(" | ")
 		}
 		buffer.WriteString(Map[s])
 	}

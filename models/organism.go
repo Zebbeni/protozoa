@@ -123,7 +123,6 @@ func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 		om.applyAction(o, om.chooseAction(o, o.DecisionTree))
 		om.updateHealth(o)
 	} else {
-		// fmt.Printf("\nOrganism #%d is dead", index)
 		om.replaceOrganism(index)
 	}
 }

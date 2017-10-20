@@ -19,8 +19,13 @@ const (
 	HealthChangePerTurn      = -1
 	HealthChangeFromMoving   = -1
 	HealthChangeFromEating   = 100
-	MaxSequenceConditions    = 5
 	HealthThresholdForEating = 20
+
+	// Sequence constants
+	MaxSequenceNodes  = 20
+	MaxNodesToMutate  = 10
+	PercentActions    = 0.5
+	PercentConditions = 0.5
 
 	// Time trial constants
 	OrganismAgeToEndSimulation = 10000
