@@ -2,7 +2,6 @@ package decisions
 
 import (
 	"bytes"
-	"fmt"
 	"math/rand"
 )
 
@@ -33,15 +32,15 @@ var (
 	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActTurnLeft, ActTurnRight}
 	Conditions = [...]Condition{CanMove, IsFoodAhead, IsFoodLeft, IsFoodRight}
 	Map        = map[interface{}]string{
-		ActEat:       "A_Eat",
-		ActIdle:      "A_Idle",
-		ActMove:      "A_Move",
-		ActTurnLeft:  "A_Left",
-		ActTurnRight: "A_Right",
-		CanMove:      "C_Move",
-		IsFoodAhead:  "C_FoodAhead",
-		IsFoodLeft:   "C_FoodLeft",
-		IsFoodRight:  "C_FoodRight",
+		ActEat:       "Eat",
+		ActIdle:      "Be Idle",
+		ActMove:      "Move Ahead",
+		ActTurnLeft:  "Turn Left",
+		ActTurnRight: "Turn Right",
+		CanMove:      "If Can Move Ahead",
+		IsFoodAhead:  "If Food Ahead",
+		IsFoodLeft:   "If Food Left",
+		IsFoodRight:  "If Food Right",
 	}
 )
 
@@ -108,7 +107,7 @@ func MutateByChangingAction(sequence Sequence, index int) Sequence {
 
 // TreeFromSequence recursively calls itself to create a Node and its
 // children from a sequence slice.
-func TreeFromSequence(sequence, fullSequence Sequence) Node {
+func TreeFromSequence(sequence Sequence) Node {
 	nodeType := sequence[0]
 	if isAction(nodeType) {
 		return Node{NodeType: nodeType, UseCount: 0}
@@ -116,9 +115,6 @@ func TreeFromSequence(sequence, fullSequence Sequence) Node {
 	index := 1
 	numActionsMinusConditions := 0
 	for numActionsMinusConditions < 1 {
-		if index >= len(sequence) {
-			fmt.Printf("\nThis is gonna fail: %s\n", PrintSequence(fullSequence))
-		}
 		sequenceItem := sequence[index]
 		if isAction(sequenceItem) {
 			numActionsMinusConditions++
@@ -127,20 +123,14 @@ func TreeFromSequence(sequence, fullSequence Sequence) Node {
 		}
 		index++
 	}
-	yesNode := TreeFromSequence(sequence[1:index], fullSequence)
-	noNode := TreeFromSequence(sequence[index:], fullSequence)
+	yesNode := TreeFromSequence(sequence[1:index])
+	noNode := TreeFromSequence(sequence[index:])
 	node := Node{
 		NodeType: nodeType,
 		UseCount: 0,
 		YesNode:  &yesNode,
 		NoNode:   &noNode,
 	}
-	// if len(sequence) == len(fullSequence) {
-	// 	fmt.Printf("Tree from sequence: %s", PrintSequence(fullSequence))
-	// 	fmt.Print("\n\n")
-	// 	fmt.Print(PrintNode(node, 1))
-	// 	fmt.Print("\n\n")
-	// }
 	return node
 }
 
@@ -156,22 +146,22 @@ func PrintSequence(sequence Sequence) string {
 	return buffer.String()
 }
 
-// PrintSequence prints node and all children showing hierarchy
+// PrintNode prints node and all children showing hierarchy
 func PrintNode(node Node, spaces int) string {
 	var buffer bytes.Buffer
 	buffer.WriteString(Map[node.NodeType])
 	buffer.WriteString("\n")
 	if !isAction(node.NodeType) {
 		for i := 0; i < spaces; i++ {
-			buffer.WriteString("\t")
+			buffer.WriteString("  ")
 		}
-		buffer.WriteString("Y: ")
+		buffer.WriteString("Then: ")
 		buffer.WriteString(PrintNode(*node.YesNode, spaces+1))
 		// buffer.WriteString("\n")
 		for i := 0; i < spaces; i++ {
-			buffer.WriteString("\t")
+			buffer.WriteString("  ")
 		}
-		buffer.WriteString("N: ")
+		buffer.WriteString("Otherwise: ")
 		buffer.WriteString(PrintNode(*node.NoNode, spaces+1))
 	}
 	return buffer.String()

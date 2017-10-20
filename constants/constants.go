@@ -24,4 +24,5 @@ const (
 
 	// Time trial constants
 	OrganismAgeToEndSimulation = 10000
+	MaxCyclesToRunHeadless     = 20000
 )

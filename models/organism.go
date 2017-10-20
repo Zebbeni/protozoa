@@ -40,7 +40,7 @@ type Organism struct {
 // NewOrganism initializes organism at with random grid location and direction
 func NewOrganism(index int) Organism {
 	decisionSequence := d.NewRandomSequence()
-	decisionNode := d.TreeFromSequence(decisionSequence, decisionSequence)
+	decisionNode := d.TreeFromSequence(decisionSequence)
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
 	dirX := u.CalcDirXForDirection(direction)
 	dirY := u.CalcDirYForDirection(direction)
@@ -133,7 +133,7 @@ func (om *OrganismManager) replaceOrganism(index int) {
 	om.Grid[o.X][o.Y] = -1
 	om.Organisms[index] = NewOrganism(index)
 	om.Organisms[index].DecisionSequence = d.MutateSequence(om.BestSequence)
-	om.Organisms[index].DecisionTree = d.TreeFromSequence(om.Organisms[index].DecisionSequence, om.Organisms[index].DecisionSequence)
+	om.Organisms[index].DecisionTree = d.TreeFromSequence(om.Organisms[index].DecisionSequence)
 }
 
 // doDecisionTree recursively walks through nodes of an organism's
@@ -281,5 +281,7 @@ func (om *OrganismManager) GetOrganisms() [c.NumOrganisms]Organism {
 
 // PrintBest prints the highest current score of any Organism (and their index)
 func (om *OrganismManager) PrintBest() {
-	fmt.Printf("\nBest #%2d. Age: %d, Sequence: %s", om.BestOrganismAllTime, om.BestAgeAllTime, d.PrintSequence(om.BestSequence))
+	fmt.Printf("\nBest #%2d. Age: %d", om.BestOrganismAllTime, om.BestAgeAllTime)
+	tree := d.TreeFromSequence(om.BestSequence)
+	fmt.Printf("\n%s", d.PrintNode(tree, 1))
 }

@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"fmt"
 	"image/color"
 
 	c "../constants"
@@ -32,7 +33,14 @@ func (s *Simulation) Update() {
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	return s.world.GetBestOrganismAge() >= c.OrganismAgeToEndSimulation
+	if s.world.GetBestOrganismAge() >= c.OrganismAgeToEndSimulation {
+		return true
+	}
+	if frames >= c.MaxCyclesToRunHeadless {
+		fmt.Printf("\nSimulation ended at %d cycles", c.MaxCyclesToRunHeadless)
+		return true
+	}
+	return false
 }
 
 // Render draws all particles and forces to the screen
