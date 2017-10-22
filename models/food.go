@@ -2,8 +2,6 @@ package models
 
 import (
 	"math/rand"
-
-	c "../constants"
 )
 
 // FoodItem contains x and y value for a given food item
@@ -11,27 +9,39 @@ type FoodItem struct {
 	X, Y int
 }
 
+// FoodConfig contains all attributes needed to set up FoodManager
+type FoodConfig struct {
+	NumFood, GridWidth, GridHeight int
+}
+
 // NewFood creates a new Food object
-func NewFood() FoodItem {
-	return FoodItem{X: rand.Intn(c.GridWidth), Y: rand.Intn(c.GridHeight)}
+func NewFood(gridWidth, gridHeight int) FoodItem {
+	return FoodItem{X: rand.Intn(gridWidth), Y: rand.Intn(gridHeight)}
 }
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	FoodItems [c.NumFood]FoodItem
-	Grid      [c.GridWidth][c.GridHeight]bool
+	config    FoodConfig
+	FoodItems []FoodItem
+	Grid      [][]bool
 }
 
 // NewFoodManager initializes a new food grid with random food
-func NewFoodManager() FoodManager {
-	var foodItems [c.NumFood]FoodItem
-	var grid [c.GridWidth][c.GridHeight]bool
-	for i := 0; i < c.GridWidth; i++ {
-		for j := 0; j < c.GridHeight; j++ {
+func NewFoodManager(config FoodConfig) FoodManager {
+	var foodItems = make([]FoodItem, config.NumFood)
+	for f := 0; f < config.NumFood; f++ {
+		foodItems[f] = NewFood(config.GridWidth, config.GridHeight)
+	}
+	grid := make([][]bool, config.GridWidth)
+	for r := 0; r < config.GridWidth; r++ {
+		grid[r] = make([]bool, config.GridHeight)
+	}
+	for i := 0; i < config.GridWidth; i++ {
+		for j := 0; j < config.GridHeight; j++ {
 			grid[i][j] = false
 		}
 	}
-	foodManager := FoodManager{FoodItems: foodItems, Grid: grid}
+	foodManager := FoodManager{config: config, FoodItems: foodItems, Grid: grid}
 	return foodManager
 }
 
@@ -39,8 +49,8 @@ func NewFoodManager() FoodManager {
 func (fm *FoodManager) Update() {
 	for i, food := range fm.FoodItems {
 		if !fm.Grid[food.X][food.Y] {
-			x := rand.Intn(c.GridWidth)
-			y := rand.Intn(c.GridHeight)
+			x := rand.Intn(fm.config.GridWidth)
+			y := rand.Intn(fm.config.GridHeight)
 			fm.FoodItems[i].X = x
 			fm.FoodItems[i].Y = y
 			fm.Grid[x][y] = true

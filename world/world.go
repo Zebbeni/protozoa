@@ -1,7 +1,6 @@
 package world
 
 import (
-	c "../constants"
 	m "../models"
 )
 
@@ -11,10 +10,15 @@ type World struct {
 	organismManager *m.OrganismManager
 }
 
+type WorldConfig struct {
+	EnvironmentConfig m.EnvironmentConfig
+	OrganismConfig    m.OrganismConfig
+}
+
 // NewWorld constructs a new World objedt with newly initialized attributes
-func NewWorld() World {
-	environment := m.NewEnvironment()
-	organismManager := m.NewOrganismManager(&environment)
+func NewWorld(config WorldConfig) World {
+	environment := m.NewEnvironment(config.EnvironmentConfig)
+	organismManager := m.NewOrganismManager(&environment, config.OrganismConfig)
 	world := World{environment: &environment, organismManager: &organismManager}
 	return world
 }
@@ -26,12 +30,12 @@ func (w *World) Update() {
 }
 
 // GetFoodItems returns an array of all food items in grid
-func (w *World) GetFoodItems() [c.NumFood]m.FoodItem {
+func (w *World) GetFoodItems() []m.FoodItem {
 	return w.environment.GetFoodItems()
 }
 
 // GetOrganisms returns an array of all Organisms in grid
-func (w *World) GetOrganisms() [c.NumOrganisms]m.Organism {
+func (w *World) GetOrganisms() map[int]*m.Organism {
 	return w.organismManager.GetOrganisms()
 }
 

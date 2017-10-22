@@ -1,7 +1,6 @@
 package models
 
 import (
-	c "../constants"
 	u "../utils"
 )
 
@@ -10,9 +9,13 @@ type Environment struct {
 	foodManager FoodManager
 }
 
+type EnvironmentConfig struct {
+	FoodConfig FoodConfig
+}
+
 // NewEnvironment creates FoodManager
-func NewEnvironment() Environment {
-	foodManager := NewFoodManager()
+func NewEnvironment(config EnvironmentConfig) Environment {
+	foodManager := NewFoodManager(config.FoodConfig)
 	return Environment{foodManager: foodManager}
 }
 
@@ -27,7 +30,7 @@ func (e *Environment) IsFoodAtGridLocation(x, y int) bool {
 }
 
 // GetFoodItems returns array of all Food Items from food manager
-func (e *Environment) GetFoodItems() [c.NumFood]FoodItem {
+func (e *Environment) GetFoodItems() []FoodItem {
 	return e.foodManager.FoodItems
 }
 

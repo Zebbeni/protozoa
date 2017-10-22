@@ -21,9 +21,11 @@ const (
 	ActEat Action = iota
 	ActIdle
 	ActMove
+	ActReproduce
 	ActTurnLeft
 	ActTurnRight
 	CanMove Condition = iota
+	CanReproduce
 	IsFoodAhead
 	IsFoodLeft
 	IsFoodRight
@@ -31,15 +33,17 @@ const (
 
 // Define slices
 var (
-	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActTurnLeft, ActTurnRight}
-	Conditions = [...]Condition{CanMove, IsFoodAhead, IsFoodLeft, IsFoodRight}
+	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
+	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight}
 	Map        = map[interface{}]string{
 		ActEat:       "Eat",
 		ActIdle:      "Be Idle",
 		ActMove:      "Move Ahead",
+		ActReproduce: "Reproduce",
 		ActTurnLeft:  "Turn Left",
 		ActTurnRight: "Turn Right",
 		CanMove:      "If Can Move Ahead",
+		CanReproduce: "If Can Reproduce",
 		IsFoodAhead:  "If Food Ahead",
 		IsFoodLeft:   "If Food Left",
 		IsFoodRight:  "If Food Right",
@@ -131,7 +135,6 @@ func PrintNode(node Node, spaces int) string {
 		}
 		buffer.WriteString("Then: ")
 		buffer.WriteString(PrintNode(*node.YesNode, spaces+1))
-		// buffer.WriteString("\n")
 		for i := 0; i < spaces; i++ {
 			buffer.WriteString("  ")
 		}
