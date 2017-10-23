@@ -3,14 +3,14 @@ package constants
 // Constants
 const (
 	// Drawing constants
-	GridWidth    = 120
-	GridHeight   = 80
-	GridUnitSize = 10
+	GridWidth    = 180
+	GridHeight   = 120
+	GridUnitSize = 6.6667
 	ScreenWidth  = 1200
 	ScreenHeight = 800
 
 	// Environment constants
-	NumFood         = 1000
+	NumFood         = 1500
 	MaxFoodLifespan = 600
 
 	// Organism constants
@@ -26,7 +26,7 @@ const (
 
 	// Sequence constants
 	MaxSequenceNodes  = 30
-	MaxNodesToMutate  = 1
+	MaxNodesToMutate  = 2
 	PercentActions    = 0.5
 	PercentConditions = 0.5
 
