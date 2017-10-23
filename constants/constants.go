@@ -10,7 +10,7 @@ const (
 	ScreenHeight = 800
 
 	// Environment constants
-	NumFood         = 1500
+	NumFood         = 500
 	MaxFoodLifespan = 600
 
 	// Organism constants

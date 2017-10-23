@@ -168,6 +168,7 @@ func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 func (om *OrganismManager) removeOrganism(index int) {
 	o := om.Organisms[index]
 	om.Grid[o.X][o.Y] = -1
+	om.Environment.CreateFood(o.X, o.Y)
 	delete(om.Organisms, index)
 }
 

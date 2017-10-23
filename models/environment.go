@@ -36,3 +36,8 @@ func (e *Environment) GetFoodItems() []FoodItem {
 func (e *Environment) RemoveFood(x, y int) {
 	e.FoodManager.RemoveFood(x, y)
 }
+
+// CreateFood adds a food item on a given (x, y) grid location
+func (e *Environment) CreateFood(x, y int) {
+	e.FoodManager.AddFood(x, y)
+}

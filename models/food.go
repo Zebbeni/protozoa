@@ -53,11 +53,16 @@ func NewFoodManager(config FoodConfig) FoodManager {
 func (fm *FoodManager) Update() {
 	for i, food := range fm.FoodItems {
 		if !fm.Grid[food.X][food.Y] {
-			x := rand.Intn(fm.config.GridWidth)
-			y := rand.Intn(fm.config.GridHeight)
-			fm.FoodItems[i].X = x
-			fm.FoodItems[i].Y = y
-			fm.Grid[x][y] = true
+			if len(fm.FoodItems) < fm.config.NumFood {
+				x := rand.Intn(fm.config.GridWidth)
+				y := rand.Intn(fm.config.GridHeight)
+				fm.FoodItems[i].X = x
+				fm.FoodItems[i].Y = y
+				fm.Grid[x][y] = true
+			} else {
+				// remove food item from list if no new foods needed
+				fm.FoodItems = append(fm.FoodItems[:i], fm.FoodItems[i+1:]...)
+			}
 		}
 	}
 }
@@ -67,6 +72,12 @@ func (fm *FoodManager) IsFoodAtLocation(x, y int) bool {
 	width := fm.config.GridWidth
 	height := fm.config.GridHeight
 	return u.IsOnGrid(x, y, width, height) && fm.Grid[x][y]
+}
+
+// AddFood to a given x, y location
+func (fm *FoodManager) AddFood(x, y int) {
+	fm.FoodItems = append(fm.FoodItems, FoodItem{X: x, Y: y})
+	fm.Grid[x][y] = true
 }
 
 // RemoveFood for given location
