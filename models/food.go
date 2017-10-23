@@ -2,6 +2,8 @@ package models
 
 import (
 	"math/rand"
+
+	u "../utils"
 )
 
 // FoodItem contains x and y value for a given food item
@@ -28,20 +30,22 @@ type FoodManager struct {
 
 // NewFoodManager initializes a new food grid with random food
 func NewFoodManager(config FoodConfig) FoodManager {
-	var foodItems = make([]FoodItem, config.NumFood)
-	for f := 0; f < config.NumFood; f++ {
-		foodItems[f] = NewFood(config.GridWidth, config.GridHeight)
-	}
-	grid := make([][]bool, config.GridWidth)
+	foodManager := FoodManager{config: config}
+	foodManager.Grid = make([][]bool, config.GridWidth)
 	for r := 0; r < config.GridWidth; r++ {
-		grid[r] = make([]bool, config.GridHeight)
+		foodManager.Grid[r] = make([]bool, config.GridHeight)
 	}
 	for i := 0; i < config.GridWidth; i++ {
 		for j := 0; j < config.GridHeight; j++ {
-			grid[i][j] = false
+			foodManager.Grid[i][j] = false
 		}
 	}
-	foodManager := FoodManager{config: config, FoodItems: foodItems, Grid: grid}
+	foodManager.FoodItems = make([]FoodItem, config.NumFood)
+	for f := 0; f < config.NumFood; f++ {
+		foodItem := NewFood(config.GridWidth, config.GridHeight)
+		foodManager.Grid[foodItem.X][foodItem.Y] = true
+		foodManager.FoodItems[f] = foodItem
+	}
 	return foodManager
 }
 
@@ -56,4 +60,25 @@ func (fm *FoodManager) Update() {
 			fm.Grid[x][y] = true
 		}
 	}
+}
+
+// IsFoodAtLocation returns true if given (x, y) on food grid is true
+func (fm *FoodManager) IsFoodAtLocation(x, y int) bool {
+	width := fm.config.GridWidth
+	height := fm.config.GridHeight
+	return u.IsOnGrid(x, y, width, height) && fm.Grid[x][y]
+}
+
+// RemoveFood for given location
+func (fm *FoodManager) RemoveFood(x, y int) {
+	width := fm.config.GridWidth
+	height := fm.config.GridHeight
+	if u.IsOnGrid(x, y, width, height) {
+		fm.Grid[x][y] = false
+	}
+}
+
+// GetFoodItems returns the current list of food items
+func (fm *FoodManager) GetFoodItems() []FoodItem {
+	return fm.FoodItems
 }

@@ -64,7 +64,7 @@ func main() {
 	flag.Parse()
 
 	if *isHeadless {
-		numTrials := 5
+		numTrials := 10
 		sumCycles := 0
 		for count := 0; count < numTrials; count++ {
 			config := s.DefaultSimulationConfig()
@@ -77,7 +77,7 @@ func main() {
 			}
 			sumCycles += cycles
 			elapsed := time.Since(start)
-			fmt.Printf("\nTotal runtime for simulation %d: %s\n", count, elapsed)
+			fmt.Printf("\nTotal runtime for simulation %d: %s, cycles: %d\n", count, elapsed, cycles)
 		}
 		avgCycles := sumCycles / numTrials
 		fmt.Printf("\nAverage number of cycles to reach 10000: %d\n", avgCycles)

@@ -6,8 +6,8 @@ import (
 
 // World contains all attributes defining the current simulation environment
 type World struct {
-	environment     *m.Environment
-	organismManager *m.OrganismManager
+	Environment     *m.Environment
+	OrganismManager *m.OrganismManager
 }
 
 type WorldConfig struct {
@@ -19,37 +19,37 @@ type WorldConfig struct {
 func NewWorld(config WorldConfig) World {
 	environment := m.NewEnvironment(config.EnvironmentConfig)
 	organismManager := m.NewOrganismManager(&environment, config.OrganismConfig)
-	world := World{environment: &environment, organismManager: &organismManager}
+	world := World{Environment: &environment, OrganismManager: &organismManager}
 	return world
 }
 
 // Update calls Update on environment and organism manager
 func (w *World) Update() {
-	w.environment.Update()
-	w.organismManager.Update()
+	w.Environment.Update()
+	w.OrganismManager.Update()
 }
 
 // GetFoodItems returns an array of all food items in grid
 func (w *World) GetFoodItems() []m.FoodItem {
-	return w.environment.GetFoodItems()
+	return w.Environment.GetFoodItems()
 }
 
 // GetOrganisms returns an array of all Organisms in grid
 func (w *World) GetOrganisms() map[int]*m.Organism {
-	return w.organismManager.GetOrganisms()
+	return w.OrganismManager.GetOrganisms()
 }
 
 // GetBestOrganism returns the index of the most successful organism
 func (w *World) GetBestOrganism() int {
-	return w.organismManager.BestOrganismCurrent
+	return w.OrganismManager.BestOrganismCurrent
 }
 
 // GetBestOrganismAge returns the index of the most successful organism
 func (w *World) GetBestOrganismAge() int {
-	return w.organismManager.BestAgeAllTime
+	return w.OrganismManager.BestAgeAllTime
 }
 
 // PrintStats shows various info about current simulation
 func (w *World) PrintStats() {
-	w.organismManager.PrintBest()
+	w.OrganismManager.PrintBest()
 }

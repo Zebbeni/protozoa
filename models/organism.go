@@ -113,21 +113,10 @@ func NewOrganismManager(environment *Environment, config OrganismConfig) Organis
 			organismManager.Grid[x][y] = -1
 		}
 	}
-	organisms := make(map[int]*Organism)
+	organismManager.Organisms = make(map[int]*Organism)
 	for i := 0; i < config.NumInitialOrganisms; i++ {
-		isPlaced := false
-		for isPlaced == false {
-			x := rand.Intn(config.GridWidth)
-			y := rand.Intn(config.GridHeight)
-			if organismManager.isGridLocationEmpty(x, y) {
-				organisms[i] = NewOrganism(i, x, y, config.MaxHealth)
-				organismManager.Grid[x][y] = i
-				organismManager.LastIndexAdded = i
-				isPlaced = true
-			}
-		}
+		organismManager.AddNewOrganism()
 	}
-	organismManager.Organisms = organisms
 	organismManager.BestSequence = d.NewRandomSequence()
 	organismManager.LastReportedPopulation = 0
 	return organismManager
@@ -138,6 +127,10 @@ func NewOrganismManager(environment *Environment, config OrganismConfig) Organis
 func (om *OrganismManager) Update() {
 	isNewBest := false
 	om.MostChildrenCurrent = 0
+	// Periodically add new random organisms if population below a certain amount
+	if len(om.Organisms) < om.config.MaxOrganisms/4 {
+		om.AddNewOrganism()
+	}
 	for k, o := range om.Organisms {
 		om.updateOrganism(k, om.Organisms[k])
 		if o.Children > om.MostChildrenCurrent {
@@ -155,9 +148,9 @@ func (om *OrganismManager) Update() {
 		}
 	}
 	if isNewBest {
-		om.PrintBest()
+		// om.PrintBest()
 	}
-	om.ReportPopulation()
+	// om.ReportPopulation()
 }
 
 // UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
@@ -185,12 +178,28 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 		child := *NewOrganism(index, x, y, om.config.MaxHealth)
 		child.DecisionSequence = d.MutateSequence(parent.DecisionSequence)
 		child.DecisionTree = d.TreeFromSequence(child.DecisionSequence)
-		child.Color = parent.Color
+		child.Color = u.MutateColor(parent.Color)
 		child.Health = parent.Health
 		om.Grid[x][y] = index
 		om.Organisms[index] = &child
 		om.LastIndexAdded = index
 		parent.Children++
+	}
+}
+
+func (om *OrganismManager) AddNewOrganism() {
+	index := om.LastIndexAdded + 1
+	isPlaced := false
+	for isPlaced == false {
+		x := rand.Intn(om.config.GridWidth)
+		y := rand.Intn(om.config.GridHeight)
+		if om.isGridLocationEmpty(x, y) {
+			organism := *NewOrganism(index, x, y, om.config.MaxHealth)
+			om.Organisms[index] = &organism
+			om.Grid[x][y] = index
+			om.LastIndexAdded = index
+			isPlaced = true
+		}
 	}
 }
 
@@ -259,10 +268,6 @@ func (om *OrganismManager) isFoodAhead(o *Organism) bool {
 	y := o.Y + o.DirY
 	if om.Environment.IsFoodAtGridLocation(x, y) {
 		return true
-	}
-	organismAhead := om.getOrganismAt(x, y)
-	if organismAhead != nil {
-		return organismAhead.Health < om.config.HealthThresholdForEating
 	}
 	return false
 }
@@ -345,12 +350,6 @@ func (om *OrganismManager) applyEat(o *Organism) {
 	if om.Environment.IsFoodAtGridLocation(x, y) {
 		o.State = StateEating
 		om.Environment.RemoveFood(x, y)
-	} else {
-		organismAhead := om.getOrganismAt(x, y)
-		if organismAhead != nil {
-			o.State = StateEating
-			om.removeOrganism(organismAhead.ID)
-		}
 	}
 }
 

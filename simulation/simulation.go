@@ -70,8 +70,8 @@ func (s *Simulation) Update() {
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	if s.world.GetBestOrganismAge() >= c.OrganismAgeToEndSimulation {
-		fmt.Printf("\nSimulation ended with an organism living to %d after %d cycles.", c.OrganismAgeToEndSimulation, frames)
+	if s.GetNumOrganisms() >= c.MaxOrganismsAllowed {
+		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganismsAllowed)
 		return true
 	}
 	if frames >= c.MaxCyclesToRunHeadless {
@@ -79,7 +79,7 @@ func (s *Simulation) IsDone() bool {
 		return true
 	}
 	if len(s.world.GetOrganisms()) <= 0 {
-		fmt.Printf("\nSimulation ended at %d cycles. All organisms dead.", frames)
+		fmt.Printf("\nSimulation ended. All organisms dead.", frames)
 		return true
 	}
 	return false
@@ -98,7 +98,6 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 		isBest := s.world.GetBestOrganism() == o
 		renderOrganism(*organism, isBest, screen)
 	}
-	frames++
 }
 
 // renderFood draws a food source to the screen
