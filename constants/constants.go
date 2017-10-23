@@ -10,18 +10,18 @@ const (
 	ScreenHeight = 800
 
 	// Environment constants
-	NumFood         = 500
+	NumFood         = 2000
 	MaxFoodLifespan = 600
 
 	// Organism constants
-	NumInitialOrganisms         = 100
-	MaxOrganismsAllowed         = 1000
+	NumInitialOrganisms         = 500
+	MaxOrganismsAllowed         = 2000
 	InitialHealth               = 100
-	MaxHealth                   = 200
+	MaxHealth                   = 100
 	HealthChangePerTurn         = -1
 	HealthChangeFromMoving      = -1
 	HealthChangeFromEating      = 100
-	HealthChangeFromReproducing = -50
+	HealthChangeFromReproducing = -25
 	HealthThresholdForEating    = 0
 
 	// Sequence constants

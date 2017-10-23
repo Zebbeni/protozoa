@@ -1,18 +1,18 @@
 package test
 
 import (
+	"fmt"
+	"math/rand"
 	"testing"
 
 	s "../simulation"
 )
 
-// return a simple simulation with a small number of organisms,
-// on a small grid with very little food
-func newTestSimulation() *s.Simulation {
-	simulation := s.NewSimulation()
-	return &simulation
-}
-
 func TestSimulateOneCycle(t *testing.T) {
-	simulation := newTestSimulation()
+	rand.Seed(3)
+	simulation := s.NewSimulation(testSimulationConfig())
+	for i := 0; i < 10; i++ {
+		simulation.Update()
+		fmt.Printf("simulation update: %d\n", i)
+	}
 }

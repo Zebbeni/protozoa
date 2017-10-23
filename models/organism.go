@@ -138,18 +138,18 @@ func NewOrganismManager(environment *Environment, config OrganismConfig) Organis
 func (om *OrganismManager) Update() {
 	isNewBest := false
 	om.MostChildrenCurrent = 0
-	for i, o := range om.Organisms {
-		om.updateOrganism(i, om.Organisms[i])
+	for k, o := range om.Organisms {
+		om.updateOrganism(k, om.Organisms[k])
 		if o.Children > om.MostChildrenCurrent {
-			om.BestOrganismCurrent = i
+			om.BestOrganismCurrent = k
 			om.MostChildrenCurrent = o.Children
 			if o.Children > om.MostChildrenAllTime {
 				om.MostChildrenAllTime = o.Children
 				om.BestSequence = make(d.Sequence, len(o.DecisionSequence))
 				copy(om.BestSequence, o.DecisionSequence)
-				if i != om.BestOrganismAllTime {
+				if k != om.BestOrganismAllTime {
 					isNewBest = true
-					om.BestOrganismAllTime = i
+					om.BestOrganismAllTime = k
 				}
 			}
 		}
@@ -187,7 +187,7 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 		child.DecisionTree = d.TreeFromSequence(child.DecisionSequence)
 		child.Color = parent.Color
 		child.Health = parent.Health
-		// om.Grid[x][y] = index
+		om.Grid[x][y] = index
 		om.Organisms[index] = &child
 		om.LastIndexAdded = index
 		parent.Children++
@@ -195,8 +195,8 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 }
 
 func (om *OrganismManager) getSpawnLocation(parent *Organism) (x, y int) {
-	for i := rand.Intn(8); i < 8+i; i++ {
-		direction := float64(i) * LeftTurnAngle
+	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
+	for i := 0; i < 4; i++ {
 		dirX := u.CalcDirXForDirection(direction)
 		dirY := u.CalcDirYForDirection(direction)
 		x := parent.X + dirX
@@ -204,12 +204,15 @@ func (om *OrganismManager) getSpawnLocation(parent *Organism) (x, y int) {
 		if om.isGridLocationEmpty(x, y) {
 			return x, y
 		}
+		direction += LeftTurnAngle
 	}
 	return -1, -1
 }
 
 func (om *OrganismManager) isGridLocationEmpty(x, y int) bool {
-	return u.IsOnGrid(x, y) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtGridLocation(x, y)
+	width := om.config.GridWidth
+	height := om.config.GridHeight
+	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtGridLocation(x, y)
 }
 
 // doDecisionTree recursively walks through nodes of an organism's
@@ -242,7 +245,9 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 }
 
 func (om *OrganismManager) getOrganismAt(x, y int) *Organism {
-	if u.IsOnGrid(x, y) && om.Grid[x][y] != -1 {
+	width := om.config.GridWidth
+	height := om.config.GridHeight
+	if u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1 {
 		index := om.Grid[x][y]
 		return om.Organisms[index]
 	}
@@ -277,9 +282,11 @@ func (om *OrganismManager) isFoodRight(o *Organism) bool {
 }
 
 func (om *OrganismManager) canMove(o *Organism) bool {
+	width := om.config.GridWidth
+	height := om.config.GridHeight
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	if u.IsOnGrid(x, y) {
+	if u.IsOnGrid(x, y, width, height) {
 		return !(om.Grid[x][y] != -1 || om.Environment.IsFoodAtGridLocation(x, y))
 	}
 	return false

@@ -85,6 +85,10 @@ func (s *Simulation) IsDone() bool {
 	return false
 }
 
+func (s *Simulation) GetNumOrganisms() int {
+	return len(s.world.GetOrganisms())
+}
+
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, food := range s.world.GetFoodItems() {
@@ -101,7 +105,7 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 func renderFood(foodItem m.FoodItem, screen *ebiten.Image) {
 	x := float64(foodItem.X) * c.GridUnitSize
 	y := float64(foodItem.Y) * c.GridUnitSize
-	ebitenutil.DrawRect(screen, x+2, y+2, c.GridUnitSize-4, c.GridUnitSize-4, foodColor)
+	ebitenutil.DrawRect(screen, x+1, y+1, c.GridUnitSize-2, c.GridUnitSize-2, foodColor)
 }
 
 // renderOrganism draws a food source to the screen
@@ -109,5 +113,5 @@ func renderOrganism(organism m.Organism, isBest bool, screen *ebiten.Image) {
 	x := float64(organism.X) * c.GridUnitSize
 	y := float64(organism.Y) * c.GridUnitSize
 	organismColor := organism.Color
-	ebitenutil.DrawRect(screen, x+1, y+1, c.GridUnitSize-2, c.GridUnitSize-2, organismColor)
+	ebitenutil.DrawRect(screen, x+0.5, y+0.5, c.GridUnitSize-1, c.GridUnitSize-1, organismColor)
 }

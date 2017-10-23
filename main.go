@@ -44,7 +44,7 @@ func update(screen *ebiten.Image) error {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\n\n", m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC))
-
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("Organisms: %d", simulation.GetNumOrganisms()))
 	if simulation.IsDone() {
 		return errors.New("Simulation complete")
 	}

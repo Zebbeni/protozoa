@@ -2,21 +2,25 @@ package utils
 
 import (
 	"math"
-
-	c "../constants"
 )
 
 // IsOnGrid returns whether a given x, y is on the simulation grid
-func IsOnGrid(x, y int) bool {
-	return !(x < 0 || y < 0 || x >= c.GridWidth || y >= c.GridHeight)
+func IsOnGrid(x, y, width, height int) bool {
+	return !(x < 0 || y < 0 || x >= width || y >= height)
 }
 
 // CalcDirXForDirection returns the X vector given an angle
 func CalcDirXForDirection(direction float64) int {
-	return int(math.Cos(direction))
+	// fmt.Printf("\nCalculating cos for %f...", direction)
+	cos := math.Cos(direction)
+	// fmt.Printf("done: %f\n", cos)
+	return int(cos)
 }
 
 // CalcDirYForDirection returns the Y vector given an angle
 func CalcDirYForDirection(direction float64) int {
-	return int(math.Sin(direction))
+	// fmt.Printf("\nCalculating sin for %f...", direction)
+	sin := math.Sin(direction)
+	// fmt.Printf("done: %f\n", sin)
+	return int(sin)
 }
