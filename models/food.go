@@ -13,7 +13,7 @@ type FoodItem struct {
 
 // FoodConfig contains all attributes needed to set up FoodManager
 type FoodConfig struct {
-	NumFood, GridWidth, GridHeight int
+	MinFood, MaxFood, GridWidth, GridHeight int
 }
 
 // NewFood creates a new Food object
@@ -40,8 +40,8 @@ func NewFoodManager(config FoodConfig) FoodManager {
 			foodManager.Grid[i][j] = false
 		}
 	}
-	foodManager.FoodItems = make([]FoodItem, config.NumFood)
-	for f := 0; f < config.NumFood; f++ {
+	foodManager.FoodItems = make([]FoodItem, config.MinFood)
+	for f := 0; f < config.MinFood; f++ {
 		foodItem := NewFood(config.GridWidth, config.GridHeight)
 		foodManager.Grid[foodItem.X][foodItem.Y] = true
 		foodManager.FoodItems[f] = foodItem
@@ -53,7 +53,7 @@ func NewFoodManager(config FoodConfig) FoodManager {
 func (fm *FoodManager) Update() {
 	for i, food := range fm.FoodItems {
 		if !fm.Grid[food.X][food.Y] {
-			if len(fm.FoodItems) < fm.config.NumFood {
+			if len(fm.FoodItems) < fm.config.MinFood {
 				x := rand.Intn(fm.config.GridWidth)
 				y := rand.Intn(fm.config.GridHeight)
 				fm.FoodItems[i].X = x
@@ -80,8 +80,10 @@ func (fm *FoodManager) IsFoodAtLocation(x, y int) bool {
 
 // AddFood to a given x, y location
 func (fm *FoodManager) AddFood(x, y int) {
-	fm.FoodItems = append(fm.FoodItems, FoodItem{X: x, Y: y})
-	fm.Grid[x][y] = true
+	if len(fm.FoodItems) < fm.config.MaxFood {
+		fm.FoodItems = append(fm.FoodItems, FoodItem{X: x, Y: y})
+		fm.Grid[x][y] = true
+	}
 }
 
 // RemoveFood for given location

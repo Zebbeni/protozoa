@@ -26,7 +26,8 @@ type SimulationConfig struct {
 
 func DefaultSimulationConfig() SimulationConfig {
 	foodConfig := m.FoodConfig{
-		NumFood:    c.NumFood,
+		MinFood:    c.MinFood,
+		MaxFood:    c.MaxFood,
 		GridWidth:  c.GridWidth,
 		GridHeight: c.GridHeight,
 	}
