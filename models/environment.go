@@ -1,39 +1,43 @@
 package models
 
-import (
-	c "../constants"
-	u "../utils"
-)
-
 // Environment contains FoodManager
 type Environment struct {
-	foodManager FoodManager
+	FoodManager       FoodManager
+	EnvironmentConfig EnvironmentConfig
+}
+
+type EnvironmentConfig struct {
+	FoodConfig            FoodConfig
+	GridWidth, GridHeight int
 }
 
 // NewEnvironment creates FoodManager
-func NewEnvironment() Environment {
-	foodManager := NewFoodManager()
-	return Environment{foodManager: foodManager}
+func NewEnvironment(config EnvironmentConfig) Environment {
+	foodManager := NewFoodManager(config.FoodConfig)
+	return Environment{FoodManager: foodManager, EnvironmentConfig: config}
 }
 
 // Update calls Update function for food manager
 func (e *Environment) Update() {
-	e.foodManager.Update()
+	e.FoodManager.Update()
 }
 
 // IsFoodAtGridLocation returns current lifespan of food item at x, y
 func (e *Environment) IsFoodAtGridLocation(x, y int) bool {
-	return u.IsOnGrid(x, y) && e.foodManager.Grid[x][y]
+	return e.FoodManager.IsFoodAtLocation(x, y)
 }
 
 // GetFoodItems returns array of all Food Items from food manager
-func (e *Environment) GetFoodItems() [c.NumFood]FoodItem {
-	return e.foodManager.FoodItems
+func (e *Environment) GetFoodItems() []FoodItem {
+	return e.FoodManager.GetFoodItems()
 }
 
 // RemoveFood sets a food grid value to false
 func (e *Environment) RemoveFood(x, y int) {
-	if u.IsOnGrid(x, y) {
-		e.foodManager.Grid[x][y] = false
-	}
+	e.FoodManager.RemoveFood(x, y)
+}
+
+// CreateFood adds a food item on a given (x, y) grid location
+func (e *Environment) CreateFood(x, y int) {
+	e.FoodManager.AddFood(x, y)
 }

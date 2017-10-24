@@ -2,16 +2,22 @@ package decisions
 
 import (
 	"math/rand"
+
+	c "../constants"
 )
 
-// NewRandomSubSequence returns random, minimum length sequence
-func NewRandomSubSequence() Sequence {
-	subSequence := []interface{}{
-		GetRandomCondition(),
-		GetRandomAction(),
-		GetRandomAction(),
+// NewRandomSequence generates a new Sequence of random length
+func NewRandomSequence() Sequence {
+	numSequenceNodes := rand.Intn(c.MaxSequenceNodes)
+	sequence := make(Sequence, numSequenceNodes)
+	for n := 0; n < numSequenceNodes; n++ {
+		if rand.Float32() < c.PercentActions {
+			sequence[n] = GetRandomAction()
+		} else {
+			sequence[n] = GetRandomCondition()
+		}
 	}
-	return subSequence
+	return sequence
 }
 
 // GetRandomCondition returns a random Condition from the Conditions array
