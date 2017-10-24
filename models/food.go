@@ -61,7 +61,11 @@ func (fm *FoodManager) Update() {
 				fm.Grid[x][y] = true
 			} else {
 				// remove food item from list if no new foods needed
-				fm.FoodItems = append(fm.FoodItems[:i], fm.FoodItems[i+1:]...)
+				if i < len(fm.FoodItems)-1 {
+					fm.FoodItems = append(fm.FoodItems[:i], fm.FoodItems[i+1:]...)
+				} else {
+					fm.FoodItems = fm.FoodItems[:i]
+				}
 			}
 		}
 	}
