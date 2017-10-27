@@ -16,7 +16,8 @@ type OrganismState int
 
 // Define Organism States
 const (
-	StateIdle OrganismState = iota
+	StateAttacking OrganismState = iota
+	StateIdle
 	StateMoving
 	StateEating
 	StateReproducing
@@ -43,16 +44,17 @@ type Organism struct {
 
 // OrganismConfig contains all attributes needed to set up OrganismManager
 type OrganismConfig struct {
-	NumInitialOrganisms         int
-	MaxOrganisms                int
-	InitialHealth               float32
-	MaxHealth                   float32
-	HealthChangePerTurn         float32
-	HealthChangeFromMoving      float32
-	HealthChangeFromEating      float32
-	HealthChangeFromReproducing float32
-	HealthThresholdForEating    float32
-	GridWidth, GridHeight       int
+	NumInitialOrganisms           int
+	MaxOrganisms                  int
+	InitialHealth                 float32
+	MaxHealth                     float32
+	HealthChangePerTurn           float32
+	HealthChangeFromAttacking     float32
+	HealthChangeFromBeingAttacked float32
+	HealthChangeFromMoving        float32
+	HealthChangeFromEating        float32
+	HealthChangeFromReproducing   float32
+	GridWidth, GridHeight         int
 }
 
 // NewOrganism initializes organism at with random grid location and direction
@@ -225,6 +227,12 @@ func (om *OrganismManager) isGridLocationEmpty(x, y int) bool {
 	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtGridLocation(x, y)
 }
 
+func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
+	width := om.config.GridWidth
+	height := om.config.GridHeight
+	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1
+}
+
 // doDecisionTree recursively walks through nodes of an organism's
 // decision tree, finally applying the chosen action
 func (om *OrganismManager) chooseAction(o *Organism, tree d.Node) interface{} {
@@ -250,6 +258,12 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 		return om.isFoodLeft(o)
 	case d.IsFoodRight:
 		return om.isFoodRight(o)
+	case d.IsOrganismAhead:
+		return om.isOrganismAhead(o)
+	case d.IsOrganismLeft:
+		return om.isOrganismLeft(o)
+	case d.IsOrganismRight:
+		return om.isOrganismRight(o)
 	}
 	return false
 }
@@ -287,6 +301,26 @@ func (om *OrganismManager) isFoodRight(o *Organism) bool {
 	return om.Environment.IsFoodAtGridLocation(x, y)
 }
 
+func (om *OrganismManager) isOrganismAhead(o *Organism) bool {
+	x := o.X + o.DirX
+	y := o.Y + o.DirY
+	return om.isOrganismAtLocation(x, y)
+}
+
+func (om *OrganismManager) isOrganismLeft(o *Organism) bool {
+	direction := o.Direction + LeftTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	return om.isOrganismAtLocation(x, y)
+}
+
+func (om *OrganismManager) isOrganismRight(o *Organism) bool {
+	direction := o.Direction + RightTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	return om.isOrganismAtLocation(x, y)
+}
+
 func (om *OrganismManager) canMove(o *Organism) bool {
 	width := om.config.GridWidth
 	height := om.config.GridHeight
@@ -308,6 +342,9 @@ func (om *OrganismManager) canReproduce(o *Organism) bool {
 func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 	o.State = StateIdle // default to idle so other functions don't need to
 	switch action {
+	case d.ActAttack:
+		om.applyAttack(o)
+		break
 	case d.ActEat:
 		om.applyEat(o)
 		break
@@ -327,48 +364,50 @@ func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 }
 
 func (om *OrganismManager) updateHealth(o *Organism) {
-	switch o.State {
-	case StateIdle:
-		break
-	case StateMoving:
-		o.Health += om.config.HealthChangeFromMoving
-		break
-	case StateEating:
-		o.Health += om.config.HealthChangeFromEating
-		break
-	case StateReproducing:
-		o.Health += om.config.HealthChangeFromReproducing
-		break
-	}
 	o.Health += om.config.HealthChangePerTurn
 	o.Health = float32(math.Min(float64(o.Health), float64(om.config.MaxHealth)))
 	o.AvgHealth = (o.AvgHealth*float32(o.Age-1) + o.Health) / float32(o.Age)
+}
+
+func (om *OrganismManager) applyAttack(o *Organism) {
+	x := o.X + o.DirX
+	y := o.Y + o.DirY
+	if om.isOrganismAtLocation(x, y) {
+		targetOrganismIndex := om.Grid[x][y]
+		targetOrganism := om.Organisms[targetOrganismIndex]
+		targetOrganism.Health += c.HealthChangeFromBeingAttacked
+	}
+	o.Health += om.config.HealthChangeFromAttacking
+	o.State = StateAttacking
 }
 
 func (om *OrganismManager) applyEat(o *Organism) {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
 	if om.Environment.IsFoodAtGridLocation(x, y) {
-		o.State = StateEating
 		om.Environment.RemoveFood(x, y)
+		o.Health += om.config.HealthChangeFromEating
 	}
+	o.State = StateEating
 }
 
 func (om *OrganismManager) applyMove(o *Organism) {
-	o.State = StateMoving
 	if om.canMove(o) {
 		om.Grid[o.X][o.Y] = -1
 		o.X += o.DirX
 		o.Y += o.DirY
 		om.Grid[o.X][o.Y] = o.ID
 	}
+	o.Health += om.config.HealthChangeFromMoving
+	o.State = StateMoving
 }
 
 func (om *OrganismManager) applyReproduce(o *Organism) {
 	if om.canReproduce(o) {
-		o.State = StateReproducing
 		om.spawnNewOrganism(o)
 	}
+	o.Health += om.config.HealthChangeFromReproducing
+	o.State = StateReproducing
 }
 
 func (om *OrganismManager) applyTurn(o *Organism, directionChange float64) {

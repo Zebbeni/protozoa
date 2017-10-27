@@ -18,7 +18,8 @@ type Sequence []interface{}
 
 // Define all possible actions for Organism
 const (
-	ActEat Action = iota
+	ActAttack Action = iota
+	ActEat
 	ActIdle
 	ActMove
 	ActReproduce
@@ -29,24 +30,31 @@ const (
 	IsFoodAhead
 	IsFoodLeft
 	IsFoodRight
+	IsOrganismAhead
+	IsOrganismLeft
+	IsOrganismRight
 )
 
 // Define slices
 var (
-	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
-	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight}
+	Actions    = [...]Action{ActAttack, ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
+	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight, IsOrganismAhead, IsOrganismLeft, IsOrganismRight}
 	Map        = map[interface{}]string{
-		ActEat:       "Eat",
-		ActIdle:      "Be Idle",
-		ActMove:      "Move Ahead",
-		ActReproduce: "Reproduce",
-		ActTurnLeft:  "Turn Left",
-		ActTurnRight: "Turn Right",
-		CanMove:      "If Can Move Ahead",
-		CanReproduce: "If Can Reproduce",
-		IsFoodAhead:  "If Food Ahead",
-		IsFoodLeft:   "If Food Left",
-		IsFoodRight:  "If Food Right",
+		ActAttack:       "Attack",
+		ActEat:          "Eat",
+		ActIdle:         "Be Idle",
+		ActMove:         "Move Ahead",
+		ActReproduce:    "Reproduce",
+		ActTurnLeft:     "Turn Left",
+		ActTurnRight:    "Turn Right",
+		CanMove:         "If Can Move Ahead",
+		CanReproduce:    "If Can Reproduce",
+		IsFoodAhead:     "If Food Ahead",
+		IsFoodLeft:      "If Food Left",
+		IsFoodRight:     "If Food Right",
+		IsOrganismAhead: "If Organism Ahead",
+		IsOrganismLeft:  "If Organism Left",
+		IsOrganismRight: "If Organism Right",
 	}
 )
 

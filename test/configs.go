@@ -32,10 +32,10 @@ func testOrganismConfig() m.OrganismConfig {
 		InitialHealth:               initialHealth,
 		MaxHealth:                   c.MaxHealth,
 		HealthChangePerTurn:         c.HealthChangePerTurn,
+		HealthChangeFromAttacking:   c.HealthChangeFromAttacking,
 		HealthChangeFromMoving:      c.HealthChangeFromMoving,
 		HealthChangeFromEating:      c.HealthChangeFromEating,
 		HealthChangeFromReproducing: c.HealthChangeFromReproducing,
-		HealthThresholdForEating:    c.HealthThresholdForEating,
 		GridWidth:                   gridWidth,
 		GridHeight:                  gridHeight,
 	}

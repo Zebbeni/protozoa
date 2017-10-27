@@ -15,21 +15,22 @@ const (
 	MaxFoodLifespan = 600
 
 	// Organism constants
-	NumInitialOrganisms         = 10
-	MaxOrganismsAllowed         = 5000
-	InitialHealth               = 100
-	MaxHealth                   = 100
-	HealthChangePerTurn         = -1
-	HealthChangeFromMoving      = -1
-	HealthChangeFromEating      = 100
-	HealthChangeFromReproducing = -50
-	HealthThresholdForEating    = 0
+	NumInitialOrganisms           = 10
+	MaxOrganismsAllowed           = 5000
+	InitialHealth                 = 100
+	MaxHealth                     = 100
+	HealthChangeFromAttacking     = -2
+	HealthChangeFromBeingAttacked = -25
+	HealthChangePerTurn           = -1
+	HealthChangeFromMoving        = -1
+	HealthChangeFromEating        = 100
+	HealthChangeFromReproducing   = -50
 
 	// Sequence constants
 	MaxSequenceNodes  = 30
-	MaxNodesToMutate  = 2
-	PercentActions    = 0.5
-	PercentConditions = 0.5
+	MaxNodesToMutate  = 4
+	PercentActions    = 0.6
+	PercentConditions = 0.4
 
 	// Time trial constants
 	OrganismAgeToEndSimulation = 1000
