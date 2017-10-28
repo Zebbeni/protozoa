@@ -37,7 +37,7 @@ const (
 
 // Define slices
 var (
-	Actions    = [...]Action{ActAttack, ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
+	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
 	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight, IsOrganismAhead, IsOrganismLeft, IsOrganismRight}
 	Map        = map[interface{}]string{
 		ActAttack:       "Attack",
