@@ -26,8 +26,8 @@ const (
 	HealthChangeFromEating        = 100
 	HealthChangeFromReproducing   = -50
 
-	// Sequence constants
-	MaxSequenceNodes  = 30
+	// Decision Tree constants
+	MaxNodes          = 30
 	MaxNodesToMutate  = 4
 	PercentActions    = 0.6
 	PercentConditions = 0.4

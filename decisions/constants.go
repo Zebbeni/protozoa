@@ -9,9 +9,6 @@ type Condition int
 // Metric is the custom type for all measures of decision tree success
 type Metric int
 
-// Sequence is a slice representing a serialized tree of NodeType values
-type Sequence []interface{}
-
 // Define all possible actions for Organism
 const (
 	ActAttack Action = iota
@@ -29,15 +26,14 @@ const (
 	IsOrganismAhead
 	IsOrganismLeft
 	IsOrganismRight
-	MetricFood Metric = iota
-	MetricHealth
+	MetricHealth Metric = iota
 )
 
 // Define slices
 var (
 	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
 	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight, IsOrganismAhead, IsOrganismLeft, IsOrganismRight}
-	Metrics    = [...]Metric{MetricFood, MetricHealth}
+	Metrics    = [...]Metric{MetricHealth}
 	Map        = map[interface{}]string{
 		ActAttack:       "Attack",
 		ActEat:          "Eat",

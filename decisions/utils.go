@@ -3,9 +3,6 @@ package decisions
 import (
 	"bytes"
 	"math/rand"
-	"strconv"
-
-	c "../constants"
 )
 
 // GetRandomCondition returns a random Condition from the Conditions array
@@ -28,10 +25,9 @@ func isAction(v interface{}) bool {
 }
 
 // InitializeMetricsMap returns an initialize map of each Metric type to 0
-func InitializeMetricsMap() map[Metric]int {
-	return map[Metric]int{
-		MetricFood:   0,
-		MetricHealth: 0,
+func InitializeMetricsMap() map[Metric]float32 {
+	return map[Metric]float32{
+		MetricHealth: 0.0,
 	}
 }
 
@@ -47,50 +43,6 @@ func CopyTreeByValue(source *Node) *Node {
 		NoNode:   CopyTreeByValue(source.NoNode),
 	}
 	return &destination
-}
-
-// UpdateNodeIDs sets a Node's ID to a hyphen-separated string listing its
-// decision tree in serialized form.
-//
-// Recursively walks through Node tree updating ID for itself and all children.
-func (node *Node) UpdateNodeIDs() string {
-	var buffer bytes.Buffer
-	nodeTypeString := strconv.Itoa(node.NodeType.(int))
-	buffer.WriteString(nodeTypeString)
-	if !isAction(node.NodeType) {
-		buffer.WriteString("-")
-		buffer.WriteString(node.YesNode.UpdateNodeIDs())
-		buffer.WriteString("-")
-		buffer.WriteString(node.NoNode.UpdateNodeIDs())
-	}
-	node.ID = buffer.String()
-	return node.ID
-}
-
-// NewRandomSequence generates a new Sequence of random length
-func NewRandomSequence() Sequence {
-	numSequenceNodes := rand.Intn(c.MaxSequenceNodes)
-	sequence := make(Sequence, numSequenceNodes)
-	for n := 0; n < numSequenceNodes; n++ {
-		if rand.Float32() < c.PercentActions {
-			sequence[n] = GetRandomAction()
-		} else {
-			sequence[n] = GetRandomCondition()
-		}
-	}
-	return sequence
-}
-
-// PrintSequence prints sequence chronologically
-func PrintSequence(sequence Sequence) string {
-	var buffer bytes.Buffer
-	for i, s := range sequence {
-		if i > 0 {
-			buffer.WriteString(" | ")
-		}
-		buffer.WriteString(Map[s])
-	}
-	return buffer.String()
 }
 
 // PrintNode prints node and all children showing hierarchy
