@@ -40,7 +40,9 @@ type Organism struct {
 	State                               OrganismState
 	NodeLibrary                         *d.NodeLibrary
 	DecisionTree                        *d.Node
+	CountdownToChangeDecisionTree       int
 	PreviousMetrics                     map[d.Metric]float32
+	MetricsChanges                      map[d.Metric]float32
 }
 
 // OrganismConfig contains all attributes needed to set up OrganismManager
@@ -64,16 +66,12 @@ func NewOrganism(index, x, y int, health float32, nodeLibrary *d.NodeLibrary) *O
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
 	dirX := u.CalcDirXForDirection(direction)
 	dirY := u.CalcDirYForDirection(direction)
-	r := uint8(55 + rand.Intn(200))
-	g := uint8(55 + rand.Intn(200))
-	b := uint8(55 + rand.Intn(200))
-	color := color.RGBA{r, g, b, 255}
 	organism := Organism{
 		Age:          0,
 		AvgHealth:    health,
 		Health:       health,
 		Children:     0,
-		Color:        color,
+		Color:        decisionNode.Color,
 		ID:           index,
 		DecisionTree: decisionNode,
 		Direction:    direction,
@@ -85,8 +83,38 @@ func NewOrganism(index, x, y int, health float32, nodeLibrary *d.NodeLibrary) *O
 		PreviousMetrics: map[d.Metric]float32{
 			d.MetricHealth: health,
 		},
+		MetricsChanges: map[d.Metric]float32{
+			d.MetricHealth: 0.0,
+		},
 	}
 	return &organism
+}
+
+// UpdateDecisionTree either swaps its current DecisionTree with a new one
+//
+// First checks NodeLibrary for more successful DecisionTrees. If none exist,
+// creates a new DecisionTree based on the current one.
+func (o *Organism) UpdateDecisionTree() {
+	current := o.DecisionTree
+	best := o.NodeLibrary.GetBetterNodeForMetric(d.MetricHealth, current.MetricsAvgs[d.MetricHealth], current.Uses)
+	didMutate := false
+	if best != nil && best.ID != current.ID {
+		o.DecisionTree = best
+	} else {
+		didMutate = true
+		mutatedTree := d.MutateTree(current)
+		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+	}
+	o.Color = o.DecisionTree.Color
+	if didMutate {
+		// if current != nil {
+		// 	fmt.Printf("\nOLD:\n%sAVG:%f\nTOTAL: %f\nUSES: %d\n", d.PrintNode(*current, 1), current.MetricsAvgs[d.MetricHealth], current.Metrics[d.MetricHealth], current.Uses)
+		// }
+		fmt.Printf("\nMUTATED NEW:\n%sAVG:%f\nTOTAL: %f\nUSES: %d\n", d.PrintNode(*o.DecisionTree, 1), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
+		fmt.Printf("\nNodeLibrary Length: %d\n", len(o.NodeLibrary.Map))
+	} else {
+		fmt.Printf("\nADOPTED BEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %d\n", d.PrintNode(*best, 1), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
+	}
 }
 
 // OrganismManager contains 2D array of booleans showing if organism present
@@ -162,12 +190,19 @@ func (om *OrganismManager) Update() {
 // UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
 // its Health, and replaces it if its Health <= 0
 func (om *OrganismManager) updateOrganism(index int, o *Organism) {
-	metricsChange := map[d.Metric]float32{
-		d.MetricHealth: o.Health - o.PreviousMetrics[d.MetricHealth],
-	}
 	if o.Health > 0.0 {
 		o.Age++
-		action := om.chooseAction(o, o.DecisionTree, metricsChange)
+		// Do next 2 lines in a for loop for all matrices
+		o.MetricsChanges[d.MetricHealth] = o.Health - o.PreviousMetrics[d.MetricHealth]
+		o.PreviousMetrics[d.MetricHealth] = o.Health
+		o.CountdownToChangeDecisionTree--
+		shouldUpdateStats := true
+		if o.CountdownToChangeDecisionTree <= 0 {
+			o.UpdateDecisionTree()
+			shouldUpdateStats = false
+			o.CountdownToChangeDecisionTree = 10 + rand.Intn(90)
+		}
+		action := om.chooseAction(o, o.DecisionTree, shouldUpdateStats)
 		om.applyAction(o, action)
 		om.updateHealth(o)
 	} else {
@@ -245,18 +280,23 @@ func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
 	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1
 }
 
-// chooseAction recursively walks through nodes of an organism's decision tree,
-// updating node uses and metric values, and eventually returning the chosen action
-func (om *OrganismManager) chooseAction(o *Organism, tree *d.Node, metricsChange map[d.Metric]float32) interface{} {
-	tree.UpdateStats(metricsChange)
+// chooseAction walks through nodes of an organism's decision tree, eventually
+// returning the chosen action
+//
+// As chooseAction walks thorugh nodes, it also updates use counts and metric
+// values for each node in use, if shouldUpdateStats set to true
+func (om *OrganismManager) chooseAction(o *Organism, tree *d.Node, shouldUpdateStats bool) interface{} {
+	if shouldUpdateStats {
+		tree.UpdateStats(o.MetricsChanges)
+	}
 	if tree.IsAction() {
 		return tree.NodeType
 	}
 	condition := tree.NodeType
 	if om.isConditionTrue(o, condition) {
-		return om.chooseAction(o, tree.YesNode, metricsChange)
+		return om.chooseAction(o, tree.YesNode, shouldUpdateStats)
 	}
-	return om.chooseAction(o, tree.NoNode, metricsChange)
+	return om.chooseAction(o, tree.NoNode, shouldUpdateStats)
 }
 
 func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {

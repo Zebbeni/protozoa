@@ -1,5 +1,10 @@
 package decisions
 
+import (
+	"image/color"
+	"math/rand"
+)
+
 // NodeLibrary contains a map of Node pointers to aggregated data for each node
 type NodeLibrary struct {
 	Map map[string]*Node
@@ -33,6 +38,10 @@ func (nl *NodeLibrary) RegisterAndReturnNewNode(node *Node) *Node {
 		node.YesNode = nl.RegisterAndReturnNewNode(node.YesNode)
 		node.NoNode = nl.RegisterAndReturnNewNode(node.NoNode)
 	}
+	r := uint8(55 + rand.Intn(200))
+	g := uint8(55 + rand.Intn(200))
+	b := uint8(55 + rand.Intn(200))
+	node.Color = color.RGBA{r, g, b, 255}
 	nl.Map[node.ID] = node
 	return node
 }
@@ -41,8 +50,30 @@ func (nl *NodeLibrary) RegisterAndReturnNewNode(node *Node) *Node {
 func (nl *NodeLibrary) GetRandomNode() *Node {
 	// This is not technically be the best way to get a random element from
 	// the map, but it doesn't really need to be perfectly random.
-	for _, v := range nl.Map {
-		return v
+	for _, node := range nl.Map {
+		return node
+	}
+	return nil
+}
+
+// GetBetterNodeForMetric returns the node with the best average increase for a
+// given metrics
+//
+func (nl *NodeLibrary) GetBetterNodeForMetric(metric Metric, metricAvg float32, uses int) *Node {
+	bestNode := &Node{}
+	bestAvg := float32(-999999.0)
+	isEnoughUses := false
+	for _, node := range nl.Map {
+		// only accept a better average if it has been used at least as many
+		// times as the sqrt of the current algorithm's uses
+		isEnoughUses = node.Uses > MinUsesToConsiderChanging
+		if node.MetricsAvgs[metric] > bestAvg && isEnoughUses {
+			bestAvg = node.MetricsAvgs[metric]
+			bestNode = node
+		}
+	}
+	if bestNode.NodeType != nil {
+		return bestNode
 	}
 	return nil
 }

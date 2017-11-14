@@ -3,21 +3,29 @@ package decisions
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 )
 
 // Node includes an Action or Condition value
 type Node struct {
-	ID       string
-	NodeType interface{}
-	YesNode  *Node
-	NoNode   *Node
-	Metrics  map[Metric]float32
-	Uses     int
+	Color       color.RGBA
+	ID          string
+	NodeType    interface{}
+	YesNode     *Node
+	NoNode      *Node
+	Metrics     map[Metric]float32
+	MetricsAvgs map[Metric]float32
+	Uses        int
 }
 
 // IsAction returns true if Node's type is Action (false if Condition)
 func (n *Node) IsAction() bool {
 	return isAction(n.NodeType)
+}
+
+// IsCondition returns true if Node's type is Action (false if Condition)
+func (n *Node) IsCondition() bool {
+	return isCondition(n.NodeType)
 }
 
 // UpdateStats updates all Node Metrics according to a map of changes and
@@ -26,6 +34,8 @@ func (n *Node) UpdateStats(metricsChange map[Metric]float32) {
 	n.Uses++
 	for key, change := range metricsChange {
 		n.Metrics[key] += change
+		uses := float32(n.Uses)
+		n.MetricsAvgs[key] = (n.MetricsAvgs[key]*(uses-1.0) + change) / uses
 	}
 }
 
@@ -38,6 +48,7 @@ func TreeFromAction(action Action) Node {
 		NoNode:   nil,
 	}
 	node.Metrics = InitializeMetricsMap()
+	node.MetricsAvgs = InitializeMetricsMap()
 	node.UpdateNodeIDs()
 	return node
 }

@@ -31,8 +31,8 @@ const (
 
 // Define slices
 var (
-	Actions    = [...]Action{ActEat, ActIdle, ActMove, ActReproduce, ActTurnLeft, ActTurnRight}
-	Conditions = [...]Condition{CanMove, CanReproduce, IsFoodAhead, IsFoodLeft, IsFoodRight, IsOrganismAhead, IsOrganismLeft, IsOrganismRight}
+	Actions    = [...]Action{ActAttack, ActEat, ActIdle, ActMove, ActTurnLeft, ActTurnRight}
+	Conditions = [...]Condition{CanMove, IsFoodAhead, IsFoodLeft, IsFoodRight, IsOrganismAhead, IsOrganismLeft, IsOrganismRight}
 	Metrics    = [...]Metric{MetricHealth}
 	Map        = map[interface{}]string{
 		ActAttack:       "Attack",
@@ -51,4 +51,6 @@ var (
 		IsOrganismLeft:  "If Organism Left",
 		IsOrganismRight: "If Organism Right",
 	}
+	ChanceOfAddingNewSubTree  = 0.5
+	MinUsesToConsiderChanging = 1000
 )

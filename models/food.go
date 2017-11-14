@@ -56,8 +56,8 @@ func (fm *FoodManager) Update() {
 			if len(fm.FoodItems) < fm.config.MinFood {
 				x := rand.Intn(fm.config.GridWidth)
 				y := rand.Intn(fm.config.GridHeight)
-				fm.FoodItems[i].X = x
-				fm.FoodItems[i].Y = y
+				food.X = x
+				food.Y = y
 				fm.Grid[x][y] = true
 			} else {
 				// remove food item from list if no new foods needed

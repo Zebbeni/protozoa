@@ -25,9 +25,9 @@ func CalcDirYForDirection(direction float64) int {
 
 // MutateColor returns a slight variation on a given color
 func MutateColor(originalColor color.RGBA) color.RGBA {
-	r := uint8(math.Max(50, math.Min(255, float64(int(originalColor.R)+rand.Intn(10)-5))))
-	g := uint8(math.Max(50, math.Min(255, float64(int(originalColor.G)+rand.Intn(10)-5))))
-	b := uint8(math.Max(50, math.Min(255, float64(int(originalColor.B)+rand.Intn(10)-5))))
+	r := uint8(math.Max(50, math.Min(255, float64(int(originalColor.R)+rand.Intn(20)-10))))
+	g := uint8(math.Max(50, math.Min(255, float64(int(originalColor.G)+rand.Intn(20)-10))))
+	b := uint8(math.Max(50, math.Min(255, float64(int(originalColor.B)+rand.Intn(20)-10))))
 	a := originalColor.A
 	return color.RGBA{r, g, b, a}
 }
