@@ -37,6 +37,9 @@ func (nl *NodeLibrary) RegisterAndReturnNewNode(node *Node) *Node {
 	if !node.IsAction() {
 		node.YesNode = nl.RegisterAndReturnNewNode(node.YesNode)
 		node.NoNode = nl.RegisterAndReturnNewNode(node.NoNode)
+		node.Complexity = node.YesNode.Complexity + node.NoNode.Complexity
+	} else {
+		node.Complexity = 1
 	}
 	r := uint8(55 + rand.Intn(200))
 	g := uint8(55 + rand.Intn(200))
@@ -76,4 +79,22 @@ func (nl *NodeLibrary) GetBetterNodeForMetric(metric Metric, metricAvg float32, 
 		return bestNode
 	}
 	return nil
+}
+
+// PruneUnusedNodes removes any unused nodes from the node library to improve
+// performance.
+func (nl *NodeLibrary) PruneUnusedNodes() {
+	if len(nl.Map) > MaxNodesAllowed {
+		nodesToRemove := len(nl.Map) - MaxNodesAllowed
+		nodesRemoved := 0
+		for key, node := range nl.Map {
+			if node.NumOrganismsUsing <= 0 {
+				delete(nl.Map, key)
+				nodesRemoved++
+				if nodesRemoved >= nodesToRemove {
+					return
+				}
+			}
+		}
+	}
 }

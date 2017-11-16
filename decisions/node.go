@@ -8,14 +8,16 @@ import (
 
 // Node includes an Action or Condition value
 type Node struct {
-	Color       color.RGBA
-	ID          string
-	NodeType    interface{}
-	YesNode     *Node
-	NoNode      *Node
-	Metrics     map[Metric]float32
-	MetricsAvgs map[Metric]float32
-	Uses        int
+	Color             color.RGBA
+	ID                string
+	NodeType          interface{}
+	YesNode           *Node
+	NoNode            *Node
+	Metrics           map[Metric]float32
+	MetricsAvgs       map[Metric]float32
+	Uses              int
+	NumOrganismsUsing int
+	Complexity        int
 }
 
 // IsAction returns true if Node's type is Action (false if Condition)
@@ -39,6 +41,34 @@ func (n *Node) UpdateStats(metricsChange map[Metric]float32) {
 	}
 }
 
+// UpdateNodeIDs sets a Node's ID to a hyphen-separated string listing its
+// decision tree in serialized form.
+//
+// Recursively walks through Node tree updating ID for itself and all children.
+func (n *Node) UpdateNodeIDs() string {
+	var buffer bytes.Buffer
+	nodeTypeString := fmt.Sprintf("%v", n.NodeType)
+	buffer.WriteString(nodeTypeString)
+	if !isAction(n.NodeType) {
+		buffer.WriteString("-")
+		buffer.WriteString(n.YesNode.UpdateNodeIDs())
+		buffer.WriteString("-")
+		buffer.WriteString(n.NoNode.UpdateNodeIDs())
+	}
+	n.ID = buffer.String()
+	return n.ID
+}
+
+// UpdateNumOrganismsUsing updates the current number of organisms using this
+// node (by +1 or -1), recursively calling for all sub-trees
+func (n *Node) UpdateNumOrganismsUsing(change int) {
+	n.NumOrganismsUsing += change
+	if !isAction(n.NodeType) {
+		n.YesNode.UpdateNumOrganismsUsing(change)
+		n.NoNode.UpdateNumOrganismsUsing(change)
+	}
+}
+
 // TreeFromAction creates a simple Node object from an Action type
 func TreeFromAction(action Action) Node {
 	node := Node{
@@ -51,22 +81,4 @@ func TreeFromAction(action Action) Node {
 	node.MetricsAvgs = InitializeMetricsMap()
 	node.UpdateNodeIDs()
 	return node
-}
-
-// UpdateNodeIDs sets a Node's ID to a hyphen-separated string listing its
-// decision tree in serialized form.
-//
-// Recursively walks through Node tree updating ID for itself and all children.
-func (node *Node) UpdateNodeIDs() string {
-	var buffer bytes.Buffer
-	nodeTypeString := fmt.Sprintf("%v", node.NodeType)
-	buffer.WriteString(nodeTypeString)
-	if !isAction(node.NodeType) {
-		buffer.WriteString("-")
-		buffer.WriteString(node.YesNode.UpdateNodeIDs())
-		buffer.WriteString("-")
-		buffer.WriteString(node.NoNode.UpdateNodeIDs())
-	}
-	node.ID = buffer.String()
-	return node.ID
 }

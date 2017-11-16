@@ -52,5 +52,9 @@ var (
 		IsOrganismRight: "If Organism Right",
 	}
 	ChanceOfAddingNewSubTree  = 0.5
-	MinUsesToConsiderChanging = 1000
+	MinUsesToConsiderChanging = 100
+	// NodeLibrary constants
+	UsesToConsiderPruningMultiplier = 100
+	MaxNodesAllowed                 = 5000
+	MaxMetricScoreToConsiderPruning = -1.0
 )

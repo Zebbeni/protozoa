@@ -87,6 +87,7 @@ func NewOrganism(index, x, y int, health float32, nodeLibrary *d.NodeLibrary) *O
 			d.MetricHealth: 0.0,
 		},
 	}
+	organism.DecisionTree.UpdateNumOrganismsUsing(1)
 	return &organism
 }
 
@@ -95,6 +96,7 @@ func NewOrganism(index, x, y int, health float32, nodeLibrary *d.NodeLibrary) *O
 // First checks NodeLibrary for more successful DecisionTrees. If none exist,
 // creates a new DecisionTree based on the current one.
 func (o *Organism) UpdateDecisionTree() {
+	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	current := o.DecisionTree
 	best := o.NodeLibrary.GetBetterNodeForMetric(d.MetricHealth, current.MetricsAvgs[d.MetricHealth], current.Uses)
 	didMutate := false
@@ -105,6 +107,7 @@ func (o *Organism) UpdateDecisionTree() {
 		mutatedTree := d.MutateTree(current)
 		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
 	}
+	o.DecisionTree.UpdateNumOrganismsUsing(1)
 	o.Color = o.DecisionTree.Color
 	if didMutate {
 		// if current != nil {
@@ -185,6 +188,7 @@ func (om *OrganismManager) Update() {
 		// om.PrintBest()
 	}
 	// om.ReportPopulation()
+	om.NodeLibrary.PruneUnusedNodes()
 }
 
 // UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
@@ -214,6 +218,7 @@ func (om *OrganismManager) removeOrganism(index int) {
 	o := om.Organisms[index]
 	om.Grid[o.X][o.Y] = -1
 	om.Environment.CreateFood(o.X, o.Y)
+	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	delete(om.Organisms, index)
 }
 

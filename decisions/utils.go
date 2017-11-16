@@ -83,11 +83,19 @@ func MutateNode(node *Node) {
 		}
 	} else {
 		if rand.Float64() < ChanceOfAddingNewSubTree {
+			originalAction := node.NodeType.(Action)
 			node.NodeType = GetRandomCondition()
-			yesNode := TreeFromAction(GetRandomAction())
-			noNode := TreeFromAction(GetRandomAction())
-			node.YesNode = &yesNode
-			node.NoNode = &noNode
+			if rand.Float64() < 0.5 {
+				yesNode := TreeFromAction(originalAction)
+				noNode := TreeFromAction(GetRandomAction())
+				node.YesNode = &yesNode
+				node.NoNode = &noNode
+			} else {
+				yesNode := TreeFromAction(originalAction)
+				noNode := TreeFromAction(GetRandomAction())
+				node.YesNode = &yesNode
+				node.NoNode = &noNode
+			}
 		} else {
 			node.NodeType = GetRandomAction()
 		}
