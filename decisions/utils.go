@@ -109,30 +109,16 @@ func MutateNode(node *Node) {
 	}
 }
 
-// // PrintNode prints node and all children showing hierarchy
-// func PrintNode(node Node, yesLeading, noLeading string) string {
-// 	toPrint := fmt.Sprintf("%s\n", Map[node.NodeType])
-// 	if !isAction(node.NodeType) {
-// 		newYesLeadingString := fmt.Sprintf("%s│ ", yesLeading)
-// 		newNoLeadingString := fmt.Sprintf("%s  ", noLeading)
-// 		toPrint = fmt.Sprintf("%s%s", toPrint, yesLeading)
-// 		toPrint = fmt.Sprintf("%s├─ Yes: %s", toPrint, PrintNode(*node.YesNode, newYesLeadingString, newNoLeadingString))
-// 		toPrint = fmt.Sprintf("%s%s", toPrint, noLeading)
-// 		toPrint = fmt.Sprintf("%s└─ No: %s", toPrint, PrintNode(*node.NoNode, newYesLeadingString, newNoLeadingString))
-// 	}
-// 	return toPrint
-// }
-
 // Print pretty prints the node
 func (node *Node) Print(indent string, last bool) string {
 	toPrint := indent
 	newIndent := indent
 	if last {
-		toPrint = fmt.Sprintf("%s\\-", toPrint)
+		toPrint = fmt.Sprintf("%s└─", toPrint)
 		newIndent = fmt.Sprintf("%s  ", newIndent)
 	} else {
-		toPrint = fmt.Sprintf("%s|-", toPrint)
-		newIndent = fmt.Sprintf("%s| ", newIndent)
+		toPrint = fmt.Sprintf("%s├─", toPrint)
+		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
 	toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[node.NodeType])
 	if !isAction(node.NodeType) {
@@ -141,22 +127,3 @@ func (node *Node) Print(indent string, last bool) string {
 	}
 	return toPrint
 }
-
-// public void PrintPretty(string indent, bool last)
-// {
-// 	Console.Write(indent);
-// 	if (last)
-// 	{
-// 		Console.Write("\\-");
-// 		indent += "  ";
-// 	}
-// 	else
-// 	{
-// 		Console.Write("|-");
-// 		indent += "| ";
-// 	}
-// 	Console.WriteLine(Name);
-
-// 	for (int i = 0; i < Children.Count; i++)
-// 		Children[i].PrintPretty(indent, i == Children.Count - 1);
-// }
