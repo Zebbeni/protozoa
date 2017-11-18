@@ -108,9 +108,9 @@ func (o *Organism) UpdateDecisionTree(bestNodesForMetrics map[d.Metric]*d.Node) 
 	o.Color = o.DecisionTree.Color
 	if didMutate {
 		if best != nil {
-			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*best, 1), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
+			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", best.Print("", true), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
 		}
-		fmt.Printf("\nMUTATED TO:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*o.DecisionTree, 1), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
+		fmt.Printf("\nMUTATED TO:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", o.DecisionTree.Print("", true), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
 		fmt.Printf("\nNodeLibrary Length: %d\n", len(o.NodeLibrary.Map))
 	}
 }

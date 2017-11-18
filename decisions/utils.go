@@ -1,7 +1,7 @@
 package decisions
 
 import (
-	"bytes"
+	"fmt"
 	"math/rand"
 
 	u "../utils"
@@ -109,22 +109,54 @@ func MutateNode(node *Node) {
 	}
 }
 
-// PrintNode prints node and all children showing hierarchy
-func PrintNode(node Node, spaces int) string {
-	var buffer bytes.Buffer
-	buffer.WriteString(Map[node.NodeType])
-	buffer.WriteString("\n")
-	if !isAction(node.NodeType) {
-		for i := 0; i < spaces; i++ {
-			buffer.WriteString("  ")
-		}
-		buffer.WriteString("├─Then... ")
-		buffer.WriteString(PrintNode(*node.YesNode, spaces+1))
-		for i := 0; i < spaces; i++ {
-			buffer.WriteString("  ")
-		}
-		buffer.WriteString("└─Else: ")
-		buffer.WriteString(PrintNode(*node.NoNode, spaces+1))
+// // PrintNode prints node and all children showing hierarchy
+// func PrintNode(node Node, yesLeading, noLeading string) string {
+// 	toPrint := fmt.Sprintf("%s\n", Map[node.NodeType])
+// 	if !isAction(node.NodeType) {
+// 		newYesLeadingString := fmt.Sprintf("%s│ ", yesLeading)
+// 		newNoLeadingString := fmt.Sprintf("%s  ", noLeading)
+// 		toPrint = fmt.Sprintf("%s%s", toPrint, yesLeading)
+// 		toPrint = fmt.Sprintf("%s├─ Yes: %s", toPrint, PrintNode(*node.YesNode, newYesLeadingString, newNoLeadingString))
+// 		toPrint = fmt.Sprintf("%s%s", toPrint, noLeading)
+// 		toPrint = fmt.Sprintf("%s└─ No: %s", toPrint, PrintNode(*node.NoNode, newYesLeadingString, newNoLeadingString))
+// 	}
+// 	return toPrint
+// }
+
+// Print pretty prints the node
+func (node *Node) Print(indent string, last bool) string {
+	toPrint := indent
+	newIndent := indent
+	if last {
+		toPrint = fmt.Sprintf("%s\\-", toPrint)
+		newIndent = fmt.Sprintf("%s  ", newIndent)
+	} else {
+		toPrint = fmt.Sprintf("%s|-", toPrint)
+		newIndent = fmt.Sprintf("%s| ", newIndent)
 	}
-	return buffer.String()
+	toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[node.NodeType])
+	if !isAction(node.NodeType) {
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false))
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, true))
+	}
+	return toPrint
 }
+
+// public void PrintPretty(string indent, bool last)
+// {
+// 	Console.Write(indent);
+// 	if (last)
+// 	{
+// 		Console.Write("\\-");
+// 		indent += "  ";
+// 	}
+// 	else
+// 	{
+// 		Console.Write("|-");
+// 		indent += "| ";
+// 	}
+// 	Console.WriteLine(Name);
+
+// 	for (int i = 0; i < Children.Count; i++)
+// 		Children[i].PrintPretty(indent, i == Children.Count - 1);
+// }
