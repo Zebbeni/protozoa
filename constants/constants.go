@@ -15,12 +15,13 @@ const (
 	MaxFoodLifespan = 600
 
 	// Organism constants
+	AgeToSpawn                    = 300
 	NumInitialOrganisms           = 10
 	MaxOrganismsAllowed           = 5000
 	InitialHealth                 = 100.0
 	MaxHealth                     = 100.0
 	HealthChangeFromAttacking     = -2.0
-	HealthChangeFromBeingAttacked = -25.0
+	HealthChangeFromBeingAttacked = -50.0
 	HealthChangePerTurn           = -1.0
 	HealthChangeFromMoving        = -1.0
 	HealthChangeFromEating        = 100.0
