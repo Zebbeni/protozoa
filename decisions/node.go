@@ -13,9 +13,9 @@ type Node struct {
 	NodeType          interface{}
 	YesNode           *Node
 	NoNode            *Node
-	Metrics           map[Metric]float32
-	MetricsAvgs       map[Metric]float32
-	Uses              int
+	Metrics           map[Metric]float64
+	MetricsAvgs       map[Metric]float64
+	Uses              float64
 	NumOrganismsUsing int
 	Complexity        int
 }
@@ -32,11 +32,11 @@ func (n *Node) IsCondition() bool {
 
 // UpdateStats updates all Node Metrics according to a map of changes and
 // increments number of Uses
-func (n *Node) UpdateStats(metricsChange map[Metric]float32) {
-	n.Uses++
+func (n *Node) UpdateStats(metricsChange map[Metric]float64, useValue float64) {
+	n.Uses += useValue
 	for key, change := range metricsChange {
-		n.Metrics[key] += change
-		uses := float32(n.Uses)
+		n.Metrics[key] += change * useValue
+		uses := n.Uses
 		n.MetricsAvgs[key] = (n.MetricsAvgs[key]*(uses-1.0) + change) / uses
 	}
 }

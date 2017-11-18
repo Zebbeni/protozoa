@@ -62,14 +62,13 @@ func (nl *NodeLibrary) GetRandomNode() *Node {
 // GetBetterNodeForMetric returns the node with the best average increase for a
 // given metrics
 //
-func (nl *NodeLibrary) GetBetterNodeForMetric(metric Metric, metricAvg float32, uses int) *Node {
+func (nl *NodeLibrary) GetBetterNodeForMetric(metric Metric, metricAvg, uses float64) *Node {
 	bestNode := &Node{}
-	bestAvg := float32(-999999.0)
+	bestAvg := -999999.0
 	isEnoughUses := false
 	for _, node := range nl.Map {
-		// only accept a better average if it has been used at least as many
-		// times as the sqrt of the current algorithm's uses
-		isEnoughUses = node.Uses > MinUsesToConsiderChanging
+		// only accept a better average if it has been used
+		isEnoughUses = node.Uses >= float64(100*node.Complexity)
 		if node.MetricsAvgs[metric] > bestAvg && isEnoughUses {
 			bestAvg = node.MetricsAvgs[metric]
 			bestNode = node

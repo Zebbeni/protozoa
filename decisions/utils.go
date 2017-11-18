@@ -36,8 +36,8 @@ func isCondition(v interface{}) bool {
 }
 
 // InitializeMetricsMap returns an initialize map of each Metric type to 0
-func InitializeMetricsMap() map[Metric]float32 {
-	return map[Metric]float32{
+func InitializeMetricsMap() map[Metric]float64 {
+	return map[Metric]float64{
 		MetricHealth: 0.0,
 	}
 }

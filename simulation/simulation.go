@@ -11,7 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
-var foodColor = color.RGBA{100, 255, 100, 255}
+var foodColor = color.RGBA{100, 255, 100, 120}
 var frames = 0
 
 // Simulation contains a list of forces, particles, and drawing settings
