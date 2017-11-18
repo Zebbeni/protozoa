@@ -6,6 +6,7 @@ type Environment struct {
 	EnvironmentConfig EnvironmentConfig
 }
 
+// EnvironmentConfig contains all config settings needed for Environment
 type EnvironmentConfig struct {
 	FoodConfig            FoodConfig
 	GridWidth, GridHeight int

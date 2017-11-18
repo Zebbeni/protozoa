@@ -35,60 +35,90 @@ const (
 type Organism struct {
 	ID, Age, Children, DirX, DirY, X, Y int
 	Color                               color.RGBA
-	Direction                           float64
-	Health, AvgHealth                   float32
+	Direction, Health, AvgHealth        float64
 	State                               OrganismState
-	DecisionSequence                    d.Sequence
-	DecisionTree                        d.Node
+	NodeLibrary                         *d.NodeLibrary
+	DecisionTree                        *d.Node
+	NodesToUpdateStats                  map[*d.Node]float64
+	CountdownToChangeDecisionTree       int
+	MetricsValues                       map[d.Metric]float64
 }
 
 // OrganismConfig contains all attributes needed to set up OrganismManager
 type OrganismConfig struct {
 	NumInitialOrganisms           int
 	MaxOrganisms                  int
-	InitialHealth                 float32
-	MaxHealth                     float32
-	HealthChangePerTurn           float32
-	HealthChangeFromAttacking     float32
-	HealthChangeFromBeingAttacked float32
-	HealthChangeFromMoving        float32
-	HealthChangeFromEating        float32
-	HealthChangeFromReproducing   float32
+	InitialHealth                 float64
+	MaxHealth                     float64
+	HealthChangePerTurn           float64
+	HealthChangeFromAttacking     float64
+	HealthChangeFromBeingAttacked float64
+	HealthChangeFromMoving        float64
+	HealthChangeFromEating        float64
+	HealthChangeFromReproducing   float64
 	GridWidth, GridHeight         int
 }
 
 // NewOrganism initializes organism at with random grid location and direction
-func NewOrganism(index, x, y int, health float32) *Organism {
-	decisionSequence := d.NewRandomSequence()
-	decisionNode := d.TreeFromSequence(decisionSequence)
+func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *Organism {
+	decisionNode := nodeLibrary.GetRandomNode()
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
 	dirX := u.CalcDirXForDirection(direction)
 	dirY := u.CalcDirYForDirection(direction)
-	r := uint8(55 + rand.Intn(200))
-	g := uint8(55 + rand.Intn(200))
-	b := uint8(55 + rand.Intn(200))
-	color := color.RGBA{r, g, b, 255}
 	organism := Organism{
-		Age:              0,
-		AvgHealth:        health,
-		Health:           health,
-		Children:         0,
-		Color:            color,
-		ID:               index,
-		DecisionSequence: decisionSequence,
-		DecisionTree:     decisionNode,
-		Direction:        direction,
-		DirX:             dirX,
-		DirY:             dirY,
-		X:                x,
-		Y:                y,
+		Age:                0,
+		AvgHealth:          health,
+		Health:             health,
+		Children:           0,
+		Color:              decisionNode.Color,
+		ID:                 index,
+		DecisionTree:       decisionNode,
+		Direction:          direction,
+		DirX:               dirX,
+		DirY:               dirY,
+		X:                  x,
+		Y:                  y,
+		NodeLibrary:        nodeLibrary,
+		NodesToUpdateStats: make(map[*d.Node]float64),
+		MetricsValues: map[d.Metric]float64{
+			d.MetricHealth: 0.0,
+		},
 	}
+	organism.DecisionTree.UpdateNumOrganismsUsing(1)
 	return &organism
+}
+
+// UpdateDecisionTree either swaps its current DecisionTree with a new one
+//
+// First checks NodeLibrary for more successful DecisionTrees. If none exist,
+// creates a new DecisionTree based on the current one.
+func (o *Organism) UpdateDecisionTree() {
+	o.DecisionTree.UpdateNumOrganismsUsing(-1)
+	current := o.DecisionTree
+	best := o.NodeLibrary.GetBetterNodeForMetric(d.MetricHealth, current.MetricsAvgs[d.MetricHealth], current.Uses)
+	didMutate := false
+	if best != nil && best.ID != current.ID {
+		o.DecisionTree = best
+	} else {
+		didMutate = true
+		mutatedTree := d.MutateTree(current)
+		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+	}
+	o.DecisionTree.UpdateNumOrganismsUsing(1)
+	o.Color = o.DecisionTree.Color
+	if didMutate {
+		if best != nil {
+			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*best, 1), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
+		}
+		fmt.Printf("\nMUTATED TO:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*o.DecisionTree, 1), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
+		fmt.Printf("\nNodeLibrary Length: %d\n", len(o.NodeLibrary.Map))
+	}
 }
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	config                 OrganismConfig
+	NodeLibrary            d.NodeLibrary
 	Environment            *Environment
 	Organisms              map[int]*Organism
 	Grid                   [][]int
@@ -98,14 +128,17 @@ type OrganismManager struct {
 	BestOrganismAllTime    int
 	BestAgeAllTime         int
 	MostChildrenAllTime    int
-	BestSequence           d.Sequence
 	LastIndexAdded         int
 	LastReportedPopulation int
 }
 
 // NewOrganismManager creates all Organisms and updates grid
 func NewOrganismManager(environment *Environment, config OrganismConfig) OrganismManager {
-	organismManager := OrganismManager{Environment: environment, config: config}
+	organismManager := OrganismManager{
+		NodeLibrary: d.NewNodeLibrary(),
+		Environment: environment,
+		config:      config,
+	}
 	organismManager.Grid = make([][]int, config.GridWidth)
 	for r := 0; r < config.GridWidth; r++ {
 		organismManager.Grid[r] = make([]int, config.GridHeight)
@@ -119,7 +152,6 @@ func NewOrganismManager(environment *Environment, config OrganismConfig) Organis
 	for i := 0; i < config.NumInitialOrganisms; i++ {
 		organismManager.AddNewOrganism()
 	}
-	organismManager.BestSequence = d.NewRandomSequence()
 	organismManager.LastReportedPopulation = 0
 	return organismManager
 }
@@ -140,8 +172,6 @@ func (om *OrganismManager) Update() {
 			om.MostChildrenCurrent = o.Children
 			if o.Children > om.MostChildrenAllTime {
 				om.MostChildrenAllTime = o.Children
-				om.BestSequence = make(d.Sequence, len(o.DecisionSequence))
-				copy(om.BestSequence, o.DecisionSequence)
 				if k != om.BestOrganismAllTime {
 					isNewBest = true
 					om.BestOrganismAllTime = k
@@ -153,14 +183,27 @@ func (om *OrganismManager) Update() {
 		// om.PrintBest()
 	}
 	// om.ReportPopulation()
+	om.NodeLibrary.PruneUnusedNodes()
 }
 
-// UpdateOrganism update's an Organism's Age, runs its Action cycle, updates
+// UpdateOrganism updates an Organism's Age, runs its Action cycle, updates
 // its Health, and replaces it if its Health <= 0
 func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 	if o.Health > 0.0 {
 		o.Age++
-		om.applyAction(o, om.chooseAction(o, o.DecisionTree))
+		// TODO: Do next 2 lines in a for loop for all matrices
+		o.MetricsValues[d.MetricHealth] = o.Health
+		o.CountdownToChangeDecisionTree--
+		if o.CountdownToChangeDecisionTree <= 0 {
+			o.UpdateDecisionTree()
+			o.CountdownToChangeDecisionTree = 100 * o.DecisionTree.Complexity
+		}
+		for node, useValue := range o.NodesToUpdateStats {
+			node.UpdateStats(o.MetricsValues, useValue)
+		}
+		o.NodesToUpdateStats = make(map[*d.Node]float64)
+		action := om.chooseAction(o, o.DecisionTree, 1.0)
+		om.applyAction(o, action)
 		om.updateHealth(o)
 	} else {
 		om.removeOrganism(index)
@@ -171,6 +214,7 @@ func (om *OrganismManager) removeOrganism(index int) {
 	o := om.Organisms[index]
 	om.Grid[o.X][o.Y] = -1
 	om.Environment.CreateFood(o.X, o.Y)
+	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	delete(om.Organisms, index)
 }
 
@@ -178,9 +222,9 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 	index := om.LastIndexAdded + 1
 	x, y := om.getSpawnLocation(parent)
 	if x != -1 && y != -1 {
-		child := *NewOrganism(index, x, y, om.config.MaxHealth)
-		child.DecisionSequence = d.MutateSequence(parent.DecisionSequence)
-		child.DecisionTree = d.TreeFromSequence(child.DecisionSequence)
+		child := *NewOrganism(index, x, y, om.config.MaxHealth, &om.NodeLibrary)
+		child.NodeLibrary = &om.NodeLibrary
+		child.DecisionTree = parent.DecisionTree
 		child.Color = u.MutateColor(parent.Color)
 		child.Health = parent.Health
 		om.Grid[x][y] = index
@@ -190,6 +234,10 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 	}
 }
 
+// AddNewOrganism creates an Organism with random position.
+//
+// Checks random positions on the grid until it finds an empty one. Calls
+// NewOrganism to initialize decision tree, other random attributes.
 func (om *OrganismManager) AddNewOrganism() {
 	index := om.LastIndexAdded + 1
 	isPlaced := false
@@ -197,7 +245,7 @@ func (om *OrganismManager) AddNewOrganism() {
 		x := rand.Intn(om.config.GridWidth)
 		y := rand.Intn(om.config.GridHeight)
 		if om.isGridLocationEmpty(x, y) {
-			organism := *NewOrganism(index, x, y, om.config.MaxHealth)
+			organism := *NewOrganism(index, x, y, om.config.MaxHealth/2, &om.NodeLibrary)
 			om.Organisms[index] = &organism
 			om.Grid[x][y] = index
 			om.LastIndexAdded = index
@@ -233,17 +281,21 @@ func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
 	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1
 }
 
-// doDecisionTree recursively walks through nodes of an organism's
-// decision tree, finally applying the chosen action
-func (om *OrganismManager) chooseAction(o *Organism, tree d.Node) interface{} {
+// chooseAction walks through nodes of an organism's decision tree, eventually
+// returning the chosen action
+//
+// As chooseAction walks thorugh nodes, it also populates nodes to update metriic
+// information for the next update run, diminishing the use value with each level
+func (om *OrganismManager) chooseAction(o *Organism, tree *d.Node, useValue float64) interface{} {
+	o.NodesToUpdateStats[tree] += useValue
 	if tree.IsAction() {
 		return tree.NodeType
 	}
 	condition := tree.NodeType
 	if om.isConditionTrue(o, condition) {
-		return om.chooseAction(o, *tree.YesNode)
+		return om.chooseAction(o, tree.YesNode, useValue/2.0)
 	}
-	return om.chooseAction(o, *tree.NoNode)
+	return om.chooseAction(o, tree.NoNode, useValue/2.0)
 }
 
 func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
@@ -326,10 +378,16 @@ func (om *OrganismManager) canMove(o *Organism) bool {
 	height := om.config.GridHeight
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	if u.IsOnGrid(x, y, width, height) {
-		return !(om.Grid[x][y] != -1 || om.Environment.IsFoodAtGridLocation(x, y))
+	if !u.IsOnGrid(x, y, width, height) {
+		return false
 	}
-	return false
+	if om.Grid[x][y] > -1 {
+		return false
+	}
+	if om.Environment.IsFoodAtGridLocation(x, y) {
+		return false
+	}
+	return true
 }
 
 func (om *OrganismManager) canReproduce(o *Organism) bool {
@@ -365,8 +423,8 @@ func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 
 func (om *OrganismManager) updateHealth(o *Organism) {
 	o.Health += om.config.HealthChangePerTurn
-	o.Health = float32(math.Min(float64(o.Health), float64(om.config.MaxHealth)))
-	o.AvgHealth = (o.AvgHealth*float32(o.Age-1) + o.Health) / float32(o.Age)
+	o.Health = math.Min(o.Health, om.config.MaxHealth)
+	o.AvgHealth = (o.AvgHealth*float64(o.Age-1) + o.Health) / float64(o.Age)
 }
 
 func (om *OrganismManager) applyAttack(o *Organism) {
@@ -424,8 +482,6 @@ func (om *OrganismManager) GetOrganisms() map[int]*Organism {
 // PrintBest prints the highest current score of any Organism (and their index)
 func (om *OrganismManager) PrintBest() {
 	fmt.Printf("\nBest #%2d. Children: %d", om.BestOrganismAllTime, om.MostChildrenAllTime)
-	tree := d.TreeFromSequence(om.BestSequence)
-	fmt.Printf("\n%s", d.PrintNode(tree, 1))
 }
 
 // ReportPopulation prints the current population
