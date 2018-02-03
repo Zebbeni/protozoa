@@ -3,6 +3,8 @@ This is a experiment to simulate organisms that change their decision-making alg
 
 All organisms act according to a binary decision tree, which they mutate or switch according to whichever decision tree in use appears to have the highest success rate in maintaining good organism health.
 
+Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
+
 ## Demo
 ![Protozoa Demo](https://s3-us-west-2.amazonaws.com/andrewsrandom/Github+Media/protozoa.gif)
 
