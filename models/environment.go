@@ -20,25 +20,25 @@ func NewEnvironment(config EnvironmentConfig) Environment {
 
 // Update calls Update function for food manager
 func (e *Environment) Update() {
-	e.FoodManager.Update()
+	// TODO: make temperature or something change periodically
 }
 
-// IsFoodAtGridLocation returns current lifespan of food item at x, y
-func (e *Environment) IsFoodAtGridLocation(x, y int) bool {
-	return e.FoodManager.IsFoodAtLocation(x, y)
+// IsFoodAtPoint returns current lifespan of food item at x, y
+func (e *Environment) IsFoodAtPoint(point Point) bool {
+	return e.FoodManager.IsFoodAtPoint(point)
 }
 
 // GetFoodItems returns array of all Food Items from food manager
-func (e *Environment) GetFoodItems() []FoodItem {
+func (e *Environment) GetFoodItems() map[string]Point {
 	return e.FoodManager.GetFoodItems()
 }
 
 // RemoveFood sets a food grid value to false
-func (e *Environment) RemoveFood(x, y int) {
-	e.FoodManager.RemoveFood(x, y)
+func (e *Environment) RemoveFood(point Point) {
+	e.FoodManager.RemoveFood(point)
 }
 
-// CreateFood adds a food item on a given (x, y) grid location
-func (e *Environment) CreateFood(x, y int) {
-	e.FoodManager.AddFood(x, y)
+// AddFoodAtPoint adds a food item on a given (x, y) Point
+func (e *Environment) AddFoodAtPoint(point Point) {
+	e.FoodManager.AddFoodAtPoint(point)
 }

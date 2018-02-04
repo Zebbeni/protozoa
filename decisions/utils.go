@@ -1,7 +1,7 @@
 package decisions
 
 import (
-	"bytes"
+	"fmt"
 	"math/rand"
 
 	u "../utils"
@@ -57,6 +57,8 @@ func CopyTreeByValue(source *Node) *Node {
 		Uses:        source.Uses,
 		YesNode:     CopyTreeByValue(source.YesNode),
 		NoNode:      CopyTreeByValue(source.NoNode),
+		UsedYes:     source.UsedYes,
+		UsedNo:      source.UsedNo,
 	}
 	return &destination
 }
@@ -72,52 +74,56 @@ func MutateTree(original *Node) *Node {
 // MutateNode randomly mutates nodes of a tree
 func MutateNode(node *Node) {
 	node.Uses = 0
-	// If node is a condition and one of its children has 0 uses, try switching
-	// the condition type
 	if isCondition(node.NodeType) {
-		if node.YesNode.Uses == 0 || node.NoNode.Uses == 0 {
+		// If node is a condition and one of its paths has 0 uses, try
+		// switching the condition type
+		if !node.UsedYes || !node.UsedNo {
 			node.NodeType = GetRandomCondition()
 		} else {
-			MutateNode(node.YesNode)
-			MutateNode(node.NoNode)
+			if rand.Float64() < 0.5 {
+				MutateNode(node.YesNode)
+			} else {
+				MutateNode(node.NoNode)
+			}
 		}
 	} else {
 		if rand.Float64() < ChanceOfAddingNewSubTree {
 			originalAction := node.NodeType.(Action)
 			node.NodeType = GetRandomCondition()
+			node.UsedYes = false
+			node.UsedNo = false
+			yesNode := Node{}
+			noNode := Node{}
 			if rand.Float64() < 0.5 {
-				yesNode := TreeFromAction(originalAction)
-				noNode := TreeFromAction(GetRandomAction())
-				node.YesNode = &yesNode
-				node.NoNode = &noNode
+				yesNode = TreeFromAction(GetRandomAction())
+				noNode = TreeFromAction(originalAction)
 			} else {
-				yesNode := TreeFromAction(originalAction)
-				noNode := TreeFromAction(GetRandomAction())
-				node.YesNode = &yesNode
-				node.NoNode = &noNode
+				yesNode = TreeFromAction(originalAction)
+				noNode = TreeFromAction(GetRandomAction())
 			}
+			node.YesNode = &yesNode
+			node.NoNode = &noNode
 		} else {
 			node.NodeType = GetRandomAction()
 		}
 	}
 }
 
-// PrintNode prints node and all children showing hierarchy
-func PrintNode(node Node, spaces int) string {
-	var buffer bytes.Buffer
-	buffer.WriteString(Map[node.NodeType])
-	buffer.WriteString("\n")
-	if !isAction(node.NodeType) {
-		for i := 0; i < spaces; i++ {
-			buffer.WriteString("  ")
-		}
-		buffer.WriteString("Then: ")
-		buffer.WriteString(PrintNode(*node.YesNode, spaces+1))
-		for i := 0; i < spaces; i++ {
-			buffer.WriteString("  ")
-		}
-		buffer.WriteString("Otherwise: ")
-		buffer.WriteString(PrintNode(*node.NoNode, spaces+1))
+// Print pretty prints the node
+func (node *Node) Print(indent string, last bool) string {
+	toPrint := indent
+	newIndent := indent
+	if last {
+		toPrint = fmt.Sprintf("%s└─", toPrint)
+		newIndent = fmt.Sprintf("%s  ", newIndent)
+	} else {
+		toPrint = fmt.Sprintf("%s├─", toPrint)
+		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
-	return buffer.String()
+	toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[node.NodeType])
+	if !isAction(node.NodeType) {
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false))
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, true))
+	}
+	return toPrint
 }

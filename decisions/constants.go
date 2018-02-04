@@ -51,7 +51,7 @@ var (
 		IsOrganismLeft:  "If Organism Left",
 		IsOrganismRight: "If Organism Right",
 	}
-	ChanceOfAddingNewSubTree  = 0.8
+	ChanceOfAddingNewSubTree  = 0.5
 	MinUsesToConsiderChanging = 100
 	// NodeLibrary constants
 	UsesToConsiderPruningMultiplier = 100

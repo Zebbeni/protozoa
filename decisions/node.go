@@ -18,6 +18,7 @@ type Node struct {
 	Uses              float64
 	NumOrganismsUsing int
 	Complexity        int
+	UsedYes, UsedNo   bool
 }
 
 // IsAction returns true if Node's type is Action (false if Condition)
@@ -32,10 +33,10 @@ func (n *Node) IsCondition() bool {
 
 // UpdateStats updates all Node Metrics according to a map of changes and
 // increments number of Uses
-func (n *Node) UpdateStats(metricsChange map[Metric]float64, useValue float64) {
-	n.Uses += useValue
+func (n *Node) UpdateStats(metricsChange map[Metric]float64) {
+	n.Uses++
 	for key, change := range metricsChange {
-		n.Metrics[key] += change * useValue
+		n.Metrics[key] += change
 		uses := n.Uses
 		n.MetricsAvgs[key] = (n.MetricsAvgs[key]*(uses-1.0) + change) / uses
 	}
@@ -76,6 +77,8 @@ func TreeFromAction(action Action) Node {
 		Uses:     0,
 		YesNode:  nil,
 		NoNode:   nil,
+		UsedYes:  false,
+		UsedNo:   false,
 	}
 	node.Metrics = InitializeMetricsMap()
 	node.MetricsAvgs = InitializeMetricsMap()

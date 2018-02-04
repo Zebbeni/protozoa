@@ -30,7 +30,7 @@ func (w *World) Update() {
 }
 
 // GetFoodItems returns an array of all food items in grid
-func (w *World) GetFoodItems() []m.FoodItem {
+func (w *World) GetFoodItems() map[string]m.Point {
 	return w.Environment.GetFoodItems()
 }
 

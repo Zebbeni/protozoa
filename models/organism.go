@@ -39,7 +39,7 @@ type Organism struct {
 	State                               OrganismState
 	NodeLibrary                         *d.NodeLibrary
 	DecisionTree                        *d.Node
-	NodesToUpdateStats                  map[*d.Node]float64
+	NodeToUpdateStats                   *d.Node
 	CountdownToChangeDecisionTree       int
 	MetricsValues                       map[d.Metric]float64
 }
@@ -66,20 +66,20 @@ func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *O
 	dirX := u.CalcDirXForDirection(direction)
 	dirY := u.CalcDirYForDirection(direction)
 	organism := Organism{
-		Age:                0,
-		AvgHealth:          health,
-		Health:             health,
-		Children:           0,
-		Color:              decisionNode.Color,
-		ID:                 index,
-		DecisionTree:       decisionNode,
-		Direction:          direction,
-		DirX:               dirX,
-		DirY:               dirY,
-		X:                  x,
-		Y:                  y,
-		NodeLibrary:        nodeLibrary,
-		NodesToUpdateStats: make(map[*d.Node]float64),
+		Age:               0,
+		AvgHealth:         health,
+		Health:            health,
+		Children:          0,
+		Color:             decisionNode.Color,
+		ID:                index,
+		DecisionTree:      decisionNode,
+		Direction:         direction,
+		DirX:              dirX,
+		DirY:              dirY,
+		X:                 x,
+		Y:                 y,
+		NodeLibrary:       nodeLibrary,
+		NodeToUpdateStats: decisionNode,
 		MetricsValues: map[d.Metric]float64{
 			d.MetricHealth: 0.0,
 		},
@@ -90,12 +90,12 @@ func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *O
 
 // UpdateDecisionTree either swaps its current DecisionTree with a new one
 //
-// First checks NodeLibrary for more successful DecisionTrees. If none exist,
-// creates a new DecisionTree based on the current one.
-func (o *Organism) UpdateDecisionTree() {
+// If already using the best node for the sought metric, mutates its existing
+// algorithm
+func (o *Organism) UpdateDecisionTree(bestNodesForMetrics map[d.Metric]*d.Node) {
 	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	current := o.DecisionTree
-	best := o.NodeLibrary.GetBetterNodeForMetric(d.MetricHealth, current.MetricsAvgs[d.MetricHealth], current.Uses)
+	best := bestNodesForMetrics[d.MetricHealth]
 	didMutate := false
 	if best != nil && best.ID != current.ID {
 		o.DecisionTree = best
@@ -108,9 +108,9 @@ func (o *Organism) UpdateDecisionTree() {
 	o.Color = o.DecisionTree.Color
 	if didMutate {
 		if best != nil {
-			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*best, 1), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
+			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", best.Print("", true), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
 		}
-		fmt.Printf("\nMUTATED TO:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", d.PrintNode(*o.DecisionTree, 1), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
+		fmt.Printf("\nMUTATED TO:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", o.DecisionTree.Print("", true), o.DecisionTree.MetricsAvgs[d.MetricHealth], o.DecisionTree.Metrics[d.MetricHealth], o.DecisionTree.Uses)
 		fmt.Printf("\nNodeLibrary Length: %d\n", len(o.NodeLibrary.Map))
 	}
 }
@@ -119,6 +119,7 @@ func (o *Organism) UpdateDecisionTree() {
 type OrganismManager struct {
 	config                 OrganismConfig
 	NodeLibrary            d.NodeLibrary
+	BestNodesForMetrics    map[d.Metric]*d.Node
 	Environment            *Environment
 	Organisms              map[int]*Organism
 	Grid                   [][]int
@@ -162,9 +163,10 @@ func (om *OrganismManager) Update() {
 	isNewBest := false
 	om.MostChildrenCurrent = 0
 	// Periodically add new random organisms if population below a certain amount
-	if len(om.Organisms) < om.config.MaxOrganisms/4 {
+	if len(om.Organisms) < om.config.MaxOrganisms/10 {
 		om.AddNewOrganism()
 	}
+	om.BestNodesForMetrics = om.NodeLibrary.GetBestNodesForMetrics()
 	for k, o := range om.Organisms {
 		om.updateOrganism(k, om.Organisms[k])
 		if o.Children > om.MostChildrenCurrent {
@@ -182,7 +184,6 @@ func (om *OrganismManager) Update() {
 	if isNewBest {
 		// om.PrintBest()
 	}
-	// om.ReportPopulation()
 	om.NodeLibrary.PruneUnusedNodes()
 }
 
@@ -191,18 +192,19 @@ func (om *OrganismManager) Update() {
 func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 	if o.Health > 0.0 {
 		o.Age++
+		// if o.Age%c.AgeToSpawn == 0 {
+		// 	om.spawnNewOrganism(o)
+		// }
 		// TODO: Do next 2 lines in a for loop for all matrices
 		o.MetricsValues[d.MetricHealth] = o.Health
 		o.CountdownToChangeDecisionTree--
 		if o.CountdownToChangeDecisionTree <= 0 {
-			o.UpdateDecisionTree()
-			o.CountdownToChangeDecisionTree = 100 * o.DecisionTree.Complexity
+			o.UpdateDecisionTree(om.BestNodesForMetrics)
+			o.CountdownToChangeDecisionTree = rand.Intn(200) * o.DecisionTree.Complexity
 		}
-		for node, useValue := range o.NodesToUpdateStats {
-			node.UpdateStats(o.MetricsValues, useValue)
-		}
-		o.NodesToUpdateStats = make(map[*d.Node]float64)
-		action := om.chooseAction(o, o.DecisionTree, 1.0)
+		o.NodeToUpdateStats.UpdateStats(o.MetricsValues)
+		o.NodeToUpdateStats = o.DecisionTree
+		action := om.chooseAction(o, o.DecisionTree)
 		om.applyAction(o, action)
 		om.updateHealth(o)
 	} else {
@@ -213,7 +215,7 @@ func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 func (om *OrganismManager) removeOrganism(index int) {
 	o := om.Organisms[index]
 	om.Grid[o.X][o.Y] = -1
-	om.Environment.CreateFood(o.X, o.Y)
+	om.Environment.AddFoodAtPoint(Point{X: o.X, Y: o.Y})
 	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	delete(om.Organisms, index)
 }
@@ -223,9 +225,11 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 	x, y := om.getSpawnLocation(parent)
 	if x != -1 && y != -1 {
 		child := *NewOrganism(index, x, y, om.config.MaxHealth, &om.NodeLibrary)
+		child.Age = 0
 		child.NodeLibrary = &om.NodeLibrary
 		child.DecisionTree = parent.DecisionTree
-		child.Color = u.MutateColor(parent.Color)
+		child.NodeToUpdateStats = parent.NodeToUpdateStats
+		child.Color = parent.DecisionTree.Color
 		child.Health = parent.Health
 		om.Grid[x][y] = index
 		om.Organisms[index] = &child
@@ -272,7 +276,7 @@ func (om *OrganismManager) getSpawnLocation(parent *Organism) (x, y int) {
 func (om *OrganismManager) isGridLocationEmpty(x, y int) bool {
 	width := om.config.GridWidth
 	height := om.config.GridHeight
-	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtGridLocation(x, y)
+	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtPoint(Point{X: x, Y: y})
 }
 
 func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
@@ -286,16 +290,17 @@ func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
 //
 // As chooseAction walks thorugh nodes, it also populates nodes to update metriic
 // information for the next update run, diminishing the use value with each level
-func (om *OrganismManager) chooseAction(o *Organism, tree *d.Node, useValue float64) interface{} {
-	o.NodesToUpdateStats[tree] += useValue
+func (om *OrganismManager) chooseAction(o *Organism, tree *d.Node) interface{} {
 	if tree.IsAction() {
 		return tree.NodeType
 	}
 	condition := tree.NodeType
 	if om.isConditionTrue(o, condition) {
-		return om.chooseAction(o, tree.YesNode, useValue/2.0)
+		tree.UsedYes = true
+		return om.chooseAction(o, tree.YesNode)
 	}
-	return om.chooseAction(o, tree.NoNode, useValue/2.0)
+	tree.UsedNo = true
+	return om.chooseAction(o, tree.NoNode)
 }
 
 func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
@@ -333,7 +338,7 @@ func (om *OrganismManager) getOrganismAt(x, y int) *Organism {
 func (om *OrganismManager) isFoodAhead(o *Organism) bool {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	if om.Environment.IsFoodAtGridLocation(x, y) {
+	if om.Environment.IsFoodAtPoint(Point{X: x, Y: y}) {
 		return true
 	}
 	return false
@@ -343,14 +348,14 @@ func (om *OrganismManager) isFoodLeft(o *Organism) bool {
 	direction := o.Direction + LeftTurnAngle
 	x := o.X + u.CalcDirXForDirection(direction)
 	y := o.Y + u.CalcDirYForDirection(direction)
-	return om.Environment.IsFoodAtGridLocation(x, y)
+	return om.Environment.IsFoodAtPoint(Point{X: x, Y: y})
 }
 
 func (om *OrganismManager) isFoodRight(o *Organism) bool {
 	direction := o.Direction + RightTurnAngle
 	x := o.X + u.CalcDirXForDirection(direction)
 	y := o.Y + u.CalcDirYForDirection(direction)
-	return om.Environment.IsFoodAtGridLocation(x, y)
+	return om.Environment.IsFoodAtPoint(Point{X: x, Y: y})
 }
 
 func (om *OrganismManager) isOrganismAhead(o *Organism) bool {
@@ -384,7 +389,7 @@ func (om *OrganismManager) canMove(o *Organism) bool {
 	if om.Grid[x][y] > -1 {
 		return false
 	}
-	if om.Environment.IsFoodAtGridLocation(x, y) {
+	if om.Environment.IsFoodAtPoint(Point{X: x, Y: y}) {
 		return false
 	}
 	return true
@@ -442,8 +447,8 @@ func (om *OrganismManager) applyAttack(o *Organism) {
 func (om *OrganismManager) applyEat(o *Organism) {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	if om.Environment.IsFoodAtGridLocation(x, y) {
-		om.Environment.RemoveFood(x, y)
+	if om.Environment.IsFoodAtPoint(Point{X: x, Y: y}) {
+		om.Environment.RemoveFood(Point{X: x, Y: y})
 		o.Health += om.config.HealthChangeFromEating
 	}
 	o.State = StateEating
@@ -482,18 +487,4 @@ func (om *OrganismManager) GetOrganisms() map[int]*Organism {
 // PrintBest prints the highest current score of any Organism (and their index)
 func (om *OrganismManager) PrintBest() {
 	fmt.Printf("\nBest #%2d. Children: %d", om.BestOrganismAllTime, om.MostChildrenAllTime)
-}
-
-// ReportPopulation prints the current population
-func (om *OrganismManager) ReportPopulation() {
-	currentPopulation := len(om.Organisms)
-	difference := currentPopulation - om.LastReportedPopulation
-	if math.Abs(float64(difference)) > c.PopulationDifferenceToReport {
-		if difference < 0 {
-			fmt.Printf("\nPopulation at %d, down %d\n", currentPopulation, difference)
-		} else {
-			fmt.Printf("\nPopulation at %d, up %d\n", currentPopulation, difference)
-		}
-		om.LastReportedPopulation = currentPopulation
-	}
 }
