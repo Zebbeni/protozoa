@@ -1,7 +1,7 @@
 package world
 
 import (
-	m "../models"
+	m "github.com/Zebbeni/protozoa/models"
 )
 
 // World contains all attributes defining the current simulation environment

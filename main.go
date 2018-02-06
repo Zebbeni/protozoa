@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"time"
 
-	c "./constants"
-	s "./simulation"
+	c "github.com/Zebbeni/protozoa/constants"
+	s "github.com/Zebbeni/protozoa/simulation"
 
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"

@@ -6,9 +6,9 @@ import (
 	"math"
 	"math/rand"
 
-	c "../constants"
-	d "../decisions"
-	u "../utils"
+	c "github.com/Zebbeni/protozoa/constants"
+	d "github.com/Zebbeni/protozoa/decisions"
+	u "github.com/Zebbeni/protozoa/utils"
 )
 
 // OrganismState defines type of action Organism is doing
