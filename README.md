@@ -6,7 +6,8 @@ All organisms act according to a binary decision tree, which they mutate or swit
 Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Demo
-![Protozoa Demo](https://s3-us-west-2.amazonaws.com/andrewsrandom/Github+Media/protozoa.gif)
+![Protozoa Demo](https://s3-us-west-2.amazonaws.com/andrewsrandom/Github+Media/protozoa_2.gif)
+
 
 ## Simulation rules
 
