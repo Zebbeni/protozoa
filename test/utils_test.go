@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"testing"
 
-	d "../decisions"
-	u "../utils"
+	d "github.com/Zebbeni/protozoa/decisions"
+	u "github.com/Zebbeni/protozoa/utils"
 )
 
 func TestCalculateDirectionVectors(t *testing.T) {

@@ -1,10 +1,10 @@
 package test
 
 import (
-	c "../constants"
-	m "../models"
-	s "../simulation"
-	w "../world"
+	c "github.com/Zebbeni/protozoa/constants"
+	m "github.com/Zebbeni/protozoa/models"
+	s "github.com/Zebbeni/protozoa/simulation"
+	w "github.com/Zebbeni/protozoa/world"
 )
 
 // define configs to create a simple 5 x 5 simulation

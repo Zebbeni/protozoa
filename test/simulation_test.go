@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	s "../simulation"
+	s "github.com/Zebbeni/protozoa/simulation"
 )
 
 func TestSimulateOneCycle(t *testing.T) {
