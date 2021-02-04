@@ -1,6 +1,7 @@
 package test
 
 import (
+	"image/color"
 	"math"
 	"math/rand"
 	"testing"
@@ -90,7 +91,7 @@ func TestRegisterNewNode(t *testing.T) {
 	nodeLibrary.RegisterAndReturnNewNode(mutated)
 	mutatedNode, ok := nodeLibrary.Map[expectedID]
 	if !ok {
-		t.Errorf("Mutated Node not found after registering with expected ID: %s", expectedID)
+		t.Errorf("Mutated Node with with expected ID %s not found after registering", expectedID)
 	} else {
 		assert.Equal(t, expectedPrint, mutatedNode.Print("", false))
 	}
@@ -104,4 +105,15 @@ func TestCloneNodeLibrary(t *testing.T) {
 		_, ok := clonedLibrary.Map[id]
 		assert.True(t, ok, "Expected NodeID %s not found in cloned NodeLibrary", id)
 	}
+}
+
+func TestMutateColor(t *testing.T) {
+	rand.Seed(0)
+	color := color.RGBA{100, 150, 200, 255}
+	expectedR, expectedG, expectedB, expectedA := 100, 150, 200, 255
+	mutatedR, mutatedG, mutatedB, mutatedA := u.MutateColor(color).RGBA()
+	assert.Equal(t, int(expectedR), int(mutatedR))
+	assert.Equal(t, int(expectedG), int(mutatedG))
+	assert.Equal(t, int(expectedB), int(mutatedB))
+	assert.Equal(t, int(expectedA), int(mutatedA))
 }

@@ -15,17 +15,17 @@ const (
 	MaxFoodLifespan = 600
 
 	// Organism constants
-	AgeToSpawn                    = 300
+	SpawnFrequency                = 0.001
 	NumInitialOrganisms           = 10
-	MaxOrganismsAllowed           = 5000
+	MaxOrganismsAllowed           = 10
 	InitialHealth                 = 100.0
 	MaxHealth                     = 100.0
-	HealthChangeFromAttacking     = -2.0
+	StartingHealth                = 50.0
+	HealthChangeFromAttacking     = -1.0
 	HealthChangeFromBeingAttacked = -50.0
-	HealthChangePerTurn           = -1.0
-	HealthChangeFromMoving        = -1.0
+	HealthChangePerTurn           = -0.2
+	HealthChangeFromMoving        = -0.3
 	HealthChangeFromEating        = 100.0
-	HealthChangeFromReproducing   = -25.0
 
 	// Decision Tree constants
 	MaxNodes          = 30

@@ -3,8 +3,6 @@ package decisions
 import (
 	"fmt"
 	"math/rand"
-
-	u "github.com/Zebbeni/protozoa/utils"
 )
 
 // GetRandomCondition returns a random Condition from the Conditions array
@@ -50,7 +48,6 @@ func CopyTreeByValue(source *Node) *Node {
 	}
 	destination := Node{
 		ID:          source.ID,
-		Color:       u.MutateColor(source.Color),
 		NodeType:    source.NodeType,
 		Metrics:     InitializeMetricsMap(),
 		MetricsAvgs: InitializeMetricsMap(),

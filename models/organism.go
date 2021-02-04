@@ -34,7 +34,7 @@ const (
 // - algorithm (func)
 type Organism struct {
 	ID, Age, Children, DirX, DirY, X, Y int
-	Color                               color.RGBA
+	Color                               color.Color
 	Direction, Health, AvgHealth        float64
 	State                               OrganismState
 	NodeLibrary                         *d.NodeLibrary
@@ -60,18 +60,45 @@ type OrganismConfig struct {
 }
 
 // NewRandomOrganism initializes organism at with random grid location and direction
-func NewRandomOrganism(index, x, y int, health float64) *Organism {
+func NewRandomOrganism(index, x, y int) *Organism {
 	nodeLibrary := d.NewNodeLibrary()
 	decisionNode := nodeLibrary.GetRandomNode()
-	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
-	dirX := u.CalcDirXForDirection(direction)
-	dirY := u.CalcDirYForDirection(direction)
+	direction, dirX, dirY := u.GetRandomDirection()
+	color := u.GetRandomColor()
 	organism := Organism{
 		Age:               0,
-		AvgHealth:         health,
-		Health:            health,
+		AvgHealth:         c.StartingHealth,
+		Health:            c.StartingHealth,
 		Children:          0,
-		Color:             decisionNode.Color,
+		Color:             color,
+		ID:                index,
+		DecisionTree:      decisionNode,
+		Direction:         direction,
+		DirX:              dirX,
+		DirY:              dirY,
+		X:                 x,
+		Y:                 y,
+		NodeLibrary:       nodeLibrary,
+		NodeToUpdateStats: decisionNode,
+		MetricsValues: map[d.Metric]float64{
+			d.MetricHealth: 0.0,
+		},
+	}
+	return &organism
+}
+
+// NewChildOrganism initializes and returns a new organism with a copied NodeLibrary from its parent
+func NewChildOrganism(index, x, y int, parent *Organism) *Organism {
+	nodeLibrary := parent.NodeLibrary.Clone()
+	decisionNode := nodeLibrary.GetRandomNode()
+	direction, dirX, dirY := u.GetRandomDirection()
+	color := u.MutateColor(parent.Color)
+	organism := Organism{
+		Age:               0,
+		AvgHealth:         c.StartingHealth,
+		Health:            c.StartingHealth,
+		Children:          0,
+		Color:             color,
 		ID:                index,
 		DecisionTree:      decisionNode,
 		Direction:         direction,
@@ -103,7 +130,6 @@ func (o *Organism) UpdateDecisionTree(bestNodesForMetrics map[d.Metric]*d.Node) 
 		mutatedTree := d.MutateTree(current)
 		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
 	}
-	o.Color = o.DecisionTree.Color
 	if didMutate {
 		if best != nil {
 			fmt.Printf("\nBEST:\n%sAVG:%f\nTOTAL: %f\nUSES: %f\n", best.Print("", true), best.MetricsAvgs[d.MetricHealth], best.Metrics[d.MetricHealth], best.Uses)
@@ -188,9 +214,9 @@ func (om *OrganismManager) Update() {
 func (om *OrganismManager) updateOrganism(index int, o *Organism) {
 	if o.Health > 0.0 {
 		o.Age++
-		// if o.Age%c.AgeToSpawn == 0 {
-		// 	om.spawnNewOrganism(o)
-		// }
+		if rand.Float32() < c.SpawnFrequency {
+			om.SpawnChildOrganism(o)
+		}
 		// TODO: Do next 2 lines in a for loop for all matrices
 		o.MetricsValues[d.MetricHealth] = o.Health
 		o.CountdownToChangeDecisionTree--
@@ -215,45 +241,44 @@ func (om *OrganismManager) removeOrganism(index int) {
 	delete(om.Organisms, index)
 }
 
-func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
-	index := om.LastIndexAdded + 1
-	x, y := om.getSpawnLocation(parent)
-	if x != -1 && y != -1 {
-		child := *NewRandomOrganism(index, x, y, om.config.MaxHealth)
-		child.Age = 0
-		child.NodeLibrary = &om.NodeLibrary
-		child.DecisionTree = parent.DecisionTree
-		child.NodeToUpdateStats = parent.NodeToUpdateStats
-		child.Color = parent.DecisionTree.Color
-		child.Health = parent.Health
-		om.Grid[x][y] = index
-		om.Organisms[index] = &child
-		om.LastIndexAdded = index
-		parent.Children++
-	}
-}
-
 // SpawnRandomOrganism creates an Organism with random position.
 //
 // Checks random positions on the grid until it finds an empty one. Calls
 // NewOrganism to initialize decision tree, other random attributes.
 func (om *OrganismManager) SpawnRandomOrganism() {
 	index := om.LastIndexAdded + 1
-	isPlaced := false
-	for isPlaced == false {
-		x := rand.Intn(om.config.GridWidth)
-		y := rand.Intn(om.config.GridHeight)
-		if om.isGridLocationEmpty(x, y) {
-			organism := *NewRandomOrganism(index, x, y, om.config.MaxHealth/2)
-			om.Organisms[index] = &organism
-			om.Grid[x][y] = index
-			om.LastIndexAdded = index
-			isPlaced = true
-		}
+	x, y := om.getRandomSpawnLocation()
+	organism := NewRandomOrganism(index, x, y)
+	om.registerNewOrganism(organism, index)
+}
+
+// SpawnChildOrganism creates a new organism near an existing 'parent' organism
+// with a copy of its parent's node library. (No organism created if no room)
+func (om *OrganismManager) SpawnChildOrganism(parent *Organism) {
+	index := om.LastIndexAdded + 1
+	if x, y, found := om.getChildSpawnLocation(parent); found {
+		organism := NewChildOrganism(index, x, y, parent)
+		om.registerNewOrganism(organism, index)
 	}
 }
 
-func (om *OrganismManager) getSpawnLocation(parent *Organism) (x, y int) {
+func (om *OrganismManager) registerNewOrganism(organism *Organism, index int) {
+	om.Organisms[index] = organism
+	om.Grid[organism.X][organism.Y] = index
+	om.LastIndexAdded = index
+}
+
+func (om *OrganismManager) getRandomSpawnLocation() (int, int) {
+	x := rand.Intn(om.config.GridWidth)
+	y := rand.Intn(om.config.GridHeight)
+	for !om.isGridLocationEmpty(x, y) {
+		x = rand.Intn(om.config.GridWidth)
+		y = rand.Intn(om.config.GridHeight)
+	}
+	return x, y
+}
+
+func (om *OrganismManager) getChildSpawnLocation(parent *Organism) (int, int, bool) {
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
 	for i := 0; i < 4; i++ {
 		dirX := u.CalcDirXForDirection(direction)
@@ -261,11 +286,11 @@ func (om *OrganismManager) getSpawnLocation(parent *Organism) (x, y int) {
 		x := parent.X + dirX
 		y := parent.Y + dirY
 		if om.isGridLocationEmpty(x, y) {
-			return x, y
+			return x, y, true
 		}
 		direction += LeftTurnAngle
 	}
-	return -1, -1
+	return -1, -1, false
 }
 
 func (om *OrganismManager) isGridLocationEmpty(x, y int) bool {
@@ -394,13 +419,6 @@ func (om *OrganismManager) canMove(o *Organism) bool {
 	return true
 }
 
-func (om *OrganismManager) canReproduce(o *Organism) bool {
-	if o.Health+om.config.HealthChangeFromReproducing < 0 {
-		return false
-	}
-	return len(om.Organisms) < om.config.MaxOrganisms
-}
-
 func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 	o.State = StateIdle // default to idle so other functions don't need to
 	switch action {
@@ -459,14 +477,6 @@ func (om *OrganismManager) applyMove(o *Organism) {
 	}
 	o.Health += om.config.HealthChangeFromMoving
 	o.State = StateMoving
-}
-
-func (om *OrganismManager) applyReproduce(o *Organism) {
-	if om.canReproduce(o) {
-		om.spawnNewOrganism(o)
-	}
-	o.Health += om.config.HealthChangeFromReproducing
-	o.State = StateReproducing
 }
 
 func (om *OrganismManager) applyTurn(o *Organism, directionChange float64) {

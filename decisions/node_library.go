@@ -1,10 +1,5 @@
 package decisions
 
-import (
-	"image/color"
-	"math/rand"
-)
-
 // NodeLibrary contains a map of Node pointers to aggregated data for each node
 type NodeLibrary struct {
 	Map map[string]*Node
@@ -54,10 +49,6 @@ func (nl *NodeLibrary) RegisterAndReturnNewNode(node *Node) *Node {
 	} else {
 		node.Complexity = 1
 	}
-	r := uint8(55 + rand.Intn(200))
-	g := uint8(55 + rand.Intn(200))
-	b := uint8(55 + rand.Intn(200))
-	node.Color = color.RGBA{r, g, b, 255}
 	nl.Map[node.ID] = node
 	return node
 }
@@ -103,7 +94,7 @@ func (nl *NodeLibrary) PruneUnusedNodes() {
 		nodesToRemove := len(nl.Map) - MaxNodesAllowed
 		nodesRemoved := 0
 		for key, node := range nl.Map {
-			if node.NumOrganismsUsing <= 0 {
+			if node.Uses <= 0 {
 				delete(nl.Map, key)
 				nodesRemoved++
 				if nodesRemoved >= nodesToRemove {

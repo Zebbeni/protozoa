@@ -42,7 +42,6 @@ func DefaultConfig() Config {
 		HealthChangeFromBeingAttacked: c.HealthChangeFromBeingAttacked,
 		HealthChangeFromMoving:        c.HealthChangeFromMoving,
 		HealthChangeFromEating:        c.HealthChangeFromEating,
-		HealthChangeFromReproducing:   c.HealthChangeFromReproducing,
 		GridWidth:                     c.GridWidth,
 		GridHeight:                    c.GridHeight,
 	}
