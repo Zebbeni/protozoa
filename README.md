@@ -37,8 +37,18 @@ Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
 
 # Setup
 ```
-go get github.com/hajimehoshi/ebiten/...
+go get
 go run main.go
+```
+
+# Run Headless
+- Single trial:
+```
+go run main.go -headless
+```
+- Multiple trials:
+```
+go run main.go -headless -trials=10
 ```
 
 # Test

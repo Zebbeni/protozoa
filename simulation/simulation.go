@@ -19,12 +19,13 @@ type Simulation struct {
 	world w.World
 }
 
-// SimulationConfig contains all attributes needed to create a Simulation
-type SimulationConfig struct {
+// Config contains all attributes needed to create a Simulation
+type Config struct {
 	WorldConfig w.WorldConfig
 }
 
-func DefaultSimulationConfig() SimulationConfig {
+// DefaultConfig returns a Simulation Config with values defined in the configs file.
+func DefaultConfig() Config {
 	foodConfig := m.FoodConfig{
 		MinFood:    c.MinFood,
 		MaxFood:    c.MaxFood,
@@ -52,14 +53,14 @@ func DefaultSimulationConfig() SimulationConfig {
 		EnvironmentConfig: environmentConfig,
 		OrganismConfig:    organismConfig,
 	}
-	config := SimulationConfig{
+	config := Config{
 		WorldConfig: worldConfig,
 	}
 	return config
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation(config SimulationConfig) Simulation {
+func NewSimulation(config Config) Simulation {
 	world := w.NewWorld(config.WorldConfig)
 	simulation := Simulation{world: world}
 	return simulation
@@ -81,12 +82,13 @@ func (s *Simulation) IsDone() bool {
 		return true
 	}
 	if len(s.world.GetOrganisms()) <= 0 {
-		fmt.Printf("\nSimulation ended. All organisms dead.", frames)
+		fmt.Print("\nSimulation ended. All organisms dead.", frames)
 		return true
 	}
 	return false
 }
 
+// GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
 	return len(s.world.GetOrganisms())
 }

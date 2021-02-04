@@ -40,20 +40,19 @@ func update(screen *ebiten.Image) error {
 	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d",
 		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms())
 	ebitenutil.DebugPrint(screen, infoString)
-	// if simulation.IsDone() {
-	// 	return errors.New("Simulation complete")
-	// }
 	return nil
 }
 
 func main() {
 	rand.Seed(1)
 
-	isHeadless := flag.Bool("headless", false, "Run simulation without visualising")
+	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
+	trials := flag.Int("trials", 1, "Number of trials to run")
 	flag.Parse()
 
+	numTrials := *trials
+
 	if *isHeadless {
-		numTrials := 10
 		sumCycles := 0
 		for count := 0; count < numTrials; count++ {
 			config := s.DefaultSimulationConfig()
