@@ -11,7 +11,7 @@ type NodeLibrary struct {
 }
 
 // NewNodeLibrary creates a new *NodeLibrary, initialized with single Actions
-func NewNodeLibrary() NodeLibrary {
+func NewNodeLibrary() *NodeLibrary {
 	nodeLibrary := NodeLibrary{
 		Map: make(map[string]*Node),
 	}
@@ -19,7 +19,20 @@ func NewNodeLibrary() NodeLibrary {
 		node := TreeFromAction(a)
 		nodeLibrary.RegisterAndReturnNewNode(&node)
 	}
-	return nodeLibrary
+	return &nodeLibrary
+}
+
+// Clone returns a new NodeLibrary with all decision trees from original
+// with metrics set to 0
+func (nl *NodeLibrary) Clone() *NodeLibrary {
+	newLibrary := &NodeLibrary{
+		Map: make(map[string]*Node),
+	}
+	for _, node := range nl.Map {
+		newNode := CopyTreeByValue(node)
+		newLibrary.RegisterAndReturnNewNode(newNode)
+	}
+	return newLibrary
 }
 
 // RegisterAndReturnNewNode checks if a Node already exists in the library,

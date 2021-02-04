@@ -26,7 +26,7 @@ const (
 	RightTurnAngle = -1.0 * (math.Pi / 2.0)
 )
 
-// Organism has stuff
+// Organism contains:
 // - location (X, Y)
 // - direction (angle, x & y vectors)
 // - current action (Action)
@@ -59,8 +59,9 @@ type OrganismConfig struct {
 	GridWidth, GridHeight         int
 }
 
-// NewOrganism initializes organism at with random grid location and direction
-func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *Organism {
+// NewRandomOrganism initializes organism at with random grid location and direction
+func NewRandomOrganism(index, x, y int, health float64) *Organism {
+	nodeLibrary := d.NewNodeLibrary()
 	decisionNode := nodeLibrary.GetRandomNode()
 	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
 	dirX := u.CalcDirXForDirection(direction)
@@ -84,7 +85,6 @@ func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *O
 			d.MetricHealth: 0.0,
 		},
 	}
-	organism.DecisionTree.UpdateNumOrganismsUsing(1)
 	return &organism
 }
 
@@ -93,7 +93,6 @@ func NewOrganism(index, x, y int, health float64, nodeLibrary *d.NodeLibrary) *O
 // If already using the best node for the sought metric, mutates its existing
 // algorithm
 func (o *Organism) UpdateDecisionTree(bestNodesForMetrics map[d.Metric]*d.Node) {
-	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	current := o.DecisionTree
 	best := bestNodesForMetrics[d.MetricHealth]
 	didMutate := false
@@ -104,7 +103,6 @@ func (o *Organism) UpdateDecisionTree(bestNodesForMetrics map[d.Metric]*d.Node) 
 		mutatedTree := d.MutateTree(current)
 		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
 	}
-	o.DecisionTree.UpdateNumOrganismsUsing(1)
 	o.Color = o.DecisionTree.Color
 	if didMutate {
 		if best != nil {
@@ -136,7 +134,6 @@ type OrganismManager struct {
 // NewOrganismManager creates all Organisms and updates grid
 func NewOrganismManager(environment *Environment, config OrganismConfig) OrganismManager {
 	organismManager := OrganismManager{
-		NodeLibrary: d.NewNodeLibrary(),
 		Environment: environment,
 		config:      config,
 	}
@@ -151,7 +148,7 @@ func NewOrganismManager(environment *Environment, config OrganismConfig) Organis
 	}
 	organismManager.Organisms = make(map[int]*Organism)
 	for i := 0; i < config.NumInitialOrganisms; i++ {
-		organismManager.AddNewOrganism()
+		organismManager.SpawnRandomOrganism()
 	}
 	organismManager.LastReportedPopulation = 0
 	return organismManager
@@ -164,7 +161,7 @@ func (om *OrganismManager) Update() {
 	om.MostChildrenCurrent = 0
 	// Periodically add new random organisms if population below a certain amount
 	if len(om.Organisms) < om.config.MaxOrganisms/10 {
-		om.AddNewOrganism()
+		om.SpawnRandomOrganism()
 	}
 	om.BestNodesForMetrics = om.NodeLibrary.GetBestNodesForMetrics()
 	for k, o := range om.Organisms {
@@ -184,7 +181,6 @@ func (om *OrganismManager) Update() {
 	if isNewBest {
 		// om.PrintBest()
 	}
-	om.NodeLibrary.PruneUnusedNodes()
 }
 
 // UpdateOrganism updates an Organism's Age, runs its Action cycle, updates
@@ -216,7 +212,6 @@ func (om *OrganismManager) removeOrganism(index int) {
 	o := om.Organisms[index]
 	om.Grid[o.X][o.Y] = -1
 	om.Environment.AddFoodAtPoint(Point{X: o.X, Y: o.Y})
-	o.DecisionTree.UpdateNumOrganismsUsing(-1)
 	delete(om.Organisms, index)
 }
 
@@ -224,7 +219,7 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 	index := om.LastIndexAdded + 1
 	x, y := om.getSpawnLocation(parent)
 	if x != -1 && y != -1 {
-		child := *NewOrganism(index, x, y, om.config.MaxHealth, &om.NodeLibrary)
+		child := *NewRandomOrganism(index, x, y, om.config.MaxHealth)
 		child.Age = 0
 		child.NodeLibrary = &om.NodeLibrary
 		child.DecisionTree = parent.DecisionTree
@@ -238,18 +233,18 @@ func (om *OrganismManager) spawnNewOrganism(parent *Organism) {
 	}
 }
 
-// AddNewOrganism creates an Organism with random position.
+// SpawnRandomOrganism creates an Organism with random position.
 //
 // Checks random positions on the grid until it finds an empty one. Calls
 // NewOrganism to initialize decision tree, other random attributes.
-func (om *OrganismManager) AddNewOrganism() {
+func (om *OrganismManager) SpawnRandomOrganism() {
 	index := om.LastIndexAdded + 1
 	isPlaced := false
 	for isPlaced == false {
 		x := rand.Intn(om.config.GridWidth)
 		y := rand.Intn(om.config.GridHeight)
 		if om.isGridLocationEmpty(x, y) {
-			organism := *NewOrganism(index, x, y, om.config.MaxHealth/2, &om.NodeLibrary)
+			organism := *NewRandomOrganism(index, x, y, om.config.MaxHealth/2)
 			om.Organisms[index] = &organism
 			om.Grid[x][y] = index
 			om.LastIndexAdded = index

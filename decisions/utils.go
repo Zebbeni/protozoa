@@ -55,11 +55,11 @@ func CopyTreeByValue(source *Node) *Node {
 		Metrics:     InitializeMetricsMap(),
 		MetricsAvgs: InitializeMetricsMap(),
 		Uses:        source.Uses,
-		YesNode:     CopyTreeByValue(source.YesNode),
-		NoNode:      CopyTreeByValue(source.NoNode),
 		UsedYes:     source.UsedYes,
 		UsedNo:      source.UsedNo,
 	}
+	destination.YesNode = CopyTreeByValue(source.YesNode)
+	destination.NoNode = CopyTreeByValue(source.NoNode)
 	return &destination
 }
 
