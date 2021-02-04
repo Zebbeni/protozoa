@@ -307,8 +307,6 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 	switch cond {
 	case d.CanMove:
 		return om.canMove(o)
-	case d.CanReproduce:
-		return om.canReproduce(o)
 	case d.IsFoodAhead:
 		return om.isFoodAhead(o)
 	case d.IsFoodLeft:
@@ -321,6 +319,12 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 		return om.isOrganismLeft(o)
 	case d.IsOrganismRight:
 		return om.isOrganismRight(o)
+	case d.IsRandomOnePercent:
+		return rand.Float32() < 0.01
+	case d.IsRandomTenPercent:
+		return rand.Float32() < 0.1
+	case d.IsRandomFiftyPercent:
+		return rand.Float32() < 0.5
 	}
 	return false
 }
@@ -413,9 +417,6 @@ func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 		break
 	case d.ActMove:
 		om.applyMove(o)
-		break
-	case d.ActReproduce:
-		om.applyReproduce(o)
 		break
 	case d.ActTurnLeft:
 		om.applyTurn(o, LeftTurnAngle)

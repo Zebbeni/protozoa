@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -49,25 +48,10 @@ func TestCalculateDirectionVectors(t *testing.T) {
 	}
 }
 
-func TestGenerateSequence(t *testing.T) {
+func TestNewNodeLibrary(t *testing.T) {
 	rand.Seed(0)
-	// Test random subsequence creation (with expected result for 0 seed)
-	expectedString := "Turn Left | Eat | Move Ahead | If Can Move Ahead | Turn Left | If Food Right | Move Ahead | Be Idle | Eat | If Food Right | Be Idle | Be Idle | If Can Move Ahead | Be Idle"
-	sequence := d.NewRandomSequence()
-	sequenceString := d.PrintSequence(sequence)
-	if sequenceString != expectedString {
-		t.Errorf("expected sequence: '%s', got %s", expectedString, sequenceString)
-	}
-}
-
-func TestSequenceTreeCreation(t *testing.T) {
-	// Verify no errors when generating a ton of sequences and trees
-	for i := 0; i < 1000; i++ {
-		fmt.Printf("Test sequence %d\n", i+1)
-		// Test tree creation
-		sequence := d.NewRandomSequence()
-		node := d.TreeFromSequence(sequence)
-		fmt.Printf("\n%d Node(s): %s", len(sequence), d.PrintSequence(sequence))
-		fmt.Printf("\nTree:\n%s\n", d.PrintNode(node, 1))
+	nodeLibrary := d.NewNodeLibrary()
+	if len(nodeLibrary.Map) != 6 {
+		t.Errorf("expected 6 initial nodes in library (one per action), got %d", len(nodeLibrary.Map))
 	}
 }

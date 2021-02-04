@@ -19,7 +19,7 @@ import (
 var (
 	black      = color.RGBA{0, 0, 0, 255}
 	filter     = ebiten.FilterLinear
-	config     s.SimulationConfig
+	config     s.Config
 	simulation s.Simulation
 )
 
@@ -47,6 +47,7 @@ func main() {
 	rand.Seed(1)
 
 	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
+	// sharedTrees := flag.Bool("shared", true, "All organisms share library of decision trees")
 	trials := flag.Int("trials", 1, "Number of trials to run")
 	flag.Parse()
 
@@ -55,7 +56,7 @@ func main() {
 	if *isHeadless {
 		sumCycles := 0
 		for count := 0; count < numTrials; count++ {
-			config := s.DefaultSimulationConfig()
+			config := s.DefaultConfig()
 			simulation = s.NewSimulation(config)
 			start := time.Now()
 			cycles := 0
@@ -70,7 +71,7 @@ func main() {
 		avgCycles := sumCycles / numTrials
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		config := s.DefaultSimulationConfig()
+		config := s.DefaultConfig()
 		simulation = s.NewSimulation(config)
 		if err := ebiten.Run(update, c.ScreenWidth, c.ScreenHeight, 1, "Shapes (Ebiten Demo)"); err != nil {
 			log.Fatal(err)

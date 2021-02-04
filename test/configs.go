@@ -12,6 +12,8 @@ const (
 	gridWidth           = 5
 	gridHeight          = 5
 	numFood             = 10
+	minFood             = 10
+	maxFood             = 1000
 	initialHealth       = 1
 	numInitialOrganisms = 10
 	maxOrganismsAllowed = 25
@@ -19,7 +21,8 @@ const (
 
 func testFoodConfig() m.FoodConfig {
 	return m.FoodConfig{
-		NumFood:    numFood,
+		MinFood:    minFood,
+		MaxFood:    maxFood,
 		GridWidth:  gridWidth,
 		GridHeight: gridHeight,
 	}
@@ -54,8 +57,8 @@ func testWorldConfig() w.WorldConfig {
 	}
 }
 
-func testSimulationConfig() s.SimulationConfig {
-	return s.SimulationConfig{
+func testSimulationConfig() s.Config {
+	return s.Config{
 		WorldConfig: testWorldConfig(),
 	}
 }
