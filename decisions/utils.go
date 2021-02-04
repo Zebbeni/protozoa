@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	u "../utils"
+	u "github.com/Zebbeni/protozoa/utils"
 )
 
 // GetRandomCondition returns a random Condition from the Conditions array

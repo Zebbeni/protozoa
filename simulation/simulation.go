@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image/color"
 
-	c "../constants"
-	m "../models"
-	w "../world"
+	c "github.com/Zebbeni/protozoa/constants"
+	m "github.com/Zebbeni/protozoa/models"
+	w "github.com/Zebbeni/protozoa/world"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
