@@ -6,9 +6,6 @@ type Action int
 // Condition is the custom type for all Organism conditions
 type Condition int
 
-// Metric is the custom type for all measures of decision tree success
-type Metric int
-
 // Define all possible actions for Organism
 const (
 	ActAttack Action = iota
@@ -24,10 +21,10 @@ const (
 	IsOrganismAhead
 	IsOrganismLeft
 	IsOrganismRight
-	IsRandomOnePercent
-	IsRandomTenPercent
 	IsRandomFiftyPercent
-	MetricHealth Metric = iota
+	IsHealthAboveNinetyPercent
+	IsHealthAboveFiftyPercent
+	IsHealthAboveTenPercent
 )
 
 // Define slices
@@ -48,33 +45,33 @@ var (
 		IsOrganismAhead,
 		IsOrganismLeft,
 		IsOrganismRight,
-		IsRandomOnePercent,
-		IsRandomTenPercent,
 		IsRandomFiftyPercent,
+		IsHealthAboveNinetyPercent,
+		IsHealthAboveFiftyPercent,
+		IsHealthAboveTenPercent,
 	}
-	Metrics = [...]Metric{MetricHealth}
-	Map     = map[interface{}]string{
-		ActAttack:            "Attack",
-		ActEat:               "Eat",
-		ActIdle:              "Be Idle",
-		ActMove:              "Move Ahead",
-		ActTurnLeft:          "Turn Left",
-		ActTurnRight:         "Turn Right",
-		CanMove:              "If Can Move Ahead",
-		IsFoodAhead:          "If Food Ahead",
-		IsFoodLeft:           "If Food Left",
-		IsFoodRight:          "If Food Right",
-		IsOrganismAhead:      "If Organism Ahead",
-		IsOrganismLeft:       "If Organism Left",
-		IsOrganismRight:      "If Organism Right",
-		IsRandomOnePercent:   "IsRandomOnePercent",
-		IsRandomTenPercent:   "IsRandomTenPercent",
-		IsRandomFiftyPercent: "IsRandomFiftyPercent",
+	Map = map[interface{}]string{
+		ActAttack:                  "Attack",
+		ActEat:                     "Eat",
+		ActIdle:                    "Be Idle",
+		ActMove:                    "Move Ahead",
+		ActTurnLeft:                "Turn Left",
+		ActTurnRight:               "Turn Right",
+		CanMove:                    "If Can Move Ahead",
+		IsFoodAhead:                "If Food Ahead",
+		IsFoodLeft:                 "If Food Left",
+		IsFoodRight:                "If Food Right",
+		IsOrganismAhead:            "If Organism Ahead",
+		IsOrganismLeft:             "If Organism Left",
+		IsOrganismRight:            "If Organism Right",
+		IsRandomFiftyPercent:       "IsRandomFiftyPercent",
+		IsHealthAboveNinetyPercent: "IsHealthAboveNinetyPercent",
+		IsHealthAboveFiftyPercent:  "IsHealthAboveFiftyPercent",
+		IsHealthAboveTenPercent:    "IsHealthAboveTenPercent",
 	}
 	ChanceOfAddingNewSubTree  = 0.5
 	MinUsesToConsiderChanging = 100
 	// NodeLibrary constants
 	UsesToConsiderPruningMultiplier = 100
-	MaxNodesAllowed                 = 5000
-	MaxMetricScoreToConsiderPruning = -1.0
+	MaxNodesAllowed                 = 200
 )

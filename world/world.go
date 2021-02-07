@@ -39,16 +39,6 @@ func (w *World) GetOrganisms() map[int]*m.Organism {
 	return w.OrganismManager.GetOrganisms()
 }
 
-// GetBestOrganism returns the index of the most successful organism
-func (w *World) GetBestOrganism() int {
-	return w.OrganismManager.BestOrganismCurrent
-}
-
-// GetBestOrganismAge returns the index of the most successful organism
-func (w *World) GetBestOrganismAge() int {
-	return w.OrganismManager.BestAgeAllTime
-}
-
 // PrintStats shows various info about current simulation
 func (w *World) PrintStats() {
 	w.OrganismManager.PrintBest()

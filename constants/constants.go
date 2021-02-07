@@ -3,29 +3,34 @@ package constants
 // Constants
 const (
 	// Drawing constants
-	GridWidth    = 180
-	GridHeight   = 120
-	GridUnitSize = 6.6667
-	ScreenWidth  = 1200
-	ScreenHeight = 800
+	GridWidth    = 350
+	GridHeight   = 250
+	ScreenWidth  = 1400
+	ScreenHeight = 1000
+	GridUnitSize = 4
 
 	// Environment constants
-	MinFood         = 500
-	MaxFood         = 4000
-	MaxFoodLifespan = 600
+	InitialFood     = 20000
+	MinFood         = 2000
+	MaxFood         = 20000
+	MaxFoodLifespan = 100
 
 	// Organism constants
-	SpawnFrequency                = 0.001
-	NumInitialOrganisms           = 10
-	MaxOrganismsAllowed           = 10
-	InitialHealth                 = 100.0
+	MinAgeToSpawn                 = 100
+	MinHealthToSpawn              = .95
+	NumInitialOrganisms           = 50
+	MaxOrganismsAllowed           = 5000
+	InitialHealth                 = 10.0
 	MaxHealth                     = 100.0
-	StartingHealth                = 50.0
-	HealthChangeFromAttacking     = -1.0
-	HealthChangeFromBeingAttacked = -50.0
-	HealthChangePerTurn           = -0.2
-	HealthChangeFromMoving        = -0.3
-	HealthChangeFromEating        = 100.0
+	HealthChangePerCycle          = -0.5
+	HealthChangeFromBeingIdle     = 0.5
+	HealthChangeFromTurning       = -0.1
+	HealthChangeFromMoving        = -2.0
+	HealthChangeFromEatingAttempt = -0.1
+	HealthChangeFromConsumingFood = 50.0
+	HealthChangeFromAttacking     = -10.0
+	HealthChangeFromBeingAttacked = -100.0
+	HealthChangeFromReproducing   = -10.0
 
 	// Decision Tree constants
 	MaxNodes          = 30
@@ -39,4 +44,5 @@ const (
 
 	// Reporting constants
 	PopulationDifferenceToReport = 5
+	PrintReportCycleInterval     = 100
 )

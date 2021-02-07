@@ -3,22 +3,18 @@ package decisions
 import (
 	"bytes"
 	"fmt"
-	"image/color"
 )
 
 // Node includes an Action or Condition value
 type Node struct {
-	Color             color.RGBA
-	ID                string
-	NodeType          interface{}
-	YesNode           *Node
-	NoNode            *Node
-	Metrics           map[Metric]float64
-	MetricsAvgs       map[Metric]float64
-	Uses              float64
-	NumOrganismsUsing int
-	Complexity        int
-	UsedYes, UsedNo   bool
+	ID                               string
+	NodeType                         interface{}
+	YesNode                          *Node
+	NoNode                           *Node
+	AvgHealth, AvgHealthWhenTopLevel float64
+	Uses, TopLevelUses               int
+	Complexity                       int
+	InDecisionTree, UsedLastCycle    bool
 }
 
 // IsAction returns true if Node's type is Action (false if Condition)
@@ -31,14 +27,38 @@ func (n *Node) IsCondition() bool {
 	return isCondition(n.NodeType)
 }
 
-// UpdateStats updates all Node Metrics according to a map of changes and
-// increments number of Uses
-func (n *Node) UpdateStats(metricsChange map[Metric]float64) {
+// UpdateStats updates the toplevel Node's success rate on Health, traversing
+// all nodes in the last used decision path.
+// FUTURE: We may want more metrics besides health
+func (n *Node) UpdateStats(health float64, topLevel bool) {
+	n.UsedLastCycle = false
+
 	n.Uses++
-	for key, change := range metricsChange {
-		n.Metrics[key] += change
-		uses := n.Uses
-		n.MetricsAvgs[key] = (n.MetricsAvgs[key]*(uses-1.0) + change) / uses
+	uses := float64(n.Uses)
+	n.AvgHealth = (n.AvgHealth*(uses-1.0) + health) / uses
+
+	if topLevel {
+		n.TopLevelUses++
+		uses = float64(n.TopLevelUses)
+		n.AvgHealthWhenTopLevel = (n.AvgHealthWhenTopLevel*(uses-1.0) + health) / uses
+	}
+
+	if n.IsCondition() {
+		if n.YesNode.UsedLastCycle {
+			n.YesNode.UpdateStats(health, false)
+		} else {
+			n.NoNode.UpdateStats(health, false)
+		}
+	}
+}
+
+// SetUsedInCurrentDecisionTree sets whether this Node is contained in a
+// currently-used decision tree
+func (n *Node) SetUsedInCurrentDecisionTree(isUsing bool) {
+	n.InDecisionTree = isUsing
+	if n.IsCondition() {
+		n.YesNode.SetUsedInCurrentDecisionTree(isUsing)
+		n.NoNode.SetUsedInCurrentDecisionTree(isUsing)
 	}
 }
 
@@ -50,7 +70,7 @@ func (n *Node) UpdateNodeIDs() string {
 	var buffer bytes.Buffer
 	nodeTypeString := fmt.Sprintf("%v", n.NodeType)
 	buffer.WriteString(nodeTypeString)
-	if !isAction(n.NodeType) {
+	if n.IsCondition() {
 		buffer.WriteString("-")
 		buffer.WriteString(n.YesNode.UpdateNodeIDs())
 		buffer.WriteString("-")
@@ -60,28 +80,16 @@ func (n *Node) UpdateNodeIDs() string {
 	return n.ID
 }
 
-// UpdateNumOrganismsUsing updates the current number of organisms using this
-// node (by +1 or -1), recursively calling for all sub-trees
-func (n *Node) UpdateNumOrganismsUsing(change int) {
-	n.NumOrganismsUsing += change
-	if !isAction(n.NodeType) {
-		n.YesNode.UpdateNumOrganismsUsing(change)
-		n.NoNode.UpdateNumOrganismsUsing(change)
-	}
-}
-
 // TreeFromAction creates a simple Node object from an Action type
-func TreeFromAction(action Action) Node {
-	node := Node{
-		NodeType: action,
-		Uses:     0,
-		YesNode:  nil,
-		NoNode:   nil,
-		UsedYes:  false,
-		UsedNo:   false,
+func TreeFromAction(action Action) *Node {
+	node := &Node{
+		NodeType:      action,
+		Uses:          0.0,
+		YesNode:       nil,
+		NoNode:        nil,
+		UsedLastCycle: false,
+		AvgHealth:     0.0,
 	}
-	node.Metrics = InitializeMetricsMap()
-	node.MetricsAvgs = InitializeMetricsMap()
 	node.UpdateNodeIDs()
 	return node
 }

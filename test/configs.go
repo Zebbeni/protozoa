@@ -15,8 +15,8 @@ const (
 	minFood             = 10
 	maxFood             = 1000
 	initialHealth       = 1
-	numInitialOrganisms = 10
-	maxOrganismsAllowed = 25
+	numInitialOrganisms = 50
+	maxOrganismsAllowed = 1000
 )
 
 func testFoodConfig() m.FoodConfig {
@@ -30,17 +30,18 @@ func testFoodConfig() m.FoodConfig {
 
 func testOrganismConfig() m.OrganismConfig {
 	return m.OrganismConfig{
-		NumInitialOrganisms:         numInitialOrganisms,
-		MaxOrganisms:                maxOrganismsAllowed,
-		InitialHealth:               initialHealth,
-		MaxHealth:                   c.MaxHealth,
-		HealthChangePerTurn:         c.HealthChangePerTurn,
-		HealthChangeFromAttacking:   c.HealthChangeFromAttacking,
-		HealthChangeFromMoving:      c.HealthChangeFromMoving,
-		HealthChangeFromEating:      c.HealthChangeFromEating,
-		HealthChangeFromReproducing: c.HealthChangeFromReproducing,
-		GridWidth:                   gridWidth,
-		GridHeight:                  gridHeight,
+		NumInitialOrganisms:       numInitialOrganisms,
+		MaxOrganisms:              maxOrganismsAllowed,
+		InitialHealth:             initialHealth,
+		MaxHealth:                 c.MaxHealth,
+		HealthChangePerCycle:      c.HealthChangePerCycle,
+		HealthChangeFromAttacking: c.HealthChangeFromAttacking,
+		HealthChangeFromMoving:    c.HealthChangeFromMoving,
+		HealthChangeFromEating:    c.HealthChangeFromEating,
+		HealthChangeFromTurning:   c.HealthChangeFromTurning,
+		HealthChangeFromBeingIdle: c.HealthChangeFromBeingIdle,
+		GridWidth:                 gridWidth,
+		GridHeight:                gridHeight,
 	}
 }
 

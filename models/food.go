@@ -6,7 +6,7 @@ import (
 
 // FoodConfig contains all attributes needed to set up FoodManager
 type FoodConfig struct {
-	MinFood, MaxFood, GridWidth, GridHeight int
+	InitialFood, MinFood, MaxFood, GridWidth, GridHeight int
 }
 
 // FoodManager contains 2D array of all food values
@@ -19,29 +19,31 @@ type FoodManager struct {
 func NewFoodManager(config FoodConfig) FoodManager {
 	foodManager := FoodManager{config: config}
 	foodManager.FoodItems = make(map[string]Point)
-	for f := 0; f < config.MinFood; f++ {
+	for foodManager.FoodCount() < config.InitialFood {
 		foodManager.AddFoodItemAtRandom()
 	}
 	return foodManager
 }
 
-// AddFoodItemAtRandom creates a new FoodItem object at a location whre one does not
-// already exist and adds it to the foodItems map
+// FoodCount returns a count of all food items in the FoodManager map
+func (fm *FoodManager) FoodCount() int {
+	return len(fm.FoodItems)
+}
+
+// AddFoodItemAtRandom attempts to add a FoodItem object to a random location
+// Gives up if first attempt to place food fails.
 func (fm *FoodManager) AddFoodItemAtRandom() {
-	for true {
-		x := rand.Intn(fm.config.GridWidth)
-		y := rand.Intn(fm.config.GridHeight)
-		point := Point{X: x, Y: y}
-		pointString := point.toString()
-		if _, ok := fm.FoodItems[pointString]; !ok {
-			fm.FoodItems[pointString] = point
-			return
-		}
-	}
+	x := rand.Intn(fm.config.GridWidth)
+	y := rand.Intn(fm.config.GridHeight)
+	point := Point{X: x, Y: y}
+	fm.AddFoodAtPoint(point)
 }
 
 // AddFoodAtPoint adds food to a given x, y location if not already occupied
 func (fm *FoodManager) AddFoodAtPoint(point Point) {
+	if fm.FoodCount() >= fm.config.MaxFood {
+		return
+	}
 	if _, exists := fm.FoodItems[point.toString()]; !exists {
 		fm.FoodItems[point.toString()] = point
 	}
@@ -52,7 +54,7 @@ func (fm *FoodManager) RemoveFood(point Point) {
 	if _, exists := fm.FoodItems[point.toString()]; exists {
 		delete(fm.FoodItems, point.toString())
 		// replace with a new food immediately if under minimum
-		if len(fm.FoodItems) < fm.config.MinFood {
+		if fm.FoodCount() < fm.config.MinFood {
 			fm.AddFoodItemAtRandom()
 		}
 	}

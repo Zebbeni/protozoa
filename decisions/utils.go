@@ -33,27 +33,19 @@ func isCondition(v interface{}) bool {
 	return false
 }
 
-// InitializeMetricsMap returns an initialize map of each Metric type to 0
-func InitializeMetricsMap() map[Metric]float64 {
-	return map[Metric]float64{
-		MetricHealth: 0.0,
-	}
-}
-
-// CopyTreeByValue recursively copies an existing tree by value given an
-// existing one, initializing metrics to 0.
+// CopyTreeByValue recursively copies an existing tree by value
 func CopyTreeByValue(source *Node) *Node {
 	if source == nil {
 		return nil
 	}
 	destination := Node{
-		ID:          source.ID,
-		NodeType:    source.NodeType,
-		Metrics:     InitializeMetricsMap(),
-		MetricsAvgs: InitializeMetricsMap(),
-		Uses:        source.Uses,
-		UsedYes:     source.UsedYes,
-		UsedNo:      source.UsedNo,
+		ID:                    source.ID,
+		NodeType:              source.NodeType,
+		AvgHealthWhenTopLevel: source.AvgHealthWhenTopLevel,
+		TopLevelUses:          source.TopLevelUses,
+		AvgHealth:             source.AvgHealth,
+		Uses:                  source.Uses,
+		UsedLastCycle:         false,
 	}
 	destination.YesNode = CopyTreeByValue(source.YesNode)
 	destination.NoNode = CopyTreeByValue(source.NoNode)
@@ -68,59 +60,94 @@ func MutateTree(original *Node) *Node {
 	return mutated
 }
 
-// MutateNode randomly mutates nodes of a tree
-func MutateNode(node *Node) {
-	node.Uses = 0
-	if isCondition(node.NodeType) {
-		// If node is a condition and one of its paths has 0 uses, try
-		// switching the condition type
-		if !node.UsedYes || !node.UsedNo {
-			node.NodeType = GetRandomCondition()
-		} else {
-			if rand.Float64() < 0.5 {
-				MutateNode(node.YesNode)
-			} else {
-				MutateNode(node.NoNode)
-			}
-		}
-	} else {
-		if rand.Float64() < ChanceOfAddingNewSubTree {
-			originalAction := node.NodeType.(Action)
-			node.NodeType = GetRandomCondition()
-			node.UsedYes = false
-			node.UsedNo = false
-			yesNode := Node{}
-			noNode := Node{}
-			if rand.Float64() < 0.5 {
-				yesNode = TreeFromAction(GetRandomAction())
-				noNode = TreeFromAction(originalAction)
-			} else {
-				yesNode = TreeFromAction(originalAction)
-				noNode = TreeFromAction(GetRandomAction())
-			}
-			node.YesNode = &yesNode
-			node.NoNode = &noNode
-		} else {
-			node.NodeType = GetRandomAction()
+func (node *Node) getAllSubNodes(includeActions, includeConditions bool) []*Node {
+	nodes := make([]*Node, 0, node.Complexity)
+
+	if node.IsAction() {
+		if includeActions {
+			nodes = append(nodes, node)
 		}
 	}
+
+	if node.IsCondition() {
+		if includeConditions {
+			nodes = append(nodes, node)
+		}
+		nodes = append(nodes, node.YesNode.getAllSubNodes(includeActions, includeConditions)...)
+		nodes = append(nodes, node.NoNode.getAllSubNodes(includeActions, includeConditions)...)
+	}
+
+	return nodes
+}
+
+// MutateNode randomly mutates a single node of a tree
+func MutateNode(node *Node) {
+	// pick a random node anywhere in the decision tree
+	allSubNodes := node.getAllSubNodes(true, true)
+	toMutate := allSubNodes[rand.Intn(len(allSubNodes))]
+
+	if toMutate.IsAction() {
+		if rand.Intn(2) == 0 {
+			// convert action to condition
+			originalAction := toMutate.NodeType.(Action)
+			toMutate.NodeType = GetRandomCondition()
+			if rand.Float64() < 0.5 {
+				toMutate.YesNode = TreeFromAction(GetRandomAction())
+				toMutate.NoNode = TreeFromAction(originalAction)
+			} else {
+				toMutate.YesNode = TreeFromAction(originalAction)
+				toMutate.NoNode = TreeFromAction(GetRandomAction())
+			}
+		} else {
+			// change action type
+			toMutate.NodeType = GetRandomAction()
+		}
+	} else {
+		if rand.Intn(2) == 0 {
+			// convert condition to action (simplify)
+			toMutate.NodeType = GetRandomAction()
+			toMutate.YesNode = nil
+			toMutate.NoNode = nil
+		} else {
+			// change condition type
+			toMutate.NodeType = GetRandomCondition()
+		}
+	}
+	toMutate.Uses = 0
+	toMutate.UsedLastCycle = false
+	node.Uses = 0
+	node.UsedLastCycle = false
 }
 
 // Print pretty prints the node
-func (node *Node) Print(indent string, last bool) string {
+func (node *Node) Print(indent string, first, last bool) string {
 	toPrint := indent
 	newIndent := indent
-	if last {
+	if first {
+		toPrint = fmt.Sprintf("%s", toPrint)
+	} else if last {
 		toPrint = fmt.Sprintf("%s└─", toPrint)
 		newIndent = fmt.Sprintf("%s  ", newIndent)
 	} else {
 		toPrint = fmt.Sprintf("%s├─", toPrint)
 		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
-	toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[node.NodeType])
-	if !isAction(node.NodeType) {
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false))
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, true))
+	toPrint = fmt.Sprintf("%s%s (%d uses)\n", toPrint, Map[node.NodeType], node.Uses)
+	if node.IsCondition() {
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false, false))
+		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, false, true))
 	}
+
+	if first {
+		toPrint = fmt.Sprintf(
+			"%s\nUses: %d\nAvgHealth: %.2f\nTopLevelUses:%d\nAvgHealthWhenTopLevel: %.2f\n",
+			toPrint,
+			node.Uses,
+			node.AvgHealth,
+			node.TopLevelUses,
+			node.AvgHealthWhenTopLevel,
+		)
+	}
+
 	return toPrint
 }

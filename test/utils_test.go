@@ -1,7 +1,6 @@
 package test
 
 import (
-	"image/color"
 	"math"
 	"math/rand"
 	"testing"
@@ -65,55 +64,27 @@ func TestNewNodeLibrary(t *testing.T) {
 	}
 }
 
-func TestMutateNode(t *testing.T) {
+func TestMutateAndRegisterNode(t *testing.T) {
 	rand.Seed(2)
+	// Test simple decision tree
 	node := d.TreeFromAction(d.ActEat)
 	expectedID := "1"
-	expectedPrint := "├─Eat\n"
+	expectedPrint := "├─Eat (0.00 uses)\n"
 	assert.Equal(t, expectedID, node.ID, "Unexpected Node ID")
-	assert.Equal(t, expectedPrint, node.Print("", false))
-	mutated := d.MutateTree(&node)
-	expectedID = "10-1-4"
-	expectedPrint = "├─If Organism Ahead\n│ ├─Eat\n│ └─Turn Left\n"
+	assert.Equal(t, expectedPrint, node.Print("", true, false))
+	// Test effect of single mutation
+	mutated := d.MutateTree(node)
+	expectedID = "12-2-1"
+	expectedPrint = "├─If Organism Right (0.00 uses)\n│ ├─Be Idle (0.00 uses)\n│ └─Eat (0.00 uses)\n"
 	assert.Equal(t, expectedID, mutated.ID, "Unexpected Node ID after first Mutate")
-	assert.Equal(t, expectedPrint, mutated.Print("", false))
-}
-
-func TestRegisterNewNode(t *testing.T) {
-	rand.Seed(2)
-	node := d.TreeFromAction(d.ActEat)
-	mutated := d.MutateTree(&node)
-	expectedID := "10-1-4"
-	expectedPrint := "├─If Organism Ahead\n│ ├─Eat\n│ └─Turn Left\n"
-
+	assert.Equal(t, expectedPrint, mutated.Print("", true, false))
+	// Register and verify in node library
 	nodeLibrary := d.NewNodeLibrary()
-	// mutate the 'Eat' action and register the new decision tree
 	nodeLibrary.RegisterAndReturnNewNode(mutated)
 	mutatedNode, ok := nodeLibrary.Map[expectedID]
 	if !ok {
 		t.Errorf("Mutated Node with with expected ID %s not found after registering", expectedID)
 	} else {
-		assert.Equal(t, expectedPrint, mutatedNode.Print("", false))
+		assert.Equal(t, expectedPrint, mutatedNode.Print("", true, false))
 	}
-}
-
-func TestCloneNodeLibrary(t *testing.T) {
-	rand.Seed(0)
-	nodeLibrary := d.NewNodeLibrary()
-	clonedLibrary := nodeLibrary.Clone()
-	for id := range nodeLibrary.Map {
-		_, ok := clonedLibrary.Map[id]
-		assert.True(t, ok, "Expected NodeID %s not found in cloned NodeLibrary", id)
-	}
-}
-
-func TestMutateColor(t *testing.T) {
-	rand.Seed(0)
-	color := color.RGBA{100, 150, 200, 255}
-	expectedR, expectedG, expectedB, expectedA := 100, 150, 200, 255
-	mutatedR, mutatedG, mutatedB, mutatedA := u.MutateColor(color).RGBA()
-	assert.Equal(t, int(expectedR), int(mutatedR))
-	assert.Equal(t, int(expectedG), int(mutatedG))
-	assert.Equal(t, int(expectedB), int(mutatedB))
-	assert.Equal(t, int(expectedA), int(mutatedA))
 }
