@@ -19,7 +19,6 @@ import (
 var (
 	black      = color.RGBA{0, 0, 0, 255}
 	filter     = ebiten.FilterLinear
-	config     s.Config
 	simulation s.Simulation
 )
 
@@ -54,8 +53,7 @@ func main() {
 	if *isHeadless {
 		sumAllCycles := 0
 		for count := 0; count < numTrials; count++ {
-			config := s.DefaultConfig()
-			simulation = s.NewSimulation(config)
+			simulation = s.NewSimulation()
 			start := time.Now()
 			for !simulation.IsDone() {
 				simulation.Update()
@@ -67,8 +65,7 @@ func main() {
 		avgCycles := sumAllCycles / numTrials
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		config := s.DefaultConfig()
-		simulation = s.NewSimulation(config)
+		simulation = s.NewSimulation()
 		if err := ebiten.Run(update, c.ScreenWidth, c.ScreenHeight, 1, "Protozoa"); err != nil {
 			log.Fatal(err)
 		}

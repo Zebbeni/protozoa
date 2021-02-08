@@ -97,7 +97,7 @@ func (nl *NodeLibrary) PruneUnusedNodes() {
 		nodesToRemove := len(nl.Map) - MaxNodesAllowed
 		nodesRemoved := 0
 		for key, node := range nl.Map {
-			if !node.InDecisionTree {
+			if node.TopLevelUses <= 0 {
 				delete(nl.Map, key)
 				nodesRemoved++
 				if nodesRemoved >= nodesToRemove {

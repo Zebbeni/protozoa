@@ -11,7 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
-var foodColor = color.RGBA{100, 255, 100, 120}
+var foodColor = color.RGBA{100, 255, 100, 60}
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
@@ -19,53 +19,13 @@ type Simulation struct {
 	numCycles int
 }
 
-// Config contains all attributes needed to create a Simulation
-type Config struct {
-	WorldConfig w.WorldConfig
-}
-
-// DefaultConfig returns a Simulation Config with values defined in the configs file.
-func DefaultConfig() Config {
-	foodConfig := m.FoodConfig{
-		InitialFood: c.InitialFood,
-		MinFood:     c.MinFood,
-		MaxFood:     c.MaxFood,
-		GridWidth:   c.GridWidth,
-		GridHeight:  c.GridHeight,
-	}
-	organismConfig := m.OrganismConfig{
-		NumInitialOrganisms:           c.NumInitialOrganisms,
-		MaxOrganisms:                  c.MaxOrganismsAllowed,
-		InitialHealth:                 c.InitialHealth,
-		MaxHealth:                     c.MaxHealth,
-		HealthChangePerCycle:          c.HealthChangePerCycle,
-		HealthChangeFromAttacking:     c.HealthChangeFromAttacking,
-		HealthChangeFromBeingAttacked: c.HealthChangeFromBeingAttacked,
-		HealthChangeFromMoving:        c.HealthChangeFromMoving,
-		HealthChangeFromEatingAttempt: c.HealthChangeFromEatingAttempt,
-		HealthChangeFromConsumingFood: c.HealthChangeFromConsumingFood,
-		HealthChangeFromReproducing:   c.HealthChangeFromReproducing,
-		HealthChangeFromBeingIdle:     c.HealthChangeFromBeingIdle,
-		GridWidth:                     c.GridWidth,
-		GridHeight:                    c.GridHeight,
-	}
-	environmentConfig := m.EnvironmentConfig{
-		FoodConfig: foodConfig,
-	}
-	worldConfig := w.WorldConfig{
-		EnvironmentConfig: environmentConfig,
-		OrganismConfig:    organismConfig,
-	}
-	config := Config{
-		WorldConfig: worldConfig,
-	}
-	return config
-}
-
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation(config Config) Simulation {
-	world := w.NewWorld(config.WorldConfig)
-	simulation := Simulation{world: world, numCycles: 0}
+func NewSimulation() Simulation {
+	world := w.NewWorld()
+	simulation := Simulation{
+		world:     world,
+		numCycles: 0,
+	}
 	return simulation
 }
 
@@ -95,7 +55,7 @@ func (s *Simulation) NumCycles() int {
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
-	return len(s.world.GetOrganisms())
+	return s.world.GetNumOrganisms()
 }
 
 // GetFoodCount returns the total number of all food items in the simulation.
@@ -108,8 +68,9 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, point := range s.world.GetFoodItems() {
 		renderFoodAtPoint(point, screen)
 	}
-	for _, organism := range s.world.GetOrganisms() {
-		renderOrganism(*organism, screen)
+	organisms, mostReproductiveID := s.world.GetOrganisms()
+	for _, organism := range organisms {
+		renderOrganism(*organism, screen, mostReproductiveID)
 	}
 }
 
@@ -121,12 +82,19 @@ func renderFoodAtPoint(point m.Point, screen *ebiten.Image) {
 }
 
 // renderOrganism draws a food source to the screen
-func renderOrganism(organism m.Organism, screen *ebiten.Image) {
+func renderOrganism(organism m.Organism, screen *ebiten.Image, mostReproductiveID int) {
+	organismColor := organism.Color()
 	x := float64(organism.X) * c.GridUnitSize
 	y := float64(organism.Y) * c.GridUnitSize
 	if organism.State == m.StateAttacking {
 		ebitenutil.DrawRect(screen, x, y+1, c.GridUnitSize, c.GridUnitSize, color.White)
 	} else {
-		ebitenutil.DrawRect(screen, x+0.5, y+0.5, c.GridUnitSize-1, c.GridUnitSize-1, organism.Color)
+		ebitenutil.DrawRect(screen, x+0.5, y+0.5, c.GridUnitSize-1, c.GridUnitSize-1, organismColor)
+	}
+	if organism.ID == mostReproductiveID {
+		ebitenutil.DrawLine(screen, x-4, y-4, x+c.GridUnitSize+5, y-4, organismColor)                               // top
+		ebitenutil.DrawLine(screen, x-4, y-4, x-4, y+c.GridUnitSize+5, organismColor)                               // left
+		ebitenutil.DrawLine(screen, x-4, y+c.GridUnitSize+5, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // bottom
+		ebitenutil.DrawLine(screen, x+c.GridUnitSize+5, y-4, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // right
 	}
 }

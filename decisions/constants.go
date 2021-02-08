@@ -22,9 +22,7 @@ const (
 	IsOrganismLeft
 	IsOrganismRight
 	IsRandomFiftyPercent
-	IsHealthAboveNinetyPercent
 	IsHealthAboveFiftyPercent
-	IsHealthAboveTenPercent
 )
 
 // Define slices
@@ -46,32 +44,28 @@ var (
 		IsOrganismLeft,
 		IsOrganismRight,
 		IsRandomFiftyPercent,
-		IsHealthAboveNinetyPercent,
 		IsHealthAboveFiftyPercent,
-		IsHealthAboveTenPercent,
 	}
 	Map = map[interface{}]string{
-		ActAttack:                  "Attack",
-		ActEat:                     "Eat",
-		ActIdle:                    "Be Idle",
-		ActMove:                    "Move Ahead",
-		ActTurnLeft:                "Turn Left",
-		ActTurnRight:               "Turn Right",
-		CanMove:                    "If Can Move Ahead",
-		IsFoodAhead:                "If Food Ahead",
-		IsFoodLeft:                 "If Food Left",
-		IsFoodRight:                "If Food Right",
-		IsOrganismAhead:            "If Organism Ahead",
-		IsOrganismLeft:             "If Organism Left",
-		IsOrganismRight:            "If Organism Right",
-		IsRandomFiftyPercent:       "IsRandomFiftyPercent",
-		IsHealthAboveNinetyPercent: "IsHealthAboveNinetyPercent",
-		IsHealthAboveFiftyPercent:  "IsHealthAboveFiftyPercent",
-		IsHealthAboveTenPercent:    "IsHealthAboveTenPercent",
+		ActAttack:                 "Attack",
+		ActEat:                    "Eat",
+		ActIdle:                   "Be Idle",
+		ActMove:                   "Move Ahead",
+		ActTurnLeft:               "Turn Left",
+		ActTurnRight:              "Turn Right",
+		CanMove:                   "If Can Move Ahead",
+		IsFoodAhead:               "If Food Ahead",
+		IsFoodLeft:                "If Food Left",
+		IsFoodRight:               "If Food Right",
+		IsOrganismAhead:           "If Organism Ahead",
+		IsOrganismLeft:            "If Organism Left",
+		IsOrganismRight:           "If Organism Right",
+		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
+		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 	}
 	ChanceOfAddingNewSubTree  = 0.5
 	MinUsesToConsiderChanging = 100
 	// NodeLibrary constants
-	UsesToConsiderPruningMultiplier = 100
-	MaxNodesAllowed                 = 200
+	UsesToConsiderPruningMultiplier = 200
+	MaxNodesAllowed                 = 10
 )

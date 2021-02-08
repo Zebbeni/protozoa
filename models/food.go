@@ -2,24 +2,20 @@ package models
 
 import (
 	"math/rand"
-)
 
-// FoodConfig contains all attributes needed to set up FoodManager
-type FoodConfig struct {
-	InitialFood, MinFood, MaxFood, GridWidth, GridHeight int
-}
+	c "github.com/Zebbeni/protozoa/constants"
+)
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	config    FoodConfig
 	FoodItems map[string]Point
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(config FoodConfig) FoodManager {
-	foodManager := FoodManager{config: config}
+func NewFoodManager() FoodManager {
+	foodManager := FoodManager{}
 	foodManager.FoodItems = make(map[string]Point)
-	for foodManager.FoodCount() < config.InitialFood {
+	for foodManager.FoodCount() < c.InitialFood {
 		foodManager.AddFoodItemAtRandom()
 	}
 	return foodManager
@@ -33,15 +29,15 @@ func (fm *FoodManager) FoodCount() int {
 // AddFoodItemAtRandom attempts to add a FoodItem object to a random location
 // Gives up if first attempt to place food fails.
 func (fm *FoodManager) AddFoodItemAtRandom() {
-	x := rand.Intn(fm.config.GridWidth)
-	y := rand.Intn(fm.config.GridHeight)
+	x := rand.Intn(c.GridWidth)
+	y := rand.Intn(c.GridHeight)
 	point := Point{X: x, Y: y}
 	fm.AddFoodAtPoint(point)
 }
 
 // AddFoodAtPoint adds food to a given x, y location if not already occupied
 func (fm *FoodManager) AddFoodAtPoint(point Point) {
-	if fm.FoodCount() >= fm.config.MaxFood {
+	if fm.FoodCount() >= c.MaxFood {
 		return
 	}
 	if _, exists := fm.FoodItems[point.toString()]; !exists {
@@ -54,7 +50,7 @@ func (fm *FoodManager) RemoveFood(point Point) {
 	if _, exists := fm.FoodItems[point.toString()]; exists {
 		delete(fm.FoodItems, point.toString())
 		// replace with a new food immediately if under minimum
-		if fm.FoodCount() < fm.config.MinFood {
+		if fm.FoodCount() < c.MinFood {
 			fm.AddFoodItemAtRandom()
 		}
 	}

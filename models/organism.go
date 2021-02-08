@@ -28,6 +28,65 @@ const (
 	RightTurnAngle = -1.0 * (math.Pi / 2.0)
 )
 
+// Traits contains organism-specific values that dictate how and when organisms
+// perform certain activities, which are passed down from parents to children.
+type Traits struct {
+	organismColor color.Color
+	// spawnHealthPercent: The percentage of max health this organism and its children
+	// start with, also equal to what it loses when spawning a child.
+	spawnHealthPercent float64
+	// MinHealthToSpawnPercent: a percentage of max health needed in order to spawn-
+	// must be greater than SpawnHealth and less than MaxHealth
+	minHealthToSpawnPercent      float64
+	minCyclesBetweenSpawns       int
+	chanceToMutateDecisionTree   float64
+	cyclesToEvaluateDecisionTree int
+}
+
+func (t *Traits) copyMutated() *Traits {
+	// minCycles = previous +1, +0, or +(-1), bounded by 0.0 and MaxCyclesBetweenSpawns
+	minCycles := int(math.Min(math.Max(float64(t.minCyclesBetweenSpawns+(rand.Intn(3)-1)), 0), c.MaxCyclesBetweenSpawns))
+	// spawnHealthPercent = previous +- <0.01, bounded by 0.0 and 1.0
+	spawnHealthPercent := math.Min(math.Max(t.spawnHealthPercent+(rand.Float64()*0.02)-0.01, 0.0), 1.0)
+	// minHealthToSpawnPercent = previous +- <0.01, bounded by spawnHealthPercent (calculated above) and MaxHealthToSpawnPercent
+	minHealthToSpawnPercent := math.Min(math.Max(t.minHealthToSpawnPercent+(rand.Float64()*0.02)-0.01, spawnHealthPercent), c.MaxHealthToSpawnPercent)
+	// chanceToMutateDecisionTree = previous +- <0.01, bounded by 0.0 and MaxChanceToMutateDecisionTree
+	chanceToMutateDecisionTree := math.Min(math.Max(t.chanceToMutateDecisionTree+(rand.Float64()*0.02)-0.01, 0.0), c.MaxChanceToMutateDecisionTree)
+	// cyclesToEvaluateDecisionTree = previous +1, +0 or +(-1), bounded by 1 and CyclesToEvaluateDecisionTree
+	cyclesToEvaluateDecisionTree := int(math.Min(math.Max(float64(t.cyclesToEvaluateDecisionTree+(rand.Intn(3)-1)), 1), float64(c.MaxCyclesToEvaluateDecisionTree)))
+	return &Traits{
+		organismColor:                u.MutateColor(t.organismColor),
+		spawnHealthPercent:           spawnHealthPercent,
+		minHealthToSpawnPercent:      minHealthToSpawnPercent,
+		minCyclesBetweenSpawns:       minCycles,
+		chanceToMutateDecisionTree:   chanceToMutateDecisionTree,
+		cyclesToEvaluateDecisionTree: cyclesToEvaluateDecisionTree,
+	}
+}
+
+func (t *Traits) copy() *Traits {
+	return &Traits{
+		organismColor:                t.organismColor,
+		spawnHealthPercent:           t.spawnHealthPercent,
+		minHealthToSpawnPercent:      t.minHealthToSpawnPercent,
+		minCyclesBetweenSpawns:       t.minCyclesBetweenSpawns,
+		cyclesToEvaluateDecisionTree: t.cyclesToEvaluateDecisionTree,
+		chanceToMutateDecisionTree:   t.chanceToMutateDecisionTree,
+	}
+}
+
+func newRandomTraits() *Traits {
+	spawnHealthPercent := rand.Float64() * c.MaxInitialHealthPercent
+	return &Traits{
+		organismColor:                u.GetRandomColor(),
+		spawnHealthPercent:           spawnHealthPercent,
+		minHealthToSpawnPercent:      rand.Float64()*(1.0-spawnHealthPercent) + spawnHealthPercent,
+		minCyclesBetweenSpawns:       rand.Intn(c.MaxCyclesBetweenSpawns),
+		chanceToMutateDecisionTree:   rand.Float64() * c.MaxChanceToMutateDecisionTree,
+		cyclesToEvaluateDecisionTree: rand.Intn(c.MaxCyclesToEvaluateDecisionTree),
+	}
+}
+
 // Organism contains:
 // - location (X, Y)
 // - direction (angle, x & y vectors)
@@ -35,84 +94,117 @@ const (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	ID, Age, Children, DirX, DirY, X, Y int
-	Color                               color.Color
-	Direction, Health, AvgHealth        float64
-	State                               OrganismState
-	NodeLibrary                         *d.NodeLibrary
-	DecisionTree                        *d.Node
-	CountdownToChangeDecisionTree       int
-	OriginalAncestorID                  int
+	ID, Age, Children, DirX, DirY, X, Y      int
+	Direction, Health, PrevHealth, AvgHealth float64
+	State                                    OrganismState
+	NodeLibrary                              *d.NodeLibrary
+	DecisionTree                             *d.Node
+	OriginalAncestorID                       int
+	CountdownToChangeDecisionTree            int
+	CyclesSinceLastSpawn                     int
+	traits                                   *Traits
 }
 
-// OrganismConfig contains all attributes needed to set up OrganismManager
-type OrganismConfig struct {
-	NumInitialOrganisms           int
-	MaxOrganisms                  int
-	InitialHealth                 float64
-	MaxHealth                     float64
-	HealthChangePerCycle          float64
-	HealthChangeFromAttacking     float64
-	HealthChangeFromBeingAttacked float64
-	HealthChangeFromMoving        float64
-	HealthChangeFromEatingAttempt float64
-	HealthChangeFromConsumingFood float64
-	HealthChangeFromTurning       float64
-	HealthChangeFromBeingIdle     float64
-	HealthChangeFromReproducing   float64
-	GridWidth, GridHeight         int
+// InitialHealth returns the health an organism and its children start life with
+func (o *Organism) InitialHealth() float64 {
+	return o.traits.spawnHealthPercent * c.MaxHealth
+}
+
+// HealthCostToReproduce returns the health to lose upon spawning a child
+func (o *Organism) HealthCostToReproduce() float64 {
+	return o.traits.spawnHealthPercent * c.MaxHealth
+}
+
+// MinHealthToSpawn returns the minimum health required for an organism to spawn a child
+func (o *Organism) MinHealthToSpawn() float64 {
+	return o.traits.minHealthToSpawnPercent * c.MaxHealth
+}
+
+// MinCyclesBetweenSpawns returns the minimum number of cycles needed for an
+// organism to spawn
+func (o *Organism) MinCyclesBetweenSpawns() int {
+	return o.traits.minCyclesBetweenSpawns
+}
+
+// ChanceToMutateDecisionTree returns the percent chance this organism will
+// mutate its most successful decision tree when switching algorithms.
+func (o *Organism) ChanceToMutateDecisionTree() float64 {
+	return o.traits.chanceToMutateDecisionTree
+}
+
+// CyclesToEvaluateDecisionTree returns the number of cycles this organism will
+// wait before changing its decision tree
+func (o *Organism) CyclesToEvaluateDecisionTree() int {
+	return o.traits.cyclesToEvaluateDecisionTree
+}
+
+// Color returns an organism's color
+func (o *Organism) Color() color.Color {
+	return o.traits.organismColor
 }
 
 // NewRandomOrganism initializes organism at with random grid location and direction
 func NewRandomOrganism(id, x, y int) *Organism {
 	nodeLibrary := d.NewNodeLibrary()
+	decisionTree := nodeLibrary.GetRandomNode()
 	direction, dirX, dirY := u.GetRandomDirection()
-	color := u.GetRandomColor()
+	traits := newRandomTraits()
+	initialHealth := traits.spawnHealthPercent * c.MaxHealth
 	organism := Organism{
-		Age:                0,
-		AvgHealth:          c.InitialHealth,
-		Health:             c.InitialHealth,
-		Children:           0,
-		Color:              color,
-		ID:                 id,
-		Direction:          direction,
-		DirX:               dirX,
-		DirY:               dirY,
-		X:                  x,
-		Y:                  y,
-		NodeLibrary:        nodeLibrary,
-		OriginalAncestorID: id,
+		ID:                            id,
+		AvgHealth:                     initialHealth,
+		Health:                        initialHealth,
+		PrevHealth:                    initialHealth,
+		DecisionTree:                  decisionTree,
+		Direction:                     direction,
+		DirX:                          dirX,
+		DirY:                          dirY,
+		X:                             x,
+		Y:                             y,
+		NodeLibrary:                   nodeLibrary,
+		OriginalAncestorID:            id,
+		CountdownToChangeDecisionTree: traits.cyclesToEvaluateDecisionTree,
+
+		Age:                  0,
+		Children:             0,
+		CyclesSinceLastSpawn: 0,
+
+		traits: traits,
 	}
-	organism.setDecisionTree(nodeLibrary.GetRandomNode())
 	return &organism
 }
 
 // NewChildOrganism initializes and returns a new organism with a copied NodeLibrary from its parent
 func NewChildOrganism(id, x, y int, parent *Organism) *Organism {
-	_, decisionNode := parent.NodeLibrary.GetBestNodesForHealth()
-	if decisionNode == nil {
-		decisionNode = parent.NodeLibrary.Map[parent.DecisionTree.ID]
+	_, parentDecisionTree := parent.NodeLibrary.GetBestNodesForHealth()
+	if parentDecisionTree == nil {
+		parentDecisionTree = parent.NodeLibrary.Map[parent.DecisionTree.ID]
 	}
-	childDecisionNode := d.CopyTreeByValue(decisionNode)
+	decisionTree := d.CopyTreeByValue(parentDecisionTree)
 	nodeLibrary := d.NewNodeLibrary()
-	nodeLibrary.RegisterAndReturnNewNode(childDecisionNode)
+	nodeLibrary.RegisterAndReturnNewNode(decisionTree)
 	direction, dirX, dirY := u.GetRandomDirection()
-	color := u.MutateColor(parent.Color)
+	traits := parent.traits.copyMutated()
 	organism := Organism{
-		Age:                0,
-		AvgHealth:          c.InitialHealth,
-		Health:             c.InitialHealth,
-		Children:           0,
-		Color:              color,
-		ID:                 id,
-		DecisionTree:       decisionNode,
-		Direction:          direction,
-		DirX:               dirX,
-		DirY:               dirY,
-		X:                  x,
-		Y:                  y,
-		NodeLibrary:        nodeLibrary,
-		OriginalAncestorID: parent.OriginalAncestorID,
+		ID:                            id,
+		AvgHealth:                     parent.InitialHealth(),
+		Health:                        parent.InitialHealth(),
+		PrevHealth:                    parent.InitialHealth(),
+		DecisionTree:                  decisionTree,
+		Direction:                     direction,
+		DirX:                          dirX,
+		DirY:                          dirY,
+		X:                             x,
+		Y:                             y,
+		NodeLibrary:                   nodeLibrary,
+		OriginalAncestorID:            parent.OriginalAncestorID,
+		CountdownToChangeDecisionTree: traits.cyclesToEvaluateDecisionTree,
+
+		Age:                  0,
+		Children:             0,
+		CyclesSinceLastSpawn: 0,
+
+		traits: traits,
 	}
 	return &organism
 }
@@ -131,23 +223,27 @@ func (o *Organism) setDecisionTree(decisionTree *d.Node) {
 func (o *Organism) UpdateDecisionTree() {
 	o.DecisionTree.SetUsedInCurrentDecisionTree(false)
 	best, bestTopLevel := o.NodeLibrary.GetBestNodesForHealth()
-	current := o.DecisionTree
-	choice := rand.Float32()
-	if choice < 0.90 && bestTopLevel != nil {
-		o.DecisionTree = bestTopLevel
-	} else if choice < 0.95 && best != nil {
-		o.DecisionTree = best
-	} else {
-		mutatedTree := d.MutateTree(current)
-		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+
+	decisionTree := o.DecisionTree
+	if bestTopLevel != nil {
+		decisionTree = bestTopLevel
+	} else if best != nil {
+		decisionTree = best
 	}
+
+	if rand.Float64() < o.ChanceToMutateDecisionTree() {
+		mutatedTree := d.MutateTree(decisionTree)
+		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+	} else {
+		o.DecisionTree = o.NodeLibrary.RegisterAndReturnNewNode(decisionTree)
+	}
+
 	o.DecisionTree.SetUsedInCurrentDecisionTree(true)
-	o.CountdownToChangeDecisionTree = o.DecisionTree.Complexity * 2
+	o.CountdownToChangeDecisionTree = o.CyclesToEvaluateDecisionTree()
 }
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
-	config                 OrganismConfig
 	NodeLibrary            d.NodeLibrary
 	Environment            *Environment
 	Organisms              map[int]*Organism
@@ -156,8 +252,8 @@ type OrganismManager struct {
 	LastIndexAdded         int
 	LastReportedPopulation int
 
-	OldestOrganismAllTime    *organismInfo
-	OldestOrganismCurrent    *organismInfo
+	MostReproductiveAllTime  *organismInfo
+	MostReproductiveCurrent  *organismInfo
 	AncestorDescendantsCount map[int]int
 }
 
@@ -167,41 +263,45 @@ type organismInfo struct {
 	age          int
 	children     int
 	decisionTree string
+	traits       *Traits
+}
+
+func (o *organismInfo) ID() int {
+	return o.id
 }
 
 // NewOrganismManager creates all Organisms and updates grid
-func NewOrganismManager(environment *Environment, config OrganismConfig) OrganismManager {
+func NewOrganismManager(environment *Environment) OrganismManager {
 	organismManager := OrganismManager{
 		Environment: environment,
-		config:      config,
 	}
-	organismManager.Grid = make([][]int, config.GridWidth)
-	for r := 0; r < config.GridWidth; r++ {
-		organismManager.Grid[r] = make([]int, config.GridHeight)
+	organismManager.Grid = make([][]int, c.GridWidth)
+	for r := 0; r < c.GridWidth; r++ {
+		organismManager.Grid[r] = make([]int, c.GridHeight)
 	}
-	for x := 0; x < config.GridWidth; x++ {
-		for y := 0; y < config.GridHeight; y++ {
+	for x := 0; x < c.GridWidth; x++ {
+		for y := 0; y < c.GridHeight; y++ {
 			organismManager.Grid[x][y] = -1
 		}
 	}
 	organismManager.Organisms = make(map[int]*Organism)
-	for i := 0; i < config.NumInitialOrganisms; i++ {
+	for i := 0; i < c.NumInitialOrganisms; i++ {
 		organismManager.SpawnRandomOrganism()
 	}
 	organismManager.LastReportedPopulation = 0
 	organismManager.AncestorDescendantsCount = make(map[int]int)
 
-	organismManager.OldestOrganismAllTime = &organismInfo{}
-	organismManager.OldestOrganismCurrent = &organismInfo{}
+	organismManager.MostReproductiveAllTime = &organismInfo{traits: &Traits{}}
+	organismManager.MostReproductiveCurrent = &organismInfo{traits: &Traits{}}
 	return organismManager
 }
 
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (om *OrganismManager) Update() {
-	om.OldestOrganismCurrent = &organismInfo{}
+	om.MostReproductiveCurrent = &organismInfo{traits: &Traits{}}
 	// Periodically add new random organisms if population below a certain amount
-	if len(om.Organisms) < om.config.MaxOrganisms/10 {
+	if len(om.Organisms) < c.NumInitialOrganisms {
 		om.SpawnRandomOrganism()
 	}
 	for _, o := range om.Organisms {
@@ -219,14 +319,16 @@ func (om *OrganismManager) updateOrganism(o *Organism) {
 		return
 	}
 
-	oldEnough := o.Age > c.MinAgeToSpawn
-	healthyEnough := o.Health > c.MinHealthToSpawn*c.MaxHealth
-	beneathMax := len(om.Organisms) < c.MaxOrganismsAllowed
-	if oldEnough && healthyEnough && beneathMax {
+	beneathMaxOrganisms := len(om.Organisms) < c.MaxOrganismsAllowed
+	healthyEnough := o.Health > o.MinHealthToSpawn()
+	cyclesPassed := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
+	if beneathMaxOrganisms && healthyEnough && cyclesPassed {
 		om.SpawnChildOrganism(o)
 	}
 
-	o.DecisionTree.UpdateStats(o.Health, true)
+	healthChange := o.Health - o.PrevHealth
+	o.DecisionTree.UpdateStats(healthChange, true)
+	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree() {
 		o.UpdateDecisionTree()
@@ -241,11 +343,11 @@ func (om *OrganismManager) updateOrganism(o *Organism) {
 
 func (o *Organism) shouldChangeDecisionTree() bool {
 	o.CountdownToChangeDecisionTree--
-	return o.CountdownToChangeDecisionTree <= 0
+	return o.CountdownToChangeDecisionTree <= 0 || o.Health < c.MaxHealth*0.10
 }
 
 func (om *OrganismManager) evaluateBest(o *Organism) {
-	if o.Age > om.OldestOrganismCurrent.age {
+	if o.Children > om.MostReproductiveCurrent.children {
 		_, decisionTree := o.NodeLibrary.GetBestNodesForHealth()
 		if decisionTree == nil {
 			decisionTree = o.DecisionTree
@@ -256,11 +358,12 @@ func (om *OrganismManager) evaluateBest(o *Organism) {
 			decisionTree: decisionTree.Print("", true, false),
 			age:          o.Age,
 			children:     o.Children,
+			traits:       o.traits.copy(),
 		}
-		om.OldestOrganismCurrent = organismInfo
+		om.MostReproductiveCurrent = organismInfo
 
-		if o.Age > om.OldestOrganismAllTime.age {
-			om.OldestOrganismAllTime = organismInfo
+		if o.Children > om.MostReproductiveAllTime.children {
+			om.MostReproductiveAllTime = organismInfo
 		}
 	}
 }
@@ -289,8 +392,9 @@ func (om *OrganismManager) SpawnRandomOrganism() {
 func (om *OrganismManager) SpawnChildOrganism(parent *Organism) {
 	index := om.LastIndexAdded + 1
 	if x, y, found := om.getChildSpawnLocation(parent); found {
+		parent.CyclesSinceLastSpawn = 0
 		parent.Children++
-		parent.Health += om.config.HealthChangeFromReproducing
+		parent.Health += parent.HealthCostToReproduce()
 		organism := NewChildOrganism(index, x, y, parent)
 		om.registerNewOrganism(organism, index)
 	}
@@ -311,11 +415,11 @@ func (om *OrganismManager) registerNewOrganism(organism *Organism, index int) {
 }
 
 func (om *OrganismManager) getRandomSpawnLocation() (int, int) {
-	x := rand.Intn(om.config.GridWidth)
-	y := rand.Intn(om.config.GridHeight)
+	x := rand.Intn(c.GridWidth)
+	y := rand.Intn(c.GridHeight)
 	for !om.isGridLocationEmpty(x, y) {
-		x = rand.Intn(om.config.GridWidth)
-		y = rand.Intn(om.config.GridHeight)
+		x = rand.Intn(c.GridWidth)
+		y = rand.Intn(c.GridHeight)
 	}
 	return x, y
 }
@@ -336,14 +440,14 @@ func (om *OrganismManager) getChildSpawnLocation(parent *Organism) (int, int, bo
 }
 
 func (om *OrganismManager) isGridLocationEmpty(x, y int) bool {
-	width := om.config.GridWidth
-	height := om.config.GridHeight
+	width := c.GridWidth
+	height := c.GridHeight
 	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] == -1 && !om.Environment.IsFoodAtPoint(Point{X: x, Y: y})
 }
 
 func (om *OrganismManager) isOrganismAtLocation(x, y int) bool {
-	width := om.config.GridWidth
-	height := om.config.GridHeight
+	width := c.GridWidth
+	height := c.GridHeight
 	return u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1
 }
 
@@ -382,19 +486,15 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 		return om.isOrganismRight(o)
 	case d.IsRandomFiftyPercent:
 		return rand.Float32() < 0.5
-	case d.IsHealthAboveNinetyPercent:
-		return o.Health > om.config.MaxHealth*0.9
 	case d.IsHealthAboveFiftyPercent:
-		return o.Health > om.config.MaxHealth*0.5
-	case d.IsHealthAboveTenPercent:
-		return o.Health > om.config.MaxHealth*0.1
+		return o.Health > c.MaxHealth*0.5
 	}
 	return false
 }
 
 func (om *OrganismManager) getOrganismAt(x, y int) *Organism {
-	width := om.config.GridWidth
-	height := om.config.GridHeight
+	width := c.GridWidth
+	height := c.GridHeight
 	if u.IsOnGrid(x, y, width, height) && om.Grid[x][y] != -1 {
 		index := om.Grid[x][y]
 		return om.Organisms[index]
@@ -446,8 +546,8 @@ func (om *OrganismManager) isOrganismRight(o *Organism) bool {
 }
 
 func (om *OrganismManager) canMove(o *Organism) bool {
-	width := om.config.GridWidth
-	height := om.config.GridHeight
+	width := c.GridWidth
+	height := c.GridHeight
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
 	if !u.IsOnGrid(x, y, width, height) {
@@ -493,16 +593,17 @@ func (om *OrganismManager) updateStats(o *Organism) {
 
 func (om *OrganismManager) updateAge(o *Organism) {
 	o.Age++
+	o.CyclesSinceLastSpawn++
 }
 
 func (om *OrganismManager) updateHealth(o *Organism) {
-	o.Health += om.config.HealthChangePerCycle
-	o.Health = math.Min(o.Health, om.config.MaxHealth)
+	o.Health += c.HealthChangePerCycle
+	o.Health = math.Min(o.Health, c.MaxHealth)
 	o.AvgHealth = (o.AvgHealth*float64(o.Age-1) + o.Health) / float64(o.Age)
 }
 
 func (om *OrganismManager) applyIdle(o *Organism) {
-	o.Health += om.config.HealthChangeFromBeingIdle
+	o.Health += c.HealthChangeFromBeingIdle
 	o.State = StateIdle
 }
 
@@ -514,17 +615,17 @@ func (om *OrganismManager) applyAttack(o *Organism) {
 		targetOrganism := om.Organisms[targetOrganismIndex]
 		targetOrganism.Health += c.HealthChangeFromBeingAttacked
 	}
-	o.Health += om.config.HealthChangeFromAttacking
+	o.Health += c.HealthChangeFromAttacking
 	o.State = StateAttacking
 }
 
 func (om *OrganismManager) applyEat(o *Organism) {
 	x := o.X + o.DirX
 	y := o.Y + o.DirY
-	o.Health += om.config.HealthChangeFromEatingAttempt
+	o.Health += c.HealthChangeFromEatingAttempt
 	if om.Environment.IsFoodAtPoint(Point{X: x, Y: y}) {
 		om.Environment.RemoveFood(Point{X: x, Y: y})
-		o.Health += om.config.HealthChangeFromConsumingFood
+		o.Health += c.HealthChangeFromConsumingFood
 	}
 	o.State = StateEating
 }
@@ -536,13 +637,13 @@ func (om *OrganismManager) applyMove(o *Organism) {
 		o.Y += o.DirY
 		om.Grid[o.X][o.Y] = o.ID
 	}
-	o.Health += om.config.HealthChangeFromMoving
+	o.Health += c.HealthChangeFromMoving
 	o.State = StateMoving
 }
 
 func (om *OrganismManager) applyTurn(o *Organism, directionChange float64) {
 	o.Direction += directionChange
-	o.Health += om.config.HealthChangeFromTurning
+	o.Health += c.HealthChangeFromTurning
 	o.DirX = u.CalcDirXForDirection(o.Direction)
 	o.DirY = u.CalcDirYForDirection(o.Direction)
 }
@@ -563,19 +664,20 @@ func (om *OrganismManager) PrintBest() {
 
 func (om *OrganismManager) printBestCurrent() {
 	fmt.Printf("\n  - Best Organism Current - \n")
-	om.printOrganismInfo(om.OldestOrganismCurrent)
+	om.printOrganismInfo(om.MostReproductiveCurrent)
 }
 
 func (om *OrganismManager) printBestAllTime() {
 	fmt.Printf("\n  - Best Organism All Time - \n")
-	om.printOrganismInfo(om.OldestOrganismAllTime)
+	om.printOrganismInfo(om.MostReproductiveAllTime)
 }
 
 func (om *OrganismManager) printOrganismInfo(info *organismInfo) {
-	fmt.Printf("\n      ID: %10d", info.id)
-	fmt.Printf("\n     Age: %10d", info.age)
-	fmt.Printf("\nChildren: %10d", info.children)
-	fmt.Printf("\nAncestor: %10d", info.ancestorID)
+	fmt.Printf("\n      ID: %10d   |      InitialHealth:     %4d", info.id, int(info.traits.spawnHealthPercent*c.MaxHealth))
+	fmt.Printf("\n     Age: %10d   |   MinHealthToSpawn:     %4d", info.age, int(info.traits.minHealthToSpawnPercent*c.MaxHealth))
+	fmt.Printf("\nChildren: %10d   |   MinCyclesToSpawn:     %4d", info.children, info.traits.minCyclesBetweenSpawns)
+	fmt.Printf("\nAncestor: %10d   |   CyclesToEvaluateTree: %4d", info.ancestorID, info.traits.cyclesToEvaluateDecisionTree)
+	fmt.Printf("\n                       |   ChanceToMutateTree:%.2f", info.traits.chanceToMutateDecisionTree)
 	fmt.Printf("\nDecisionTree:\n%s", info.decisionTree)
 }
 
@@ -584,16 +686,16 @@ func (om *OrganismManager) printBestAncestors() {
 	fmt.Printf("   Best (%d descendants or more) -\n", descendantsPrintThreshold)
 	fmt.Print("  Ancestor ID  | Descendants\n")
 
-	updateThreshold := false
+	// updateThreshold := false
 	for ancestorID, descendants := range om.AncestorDescendantsCount {
 		if descendants >= descendantsPrintThreshold {
 			fmt.Printf("\n%13d  |%12d", ancestorID, descendants)
-			if descendants > descendantsPrintThreshold*2 {
-				updateThreshold = true
-			}
+			// if descendants > descendantsPrintThreshold*2 {
+			// 	updateThreshold = true
+			// }
 		}
 	}
-	if updateThreshold {
-		descendantsPrintThreshold = int(math.Ceil(float64(descendantsPrintThreshold) * 1.1))
-	}
+	// if updateThreshold {
+	// 	descendantsPrintThreshold = int(math.Ceil(float64(descendantsPrintThreshold) * 1.1))
+	// }
 }

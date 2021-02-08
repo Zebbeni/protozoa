@@ -42,9 +42,9 @@ func CopyTreeByValue(source *Node) *Node {
 		ID:                    source.ID,
 		NodeType:              source.NodeType,
 		AvgHealthWhenTopLevel: source.AvgHealthWhenTopLevel,
-		TopLevelUses:          source.TopLevelUses,
+		TopLevelUses:          0,
 		AvgHealth:             source.AvgHealth,
-		Uses:                  source.Uses,
+		Uses:                  0,
 		UsedLastCycle:         false,
 	}
 	destination.YesNode = CopyTreeByValue(source.YesNode)
@@ -113,6 +113,7 @@ func MutateNode(node *Node) {
 			toMutate.NodeType = GetRandomCondition()
 		}
 	}
+	toMutate.TopLevelUses = 0
 	toMutate.Uses = 0
 	toMutate.UsedLastCycle = false
 	node.Uses = 0
