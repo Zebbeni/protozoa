@@ -10,15 +10,10 @@ type World struct {
 	OrganismManager *m.OrganismManager
 }
 
-type WorldConfig struct {
-	EnvironmentConfig m.EnvironmentConfig
-	OrganismConfig    m.OrganismConfig
-}
-
 // NewWorld constructs a new World objedt with newly initialized attributes
-func NewWorld(config WorldConfig) World {
-	environment := m.NewEnvironment(config.EnvironmentConfig)
-	organismManager := m.NewOrganismManager(&environment, config.OrganismConfig)
+func NewWorld() World {
+	environment := m.NewEnvironment()
+	organismManager := m.NewOrganismManager(&environment)
 	world := World{Environment: &environment, OrganismManager: &organismManager}
 	return world
 }
@@ -34,19 +29,15 @@ func (w *World) GetFoodItems() map[string]m.Point {
 	return w.Environment.GetFoodItems()
 }
 
-// GetOrganisms returns an array of all Organisms in grid
-func (w *World) GetOrganisms() map[int]*m.Organism {
-	return w.OrganismManager.GetOrganisms()
+// GetOrganisms returns an array of all Organisms in grid as well as the ID of the most
+// reproductive organism currently alive.
+func (w *World) GetOrganisms() (map[int]*m.Organism, int) {
+	return w.OrganismManager.GetOrganisms(), w.OrganismManager.MostReproductiveCurrent.ID()
 }
 
-// GetBestOrganism returns the index of the most successful organism
-func (w *World) GetBestOrganism() int {
-	return w.OrganismManager.BestOrganismCurrent
-}
-
-// GetBestOrganismAge returns the index of the most successful organism
-func (w *World) GetBestOrganismAge() int {
-	return w.OrganismManager.BestAgeAllTime
+// GetNumOrganisms returns the current count of all organisms in the grid.
+func (w *World) GetNumOrganisms() int {
+	return len(w.OrganismManager.GetOrganisms())
 }
 
 // PrintStats shows various info about current simulation

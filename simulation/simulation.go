@@ -11,64 +11,32 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
-var foodColor = color.RGBA{100, 255, 100, 120}
-var frames = 0
+var foodColor = color.RGBA{100, 255, 100, 60}
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	world w.World
-}
-
-// Config contains all attributes needed to create a Simulation
-type Config struct {
-	WorldConfig w.WorldConfig
-}
-
-// DefaultConfig returns a Simulation Config with values defined in the configs file.
-func DefaultConfig() Config {
-	foodConfig := m.FoodConfig{
-		MinFood:    c.MinFood,
-		MaxFood:    c.MaxFood,
-		GridWidth:  c.GridWidth,
-		GridHeight: c.GridHeight,
-	}
-	organismConfig := m.OrganismConfig{
-		NumInitialOrganisms:           c.NumInitialOrganisms,
-		MaxOrganisms:                  c.MaxOrganismsAllowed,
-		InitialHealth:                 c.InitialHealth,
-		MaxHealth:                     c.MaxHealth,
-		HealthChangePerTurn:           c.HealthChangePerTurn,
-		HealthChangeFromAttacking:     c.HealthChangeFromAttacking,
-		HealthChangeFromBeingAttacked: c.HealthChangeFromBeingAttacked,
-		HealthChangeFromMoving:        c.HealthChangeFromMoving,
-		HealthChangeFromEating:        c.HealthChangeFromEating,
-		HealthChangeFromReproducing:   c.HealthChangeFromReproducing,
-		GridWidth:                     c.GridWidth,
-		GridHeight:                    c.GridHeight,
-	}
-	environmentConfig := m.EnvironmentConfig{
-		FoodConfig: foodConfig,
-	}
-	worldConfig := w.WorldConfig{
-		EnvironmentConfig: environmentConfig,
-		OrganismConfig:    organismConfig,
-	}
-	config := Config{
-		WorldConfig: worldConfig,
-	}
-	return config
+	world     w.World
+	numCycles int
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation(config Config) Simulation {
-	world := w.NewWorld(config.WorldConfig)
-	simulation := Simulation{world: world}
+func NewSimulation() Simulation {
+	world := w.NewWorld()
+	simulation := Simulation{
+		world:     world,
+		numCycles: 0,
+	}
 	return simulation
 }
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
 	s.world.Update()
+	s.numCycles++
+	if s.numCycles%c.PrintReportCycleInterval == 0 {
+		fmt.Printf("\nCycle: %d\n", s.numCycles)
+		s.world.PrintStats()
+	}
 }
 
 // IsDone returns true if end condition met
@@ -77,20 +45,22 @@ func (s *Simulation) IsDone() bool {
 		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganismsAllowed)
 		return true
 	}
-	if frames >= c.MaxCyclesToRunHeadless {
-		fmt.Printf("\nSimulation ended at maximum (%d) cycles", c.MaxCyclesToRunHeadless)
-		return true
-	}
-	if len(s.world.GetOrganisms()) <= 0 {
-		fmt.Print("\nSimulation ended. All organisms dead.", frames)
-		return true
-	}
 	return false
+}
+
+// NumCycles returns the total number of simulated cycles
+func (s *Simulation) NumCycles() int {
+	return s.numCycles
 }
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
-	return len(s.world.GetOrganisms())
+	return s.world.GetNumOrganisms()
+}
+
+// GetFoodCount returns the total number of all food items in the simulation.
+func (s *Simulation) GetFoodCount() int {
+	return len(s.world.GetFoodItems())
 }
 
 // Render draws all particles and forces to the screen
@@ -98,9 +68,9 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 	for _, point := range s.world.GetFoodItems() {
 		renderFoodAtPoint(point, screen)
 	}
-	for o, organism := range s.world.GetOrganisms() {
-		isBest := s.world.GetBestOrganism() == o
-		renderOrganism(*organism, isBest, screen)
+	organisms, mostReproductiveID := s.world.GetOrganisms()
+	for _, organism := range organisms {
+		renderOrganism(*organism, screen, mostReproductiveID)
 	}
 }
 
@@ -112,9 +82,19 @@ func renderFoodAtPoint(point m.Point, screen *ebiten.Image) {
 }
 
 // renderOrganism draws a food source to the screen
-func renderOrganism(organism m.Organism, isBest bool, screen *ebiten.Image) {
+func renderOrganism(organism m.Organism, screen *ebiten.Image, mostReproductiveID int) {
+	organismColor := organism.Color()
 	x := float64(organism.X) * c.GridUnitSize
 	y := float64(organism.Y) * c.GridUnitSize
-	organismColor := organism.Color
-	ebitenutil.DrawRect(screen, x+0.5, y+0.5, c.GridUnitSize-1, c.GridUnitSize-1, organismColor)
+	if organism.State == m.StateAttacking {
+		ebitenutil.DrawRect(screen, x, y+1, c.GridUnitSize, c.GridUnitSize, color.White)
+	} else {
+		ebitenutil.DrawRect(screen, x+0.5, y+0.5, c.GridUnitSize-1, c.GridUnitSize-1, organismColor)
+	}
+	if organism.ID == mostReproductiveID {
+		ebitenutil.DrawLine(screen, x-4, y-4, x+c.GridUnitSize+5, y-4, organismColor)                               // top
+		ebitenutil.DrawLine(screen, x-4, y-4, x-4, y+c.GridUnitSize+5, organismColor)                               // left
+		ebitenutil.DrawLine(screen, x-4, y+c.GridUnitSize+5, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // bottom
+		ebitenutil.DrawLine(screen, x+c.GridUnitSize+5, y-4, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // right
+	}
 }

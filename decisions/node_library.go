@@ -1,25 +1,32 @@
 package decisions
 
-import (
-	"image/color"
-	"math/rand"
-)
-
 // NodeLibrary contains a map of Node pointers to aggregated data for each node
 type NodeLibrary struct {
 	Map map[string]*Node
 }
 
 // NewNodeLibrary creates a new *NodeLibrary, initialized with single Actions
-func NewNodeLibrary() NodeLibrary {
+func NewNodeLibrary() *NodeLibrary {
 	nodeLibrary := NodeLibrary{
 		Map: make(map[string]*Node),
 	}
 	for _, a := range Actions {
 		node := TreeFromAction(a)
-		nodeLibrary.RegisterAndReturnNewNode(&node)
+		nodeLibrary.RegisterAndReturnNewNode(node)
 	}
-	return nodeLibrary
+	return &nodeLibrary
+}
+
+// Clone returns a new NodeLibrary with all decision trees from original
+func (nl *NodeLibrary) Clone() *NodeLibrary {
+	newLibrary := &NodeLibrary{
+		Map: make(map[string]*Node),
+	}
+	for _, node := range nl.Map {
+		newNode := CopyTreeByValue(node)
+		newLibrary.RegisterAndReturnNewNode(newNode)
+	}
+	return newLibrary
 }
 
 // RegisterAndReturnNewNode checks if a Node already exists in the library,
@@ -34,17 +41,13 @@ func (nl *NodeLibrary) RegisterAndReturnNewNode(node *Node) *Node {
 	if matchingNode, doesExist := nl.Map[node.ID]; doesExist {
 		return matchingNode
 	}
-	if !node.IsAction() {
+	if node.IsCondition() {
 		node.YesNode = nl.RegisterAndReturnNewNode(node.YesNode)
 		node.NoNode = nl.RegisterAndReturnNewNode(node.NoNode)
 		node.Complexity = node.YesNode.Complexity + node.NoNode.Complexity
 	} else {
 		node.Complexity = 1
 	}
-	r := uint8(55 + rand.Intn(200))
-	g := uint8(55 + rand.Intn(200))
-	b := uint8(55 + rand.Intn(200))
-	node.Color = color.RGBA{r, g, b, 255}
 	nl.Map[node.ID] = node
 	return node
 }
@@ -59,28 +62,32 @@ func (nl *NodeLibrary) GetRandomNode() *Node {
 	return nil
 }
 
-// GetBestNodesForMetrics returns the node with the best average increase for a
-// given metrics
-//
-func (nl *NodeLibrary) GetBestNodesForMetrics() map[Metric]*Node {
-	bestNodes := make(map[Metric]*Node)
-	bestAvgs := make(map[Metric]float64)
-	for _, metric := range Metrics {
-		bestNodes[metric] = nil
-		bestAvgs[metric] = -999999.9
-	}
+// GetBestNodesForHealth returns decision nodes to maintain good health
+// Returns both the most successful top-level node and the most-successful
+// node overall
+func (nl *NodeLibrary) GetBestNodesForHealth() (best, bestTopLevel *Node) {
+	best, bestTopLevel = nil, nil
+	bestHealth, bestHealthWhenTopLevel := -999999.9, -999999.9
 	isEnoughUses := false
 	for _, node := range nl.Map {
-		for _, metric := range Metrics {
-			// only accept a better average if it has been used
-			isEnoughUses = node.Uses >= float64(10*node.Complexity)
-			if node.MetricsAvgs[metric] > bestAvgs[metric] && isEnoughUses {
-				bestAvgs[metric] = node.MetricsAvgs[metric]
-				bestNodes[metric] = node
+		// only accept a better average if it has been used enough times to
+		// get a fair evaluation
+		isEnoughUses = node.Uses >= node.Complexity*node.Complexity
+		if isEnoughUses {
+			if node.AvgHealth > bestHealth {
+				bestHealth = node.AvgHealth
+				best = node
+			}
+		}
+		isEnoughUses = node.TopLevelUses >= node.Complexity*node.Complexity
+		if isEnoughUses {
+			if node.AvgHealthWhenTopLevel > bestHealthWhenTopLevel {
+				bestHealthWhenTopLevel = node.AvgHealthWhenTopLevel
+				bestTopLevel = node
 			}
 		}
 	}
-	return bestNodes
+	return
 }
 
 // PruneUnusedNodes removes any unused nodes from the node library to improve
@@ -90,7 +97,7 @@ func (nl *NodeLibrary) PruneUnusedNodes() {
 		nodesToRemove := len(nl.Map) - MaxNodesAllowed
 		nodesRemoved := 0
 		for key, node := range nl.Map {
-			if node.NumOrganismsUsing <= 0 {
+			if node.TopLevelUses <= 0 {
 				delete(nl.Map, key)
 				nodesRemoved++
 				if nodesRemoved >= nodesToRemove {

@@ -2,20 +2,13 @@ package models
 
 // Environment contains FoodManager
 type Environment struct {
-	FoodManager       FoodManager
-	EnvironmentConfig EnvironmentConfig
-}
-
-// EnvironmentConfig contains all config settings needed for Environment
-type EnvironmentConfig struct {
-	FoodConfig            FoodConfig
-	GridWidth, GridHeight int
+	FoodManager FoodManager
 }
 
 // NewEnvironment creates FoodManager
-func NewEnvironment(config EnvironmentConfig) Environment {
-	foodManager := NewFoodManager(config.FoodConfig)
-	return Environment{FoodManager: foodManager, EnvironmentConfig: config}
+func NewEnvironment() Environment {
+	foodManager := NewFoodManager()
+	return Environment{FoodManager: foodManager}
 }
 
 // Update calls Update function for food manager
