@@ -10,6 +10,23 @@
             "request": "launch",
             "mode": "test",
             "program": "${workspaceFolder}/test"
+        },
+        {
+            "name": "Debug Simulation",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/main.go"
+        },
+        {
+            "name": "Debug Headless",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "-headless"
+            ]   
         }
     ]
 }

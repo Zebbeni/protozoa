@@ -41,11 +41,11 @@ func CopyTreeByValue(source *Node) *Node {
 	destination := Node{
 		ID:                    source.ID,
 		NodeType:              source.NodeType,
-		AvgHealthWhenTopLevel: source.AvgHealthWhenTopLevel,
-		TopLevelUses:          0,
-		AvgHealth:             source.AvgHealth,
-		Uses:                  0,
 		UsedLastCycle:         false,
+		AvgHealthWhenTopLevel: 0,
+		TopLevelUses:          0,
+		AvgHealth:             0,
+		Uses:                  0,
 	}
 	destination.YesNode = CopyTreeByValue(source.YesNode)
 	destination.NoNode = CopyTreeByValue(source.NoNode)

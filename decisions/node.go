@@ -3,6 +3,7 @@ package decisions
 import (
 	"bytes"
 	"fmt"
+	"math"
 )
 
 // Node includes an Action or Condition value
@@ -34,12 +35,12 @@ func (n *Node) UpdateStats(health float64, topLevel bool) {
 	n.UsedLastCycle = false
 
 	n.Uses++
-	uses := float64(n.Uses)
+	uses := math.Min(float64(n.Uses), 100.0)
 	n.AvgHealth = (n.AvgHealth*(uses-1.0) + health) / uses
 
 	if topLevel {
 		n.TopLevelUses++
-		uses = float64(n.TopLevelUses)
+		uses = math.Min(float64(n.TopLevelUses), 100.0)
 		n.AvgHealthWhenTopLevel = (n.AvgHealthWhenTopLevel*(uses-1.0) + health) / uses
 	}
 

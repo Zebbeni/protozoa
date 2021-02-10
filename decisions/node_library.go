@@ -1,5 +1,7 @@
 package decisions
 
+import "math"
+
 // NodeLibrary contains a map of Node pointers to aggregated data for each node
 type NodeLibrary struct {
 	Map map[string]*Node
@@ -67,24 +69,18 @@ func (nl *NodeLibrary) GetRandomNode() *Node {
 // node overall
 func (nl *NodeLibrary) GetBestNodesForHealth() (best, bestTopLevel *Node) {
 	best, bestTopLevel = nil, nil
-	bestHealth, bestHealthWhenTopLevel := -999999.9, -999999.9
-	isEnoughUses := false
+	// only return decision nodes with a positive average health change
+	bestHealth, bestHealthWhenTopLevel := -1*math.MaxFloat64, -1*math.SmallestNonzeroFloat64
 	for _, node := range nl.Map {
 		// only accept a better average if it has been used enough times to
 		// get a fair evaluation
-		isEnoughUses = node.Uses >= node.Complexity*node.Complexity
-		if isEnoughUses {
-			if node.AvgHealth > bestHealth {
-				bestHealth = node.AvgHealth
-				best = node
-			}
+		if node.AvgHealth > bestHealth {
+			bestHealth = node.AvgHealth
+			best = node
 		}
-		isEnoughUses = node.TopLevelUses >= node.Complexity*node.Complexity
-		if isEnoughUses {
-			if node.AvgHealthWhenTopLevel > bestHealthWhenTopLevel {
-				bestHealthWhenTopLevel = node.AvgHealthWhenTopLevel
-				bestTopLevel = node
-			}
+		if node.AvgHealthWhenTopLevel > bestHealthWhenTopLevel {
+			bestHealthWhenTopLevel = node.AvgHealthWhenTopLevel
+			bestTopLevel = node
 		}
 	}
 	return
