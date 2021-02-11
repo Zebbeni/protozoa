@@ -25,7 +25,7 @@ func (w *World) Update() {
 }
 
 // GetFoodItems returns an array of all food items in grid
-func (w *World) GetFoodItems() map[string]m.Point {
+func (w *World) GetFoodItems() map[string]*m.FoodItem {
 	return w.Environment.GetFoodItems()
 }
 

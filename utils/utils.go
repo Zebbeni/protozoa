@@ -27,22 +27,6 @@ func GetRandomColor() color.Color {
 	return color.RGBA{r, g, b, 255}
 }
 
-// MutateColor returns a slight variation on a given color
-func MutateColor(originalColor color.Color) color.Color {
-	r32, g32, b32, a32 := originalColor.RGBA()
-	r := mutateColorValue(r32)
-	g := mutateColorValue(g32)
-	b := mutateColorValue(b32)
-	a := uint8(a32)
-	return color.RGBA{r, g, b, a}
-}
-
-func mutateColorValue(v uint32) uint8 {
-	converted := int(uint8(v)) // cast to uint8 and back to int to avoid overflow
-	mutated := math.Max(math.Min(float64(converted+rand.Intn(21)-10), 255), 50)
-	return uint8(mutated)
-}
-
 // CalcDirXForDirection returns the X vector given an angle
 func CalcDirXForDirection(direction float64) int {
 	cos := math.Cos(direction)

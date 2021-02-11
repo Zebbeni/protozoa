@@ -42,7 +42,7 @@ func update(screen *ebiten.Image) error {
 }
 
 func main() {
-	rand.Seed(1)
+	rand.Seed(5)
 
 	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
 	trials := flag.Int("trials", 1, "Number of trials to run")

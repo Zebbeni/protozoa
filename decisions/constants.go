@@ -9,6 +9,7 @@ type Condition int
 // Define all possible actions for Organism
 const (
 	ActAttack Action = iota
+	ActFeed
 	ActEat
 	ActIdle
 	ActMove
@@ -19,8 +20,17 @@ const (
 	IsFoodLeft
 	IsFoodRight
 	IsOrganismAhead
+	IsBiggerOrganismAhead
+	IsSmallerOrganismAhead
+	IsRelatedOrganismAhead
 	IsOrganismLeft
+	IsBiggerOrganismLeft
+	IsSmallerOrganismLeft
+	IsRelatedOrganismLeft
 	IsOrganismRight
+	IsBiggerOrganismRight
+	IsSmallerOrganismRight
+	IsRelatedOrganismRight
 	IsRandomFiftyPercent
 	IsHealthAboveFiftyPercent
 )
@@ -29,6 +39,7 @@ const (
 var (
 	Actions = [...]Action{
 		ActAttack,
+		ActFeed,
 		ActEat,
 		ActIdle,
 		ActMove,
@@ -41,13 +52,23 @@ var (
 		IsFoodLeft,
 		IsFoodRight,
 		IsOrganismAhead,
+		IsBiggerOrganismAhead,
+		IsSmallerOrganismAhead,
+		IsRelatedOrganismAhead,
 		IsOrganismLeft,
+		IsBiggerOrganismLeft,
+		IsSmallerOrganismLeft,
+		IsRelatedOrganismLeft,
 		IsOrganismRight,
+		IsBiggerOrganismRight,
+		IsSmallerOrganismRight,
+		IsRelatedOrganismRight,
 		IsRandomFiftyPercent,
 		IsHealthAboveFiftyPercent,
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",
+		ActFeed:                   "Feed",
 		ActEat:                    "Eat",
 		ActIdle:                   "Be Idle",
 		ActMove:                   "Move Ahead",
@@ -58,8 +79,17 @@ var (
 		IsFoodLeft:                "If Food Left",
 		IsFoodRight:               "If Food Right",
 		IsOrganismAhead:           "If Organism Ahead",
+		IsBiggerOrganismAhead:     "If Bigger Organism Ahead",
+		IsSmallerOrganismAhead:    "If Smaller Organism Ahead",
+		IsRelatedOrganismAhead:    "If Related Organism Ahead",
 		IsOrganismLeft:            "If Organism Left",
+		IsBiggerOrganismLeft:      "If Bigger Organism Left",
+		IsSmallerOrganismLeft:     "If Smaller Organism Left",
+		IsRelatedOrganismLeft:     "If Related Organism Left",
 		IsOrganismRight:           "If Organism Right",
+		IsBiggerOrganismRight:     "If Bigger Organism Right",
+		IsSmallerOrganismRight:    "If Smaller Organism Right",
+		IsRelatedOrganismRight:    "If Related Organism Right",
 		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 	}
@@ -67,5 +97,5 @@ var (
 	MinUsesToConsiderChanging = 100
 	// NodeLibrary constants
 	UsesToConsiderPruningMultiplier = 200
-	MaxNodesAllowed                 = 10
+	MaxNodesAllowed                 = 50
 )
