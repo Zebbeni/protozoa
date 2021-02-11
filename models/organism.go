@@ -19,6 +19,7 @@ var descendantsPrintThreshold = 1
 // Define Organism States
 const (
 	StateAttacking OrganismState = iota
+	StateFeeding
 	StateIdle
 	StateMoving
 	StateTurning
@@ -79,14 +80,14 @@ func newRandomTraits() *Traits {
 
 func (t *Traits) copyMutated() *Traits {
 	organismColor := mutateColor(t.organismColor)
-	// maxSize = previous +- previous +- <0.025, bounded by MinimumMaxSize and MaximumMaxSize
-	maxSize := mutateFloat(t.maxSize, 0.25, c.MinimumMaxSize, c.MaximumMaxSize)
-	// minCyclesBetweenSpawns = previous +1, +0, or +(-1), bounded by 0.0 and MaxCyclesBetweenSpawns
-	minCyclesBetweenSpawns := mutateInt(t.minCyclesBetweenSpawns, 1, 0, c.MaxCyclesBetweenSpawns)
+	// maxSize = previous +- previous +- <5.0, bounded by MinimumMaxSize and MaximumMaxSize
+	maxSize := mutateFloat(t.maxSize, 5.0, c.MinimumMaxSize, c.MaximumMaxSize)
+	// minCyclesBetweenSpawns = previous +- <=5, bounded by 0 and MaxCyclesBetweenSpawns
+	minCyclesBetweenSpawns := mutateInt(t.minCyclesBetweenSpawns, 5, 0, c.MaxCyclesBetweenSpawns)
 	// spawnHealth = previous +- <0.05, bounded by MinSpawnHealth and maxSize
 	spawnHealth := mutateFloat(t.spawnHealth, 0.1, c.MinSpawnHealth, maxSize*c.MaxSpawnHealthPercent)
-	// minHealthToSpawnPercent = previous +- <0.01, bounded by spawnHealthPercent and maxSize (both calculated above)
-	minHealthToSpawn := mutateFloat(t.minHealthToSpawn, 0.1, spawnHealth, maxSize)
+	// minHealthToSpawn = previous +- <5.0, bounded by spawnHealthPercent and maxSize (both calculated above)
+	minHealthToSpawn := mutateFloat(t.minHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.01, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.chanceToMutateDecisionTree, 0.01, c.MinChanceToMutateDecisionTree, c.MaxChanceToMutateDecisionTree)
 	// cyclesToEvaluateDecisionTree = previous +1, +0 or +(-1), bounded by 1 and CyclesToEvaluateDecisionTree
@@ -393,7 +394,7 @@ func (om *OrganismManager) updateOrganism(o *Organism) {
 		}
 	}
 
-	o.DecisionTree.UpdateStats(healthChange, true)
+	o.DecisionTree.UpdateStats(healthChange, true, o.CyclesToEvaluateDecisionTree())
 	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree() {
@@ -553,10 +554,28 @@ func (om *OrganismManager) isConditionTrue(o *Organism, cond interface{}) bool {
 		return om.isFoodRight(o)
 	case d.IsOrganismAhead:
 		return om.isOrganismAhead(o)
+	case d.IsBiggerOrganismAhead:
+		return om.isBiggerOrganismAhead(o)
+	case d.IsSmallerOrganismAhead:
+		return om.isSmallerOrganismAhead(o)
+	case d.IsRelatedOrganismAhead:
+		return om.isRelatedOrganismAhead(o)
 	case d.IsOrganismLeft:
 		return om.isOrganismLeft(o)
+	case d.IsBiggerOrganismLeft:
+		return om.isBiggerOrganismLeft(o)
+	case d.IsSmallerOrganismLeft:
+		return om.isSmallerOrganismLeft(o)
+	case d.IsRelatedOrganismLeft:
+		return om.isRelatedOrganismLeft(o)
 	case d.IsOrganismRight:
 		return om.isOrganismRight(o)
+	case d.IsBiggerOrganismRight:
+		return om.isBiggerOrganismRight(o)
+	case d.IsSmallerOrganismRight:
+		return om.isSmallerOrganismRight(o)
+	case d.IsRelatedOrganismRight:
+		return om.isRelatedOrganismRight(o)
 	case d.IsRandomFiftyPercent:
 		return rand.Float32() < 0.5
 	case d.IsHealthAboveFiftyPercent:
@@ -599,9 +618,28 @@ func (om *OrganismManager) isFoodRight(o *Organism) bool {
 }
 
 func (om *OrganismManager) isOrganismAhead(o *Organism) bool {
-	x := o.X + o.DirX
-	y := o.Y + o.DirY
-	return om.isOrganismAtLocation(x, y)
+	return om.isOrganismAtLocation(o.X+o.DirX, o.Y+o.DirY)
+}
+
+func (om *OrganismManager) isBiggerOrganismAhead(o *Organism) bool {
+	if organismAhead := om.getOrganismAt(o.X+o.DirX, o.Y+o.DirY); organismAhead != nil {
+		return organismAhead.Size > o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isSmallerOrganismAhead(o *Organism) bool {
+	if organismAhead := om.getOrganismAt(o.X+o.DirX, o.Y+o.DirY); organismAhead != nil {
+		return organismAhead.Size < o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isRelatedOrganismAhead(o *Organism) bool {
+	if organismAhead := om.getOrganismAt(o.X+o.DirX, o.Y+o.DirY); organismAhead != nil {
+		return organismAhead.OriginalAncestorID == o.OriginalAncestorID
+	}
+	return false
 }
 
 func (om *OrganismManager) isOrganismLeft(o *Organism) bool {
@@ -611,11 +649,71 @@ func (om *OrganismManager) isOrganismLeft(o *Organism) bool {
 	return om.isOrganismAtLocation(x, y)
 }
 
+func (om *OrganismManager) isBiggerOrganismLeft(o *Organism) bool {
+	direction := o.Direction + LeftTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.Size > o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isSmallerOrganismLeft(o *Organism) bool {
+	direction := o.Direction + LeftTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.Size < o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isRelatedOrganismLeft(o *Organism) bool {
+	direction := o.Direction + LeftTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.OriginalAncestorID == o.OriginalAncestorID
+	}
+	return false
+}
+
 func (om *OrganismManager) isOrganismRight(o *Organism) bool {
 	direction := o.Direction + RightTurnAngle
 	x := o.X + u.CalcDirXForDirection(direction)
 	y := o.Y + u.CalcDirYForDirection(direction)
 	return om.isOrganismAtLocation(x, y)
+}
+
+func (om *OrganismManager) isBiggerOrganismRight(o *Organism) bool {
+	direction := o.Direction + RightTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.Size > o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isSmallerOrganismRight(o *Organism) bool {
+	direction := o.Direction + RightTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.Size < o.Size
+	}
+	return false
+}
+
+func (om *OrganismManager) isRelatedOrganismRight(o *Organism) bool {
+	direction := o.Direction + RightTurnAngle
+	x := o.X + u.CalcDirXForDirection(direction)
+	y := o.Y + u.CalcDirYForDirection(direction)
+	if organismAhead := om.getOrganismAt(x, y); organismAhead != nil {
+		return organismAhead.OriginalAncestorID == o.OriginalAncestorID
+	}
+	return false
 }
 
 func (om *OrganismManager) canMove(o *Organism) bool {
@@ -643,6 +741,9 @@ func (om *OrganismManager) applyAction(o *Organism, action interface{}) {
 		break
 	case d.ActAttack:
 		om.applyAttack(o)
+		break
+	case d.ActFeed:
+		om.applyFeed(o)
 		break
 	case d.ActEat:
 		om.applyEat(o)
@@ -689,6 +790,22 @@ func (om *OrganismManager) applyAttack(o *Organism) {
 		targetOrganismIndex := om.Grid[x][y]
 		targetOrganism := om.Organisms[targetOrganismIndex]
 		targetOrganism.ApplyHealthChange(c.HealthChangeInflictedByAttack * o.Size)
+	}
+}
+
+func (om *OrganismManager) applyFeed(o *Organism) {
+	o.State = StateFeeding
+	o.ApplyHealthChange(c.HealthChangeFromFeeding * o.Size)
+
+	amountToFeed := c.HealthChangeFromFeeding * o.Size
+	x := o.X + o.DirX
+	y := o.Y + o.DirY
+	if om.isOrganismAtLocation(x, y) {
+		targetOrganismIndex := om.Grid[x][y]
+		targetOrganism := om.Organisms[targetOrganismIndex]
+		targetOrganism.ApplyHealthChange(amountToFeed)
+	} else {
+		om.Environment.AddFoodAtPoint(Point{X: x, Y: y}, int(amountToFeed))
 	}
 }
 

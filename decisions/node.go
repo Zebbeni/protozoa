@@ -31,24 +31,24 @@ func (n *Node) IsCondition() bool {
 // UpdateStats updates the toplevel Node's success rate on Health, traversing
 // all nodes in the last used decision path.
 // FUTURE: We may want more metrics besides health
-func (n *Node) UpdateStats(health float64, topLevel bool) {
+func (n *Node) UpdateStats(health float64, topLevel bool, cyclesToConsider int) {
 	n.UsedLastCycle = false
 
 	n.Uses++
-	uses := math.Min(float64(n.Uses), 100.0)
+	uses := math.Min(float64(n.Uses), float64(cyclesToConsider))
 	n.AvgHealth = (n.AvgHealth*(uses-1.0) + health) / uses
 
 	if topLevel {
 		n.TopLevelUses++
-		uses = math.Min(float64(n.TopLevelUses), 100.0)
+		uses = math.Min(float64(n.TopLevelUses), float64(cyclesToConsider))
 		n.AvgHealthWhenTopLevel = (n.AvgHealthWhenTopLevel*(uses-1.0) + health) / uses
 	}
 
 	if n.IsCondition() {
 		if n.YesNode.UsedLastCycle {
-			n.YesNode.UpdateStats(health, false)
+			n.YesNode.UpdateStats(health, false, cyclesToConsider)
 		} else {
-			n.NoNode.UpdateStats(health, false)
+			n.NoNode.UpdateStats(health, false, cyclesToConsider)
 		}
 	}
 }

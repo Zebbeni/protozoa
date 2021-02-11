@@ -69,7 +69,6 @@ func (nl *NodeLibrary) GetRandomNode() *Node {
 // node overall
 func (nl *NodeLibrary) GetBestNodesForHealth() (best, bestTopLevel *Node) {
 	best, bestTopLevel = nil, nil
-	// only return decision nodes with a positive average health change
 	bestHealth, bestHealthWhenTopLevel := -1*math.MaxFloat64, -1*math.SmallestNonzeroFloat64
 	for _, node := range nl.Map {
 		// only accept a better average if it has been used enough times to
@@ -89,17 +88,30 @@ func (nl *NodeLibrary) GetBestNodesForHealth() (best, bestTopLevel *Node) {
 // PruneUnusedNodes removes any unused nodes from the node library to improve
 // performance.
 func (nl *NodeLibrary) PruneUnusedNodes() {
-	if len(nl.Map) > MaxNodesAllowed {
-		nodesToRemove := len(nl.Map) - MaxNodesAllowed
-		nodesRemoved := 0
-		for key, node := range nl.Map {
-			if node.TopLevelUses <= 0 {
-				delete(nl.Map, key)
-				nodesRemoved++
-				if nodesRemoved >= nodesToRemove {
-					return
-				}
+	if len(nl.Map) <= MaxNodesAllowed {
+		return
+	}
+
+	nodesToRemove := len(nl.Map) - MaxNodesAllowed
+	nodesRemoved := 0
+	worstTopLevelAvgHealth := math.MaxFloat64
+	var worstTopLevelNodeID string
+
+	for key, node := range nl.Map {
+		if node.TopLevelUses <= 0 {
+			delete(nl.Map, key)
+			nodesRemoved++
+			if nodesRemoved >= nodesToRemove {
+				return
+			}
+		} else {
+			if node.AvgHealthWhenTopLevel < worstTopLevelAvgHealth {
+				worstTopLevelAvgHealth = node.AvgHealthWhenTopLevel
+				worstTopLevelNodeID = node.ID
 			}
 		}
 	}
+
+	// If we didn't delete the number desired, delete the worst TopLevelNode
+	delete(nl.Map, worstTopLevelNodeID)
 }

@@ -11,6 +11,15 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 )
 
+type size int
+
+const (
+	sizeTiny size = iota
+	sizeSmall
+	sizeMedium
+	sizeLarge
+)
+
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
 	world     w.World
@@ -76,9 +85,22 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 func renderFood(foodItem *m.FoodItem, screen *ebiten.Image) {
 	x := float64(foodItem.Point().X) * c.GridUnitSize
 	y := float64(foodItem.Point().Y) * c.GridUnitSize
-	alpha := 30.0 + ((foodItem.Value() / c.MaxFoodValue) * 30.0) // max opacity = 30 + 30
+	alpha := 60
 	foodColor := color.RGBA{100, 255, 100, uint8(alpha)}
-	ebitenutil.DrawRect(screen, x+1, y+1, c.GridUnitSize-2, c.GridUnitSize-2, foodColor)
+
+	value := float64(foodItem.Value())
+	foodSize := sizeTiny
+	if value < c.MaxFoodValue*0.1825 {
+		foodSize = sizeTiny
+	} else if value < c.MaxFoodValue*0.4375 {
+		foodSize = sizeSmall
+	} else if value < c.MaxFoodValue*0.8125 {
+		foodSize = sizeMedium
+	} else {
+		foodSize = sizeLarge
+	}
+
+	drawSquare(screen, x, y, foodSize, foodColor)
 }
 
 // renderOrganism draws a food source to the screen
@@ -86,27 +108,48 @@ func renderOrganism(organism m.Organism, screen *ebiten.Image, mostReproductiveI
 	x := float64(organism.X) * c.GridUnitSize
 	y := float64(organism.Y) * c.GridUnitSize
 
-	var padding float64
-	if organism.Size < organism.MaxSize()*0.25 {
-		padding = 1.25
-	} else if organism.Size < organism.MaxSize()*0.5 {
-		padding = 1.0
-	} else if organism.Size < organism.MaxSize()*0.75 {
-		padding = 0.75
+	organismSize := sizeTiny
+	if organism.Size < c.MaximumMaxSize*0.1825 {
+		organismSize = sizeTiny
+	} else if organism.Size < c.MaximumMaxSize*0.4375 {
+		organismSize = sizeSmall
+	} else if organism.Size < c.MaximumMaxSize*0.8125 {
+		organismSize = sizeMedium
 	} else {
-		padding = 0.5
+		organismSize = sizeLarge
 	}
 
 	organismColor := organism.Color()
 	if organism.State == m.StateAttacking {
 		organismColor = color.White
 	}
-	ebitenutil.DrawRect(screen, x+padding, y+padding, c.GridUnitSize-(2*padding), c.GridUnitSize-(2*padding), organismColor)
+
+	drawSquare(screen, x, y, organismSize, organismColor)
 
 	if organism.ID == mostReproductiveID {
-		ebitenutil.DrawLine(screen, x-4, y-4, x+c.GridUnitSize+5, y-4, organismColor)                               // top
-		ebitenutil.DrawLine(screen, x-4, y-4, x-4, y+c.GridUnitSize+5, organismColor)                               // left
-		ebitenutil.DrawLine(screen, x-4, y+c.GridUnitSize+5, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // bottom
-		ebitenutil.DrawLine(screen, x+c.GridUnitSize+5, y-4, x+c.GridUnitSize+5, y+c.GridUnitSize+5, organismColor) // right
+		ebitenutil.DrawLine(screen, x-2, y-2, x+c.GridUnitSize+3, y-2, organismColor)                               // top
+		ebitenutil.DrawLine(screen, x-2, y-2, x-2, y+c.GridUnitSize+3, organismColor)                               // left
+		ebitenutil.DrawLine(screen, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // bottom
+		ebitenutil.DrawLine(screen, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // right
 	}
+}
+
+func drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {
+	padding := 1.5
+	switch sz {
+	case sizeTiny:
+		padding = 2.0
+		break
+	case sizeSmall:
+		padding = 1.5
+		break
+	case sizeMedium:
+		padding = 1.0
+		break
+	case sizeLarge:
+		padding = 0.5
+		break
+	}
+
+	ebitenutil.DrawRect(screen, x+padding, y+padding, c.GridUnitSize-(2*padding), c.GridUnitSize-(2*padding), col)
 }
