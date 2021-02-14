@@ -64,25 +64,17 @@ func (nl *NodeLibrary) GetRandomNode() *Node {
 	return nil
 }
 
-// GetBestNodesForHealth returns decision nodes to maintain good health
-// Returns both the most successful top-level node and the most-successful
-// node overall
-func (nl *NodeLibrary) GetBestNodesForHealth() (best, bestTopLevel *Node) {
-	best, bestTopLevel = nil, nil
-	bestHealth, bestHealthWhenTopLevel := -1*math.MaxFloat64, -1*math.SmallestNonzeroFloat64
+// GetBestDecisionTree returns the decision tree with the highest AvgHealthWhenTopLevel
+func (nl *NodeLibrary) GetBestDecisionTree() *Node {
+	var best *Node
+	bestHealth := -1 * math.MaxFloat64
 	for _, node := range nl.Map {
-		// only accept a better average if it has been used enough times to
-		// get a fair evaluation
-		if node.AvgHealth > bestHealth {
-			bestHealth = node.AvgHealth
+		if node.AvgHealthWhenTopLevel > bestHealth {
+			bestHealth = node.AvgHealthWhenTopLevel
 			best = node
 		}
-		if node.AvgHealthWhenTopLevel > bestHealthWhenTopLevel {
-			bestHealthWhenTopLevel = node.AvgHealthWhenTopLevel
-			bestTopLevel = node
-		}
 	}
-	return
+	return best
 }
 
 // PruneUnusedNodes removes any unused nodes from the node library to improve

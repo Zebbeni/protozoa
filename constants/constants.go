@@ -17,7 +17,6 @@ const (
 	GridUnitSize = 5
 
 	// Environment constants
-	InitialFood         = 20000
 	ChanceToAddOrganism = 0.01
 	ChanceToAddFoodItem = 0.5
 	MaxFoodValue        = 100

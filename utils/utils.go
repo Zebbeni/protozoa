@@ -4,19 +4,13 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+
+	c "github.com/Zebbeni/protozoa/constants"
 )
 
 // IsOnGrid returns whether a given x, y is on the simulation grid
-func IsOnGrid(x, y, width, height int) bool {
-	return !(x < 0 || y < 0 || x >= width || y >= height)
-}
-
-// GetRandomDirection returns a random direction and its x, y components
-func GetRandomDirection() (float64, int, int) {
-	direction := math.Floor(rand.Float64()*4.0) * math.Pi / 2.0
-	dirX := CalcDirXForDirection(direction)
-	dirY := CalcDirYForDirection(direction)
-	return direction, dirX, dirY
+func IsOnGrid(p Point) bool {
+	return !(p.X < 0 || p.Y < 0 || p.X >= c.GridWidth || p.Y >= c.GridHeight)
 }
 
 // GetRandomColor returns a random color
