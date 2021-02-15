@@ -35,14 +35,14 @@ func update(screen *ebiten.Image) error {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	// write info to screen
-	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d",
-		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount())
+	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d\ntotalDuration: %10s\nupdateDuration: %10s\norganismUpdate: %10s\norganismResolve: %10s\nrenderDuration: %10s",
+		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount(), simulation.TotalDuration(), simulation.TotalUpdateDuration(), simulation.OrganismUpdateDuration(), simulation.OrganismResolveDuration(), simulation.TotalRenderDuration())
 	ebitenutil.DebugPrint(screen, infoString)
 	return nil
 }
 
 func main() {
-	rand.Seed(5)
+	rand.Seed(0)
 
 	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
 	trials := flag.Int("trials", 1, "Number of trials to run")

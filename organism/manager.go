@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"time"
 
 	c "github.com/Zebbeni/protozoa/constants"
 	d "github.com/Zebbeni/protozoa/decisions"
@@ -11,18 +12,24 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-var descendantsPrintThreshold = 1
+var descendantsPrintThreshold = 10
 
 // Manager contains 2D array of booleans showing if organism present
 type Manager struct {
 	worldAPI WorldAPI
 
-	organisms      map[int]*Organism
-	organismIDGrid [][]int
+	organisms             map[int]*Organism
+	organismIDGrid        [][]int
+	totalOrganismsCreated int
+
+	organismUpdateOrder []int
+	newOrganismIDs      []int
 
 	MostReproductiveAllTime  *organismInfo
 	MostReproductiveCurrent  *organismInfo
 	AncestorDescendantsCount map[int]int
+
+	UpdateDuration, ResolveDuration time.Duration
 }
 
 type organismInfo struct {
@@ -48,6 +55,8 @@ func NewManager(api WorldAPI) *Manager {
 		worldAPI:                 api,
 		organismIDGrid:           grid,
 		organisms:                organisms,
+		organismUpdateOrder:      make([]int, 0, c.MaxOrganisms),
+		newOrganismIDs:           make([]int, 0, 100),
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organismInfo{traits: &Traits{}},
 		MostReproductiveCurrent:  &organismInfo{traits: &Traits{}},
@@ -60,17 +69,37 @@ func NewManager(api WorldAPI) *Manager {
 func (m *Manager) Update() {
 	m.MostReproductiveCurrent = &organismInfo{traits: &Traits{}}
 	// Periodically add new random organisms if population below a certain amount
-	if len(m.organisms) < c.MaxOrganismsAllowed && rand.Float64() < c.ChanceToAddOrganism {
+	if len(m.organisms) < c.MaxOrganisms && rand.Float64() < c.ChanceToAddOrganism {
 		m.SpawnRandomOrganism()
 	}
 	// FUTURE: do this multi-threaded
-	for _, o := range m.organisms {
-		m.updateOrganism(o)
+	start := time.Now()
+	for _, id := range m.organismUpdateOrder {
+		m.updateOrganism(m.organisms[id])
 	}
-	// FUTURE: Do this in order from lowest to highest id
-	for _, o := range m.organisms {
-		m.resolveOrganismAction(o)
+	m.UpdateDuration = time.Since(start)
+	start = time.Now()
+	for _, id := range m.organismUpdateOrder {
+		m.resolveOrganismAction(m.organisms[id])
 	}
+	m.ResolveDuration = time.Since(start)
+	m.updateOrganismOrder()
+}
+
+// updateOrganismOrder creates a new ordered list of all organismIDs that are
+// alive after the current cycle, appending any newly spawned organisms.
+// This means iterating the full list of organisms again, but this should be
+// faster than just deleting the dead IDs and shifting all others to the left
+func (m *Manager) updateOrganismOrder() {
+	orderedIDs := append(m.organismUpdateOrder, m.newOrganismIDs...)
+	organismUpdateOrder := make([]int, 0, len(orderedIDs))
+	for _, id := range orderedIDs {
+		if _, ok := m.organisms[id]; ok {
+			organismUpdateOrder = append(organismUpdateOrder, id)
+		}
+	}
+	m.organismUpdateOrder = organismUpdateOrder
+	m.newOrganismIDs = make([]int, 0, 100)
 }
 
 func initializeGrid() [][]int {
@@ -86,76 +115,26 @@ func initializeGrid() [][]int {
 	return grid
 }
 
-// UpdateOrganism updates an Organism's Age, runs its Action cycle, updates
-// its Health, and replaces it if its Health <= 0
 func (m *Manager) updateOrganism(o *Organism) {
-	m.updateStats(o)
-	healthChange := o.Health - o.PrevHealth
-
-	if o.Health <= 0.0 {
-		m.removeOrganism(o.ID)
-		return
-	}
-
-	beneathMaxOrganisms := len(m.organisms) < c.MaxOrganismsAllowed
-	healthyEnough := o.Health > o.MinHealthToSpawn()
-	cyclesPassed := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
-	if beneathMaxOrganisms && healthyEnough && cyclesPassed {
-		spawnSuccess := m.SpawnChildOrganism(o)
-		// compensate for reproduction health lost so it doesn't
-		// adversely affect decision tree stats
-		if spawnSuccess {
-			healthChange -= o.HealthCostToReproduce()
-		}
-	}
-
-	// o.DecisionTree.UpdateStats(healthChange, true, o.CyclesToEvaluateDecisionTree())
-	// o.PrevHealth = o.Health
-
-	// if o.shouldChangeDecisionTree() {
-	// 	o.UpdateDecisionTree()
-	// }
-
-	// action := m.chooseAction(o, o.DecisionTree)
-
-	m.applyAction(o, action)
-	m.evaluateBest(o)
-
-	// o.PruneUnusedNodes()
-}
-
-func (m *Manager) UpdateOrganism(o *Organism) {
 	o.UpdateStats()
 	o.UpdateAction()
 }
 
-// we want to be able to run this multiple times at once, so any changes we make
-// here should be read-only except for modifying the Organism's own state
-func (m *Manager) updateOrganismAction(o *Organism) {
-	// calculate health change since last cycle
-	o.Update()
-	// update last-used decision tree stats
-
-	// (possibly) update current decision tree
-
-	// choose action from decision tree
-
-	// prune nodes
-}
-
 func (m *Manager) resolveOrganismAction(o *Organism) {
-	// if healthy enough to spawn, create child
-
-	// attempt to fulfill requested action
-
-	// if health beneath 0, remove
+	if o == nil {
+		return
+	}
+	m.updateHealth(o)
+	m.applyAction(o)
+	m.evaluateBest(o)
+	m.removeIfDead(o)
 }
 
 func (m *Manager) evaluateBest(o *Organism) {
 	if o.Children > m.MostReproductiveCurrent.children {
-		decisionTree := o.GetBestDecisionTreeCopy()
+		decisionTree := o.getBestDecisionTree()
 		if decisionTree == nil {
-			decisionTree = o.DecisionTree
+			decisionTree = o.decisionTree
 		}
 		organismInfo := &organismInfo{
 			id:           o.ID,
@@ -175,34 +154,25 @@ func (m *Manager) evaluateBest(o *Organism) {
 	}
 }
 
-func (m *Manager) removeOrganism(index int) {
-	o, _ := m.organisms[index]
-	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
-	m.worldAPI.AddFoodAtPoint(o.Location, int(o.Size))
-	delete(m.organisms, index)
-}
-
 // SpawnRandomOrganism creates an Organism with random position.
 //
 // Checks random positions on the grid until it finds an empty one. Calls
 // NewOrganism to initialize decision tree, other random attributes.
 func (m *Manager) SpawnRandomOrganism() {
-	index := m.lastIndexAdded + 1
-	spawnPoint := m.getRandomSpawnLocation()
-	organism := NewRandom(index, spawnPoint, m.worldAPI)
-	m.registerNewOrganism(organism, index)
+	if spawnPoint, found := m.getRandomSpawnLocation(); found {
+		index := m.totalOrganismsCreated
+		organism := NewRandom(index, spawnPoint, m.worldAPI)
+		m.registerNewOrganism(organism, index)
+	}
 }
 
 // SpawnChildOrganism creates a new organism near an existing 'parent' organism
 // with a copy of its parent's node library. (No organism created if no room)
 // Returns true / false depending on whether a child was actually spawned.
 func (m *Manager) SpawnChildOrganism(parent *Organism) bool {
-	index := m.lastIndexAdded + 1
-	if x, y, found := m.getChildSpawnLocation(parent); found {
-		parent.CyclesSinceLastSpawn = 0
-		parent.Children++
-		parent.ApplyHealthChange(parent.HealthCostToReproduce())
-		organism := NewChild(parent, index, x, y)
+	if spawnPoint, found := m.getChildSpawnLocation(parent); found {
+		index := m.totalOrganismsCreated
+		organism := NewChild(parent, index, spawnPoint, m.worldAPI)
 		m.registerNewOrganism(organism, index)
 		return true
 	}
@@ -211,9 +181,11 @@ func (m *Manager) SpawnChildOrganism(parent *Organism) bool {
 
 func (m *Manager) registerNewOrganism(o *Organism, index int) {
 	m.organisms[index] = o
+	m.totalOrganismsCreated++
 	m.organismIDGrid[o.X()][o.Y()] = index
-	m.lastIndexAdded = index
+	m.newOrganismIDs = append(m.newOrganismIDs, index)
 
+	// update ancestors
 	ancestorID := o.OriginalAncestorID
 	if ancestorID != o.ID {
 		if _, ok := m.AncestorDescendantsCount[ancestorID]; !ok {
@@ -223,12 +195,10 @@ func (m *Manager) registerNewOrganism(o *Organism, index int) {
 	}
 }
 
-func (m *Manager) getRandomSpawnLocation() utils.Point {
+// returns a random point and whether it is empty
+func (m *Manager) getRandomSpawnLocation() (utils.Point, bool) {
 	point := utils.GetRandomPoint()
-	for !m.isGridLocationEmpty(point) {
-		point = utils.GetRandomPoint()
-	}
-	return point
+	return point, m.isGridLocationEmpty(point)
 }
 
 func (m *Manager) getChildSpawnLocation(parent *Organism) (utils.Point, bool) {
@@ -245,75 +215,17 @@ func (m *Manager) getChildSpawnLocation(parent *Organism) (utils.Point, bool) {
 }
 
 func (m *Manager) isGridLocationEmpty(point utils.Point) bool {
-	hasFood := m.worldAPI.CheckFoodAtPoint(point, func(item *food.Item) bool {
+	return utils.IsOnGrid(point) && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+}
+
+func (m *Manager) isFoodAtLocation(point utils.Point) bool {
+	return m.worldAPI.CheckFoodAtPoint(point, func(item *food.Item) bool {
 		return item != nil
 	})
-	return utils.IsOnGrid(point) && m.organismIDGrid[x][y] == -1 && !hasFood
 }
 
-func (m *Manager) isOrganismAtLocation(x, y int) bool {
-	width := c.GridWidth
-	height := c.GridHeight
-	return utils.IsOnGrid(x, y, width, height) && m.organismIDGrid[x][y] != -1
-}
-
-// chooseAction walks through nodes of an organism's decision tree, eventually
-// returning the chosen action
-//
-// As chooseAction walks thorugh nodes, it also populates nodes to update metriic
-// information for the next update run, diminishing the use value with each level
-func (m *Manager) chooseAction(o *Organism, tree *d.Node) interface{} {
-	tree.UsedLastCycle = true
-	if tree.IsAction() {
-		return tree.NodeType
-	}
-	condition := tree.NodeType
-	if m.isConditionTrue(o, condition) {
-		return m.chooseAction(o, tree.YesNode)
-	}
-	return m.chooseAction(o, tree.NoNode)
-}
-
-func (m *Manager) isConditionTrue(o *Organism, cond interface{}) bool {
-	switch cond {
-	case d.CanMove:
-		return m.canMove(o)
-	case d.IsFoodAhead:
-		return m.isFoodAhead(o)
-	case d.IsFoodLeft:
-		return m.isFoodLeft(o)
-	case d.IsFoodRight:
-		return m.isFoodRight(o)
-	case d.IsOrganismAhead:
-		return m.isOrganismAhead(o)
-	case d.IsBiggerOrganismAhead:
-		return m.isBiggerOrganismAhead(o)
-	case d.IsSmallerOrganismAhead:
-		return m.isSmallerOrganismAhead(o)
-	case d.IsRelatedOrganismAhead:
-		return m.isRelatedOrganismAhead(o)
-	case d.IsOrganismLeft:
-		return m.isOrganismLeft(o)
-	case d.IsBiggerOrganismLeft:
-		return m.isBiggerOrganismLeft(o)
-	case d.IsSmallerOrganismLeft:
-		return m.isSmallerOrganismLeft(o)
-	case d.IsRelatedOrganismLeft:
-		return m.isRelatedOrganismLeft(o)
-	case d.IsOrganismRight:
-		return m.isOrganismRight(o)
-	case d.IsBiggerOrganismRight:
-		return m.isBiggerOrganismRight(o)
-	case d.IsSmallerOrganismRight:
-		return m.isSmallerOrganismRight(o)
-	case d.IsRelatedOrganismRight:
-		return m.isRelatedOrganismRight(o)
-	case d.IsRandomFiftyPercent:
-		return rand.Float32() < 0.5
-	case d.IsHealthAboveFiftyPercent:
-		return o.Health > o.Size*0.5
-	}
-	return false
+func (m *Manager) isOrganismAtLocation(point utils.Point) bool {
+	return utils.IsOnGrid(point) && m.organismIDGrid[point.X][point.Y] != -1
 }
 
 func (m *Manager) getOrganismAt(point utils.Point) *Organism {
@@ -341,9 +253,13 @@ func (m *Manager) CheckOrganismAtPoint(point utils.Point, checkFunc OrgCheck) bo
 	return checkFunc(m.getOrganismAt(point))
 }
 
-func (m *Manager) applyAction(o *Organism, action interface{}) {
-	o.State = StateIdle // default to idle so other functions don't need to
-	switch action {
+// OrganismCount returns the current number of organisms alive in the simulation
+func (m *Manager) OrganismCount() int {
+	return len(m.organisms)
+}
+
+func (m *Manager) applyAction(o *Organism) {
+	switch o.Action() {
 	case d.ActIdle:
 		m.applyIdle(o)
 		break
@@ -360,10 +276,13 @@ func (m *Manager) applyAction(o *Organism, action interface{}) {
 		m.applyMove(o)
 		break
 	case d.ActTurnLeft:
-		m.applyTurn(o, LeftTurnAngle)
+		m.applyLeftTurn(o)
 		break
 	case d.ActTurnRight:
-		m.applyTurn(o, RightTurnAngle)
+		m.applyRightTurn(o)
+		break
+	case d.ActSpawn:
+		m.applySpawn(o)
 		break
 	}
 }
@@ -373,72 +292,86 @@ func (m *Manager) updateHealth(o *Organism) {
 }
 
 func (m *Manager) applyIdle(o *Organism) {
-	o.State = StateIdle
 	o.ApplyHealthChange(c.HealthChangeFromBeingIdle * o.Size)
 }
 
 func (m *Manager) applyAttack(o *Organism) {
-	o.State = StateAttacking
 	o.ApplyHealthChange(c.HealthChangeFromAttacking * o.Size)
-
-	x := o.X + o.DirX
-	y := o.Y + o.DirY
-	if m.isOrganismAtLocation(x, y) {
-		targetOrganismIndex := m.organismIDGrid[x][y]
+	targetPoint := o.Location.Add(o.Direction)
+	if m.isOrganismAtLocation(targetPoint) {
+		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
 		targetOrganism.ApplyHealthChange(c.HealthChangeInflictedByAttack * o.Size)
+		m.removeIfDead(targetOrganism)
+	}
+}
+
+func (m *Manager) removeIfDead(o *Organism) bool {
+	if o.Health > 0.0 {
+		return false
+	}
+
+	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
+	m.worldAPI.AddFoodAtPoint(o.Location, int(o.Size))
+	delete(m.organisms, o.ID)
+	return true
+}
+
+func (m *Manager) applySpawn(o *Organism) {
+	if success := m.SpawnChildOrganism(o); success {
+		o.ApplyHealthChange(o.HealthCostToReproduce())
+		o.CyclesSinceLastSpawn = 0
+		o.Children++
 	}
 }
 
 func (m *Manager) applyFeed(o *Organism) {
-	o.State = StateFeeding
 	o.ApplyHealthChange(c.HealthChangeFromFeeding * o.Size)
 
 	amountToFeed := c.HealthChangeFromFeeding * o.Size
-	x := o.X + o.DirX
-	y := o.Y + o.DirY
-	if m.isOrganismAtLocation(x, y) {
-		targetOrganismIndex := m.organismIDGrid[x][y]
+	targetPoint := o.Location.Add(o.Direction)
+	if m.isOrganismAtLocation(targetPoint) {
+		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
 		targetOrganism.ApplyHealthChange(amountToFeed)
 	} else {
-		m.Environment.AddFoodAtPoint(Point{X: x, Y: y}, int(amountToFeed))
+		m.worldAPI.AddFoodAtPoint(targetPoint, int(amountToFeed))
 	}
 }
 
 func (m *Manager) applyEat(o *Organism) {
-	o.State = StateEating
 	o.ApplyHealthChange(c.HealthChangeFromEatingAttempt * o.Size)
 
-	x := o.X + o.DirX
-	y := o.Y + o.DirY
-	if value, exists := m.Environment.GetFoodAtPoint(Point{X: x, Y: y}); exists {
+	targetPoint := o.Location.Add(o.Direction)
+	if value, exists := m.worldAPI.GetFoodAtPoint(targetPoint); exists {
 		maxCanEat := o.Size
 		amountToEat := math.Min(float64(value), maxCanEat)
-		m.Environment.RemoveFood(Point{X: x, Y: y}, int(amountToEat))
+		m.worldAPI.RemoveFoodAtPoint(targetPoint, int(amountToEat))
 		o.ApplyHealthChange(amountToEat)
 	}
 }
 
 func (m *Manager) applyMove(o *Organism) {
-	o.State = StateMoving
 	o.ApplyHealthChange(c.HealthChangeFromMoving * o.Size)
 
-	if m.canMove(o) {
-		m.organismIDGrid[o.X][o.Y] = -1
-		o.X += o.DirX
-		o.Y += o.DirY
-		m.organismIDGrid[o.X][o.Y] = o.ID
+	targetPoint := o.Location.Add(o.Direction)
+	if m.isGridLocationEmpty(targetPoint) {
+		m.organismIDGrid[o.Location.X][o.Location.Y] = -1
+		o.Location = targetPoint
+		m.organismIDGrid[o.Location.X][o.Location.Y] = o.ID
 	}
 }
 
-func (m *Manager) applyTurn(o *Organism, directionChange float64) {
-	o.State = StateTurning
+func (m *Manager) applyRightTurn(o *Organism) {
 	o.ApplyHealthChange(c.HealthChangeFromTurning * o.Size)
 
-	o.Direction += directionChange
-	o.DirX = utils.CalcDirXForDirection(o.Direction)
-	o.DirY = utils.CalcDirYForDirection(o.Direction)
+	o.Direction = o.Direction.Right()
+}
+
+func (m *Manager) applyLeftTurn(o *Organism) {
+	o.ApplyHealthChange(c.HealthChangeFromTurning * o.Size)
+
+	o.Direction = o.Direction.Left()
 }
 
 // GetOrganisms returns an array of all Organisms from organism manager

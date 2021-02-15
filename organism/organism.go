@@ -18,44 +18,52 @@ import (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	lookupAPI WorldLookupAPI
+	ID                   int
+	Age                  int
+	Health               float64
+	PrevHealth           float64
+	Size                 float64
+	Children             int
+	CyclesSinceLastSpawn int
+	Location             utils.Point
+	Direction            utils.Point
+	OriginalAncestorID   int
 
-	ID, Age, Children           int
-	Location, Direction         utils.Point
-	Size, Health, PrevHealth    float64
-	action                      d.Action
-	DecisionTree                *d.Node
-	OriginalAncestorID          int
-	decisionTreeCyclesRemaining int
-	CyclesSinceLastSpawn        int
+	traits *Traits
+
 	nodeLibrary                 *d.NodeLibrary
-	traits                      *Traits
+	decisionTree                *d.Node
+	decisionTreeCyclesRemaining int
+	action                      d.Action
+
+	lookupAPI WorldLookupAPI
 }
 
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
+	traits := newRandomTraits()
 	nodeLibrary := d.NewNodeLibrary()
 	decisionTree := nodeLibrary.GetRandomNode()
-	traits := newRandomTraits()
-	initialHealth := traits.spawnHealth
 	organism := Organism{
-		lookupAPI:                   api,
-		ID:                          id,
-		Health:                      initialHealth,
-		PrevHealth:                  initialHealth,
-		Size:                        initialHealth,
-		DecisionTree:                decisionTree,
-		Direction:                   utils.GetRandomDirection(),
-		Location:                    point,
-		OriginalAncestorID:          id,
-		decisionTreeCyclesRemaining: traits.cyclesToEvaluateDecisionTree,
-
+		ID:                   id,
 		Age:                  0,
+		Health:               traits.spawnHealth,
+		PrevHealth:           traits.spawnHealth,
+		Size:                 traits.spawnHealth,
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
+		Location:             point,
+		Direction:            utils.GetRandomDirection(),
+		OriginalAncestorID:   id,
 
-		nodeLibrary: nodeLibrary,
-		traits:      traits,
+		traits: traits,
+
+		nodeLibrary:                 nodeLibrary,
+		decisionTree:                decisionTree,
+		decisionTreeCyclesRemaining: traits.cyclesToEvaluateDecisionTree,
+		action:                      d.ActIdle,
+
+		lookupAPI: api,
 	}
 	return &organism
 }
@@ -63,30 +71,30 @@ func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
 // NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
 func NewChild(parent *Organism, id int, point utils.Point, api WorldLookupAPI) *Organism {
 	traits := parent.traits.copyMutated()
-
+	nodeLibrary := d.NewNodeLibrary()
 	inheritedTree := parent.GetBestDecisionTreeCopy()
 	if inheritedTree == nil {
 		inheritedTree = parent.GetCurrentDecisionTreeCopy()
 	}
-	nodeLibrary := d.NewNodeLibrary()
 	decisionTree := nodeLibrary.RegisterAndReturnNewNode(inheritedTree)
-
 	organism := Organism{
-		ID:                          id,
-		traits:                      parent.traits.copyMutated(),
-		Health:                      parent.InitialHealth(),
-		PrevHealth:                  parent.InitialHealth(),
-		Size:                        parent.InitialHealth(),
-		DecisionTree:                decisionTree,
-		Direction:                   utils.GetRandomDirection(),
-		Location:                    point,
-		nodeLibrary:                 nodeLibrary,
-		OriginalAncestorID:          parent.OriginalAncestorID,
-		decisionTreeCyclesRemaining: decisionTree.Complexity * traits.cyclesToEvaluateDecisionTree,
-
+		ID:                   id,
 		Age:                  0,
+		Health:               parent.InitialHealth(),
+		PrevHealth:           parent.InitialHealth(),
+		Size:                 parent.InitialHealth(),
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
+		Location:             point,
+		Direction:            utils.GetRandomDirection(),
+		OriginalAncestorID:   parent.OriginalAncestorID,
+
+		traits: traits,
+
+		nodeLibrary:                 nodeLibrary,
+		decisionTree:                decisionTree,
+		decisionTreeCyclesRemaining: decisionTree.Complexity * traits.cyclesToEvaluateDecisionTree,
+		action:                      d.ActIdle,
 
 		lookupAPI: api,
 	}
@@ -99,10 +107,15 @@ func NewChild(parent *Organism, id int, point utils.Point, api WorldLookupAPI) *
 func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
-	o.Health -= c.HealthChangePerCycle * o.Size
 
 	healthChange := o.Health - o.PrevHealth
-	o.DecisionTree.UpdateStats(healthChange, true, o.CyclesToEvaluateDecisionTree())
+	// compensate for health cost due to reproduction if applicable
+	// (don't penalize decision tree for a drop in health it didn't cause)
+	if o.CyclesSinceLastSpawn == 1 && o.Age > 1 {
+		healthChange -= o.Size * o.HealthCostToReproduce()
+	}
+
+	o.decisionTree.UpdateStats(healthChange, true, o.CyclesToEvaluateDecisionTree())
 	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree() {
@@ -115,9 +128,26 @@ func (o *Organism) UpdateStats() {
 // UpdateAction runs on each cycle, occasionally changing the current decision
 // tree before running it to determine its next action
 func (o *Organism) UpdateAction() {
-	o.action = o.chooseAction(o.DecisionTree)
+	if o.shouldSpawn() {
+		o.action = d.ActSpawn
+		return
+	}
+
+	o.action = o.chooseAction(o.decisionTree)
 }
 
+func (o *Organism) shouldSpawn() bool {
+	cyclesRequirementMet := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
+	healthRequirementMet := o.Health > o.MinHealthToSpawn()
+	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms
+	return populationRequirementMet && cyclesRequirementMet && healthRequirementMet
+}
+
+// chooseAction walks through nodes of an organism's decision tree, eventually
+// returning the chosen action
+//
+// As chooseAction walks thorugh nodes, it also sets UsedLastCycle=true, allowing
+// the organism to attribute success or failure to the previously-chosen path
 func (o *Organism) chooseAction(node *d.Node) d.Action {
 	node.UsedLastCycle = true
 	if node.IsAction() {
@@ -184,7 +214,7 @@ func (o *Organism) GetBestDecisionTreeCopy() *d.Node {
 
 // GetCurrentDecisionTreeCopy returns a copy of an organism's currently-used decision tree
 func (o *Organism) GetCurrentDecisionTreeCopy() *d.Node {
-	return d.CopyTreeByValue(o.DecisionTree)
+	return d.CopyTreeByValue(o.decisionTree)
 }
 
 // GetBestDecisionTree returns an organism's most successful decision tree
@@ -193,12 +223,12 @@ func (o *Organism) getBestDecisionTree() *d.Node {
 }
 
 // GetAction returns the last-chosen Organism action
-func (o *Organism) GetAction() d.Action {
+func (o Organism) GetAction() d.Action {
 	return o.action
 }
 
 // InitialHealth returns the health an organism and its children start life with
-func (o *Organism) InitialHealth() float64 {
+func (o Organism) InitialHealth() float64 {
 	return o.traits.spawnHealth
 }
 
@@ -208,30 +238,35 @@ func (o *Organism) HealthCostToReproduce() float64 {
 }
 
 // MinHealthToSpawn returns the minimum health required for an organism to spawn a child
-func (o *Organism) MinHealthToSpawn() float64 {
+func (o Organism) MinHealthToSpawn() float64 {
 	return o.traits.minHealthToSpawn
 }
 
 // MinCyclesBetweenSpawns returns the minimum number of cycles needed for an
 // organism to spawn
-func (o *Organism) MinCyclesBetweenSpawns() int {
+func (o Organism) MinCyclesBetweenSpawns() int {
 	return o.traits.minCyclesBetweenSpawns
 }
 
 // ChanceToMutateDecisionTree returns the percent chance this organism will
 // mutate its most successful decision tree when switching algorithms.
-func (o *Organism) ChanceToMutateDecisionTree() float64 {
+func (o Organism) ChanceToMutateDecisionTree() float64 {
 	return o.traits.chanceToMutateDecisionTree
 }
 
 // CyclesToEvaluateDecisionTree returns the number of cycles this organism will
 // wait before changing its decision tree
-func (o *Organism) CyclesToEvaluateDecisionTree() int {
+func (o Organism) CyclesToEvaluateDecisionTree() int {
 	return o.traits.cyclesToEvaluateDecisionTree
 }
 
+// Action returns the Organism's currently-chosen action
+func (o Organism) Action() d.Action {
+	return o.action
+}
+
 // Color returns an organism's color
-func (o *Organism) Color() color.Color {
+func (o Organism) Color() color.Color {
 	return o.traits.organismColor
 }
 
@@ -241,11 +276,11 @@ func (o *Organism) MaxSize() float64 {
 }
 
 func (o *Organism) setDecisionTree(decisionTree *d.Node) {
-	if o.DecisionTree != nil {
-		o.DecisionTree.SetUsedInCurrentDecisionTree(false)
+	if o.decisionTree != nil {
+		o.decisionTree.SetUsedInCurrentDecisionTree(false)
 	}
-	o.DecisionTree = decisionTree
-	o.DecisionTree.SetUsedInCurrentDecisionTree(true)
+	o.decisionTree = decisionTree
+	o.decisionTree.SetUsedInCurrentDecisionTree(true)
 }
 
 func (o *Organism) pruneNodeLibrary() {
@@ -268,9 +303,9 @@ func (o *Organism) ApplyHealthChange(change float64) {
 // if already using the best node for the sought metric, mutates its existing
 // algorithm
 func (o *Organism) UpdateDecisionTree() {
-	o.DecisionTree.SetUsedInCurrentDecisionTree(false)
+	o.decisionTree.SetUsedInCurrentDecisionTree(false)
 
-	decisionTree := o.DecisionTree
+	decisionTree := o.decisionTree
 	best := o.getBestDecisionTree()
 	if best != nil {
 		decisionTree = best
@@ -278,12 +313,12 @@ func (o *Organism) UpdateDecisionTree() {
 
 	if rand.Float64() < o.ChanceToMutateDecisionTree() {
 		mutatedTree := d.MutateTree(decisionTree)
-		o.DecisionTree = o.nodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+		o.decisionTree = o.nodeLibrary.RegisterAndReturnNewNode(mutatedTree)
 	} else {
-		o.DecisionTree = o.nodeLibrary.RegisterAndReturnNewNode(decisionTree)
+		o.decisionTree = o.nodeLibrary.RegisterAndReturnNewNode(decisionTree)
 	}
 
-	o.DecisionTree.SetUsedInCurrentDecisionTree(true)
+	o.decisionTree.SetUsedInCurrentDecisionTree(true)
 	o.decisionTreeCyclesRemaining = o.CyclesToEvaluateDecisionTree()
 }
 

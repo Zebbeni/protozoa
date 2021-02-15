@@ -15,6 +15,8 @@ type OrgCheck func(item *Organism) bool
 type WorldLookupAPI interface {
 	CheckFoodAtPoint(point utils.Point, checkFunc FoodCheck) bool
 	CheckOrganismAtPoint(point utils.Point, checkFunc OrgCheck) bool
+	GetFoodAtPoint(point utils.Point) (int, bool)
+	OrganismCount() int
 }
 
 // WorldChangeAPI provides functions to make changes

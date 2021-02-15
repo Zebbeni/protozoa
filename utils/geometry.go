@@ -28,6 +28,7 @@ var (
 	}
 )
 
+// GetRandomPoint returns a random point somewhere on the simulation grid
 func GetRandomPoint() Point {
 	return Point{
 		X: rand.Intn(constants.GridWidth),
@@ -48,6 +49,14 @@ func (p *Point) Add(toAdd Point) Point {
 // Subtract subtracts a given Point and returns the result
 func (p *Point) Subtract(toAdd Point) Point {
 	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}
+}
+
+// Times multiplies a given value and returns the result
+func (p *Point) Times(toMultiply int) Point {
+	return Point{
+		X: p.X * toMultiply,
+		Y: p.Y * toMultiply,
+	}
 }
 
 // ToString returns a Point's values as the string, "<x>, <y>"

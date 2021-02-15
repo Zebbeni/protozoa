@@ -56,6 +56,20 @@ func (w *World) CheckOrganismAtPoint(point utils.Point, checkFunc organism.OrgCh
 	return w.OrganismManager.CheckOrganismAtPoint(point, checkFunc)
 }
 
+// OrganismCount returns the current number of Organisms alive in the simulation
+func (w *World) OrganismCount() int {
+	return w.OrganismManager.OrganismCount()
+}
+
+// GetFoodAtPoint returns the value of any food at a given point and whether
+// a food item actually exists there.
+func (w *World) GetFoodAtPoint(point utils.Point) (int, bool) {
+	if item := w.EnvironmentManager.GetFoodAtPoint(point); item != nil {
+		return item.Value(), true
+	}
+	return 0, false
+}
+
 // CheckFoodAtPoint returns the result of running a check against any food Item
 // object found at a given Point.
 func (w *World) CheckFoodAtPoint(point utils.Point, checkFunc organism.FoodCheck) bool {

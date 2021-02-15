@@ -15,6 +15,7 @@ const (
 	ActMove
 	ActTurnLeft
 	ActTurnRight
+	ActSpawn
 	CanMove Condition = iota
 	IsFoodAhead
 	IsFoodLeft
@@ -45,6 +46,7 @@ var (
 		ActMove,
 		ActTurnLeft,
 		ActTurnRight,
+		// ActSpawn <-- Leave this out since it's not something we want organisms to 'choose' to do
 	}
 	Conditions = [...]Condition{
 		CanMove,
@@ -74,6 +76,7 @@ var (
 		ActMove:                   "Move Ahead",
 		ActTurnLeft:               "Turn Left",
 		ActTurnRight:              "Turn Right",
+		ActSpawn:                  "Spawn",
 		CanMove:                   "If Can Move Ahead",
 		IsFoodAhead:               "If Food Ahead",
 		IsFoodLeft:                "If Food Left",

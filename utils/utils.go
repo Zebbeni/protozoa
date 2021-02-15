@@ -2,7 +2,6 @@ package utils
 
 import (
 	"image/color"
-	"math"
 	"math/rand"
 
 	c "github.com/Zebbeni/protozoa/constants"
@@ -19,16 +18,4 @@ func GetRandomColor() color.Color {
 	g := uint8(55 + rand.Intn(200))
 	b := uint8(55 + rand.Intn(200))
 	return color.RGBA{r, g, b, 255}
-}
-
-// CalcDirXForDirection returns the X vector given an angle
-func CalcDirXForDirection(direction float64) int {
-	cos := math.Cos(direction)
-	return int(cos)
-}
-
-// CalcDirYForDirection returns the Y vector given an angle
-func CalcDirYForDirection(direction float64) int {
-	sin := math.Sin(direction)
-	return int(sin)
 }
