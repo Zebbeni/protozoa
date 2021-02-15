@@ -423,9 +423,6 @@ func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool 
 }
 
 func (o *Organism) canMove() bool {
-	if !utils.IsOnGrid(o.Location.Add(o.Direction)) {
-		return false
-	}
 	if o.isOrganismAhead() {
 		return false
 	}

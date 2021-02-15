@@ -215,7 +215,7 @@ func (m *Manager) getChildSpawnLocation(parent *Organism) (utils.Point, bool) {
 }
 
 func (m *Manager) isGridLocationEmpty(point utils.Point) bool {
-	return utils.IsOnGrid(point) && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+	return !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
 }
 
 func (m *Manager) isFoodAtLocation(point utils.Point) bool {
@@ -225,13 +225,10 @@ func (m *Manager) isFoodAtLocation(point utils.Point) bool {
 }
 
 func (m *Manager) isOrganismAtLocation(point utils.Point) bool {
-	return utils.IsOnGrid(point) && m.organismIDGrid[point.X][point.Y] != -1
+	return m.organismIDGrid[point.X][point.Y] != -1
 }
 
 func (m *Manager) getOrganismAt(point utils.Point) *Organism {
-	if !utils.IsOnGrid(point) {
-		return nil
-	}
 	if id, exists := m.getOrganismIDAt(point); exists {
 		index := id
 		return m.organisms[index]

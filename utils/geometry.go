@@ -42,20 +42,28 @@ func GetRandomDirection() Point {
 }
 
 // Add add a given Point and returns the result
-func (p *Point) Add(toAdd Point) Point {
-	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}
+func (p Point) Add(toAdd Point) Point {
+	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
 }
 
 // Subtract subtracts a given Point and returns the result
-func (p *Point) Subtract(toAdd Point) Point {
-	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}
+func (p Point) Subtract(toAdd Point) Point {
+	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
 }
 
 // Times multiplies a given value and returns the result
 func (p *Point) Times(toMultiply int) Point {
 	return Point{
-		X: p.X * toMultiply,
-		Y: p.Y * toMultiply,
+		X: (p.X * toMultiply),
+		Y: (p.Y * toMultiply),
+	}
+}
+
+// Wrap returns a point value after wrapping it around the grid
+func (p Point) Wrap() Point {
+	return Point{
+		X: (p.X + constants.GridWidth) % constants.GridWidth,
+		Y: (p.Y + constants.GridHeight) % constants.GridHeight,
 	}
 }
 
