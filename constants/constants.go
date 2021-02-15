@@ -17,8 +17,7 @@ const (
 	GridUnitSize = 5
 
 	// Environment constants
-	InitialFood         = 20000
-	ChanceToAddOrganism = 0.01
+	ChanceToAddOrganism = 0.05
 	ChanceToAddFoodItem = 0.5
 	MaxFoodValue        = 100
 	MinFoodValue        = 2
@@ -31,7 +30,7 @@ const (
 	MinChanceToMutateDecisionTree   = 0.01
 	MaxChanceToMutateDecisionTree   = 1.00
 	MaxCyclesToEvaluateDecisionTree = 100
-	MaxOrganismsAllowed             = 20000
+	MaxOrganisms                    = 20000
 	GrowthFactor                    = 0.5
 	MaximumMaxSize                  = 100.0
 	MinimumMaxSize                  = 10.0
@@ -43,7 +42,7 @@ const (
 	HealthChangeFromMoving        = -0.03
 	HealthChangeFromEatingAttempt = -0.01
 	HealthChangeFromAttacking     = -0.05
-	HealthChangeInflictedByAttack = -0.20
+	HealthChangeInflictedByAttack = -0.5
 	HealthChangeFromFeeding       = -0.005
 
 	// Decision Tree constants

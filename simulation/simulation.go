@@ -3,9 +3,12 @@ package simulation
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	c "github.com/Zebbeni/protozoa/constants"
-	m "github.com/Zebbeni/protozoa/models"
+	"github.com/Zebbeni/protozoa/decisions"
+	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/organism"
 	w "github.com/Zebbeni/protozoa/world"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
@@ -14,16 +17,17 @@ import (
 type size int
 
 const (
-	sizeTiny size = iota
-	sizeSmall
+	sizeSmall size = iota
 	sizeMedium
 	sizeLarge
 )
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	world     w.World
+	world     *w.World
 	numCycles int
+
+	totalUpdateDuration, totalRenderDuration time.Duration
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -38,18 +42,20 @@ func NewSimulation() Simulation {
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
+	start := time.Now()
 	s.world.Update()
 	s.numCycles++
 	if s.numCycles%c.PrintReportCycleInterval == 0 {
 		fmt.Printf("\nCycle: %d\n", s.numCycles)
 		s.world.PrintStats()
 	}
+	s.totalUpdateDuration = time.Since(start)
 }
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	if s.GetNumOrganisms() >= c.MaxOrganismsAllowed {
-		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganismsAllowed)
+	if s.GetNumOrganisms() >= c.MaxOrganisms {
+		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganisms)
 		return true
 	}
 	return false
@@ -72,27 +78,52 @@ func (s *Simulation) GetFoodCount() int {
 
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
+	start := time.Now()
 	for _, foodItem := range s.world.GetFoodItems() {
 		renderFood(foodItem, screen)
 	}
 	organisms, mostReproductiveID := s.world.GetOrganisms()
-	for _, organism := range organisms {
-		renderOrganism(*organism, screen, mostReproductiveID)
+	for _, o := range organisms {
+		renderOrganism(*o, screen, mostReproductiveID)
 	}
+	s.totalRenderDuration = time.Since(start)
+}
+
+// TotalDuration returns the total duration to update and render a single cycle
+func (s *Simulation) TotalDuration() time.Duration {
+	return s.totalUpdateDuration + s.totalRenderDuration
+}
+
+// TotalUpdateDuration returns the total duration to render a single cycle
+func (s *Simulation) TotalUpdateDuration() time.Duration {
+	return s.totalUpdateDuration
+}
+
+// TotalRenderDuration returns the total duration to render a single cycle
+func (s *Simulation) TotalRenderDuration() time.Duration {
+	return s.totalRenderDuration
+}
+
+// OrganismUpdateDuration returns the total duration to update all organism actions for a single cycle
+func (s *Simulation) OrganismUpdateDuration() time.Duration {
+	return s.world.OrganismManager.UpdateDuration
+}
+
+// OrganismResolveDuration returns the total duration to resolve all organism actions for a single cycle
+func (s *Simulation) OrganismResolveDuration() time.Duration {
+	return s.world.OrganismManager.ResolveDuration
 }
 
 // renderFood draws a food source to the screen
-func renderFood(foodItem *m.FoodItem, screen *ebiten.Image) {
+func renderFood(foodItem *food.Item, screen *ebiten.Image) {
 	x := float64(foodItem.Point().X) * c.GridUnitSize
 	y := float64(foodItem.Point().Y) * c.GridUnitSize
 	alpha := 60
 	foodColor := color.RGBA{100, 255, 100, uint8(alpha)}
 
 	value := float64(foodItem.Value())
-	foodSize := sizeTiny
-	if value < c.MaxFoodValue*0.1825 {
-		foodSize = sizeTiny
-	} else if value < c.MaxFoodValue*0.4375 {
+	foodSize := sizeSmall
+	if value < c.MaxFoodValue*0.4375 {
 		foodSize = sizeSmall
 	} else if value < c.MaxFoodValue*0.8125 {
 		foodSize = sizeMedium
@@ -104,29 +135,27 @@ func renderFood(foodItem *m.FoodItem, screen *ebiten.Image) {
 }
 
 // renderOrganism draws a food source to the screen
-func renderOrganism(organism m.Organism, screen *ebiten.Image, mostReproductiveID int) {
-	x := float64(organism.X) * c.GridUnitSize
-	y := float64(organism.Y) * c.GridUnitSize
+func renderOrganism(o organism.Organism, screen *ebiten.Image, mostReproductiveID int) {
+	point := o.Location.Times(c.GridUnitSize)
+	x, y := float64(point.X), float64(point.Y)
 
-	organismSize := sizeTiny
-	if organism.Size < c.MaximumMaxSize*0.1825 {
-		organismSize = sizeTiny
-	} else if organism.Size < c.MaximumMaxSize*0.4375 {
+	organismSize := sizeSmall
+	if o.Size < c.MaximumMaxSize*0.4375 {
 		organismSize = sizeSmall
-	} else if organism.Size < c.MaximumMaxSize*0.8125 {
+	} else if o.Size < c.MaximumMaxSize*0.8125 {
 		organismSize = sizeMedium
 	} else {
 		organismSize = sizeLarge
 	}
 
-	organismColor := organism.Color()
-	if organism.State == m.StateAttacking {
+	organismColor := o.Color()
+	if o.Action() == decisions.ActAttack {
 		organismColor = color.White
 	}
 
 	drawSquare(screen, x, y, organismSize, organismColor)
 
-	if organism.ID == mostReproductiveID {
+	if o.ID == mostReproductiveID {
 		ebitenutil.DrawLine(screen, x-2, y-2, x+c.GridUnitSize+3, y-2, organismColor)                               // top
 		ebitenutil.DrawLine(screen, x-2, y-2, x-2, y+c.GridUnitSize+3, organismColor)                               // left
 		ebitenutil.DrawLine(screen, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // bottom
@@ -137,9 +166,6 @@ func renderOrganism(organism m.Organism, screen *ebiten.Image, mostReproductiveI
 func drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {
 	padding := 1.5
 	switch sz {
-	case sizeTiny:
-		padding = 2.0
-		break
 	case sizeSmall:
 		padding = 1.5
 		break
