@@ -29,7 +29,7 @@ type Organism struct {
 	Direction            utils.Point
 	OriginalAncestorID   int
 
-	traits *Traits
+	traits Traits
 
 	nodeLibrary                 *d.NodeLibrary
 	decisionTree                *d.Node
@@ -47,9 +47,9 @@ func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
-		Health:               traits.spawnHealth,
-		PrevHealth:           traits.spawnHealth,
-		Size:                 traits.spawnHealth,
+		Health:               traits.SpawnHealth,
+		PrevHealth:           traits.SpawnHealth,
+		Size:                 traits.SpawnHealth,
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
@@ -60,7 +60,7 @@ func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
 
 		nodeLibrary:                 nodeLibrary,
 		decisionTree:                decisionTree,
-		decisionTreeCyclesRemaining: traits.cyclesToEvaluateDecisionTree,
+		decisionTreeCyclesRemaining: traits.CyclesToEvaluateDecisionTree,
 		action:                      d.ActIdle,
 
 		lookupAPI: api,
@@ -69,31 +69,31 @@ func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
 }
 
 // NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
-func NewChild(parent *Organism, id int, point utils.Point, api WorldLookupAPI) *Organism {
-	traits := parent.traits.copyMutated()
+func (o *Organism) NewChild(id int, point utils.Point, api WorldLookupAPI) *Organism {
+	traits := o.traits.copyMutated()
 	nodeLibrary := d.NewNodeLibrary()
-	inheritedTree := parent.GetBestDecisionTreeCopy()
+	inheritedTree := o.GetBestDecisionTreeCopy(false)
 	if inheritedTree == nil {
-		inheritedTree = parent.GetCurrentDecisionTreeCopy()
+		inheritedTree = o.GetCurrentDecisionTreeCopy(false)
 	}
 	decisionTree := nodeLibrary.RegisterAndReturnNewNode(inheritedTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
-		Health:               parent.InitialHealth(),
-		PrevHealth:           parent.InitialHealth(),
-		Size:                 parent.InitialHealth(),
+		Health:               o.InitialHealth(),
+		PrevHealth:           o.InitialHealth(),
+		Size:                 o.InitialHealth(),
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
 		Direction:            utils.GetRandomDirection(),
-		OriginalAncestorID:   parent.OriginalAncestorID,
+		OriginalAncestorID:   o.OriginalAncestorID,
 
 		traits: traits,
 
 		nodeLibrary:                 nodeLibrary,
 		decisionTree:                decisionTree,
-		decisionTreeCyclesRemaining: decisionTree.Complexity * traits.cyclesToEvaluateDecisionTree,
+		decisionTreeCyclesRemaining: decisionTree.Complexity * traits.CyclesToEvaluateDecisionTree,
 		action:                      d.ActIdle,
 
 		lookupAPI: api,
@@ -208,72 +208,48 @@ func (o *Organism) X() int { return o.Location.X }
 func (o *Organism) Y() int { return o.Location.Y }
 
 // GetBestDecisionTreeCopy returns a copy of an organism's most successful decision tree
-func (o *Organism) GetBestDecisionTreeCopy() *d.Node {
-	return d.CopyTreeByValue(o.nodeLibrary.GetBestDecisionTree())
+func (o *Organism) GetBestDecisionTreeCopy(copyHistory bool) *d.Node {
+	return d.CopyTreeByValue(o.nodeLibrary.GetBestDecisionTree(), copyHistory)
 }
 
 // GetCurrentDecisionTreeCopy returns a copy of an organism's currently-used decision tree
-func (o *Organism) GetCurrentDecisionTreeCopy() *d.Node {
-	return d.CopyTreeByValue(o.decisionTree)
-}
-
-// GetBestDecisionTree returns an organism's most successful decision tree
-func (o *Organism) getBestDecisionTree() *d.Node {
-	return o.nodeLibrary.GetBestDecisionTree()
+func (o *Organism) GetCurrentDecisionTreeCopy(copyHistory bool) *d.Node {
+	return d.CopyTreeByValue(o.decisionTree, copyHistory)
 }
 
 // GetAction returns the last-chosen Organism action
-func (o Organism) GetAction() d.Action {
-	return o.action
-}
+func (o Organism) GetAction() d.Action { return o.action }
+
+// Traits returns an organism's traits
+func (o Organism) Traits() Traits { return o.traits }
 
 // InitialHealth returns the health an organism and its children start life with
-func (o Organism) InitialHealth() float64 {
-	return o.traits.spawnHealth
-}
+func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }
 
 // HealthCostToReproduce returns the health to lose upon spawning a child
-func (o *Organism) HealthCostToReproduce() float64 {
-	return o.traits.spawnHealth * -1.0
-}
+func (o Organism) HealthCostToReproduce() float64 { return o.traits.SpawnHealth * -1.0 }
 
 // MinHealthToSpawn returns the minimum health required for an organism to spawn a child
-func (o Organism) MinHealthToSpawn() float64 {
-	return o.traits.minHealthToSpawn
-}
+func (o Organism) MinHealthToSpawn() float64 { return o.traits.MinHealthToSpawn }
 
 // MinCyclesBetweenSpawns returns the minimum number of cycles needed for an
 // organism to spawn
-func (o Organism) MinCyclesBetweenSpawns() int {
-	return o.traits.minCyclesBetweenSpawns
-}
+func (o Organism) MinCyclesBetweenSpawns() int { return o.traits.MinCyclesBetweenSpawns }
 
-// ChanceToMutateDecisionTree returns the percent chance this organism will
-// mutate its most successful decision tree when switching algorithms.
-func (o Organism) ChanceToMutateDecisionTree() float64 {
-	return o.traits.chanceToMutateDecisionTree
-}
+// ChanceToMutateDecisionTree returns the chance this organism will mutate its decision tree on evaulation
+func (o Organism) ChanceToMutateDecisionTree() float64 { return o.traits.ChanceToMutateDecisionTree }
 
-// CyclesToEvaluateDecisionTree returns the number of cycles this organism will
-// wait before changing its decision tree
-func (o Organism) CyclesToEvaluateDecisionTree() int {
-	return o.traits.cyclesToEvaluateDecisionTree
-}
+// CyclesToEvaluateDecisionTree returns the number of cycles this organism will wait before evaluating its decision tree
+func (o Organism) CyclesToEvaluateDecisionTree() int { return o.traits.CyclesToEvaluateDecisionTree }
 
 // Action returns the Organism's currently-chosen action
-func (o Organism) Action() d.Action {
-	return o.action
-}
+func (o Organism) Action() d.Action { return o.action }
 
 // Color returns an organism's color
-func (o Organism) Color() color.Color {
-	return o.traits.organismColor
-}
+func (o Organism) Color() color.Color { return o.traits.OrganismColor }
 
 // MaxSize returns an organism's maximum size
-func (o *Organism) MaxSize() float64 {
-	return o.traits.maxSize
-}
+func (o *Organism) MaxSize() float64 { return o.traits.MaxSize }
 
 func (o *Organism) setDecisionTree(decisionTree *d.Node) {
 	if o.decisionTree != nil {
@@ -294,7 +270,7 @@ func (o *Organism) ApplyHealthChange(change float64) {
 	if o.Health > o.Size {
 		// When eating causes size to increase, increase slowly, not all at once.
 		difference := o.Health - o.Size
-		o.Size = math.Min(o.Size+(difference*c.GrowthFactor), o.traits.maxSize)
+		o.Size = math.Min(o.Size+(difference*c.GrowthFactor), o.traits.MaxSize)
 	}
 	o.Health = math.Min(math.Max(o.Health, 0.0), o.Size)
 }
@@ -306,7 +282,7 @@ func (o *Organism) UpdateDecisionTree() {
 	o.decisionTree.SetUsedInCurrentDecisionTree(false)
 
 	decisionTree := o.decisionTree
-	best := o.getBestDecisionTree()
+	best := o.nodeLibrary.GetBestDecisionTree()
 	if best != nil {
 		decisionTree = best
 	}

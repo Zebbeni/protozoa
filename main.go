@@ -17,9 +17,9 @@ import (
 )
 
 var (
-	black      = color.RGBA{0, 0, 0, 255}
-	filter     = ebiten.FilterLinear
-	simulation s.Simulation
+	backgroundColor = color.RGBA{15, 5, 15, 255}
+	filter          = ebiten.FilterLinear
+	simulation      s.Simulation
 )
 
 func update(screen *ebiten.Image) error {
@@ -29,7 +29,7 @@ func update(screen *ebiten.Image) error {
 		return nil
 	}
 	screen.Clear()
-	ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, black)
+	ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
 	simulation.Render(screen)
 
 	var m runtime.MemStats

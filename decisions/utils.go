@@ -34,27 +34,29 @@ func isCondition(v interface{}) bool {
 }
 
 // CopyTreeByValue recursively copies an existing tree by value
-func CopyTreeByValue(source *Node) *Node {
+func CopyTreeByValue(source *Node, copyHistory bool) *Node {
 	if source == nil {
 		return nil
 	}
 	destination := Node{
-		ID:                    source.ID,
-		NodeType:              source.NodeType,
-		UsedLastCycle:         false,
-		AvgHealthWhenTopLevel: 0,
-		TopLevelUses:          0,
-		AvgHealth:             0,
-		Uses:                  0,
+		ID:            source.ID,
+		NodeType:      source.NodeType,
+		UsedLastCycle: false,
 	}
-	destination.YesNode = CopyTreeByValue(source.YesNode)
-	destination.NoNode = CopyTreeByValue(source.NoNode)
+	if copyHistory {
+		destination.AvgHealthWhenTopLevel = source.AvgHealthWhenTopLevel
+		destination.TopLevelUses = source.TopLevelUses
+		destination.AvgHealth = source.AvgHealth
+		destination.Uses = source.Uses
+	}
+	destination.YesNode = CopyTreeByValue(source.YesNode, copyHistory)
+	destination.NoNode = CopyTreeByValue(source.NoNode, copyHistory)
 	return &destination
 }
 
 // MutateTree copies a root Node, makes changes to the full tree, and returns
 func MutateTree(original *Node) *Node {
-	mutated := CopyTreeByValue(original)
+	mutated := CopyTreeByValue(original, false)
 	MutateNode(mutated)
 	mutated.UpdateNodeIDs()
 	return mutated

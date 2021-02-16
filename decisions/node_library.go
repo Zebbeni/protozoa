@@ -25,7 +25,7 @@ func (nl *NodeLibrary) Clone() *NodeLibrary {
 		Map: make(map[string]*Node),
 	}
 	for _, node := range nl.Map {
-		newNode := CopyTreeByValue(node)
+		newNode := CopyTreeByValue(node, true)
 		newLibrary.RegisterAndReturnNewNode(newNode)
 	}
 	return newLibrary

@@ -115,13 +115,13 @@ func (s *Simulation) OrganismResolveDuration() time.Duration {
 }
 
 // renderFood draws a food source to the screen
-func renderFood(foodItem *food.Item, screen *ebiten.Image) {
-	x := float64(foodItem.Point().X) * c.GridUnitSize
-	y := float64(foodItem.Point().Y) * c.GridUnitSize
+func renderFood(item *food.Item, screen *ebiten.Image) {
+	x := float64(item.Point.X) * c.GridUnitSize
+	y := float64(item.Point.Y) * c.GridUnitSize
 	alpha := 60
 	foodColor := color.RGBA{100, 255, 100, uint8(alpha)}
 
-	value := float64(foodItem.Value())
+	value := float64(item.Value)
 	foodSize := sizeSmall
 	if value < c.MaxFoodValue*0.4375 {
 		foodSize = sizeSmall
