@@ -9,6 +9,7 @@ import (
 	"github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/utils"
 	w "github.com/Zebbeni/protozoa/world"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
@@ -32,7 +33,7 @@ type Simulation struct {
 	numCycles int
 
 	totalUpdateDuration, totalRenderDuration time.Duration
-	previousFrame                            *ebiten.Image
+	previousRenderFrame                      *ebiten.Image
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -84,38 +85,50 @@ func (s *Simulation) GetFoodCount() int {
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
 	screen.Clear()
-	ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
+
+	renderFrame, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+
+	ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
 	organisms, mostReproductiveID := s.world.GetOrganisms()
 	// Come up with a better way to trigger a refresh than this
 	if s.shouldRefresh() {
 		start := time.Now()
-		ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
+		ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
 		for _, foodItem := range s.world.GetFoodItems() {
-			renderFood(foodItem, screen)
+			renderFood(foodItem, renderFrame)
 		}
 		for _, o := range organisms {
-			renderOrganism(*o, screen, mostReproductiveID)
+			renderOrganism(*o, renderFrame, mostReproductiveID)
 		}
 		s.totalRenderDuration = time.Since(start)
 	} else {
 		start := time.Now()
-		screen.DrawImage(s.previousFrame, nil)
+		renderFrame.DrawImage(s.previousRenderFrame, nil)
 		for _, point := range s.world.PointsToUpdate {
 			// paint background over grid square to update first
-			ebitenutil.DrawRect(screen, float64(point.X)*c.GridUnitSize, float64(point.Y)*c.GridUnitSize, c.GridUnitSize, c.GridUnitSize, backgroundColor)
+			ebitenutil.DrawRect(renderFrame, float64(point.X)*c.GridUnitSize, float64(point.Y)*c.GridUnitSize, c.GridUnitSize, c.GridUnitSize, backgroundColor)
 			if foodItem := s.world.FoodManager.GetFoodAtPoint(point); foodItem != nil {
-				renderFood(foodItem, screen)
+				renderFood(foodItem, renderFrame)
 				continue
 			}
 			if o := s.world.OrganismManager.GetOrganismAtPoint(point); o != nil {
-				renderOrganism(*o, screen, mostReproductiveID)
+				renderOrganism(*o, renderFrame, mostReproductiveID)
 				continue
 			}
 		}
 		s.totalRenderDuration = time.Since(start)
 	}
-	s.previousFrame, _ = ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
-	s.previousFrame.DrawImage(screen, nil)
+
+	s.previousRenderFrame, _ = ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+	s.previousRenderFrame.DrawImage(renderFrame, nil)
+	screen.DrawImage(renderFrame, nil)
+
+	if selectedOrganism, ok := organisms[mostReproductiveID]; ok {
+		selectionBox, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+		renderSelection(selectedOrganism.Location, selectionBox, selectedOrganism.Color())
+		screen.DrawImage(selectionBox, nil)
+	}
+
 	s.world.ResetGridPointsToUpdate()
 }
 
@@ -148,8 +161,17 @@ func (s *Simulation) OrganismResolveDuration() time.Duration {
 	return s.world.OrganismManager.ResolveDuration
 }
 
-// renderFood draws a food source to the screen
-func renderFood(item *food.Item, screen *ebiten.Image) {
+// renderSelection draws a square around a single item on the grid
+func renderSelection(point utils.Point, img *ebiten.Image, col color.Color) {
+	x, y := float64(point.X*c.GridUnitSize), float64(point.Y*c.GridUnitSize)
+	ebitenutil.DrawLine(img, x-2, y-2, x+c.GridUnitSize+3, y-2, col)                               // top
+	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+c.GridUnitSize+3, col)                               // left
+	ebitenutil.DrawLine(img, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, col) // bottom
+	ebitenutil.DrawLine(img, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, col) // right
+}
+
+// renderFood draws a food source to the given image
+func renderFood(item *food.Item, img *ebiten.Image) {
 	x := float64(item.Point.X) * c.GridUnitSize
 	y := float64(item.Point.Y) * c.GridUnitSize
 	alpha := 60
@@ -165,11 +187,11 @@ func renderFood(item *food.Item, screen *ebiten.Image) {
 		foodSize = sizeLarge
 	}
 
-	drawSquare(screen, x, y, foodSize, foodColor)
+	drawSquare(img, x, y, foodSize, foodColor)
 }
 
-// renderOrganism draws a food source to the screen
-func renderOrganism(o organism.Organism, screen *ebiten.Image, mostReproductiveID int) {
+// renderOrganism draws a food source to the given image
+func renderOrganism(o organism.Organism, img *ebiten.Image, mostReproductiveID int) {
 	point := o.Location.Times(c.GridUnitSize)
 	x, y := float64(point.X), float64(point.Y)
 
@@ -187,14 +209,7 @@ func renderOrganism(o organism.Organism, screen *ebiten.Image, mostReproductiveI
 		organismColor = color.White
 	}
 
-	drawSquare(screen, x, y, organismSize, organismColor)
-
-	// if o.ID == mostReproductiveID {
-	// 	ebitenutil.DrawLine(screen, x-2, y-2, x+c.GridUnitSize+3, y-2, organismColor)                               // top
-	// 	ebitenutil.DrawLine(screen, x-2, y-2, x-2, y+c.GridUnitSize+3, organismColor)                               // left
-	// 	ebitenutil.DrawLine(screen, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // bottom
-	// 	ebitenutil.DrawLine(screen, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // right
-	// }
+	drawSquare(img, x, y, organismSize, organismColor)
 }
 
 func drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {
