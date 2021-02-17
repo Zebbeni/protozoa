@@ -36,6 +36,18 @@ func GetRandomPoint() Point {
 	}
 }
 
+// GetAllPointsNear returns all points that lie in a square within a given
+// distance from a single point
+func GetAllPointsNear(point Point, distance int) []Point {
+	points := make([]Point, 0, 9)
+	for x := -distance; x <= distance; x++ {
+		for y := -distance; y <= distance; y++ {
+			points = append(points, Point{X: point.X + x, Y: point.Y + y})
+		}
+	}
+	return points
+}
+
 // GetRandomDirection returns a point representing a random direction
 func GetRandomDirection() Point {
 	return Directions[rand.Intn(len(Directions))]

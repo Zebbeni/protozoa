@@ -16,6 +16,10 @@ import (
 
 type size int
 
+var (
+	backgroundColor = color.RGBA{15, 5, 15, 255}
+)
+
 const (
 	sizeSmall size = iota
 	sizeMedium
@@ -28,6 +32,7 @@ type Simulation struct {
 	numCycles int
 
 	totalUpdateDuration, totalRenderDuration time.Duration
+	previousFrame                            *ebiten.Image
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -78,15 +83,44 @@ func (s *Simulation) GetFoodCount() int {
 
 // Render draws all particles and forces to the screen
 func (s *Simulation) Render(screen *ebiten.Image) {
-	start := time.Now()
-	for _, foodItem := range s.world.GetFoodItems() {
-		renderFood(foodItem, screen)
-	}
+	screen.Clear()
+	ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
 	organisms, mostReproductiveID := s.world.GetOrganisms()
-	for _, o := range organisms {
-		renderOrganism(*o, screen, mostReproductiveID)
+	// Come up with a better way to trigger a refresh than this
+	if s.shouldRefresh() {
+		start := time.Now()
+		ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
+		for _, foodItem := range s.world.GetFoodItems() {
+			renderFood(foodItem, screen)
+		}
+		for _, o := range organisms {
+			renderOrganism(*o, screen, mostReproductiveID)
+		}
+		s.totalRenderDuration = time.Since(start)
+	} else {
+		start := time.Now()
+		screen.DrawImage(s.previousFrame, nil)
+		for _, point := range s.world.PointsToUpdate {
+			// paint background over grid square to update first
+			ebitenutil.DrawRect(screen, float64(point.X)*c.GridUnitSize, float64(point.Y)*c.GridUnitSize, c.GridUnitSize, c.GridUnitSize, backgroundColor)
+			if foodItem := s.world.FoodManager.GetFoodAtPoint(point); foodItem != nil {
+				renderFood(foodItem, screen)
+				continue
+			}
+			if o := s.world.OrganismManager.GetOrganismAtPoint(point); o != nil {
+				renderOrganism(*o, screen, mostReproductiveID)
+				continue
+			}
+		}
+		s.totalRenderDuration = time.Since(start)
 	}
-	s.totalRenderDuration = time.Since(start)
+	s.previousFrame, _ = ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+	s.previousFrame.DrawImage(screen, nil)
+	s.world.ResetGridPointsToUpdate()
+}
+
+func (s *Simulation) shouldRefresh() bool {
+	return len(s.world.PointsToUpdate) == 0
 }
 
 // TotalDuration returns the total duration to update and render a single cycle
@@ -155,12 +189,12 @@ func renderOrganism(o organism.Organism, screen *ebiten.Image, mostReproductiveI
 
 	drawSquare(screen, x, y, organismSize, organismColor)
 
-	if o.ID == mostReproductiveID {
-		ebitenutil.DrawLine(screen, x-2, y-2, x+c.GridUnitSize+3, y-2, organismColor)                               // top
-		ebitenutil.DrawLine(screen, x-2, y-2, x-2, y+c.GridUnitSize+3, organismColor)                               // left
-		ebitenutil.DrawLine(screen, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // bottom
-		ebitenutil.DrawLine(screen, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // right
-	}
+	// if o.ID == mostReproductiveID {
+	// 	ebitenutil.DrawLine(screen, x-2, y-2, x+c.GridUnitSize+3, y-2, organismColor)                               // top
+	// 	ebitenutil.DrawLine(screen, x-2, y-2, x-2, y+c.GridUnitSize+3, organismColor)                               // left
+	// 	ebitenutil.DrawLine(screen, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // bottom
+	// 	ebitenutil.DrawLine(screen, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, organismColor) // right
+	// }
 }
 
 func drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"image/color"
 	"log"
 	"math/rand"
 	"runtime"
@@ -17,9 +16,8 @@ import (
 )
 
 var (
-	backgroundColor = color.RGBA{15, 5, 15, 255}
-	filter          = ebiten.FilterLinear
-	simulation      s.Simulation
+	filter     = ebiten.FilterLinear
+	simulation s.Simulation
 )
 
 func update(screen *ebiten.Image) error {
@@ -28,8 +26,6 @@ func update(screen *ebiten.Image) error {
 	if ebiten.IsRunningSlowly() {
 		return nil
 	}
-	screen.Clear()
-	ebitenutil.DrawRect(screen, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
 	simulation.Render(screen)
 
 	var m runtime.MemStats
