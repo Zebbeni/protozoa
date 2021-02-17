@@ -27,6 +27,9 @@ type WorldChangeAPI interface {
 	// RemoveFoodAtPoint requests removing some amount of food at a Point
 	// returns how much food was actually removed
 	RemoveFoodAtPoint(point utils.Point, value int) int
+	// AddGridPointToUpdate indicates a point on the grid has been updated
+	// and needs to be re-rendered
+	AddGridPointToUpdate(point utils.Point)
 }
 
 // WorldAPI provides functions needed to lookup and make changes to world objects

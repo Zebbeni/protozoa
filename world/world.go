@@ -13,13 +13,16 @@ type World struct {
 
 	FoodManager     *manager.FoodManager
 	OrganismManager *manager.OrganismManager
+
+	PointsToUpdate map[string]utils.Point
 }
 
 // NewWorld constructs a new World objedt with newly initialized attributes
 func NewWorld() *World {
 	world := World{}
-	world.FoodManager = manager.NewFoodManager()
+	world.FoodManager = manager.NewFoodManager(&world)
 	world.OrganismManager = manager.NewOrganismManager(&world)
+	world.ResetGridPointsToUpdate()
 	return &world
 }
 
@@ -87,4 +90,15 @@ func (w *World) AddFoodAtPoint(point utils.Point, value int) int {
 // amount of food added.
 func (w *World) RemoveFoodAtPoint(point utils.Point, value int) int {
 	return w.FoodManager.RemoveFoodAtPoint(point, value)
+}
+
+// ResetGridPointsToUpdate clears the current pointsToUpdate map
+func (w *World) ResetGridPointsToUpdate() {
+	w.PointsToUpdate = make(map[string]utils.Point)
+}
+
+// AddGridPointToUpdate indicates a point on the grid has been updated
+// and needs to be re-rendered
+func (w *World) AddGridPointToUpdate(point utils.Point) {
+	w.PointsToUpdate[point.ToString()] = point
 }

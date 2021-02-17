@@ -11,12 +11,16 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	Items map[string]*food.Item
+	worldAPI food.WorldAPI
+	Items    map[string]*food.Item
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager() *FoodManager {
-	return &FoodManager{Items: make(map[string]*food.Item)}
+func NewFoodManager(worldAPI food.WorldAPI) *FoodManager {
+	return &FoodManager{
+		worldAPI: worldAPI,
+		Items:    make(map[string]*food.Item),
+	}
 }
 
 // Update is called on every cycle and adds new FoodItems at a constant rate
@@ -38,15 +42,19 @@ func (m *FoodManager) AddRandomFoodItem() {
 	y := rand.Intn(c.GridHeight)
 	value := rand.Intn(c.MaxFoodValue)
 	point := u.Point{X: x, Y: y}
-	m.AddFoodAtPoint(point, value)
+	if added := m.AddFoodAtPoint(point, value); added > 0 {
+		m.worldAPI.AddGridPointToUpdate(point)
+	}
 }
 
 // AddFoodAtPoint adds a foodItem with a given value at a given location if not
 // occupied. Returns the value added
 func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
-	if value < 0 {
+	if value <= 0 {
 		return 0
 	}
+
+	m.worldAPI.AddGridPointToUpdate(point)
 
 	locationString := point.ToString()
 	item, exists := m.Items[locationString]
@@ -69,7 +77,7 @@ func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
 // If value is more than the current food value, remove foodItem from the map
 // Returns the actual amount of food removed.
 func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
-	if value < 0 {
+	if value <= 0 {
 		return 0
 	}
 
@@ -78,6 +86,8 @@ func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
 	if !exists {
 		return 0
 	}
+
+	m.worldAPI.AddGridPointToUpdate(point)
 
 	originalValue := item.Value
 	item.Value -= value

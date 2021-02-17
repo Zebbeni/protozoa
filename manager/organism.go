@@ -7,6 +7,7 @@ import (
 	"time"
 
 	c "github.com/Zebbeni/protozoa/constants"
+	"github.com/Zebbeni/protozoa/decisions"
 	d "github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
@@ -117,6 +118,9 @@ func initializeGrid() [][]int {
 }
 
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
+	if o.Action() == decisions.ActAttack {
+		m.worldAPI.AddGridPointToUpdate(o.Location)
+	}
 	o.UpdateStats()
 	o.UpdateAction()
 }
@@ -181,6 +185,8 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 }
 
 func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
+	m.worldAPI.AddGridPointToUpdate(o.Location)
+
 	m.organisms[index] = o
 	m.totalOrganismsCreated++
 	m.organismIDGrid[o.X()][o.Y()] = index
@@ -251,6 +257,14 @@ func (m *OrganismManager) CheckOrganismAtPoint(point utils.Point, checkFunc orga
 	return checkFunc(m.getOrganismAt(point))
 }
 
+// GetOrganismAtPoint returns the Organism at the given point (nil if none)
+func (m *OrganismManager) GetOrganismAtPoint(point utils.Point) *organism.Organism {
+	if id, found := m.getOrganismIDAt(point); found {
+		return m.organisms[id]
+	}
+	return nil
+}
+
 // OrganismCount returns the current number of organisms alive in the simulation
 func (m *OrganismManager) OrganismCount() int {
 	return len(m.organisms)
@@ -290,16 +304,25 @@ func (m *OrganismManager) updateHealth(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyIdle(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromBeingIdle * o.Size)
+	m.applyHealthChange(o, c.HealthChangeFromBeingIdle*o.Size)
+}
+
+func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64) {
+	prevSize := o.Size
+	o.ApplyHealthChange(amount)
+	if o.Size > prevSize {
+		m.worldAPI.AddGridPointToUpdate(o.Location)
+	}
 }
 
 func (m *OrganismManager) applyAttack(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromAttacking * o.Size)
+	m.worldAPI.AddGridPointToUpdate(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromAttacking*o.Size)
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isOrganismAtLocation(targetPoint) {
 		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
-		targetOrganism.ApplyHealthChange(c.HealthChangeInflictedByAttack * o.Size)
+		m.applyHealthChange(targetOrganism, c.HealthChangeInflictedByAttack*o.Size)
 		m.removeIfDead(targetOrganism)
 	}
 }
@@ -308,7 +331,7 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 	if o.Health > 0.0 {
 		return false
 	}
-
+	m.worldAPI.AddGridPointToUpdate(o.Location)
 	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
 	m.worldAPI.AddFoodAtPoint(o.Location, int(o.Size))
 	delete(m.organisms, o.ID)
@@ -324,50 +347,51 @@ func (m *OrganismManager) applySpawn(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyFeed(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromFeeding * o.Size)
-
+	m.applyHealthChange(o, c.HealthChangeFromFeeding*o.Size)
 	amountToFeed := c.HealthChangeFromFeeding * o.Size
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isOrganismAtLocation(targetPoint) {
 		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
-		targetOrganism.ApplyHealthChange(amountToFeed)
+		m.applyHealthChange(targetOrganism, amountToFeed)
 	} else {
 		m.worldAPI.AddFoodAtPoint(targetPoint, int(amountToFeed))
 	}
 }
 
 func (m *OrganismManager) applyEat(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromEatingAttempt * o.Size)
-
+	m.applyHealthChange(o, c.HealthChangeFromEatingAttempt*o.Size)
 	targetPoint := o.Location.Add(o.Direction)
 	if value, exists := m.worldAPI.GetFoodAtPoint(targetPoint); exists {
 		maxCanEat := o.Size
 		amountToEat := math.Min(float64(value), maxCanEat)
 		m.worldAPI.RemoveFoodAtPoint(targetPoint, int(amountToEat))
-		o.ApplyHealthChange(amountToEat)
+		m.applyHealthChange(o, amountToEat)
 	}
 }
 
 func (m *OrganismManager) applyMove(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromMoving * o.Size)
+	m.applyHealthChange(o, c.HealthChangeFromMoving*o.Size)
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isGridLocationEmpty(targetPoint) {
+		m.worldAPI.AddGridPointToUpdate(o.Location)
+		m.worldAPI.AddGridPointToUpdate(targetPoint)
+
 		m.organismIDGrid[o.Location.X][o.Location.Y] = -1
+		m.organismIDGrid[targetPoint.X][targetPoint.Y] = o.ID
 		o.Location = targetPoint
-		m.organismIDGrid[o.Location.X][o.Location.Y] = o.ID
 	}
 }
 
 func (m *OrganismManager) applyRightTurn(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromTurning * o.Size)
+	m.applyHealthChange(o, c.HealthChangeFromTurning*o.Size)
 
 	o.Direction = o.Direction.Right()
 }
 
 func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangeFromTurning * o.Size)
+	m.applyHealthChange(o, c.HealthChangeFromTurning*o.Size)
 
 	o.Direction = o.Direction.Left()
 }
