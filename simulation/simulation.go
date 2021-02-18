@@ -86,14 +86,25 @@ func (s *Simulation) GetFoodCount() int {
 func (s *Simulation) Render(screen *ebiten.Image) {
 	screen.Clear()
 
-	renderFrame, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+	s.renderGrid(screen)
+	// s.renderPanel(screen)
+}
 
-	ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
+func (s *Simulation) renderPanel(screen *ebiten.Image) {
+	panelImage, _ := ebiten.NewImage(c.PanelWidth, c.PanelHeight, ebiten.FilterDefault)
+	ebitenutil.DrawRect(panelImage, 0, 0, c.PanelWidth, c.PanelHeight, color.Gray{100})
+	screen.DrawImage(panelImage, nil)
+}
+
+func (s *Simulation) renderGrid(screen *ebiten.Image) {
+	renderFrame, _ := ebiten.NewImage(c.GridWidth, c.GridHeight, ebiten.FilterDefault)
+
+	ebitenutil.DrawRect(renderFrame, 0, 0, c.GridWidth, c.GridHeight, backgroundColor)
 	organisms, mostReproductiveID := s.world.GetOrganisms()
 	// Come up with a better way to trigger a refresh than this
 	if s.shouldRefresh() {
 		start := time.Now()
-		ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
+		ebitenutil.DrawRect(renderFrame, 0, 0, c.GridWidth, c.GridHeight, backgroundColor)
 		for _, foodItem := range s.world.GetFoodItems() {
 			renderFood(foodItem, renderFrame)
 		}
@@ -119,15 +130,18 @@ func (s *Simulation) Render(screen *ebiten.Image) {
 		s.totalRenderDuration = time.Since(start)
 	}
 
-	s.previousRenderFrame, _ = ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+	s.previousRenderFrame, _ = ebiten.NewImage(c.GridWidth, c.GridHeight, ebiten.FilterDefault)
 	s.previousRenderFrame.DrawImage(renderFrame, nil)
-	screen.DrawImage(renderFrame, nil)
 
 	if selectedOrganism, ok := organisms[mostReproductiveID]; ok {
-		selectionBox, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
+		selectionBox, _ := ebiten.NewImage(c.GridWidth, c.GridHeight, ebiten.FilterDefault)
 		renderSelection(selectedOrganism.Location, selectionBox, selectedOrganism.Color())
-		screen.DrawImage(selectionBox, nil)
+		renderFrame.DrawImage(selectionBox, nil)
 	}
+
+	offsetOptions := &ebiten.DrawImageOptions{}
+	offsetOptions.GeoM.Translate(float64(c.PanelWidth), 0)
+	screen.DrawImage(renderFrame, offsetOptions)
 
 	s.world.ResetGridPointsToUpdate()
 }

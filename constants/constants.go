@@ -3,18 +3,15 @@ package constants
 // Constants
 const (
 	// Drawing constants
-
-	// GridWidth    = 350
-	// GridHeight   = 250
-	// ScreenWidth  = 1400
-	// ScreenHeight = 1000
-	// GridUnitSize = 4
-
-	GridWidth    = 280
-	GridHeight   = 200
-	ScreenWidth  = 1400
-	ScreenHeight = 1000
-	GridUnitSize = 5
+	GridUnitSize  = 5
+	GridWidth     = 1400
+	GridHeight    = 1000
+	GridUnitsWide = 280
+	GridUnitsHigh = 200
+	PanelWidth    = 400
+	PanelHeight   = 1000
+	ScreenWidth   = 1800
+	ScreenHeight  = 1000
 
 	// Environment constants
 	ChanceToAddOrganism = 0.05

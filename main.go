@@ -3,16 +3,19 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image/color"
 	"log"
 	"math/rand"
 	"runtime"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/constants"
+	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
 
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
+	"github.com/hajimehoshi/ebiten/text"
 )
 
 var (
@@ -34,10 +37,12 @@ func update(screen *ebiten.Image) error {
 	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d\ntotalDuration: %10s\nupdateDuration: %10s\norganismUpdate: %10s\norganismResolve: %10s\nrenderDuration: %10s",
 		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount(), simulation.TotalDuration(), simulation.TotalUpdateDuration(), simulation.OrganismUpdateDuration(), simulation.OrganismResolveDuration(), simulation.TotalRenderDuration())
 	ebitenutil.DebugPrint(screen, infoString)
+	text.Draw(screen, "protozoa", r.FontInversionz50, 300, 300, color.White)
 	return nil
 }
 
 func main() {
+	r.InitFonts()
 	rand.Seed(0)
 
 	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
