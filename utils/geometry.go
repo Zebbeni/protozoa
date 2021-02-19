@@ -31,8 +31,8 @@ var (
 // GetRandomPoint returns a random point somewhere on the simulation grid
 func GetRandomPoint() Point {
 	return Point{
-		X: rand.Intn(constants.GridWidth),
-		Y: rand.Intn(constants.GridHeight),
+		X: rand.Intn(constants.GridUnitsWide),
+		Y: rand.Intn(constants.GridUnitsHigh),
 	}
 }
 
@@ -69,8 +69,8 @@ func (p *Point) Times(toMultiply int) Point {
 // Wrap returns a point value after wrapping it around the grid
 func (p Point) Wrap() Point {
 	return Point{
-		X: (p.X + constants.GridWidth) % constants.GridWidth,
-		Y: (p.Y + constants.GridHeight) % constants.GridHeight,
+		X: (p.X + constants.GridUnitsWide) % constants.GridUnitsWide,
+		Y: (p.Y + constants.GridUnitsHigh) % constants.GridUnitsHigh,
 	}
 }
 

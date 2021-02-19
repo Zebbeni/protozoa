@@ -105,12 +105,12 @@ func (m *OrganismManager) updateOrganismOrder() {
 }
 
 func initializeGrid() [][]int {
-	grid := make([][]int, c.GridWidth)
-	for r := 0; r < c.GridWidth; r++ {
-		grid[r] = make([]int, c.GridHeight)
+	grid := make([][]int, c.GridUnitsWide)
+	for r := 0; r < c.GridUnitsWide; r++ {
+		grid[r] = make([]int, c.GridUnitsHigh)
 	}
-	for x := 0; x < c.GridWidth; x++ {
-		for y := 0; y < c.GridHeight; y++ {
+	for x := 0; x < c.GridUnitsWide; x++ {
+		for y := 0; y < c.GridUnitsHigh; y++ {
 			grid[x][y] = -1
 		}
 	}

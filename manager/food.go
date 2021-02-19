@@ -38,8 +38,8 @@ func (m *FoodManager) FoodCount() int {
 // AddRandomFoodItem attempts to add a FoodItem object to a random location
 // Gives up if first attempt to place food fails.
 func (m *FoodManager) AddRandomFoodItem() {
-	x := rand.Intn(c.GridWidth)
-	y := rand.Intn(c.GridHeight)
+	x := rand.Intn(c.GridUnitsWide)
+	y := rand.Intn(c.GridUnitsHigh)
 	value := rand.Intn(c.MaxFoodValue)
 	point := u.Point{X: x, Y: y}
 	if added := m.AddFoodAtPoint(point, value); added > 0 {

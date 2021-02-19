@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"image/color"
 	"log"
 	"math/rand"
 	"runtime"
@@ -15,12 +14,13 @@ import (
 
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
-	"github.com/hajimehoshi/ebiten/text"
 )
 
 var (
 	filter     = ebiten.FilterLinear
 	simulation s.Simulation
+
+	isDebug bool
 )
 
 func update(screen *ebiten.Image) error {
@@ -31,25 +31,28 @@ func update(screen *ebiten.Image) error {
 	}
 	simulation.Render(screen)
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	// write info to screen
-	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d\ntotalDuration: %10s\nupdateDuration: %10s\norganismUpdate: %10s\norganismResolve: %10s\nrenderDuration: %10s",
-		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount(), simulation.TotalDuration(), simulation.TotalUpdateDuration(), simulation.OrganismUpdateDuration(), simulation.OrganismResolveDuration(), simulation.TotalRenderDuration())
-	ebitenutil.DebugPrint(screen, infoString)
-	text.Draw(screen, "protozoa", r.FontInversionz50, 300, 300, color.White)
+	if isDebug {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		// write info to screen
+		infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d\ntotalDuration: %10s\nupdateDuration: %10s\norganismUpdate: %10s\norganismResolve: %10s\nrenderDuration: %10s",
+			ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount(), simulation.TotalDuration(), simulation.TotalUpdateDuration(), simulation.OrganismUpdateDuration(), simulation.OrganismResolveDuration(), simulation.TotalRenderDuration())
+		ebitenutil.DebugPrint(screen, infoString)
+	}
 	return nil
 }
 
 func main() {
-	r.InitFonts()
+	r.Init()
 	rand.Seed(0)
 
 	isHeadless := flag.Bool("headless", false, "Run simulation without visualization")
+	isDebugging := flag.Bool("debug", false, "Run simulation and display debug statistics")
 	trials := flag.Int("trials", 1, "Number of trials to run")
 	flag.Parse()
 
 	numTrials := *trials
+	isDebug = *isDebugging
 
 	if *isHeadless {
 		sumAllCycles := 0
