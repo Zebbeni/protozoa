@@ -1,6 +1,7 @@
 package ux
 
 import (
+	"fmt"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"image/color"
@@ -11,14 +12,14 @@ import (
 )
 
 const (
-	padding = 15
-	panelWidth    = 400
-	panelHeight   = 1000
+	padding     = 15
+	panelWidth  = 400
+	panelHeight = 1000
 )
 
 type Panel struct {
 	MouseHandler
-	simulation *s.Simulation
+	simulation         *s.Simulation
 	previousPanelImage *ebiten.Image
 }
 
@@ -35,6 +36,7 @@ func (p *Panel) Render() *ebiten.Image {
 		p.renderDividingLine(panelImage)
 		p.renderTitle(panelImage)
 		p.renderPlayPauseButton(panelImage)
+		p.renderStats(panelImage)
 
 		p.previousPanelImage, _ = ebiten.NewImage(panelWidth, panelHeight, ebiten.FilterDefault)
 		p.previousPanelImage.DrawImage(panelImage, nil)
@@ -63,4 +65,11 @@ func (p *Panel) renderPlayPauseButton(panelImage *ebiten.Image) {
 	drawOptions := &ebiten.DrawImageOptions{}
 	drawOptions.GeoM.Translate(float64(panelWidth)-float64(r.PauseButton.Bounds().Dx())-padding, padding-2)
 	panelImage.DrawImage(r.PauseButton, drawOptions)
+}
+
+func (p *Panel) renderStats(panelImage *ebiten.Image) {
+	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nFOOD:      %5d",
+		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetFoodCount())
+	xOffset, yOffset := padding, 60
+	text.Draw(panelImage, statsString, r.FontSourceCodePro12, xOffset, yOffset, color.White)
 }
