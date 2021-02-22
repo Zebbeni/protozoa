@@ -100,5 +100,6 @@ var (
 	MinUsesToConsiderChanging = 100
 	// NodeLibrary constants
 	UsesToConsiderPruningMultiplier = 200
-	MaxNodesAllowed                 = 50
+	MaxTopLevelNodes                = 50
+	MinTopLevelUsesToConsiderPrune  = 25
 )

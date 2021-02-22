@@ -2,51 +2,41 @@ package simulation
 
 import (
 	"fmt"
-	"image/color"
-	"time"
+	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/manager"
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/utils"
 
 	c "github.com/Zebbeni/protozoa/constants"
-	w "github.com/Zebbeni/protozoa/world"
-	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
-)
-
-type size int
-
-var (
-	backgroundColor = color.RGBA{15, 5, 15, 255}
 )
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	world     *w.World
-	numCycles int
+	organismManager *manager.OrganismManager
+	foodManager     *manager.FoodManager
 
-	totalUpdateDuration, totalRenderDuration time.Duration
-	previousRenderFrame                      *ebiten.Image
-	previousPanelFrame                       *ebiten.Image
+	cycle int
+
+	UpdatedPoints map[string]utils.Point
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation() Simulation {
-	world := w.NewWorld()
-	simulation := Simulation{
-		world:     world,
-		numCycles: 0,
+func NewSimulation() *Simulation {
+	simulation := &Simulation{
+		cycle:         0,
+		UpdatedPoints: make(map[string]utils.Point),
 	}
+	simulation.foodManager = manager.NewFoodManager(simulation)
+	simulation.organismManager = manager.NewOrganismManager(simulation)
 	return simulation
 }
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
-	start := time.Now()
-	s.world.Update()
-	s.numCycles++
-	if s.numCycles%c.PrintReportCycleInterval == 0 {
-		fmt.Printf("\nCycle: %d\n", s.numCycles)
-		s.world.PrintStats()
-	}
-	s.totalUpdateDuration = time.Since(start)
+	s.foodManager.Update()
+	s.organismManager.Update()
+
+	s.cycle++
 }
 
 // IsDone returns true if end condition met
@@ -58,51 +48,99 @@ func (s *Simulation) IsDone() bool {
 	return false
 }
 
-// NumCycles returns the total number of simulated cycles
-func (s *Simulation) NumCycles() int {
-	return s.numCycles
+// Cycle returns the current simulation cycle number
+func (s *Simulation) Cycle() int {
+	return s.cycle
+}
+
+// AddUpdatedGridPoint adds a point to the grid locations that have been updated
+func (s *Simulation) AddUpdatedGridPoint(point utils.Point) {
+	s.UpdatedPoints[point.ToString()] = point
+}
+
+// ClearUpdatedGridPoints clears the current pointsToUpdate map
+func (s *Simulation) ClearUpdatedGridPoints() {
+	s.UpdatedPoints = make(map[string]utils.Point)
+}
+
+// GetAllOrganismInfo returns a map of Info on all living organisms
+func (s *Simulation) GetAllOrganismInfo() map[int]*organism.Info {
+	return s.organismManager.GetAllOrganismInfo()
+}
+
+// GetOrganismInfoAtPoint returns the Organism at a given point (nil if none found)
+func (s *Simulation) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
+	return s.organismManager.GetOrganismInfoAtPoint(point)
+}
+
+// GetOrganismInfoByID returns the Organism Info for a given ID (nil if none)
+func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
+	return s.organismManager.GetOrganismInfoByID(id)
+}
+
+// GetMostReproductiveID returns the ID of the living organism with the most children.
+func (s *Simulation) GetMostReproductiveID() int {
+	return s.organismManager.MostReproductiveCurrent.ID
 }
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
-	return s.world.GetNumOrganisms()
+	return s.organismManager.OrganismCount()
 }
 
 // GetFoodCount returns the total number of all food items in the simulation.
 func (s *Simulation) GetFoodCount() int {
-	return len(s.world.GetFoodItems())
+	return len(s.foodManager.GetFoodItems())
 }
 
-// Render draws all particles and forces to the screen
-func (s *Simulation) Render(screen *ebiten.Image) {
-	screen.Clear()
-	ebitenutil.DrawRect(screen, 0, 0, float64(c.ScreenWidth), float64(c.ScreenWidth), backgroundColor)
-
-	s.renderGrid(screen)
-	s.renderPanel(screen)
+// GetFoodItems returns an array of all food items in grid
+func (s *Simulation) GetFoodItems() map[string]*food.Item {
+	return s.foodManager.GetFoodItems()
 }
 
-// TotalDuration returns the total duration to update and render a single cycle
-func (s *Simulation) TotalDuration() time.Duration {
-	return s.totalUpdateDuration + s.totalRenderDuration
+// PrintStats shows various info about current simulation
+func (s *Simulation) PrintStats() {
+	s.organismManager.PrintBest()
 }
 
-// TotalUpdateDuration returns the total duration to render a single cycle
-func (s *Simulation) TotalUpdateDuration() time.Duration {
-	return s.totalUpdateDuration
+// CheckOrganismAtPoint returns the result of running a check against any
+// Organism object found at a given Point.
+func (s *Simulation) CheckOrganismAtPoint(point utils.Point, checkFunc organism.OrgCheck) bool {
+	return s.organismManager.CheckOrganismAtPoint(point, checkFunc)
 }
 
-// TotalRenderDuration returns the total duration to render a single cycle
-func (s *Simulation) TotalRenderDuration() time.Duration {
-	return s.totalRenderDuration
+// OrganismCount returns the current number of Organisms alive in the simulation
+func (s *Simulation) OrganismCount() int {
+	return s.organismManager.OrganismCount()
 }
 
-// OrganismUpdateDuration returns the total duration to update all organism actions for a single cycle
-func (s *Simulation) OrganismUpdateDuration() time.Duration {
-	return s.world.OrganismManager.UpdateDuration
+// GetFoodAtPoint returns the value of any food at a given point and whether
+// a food item actually exists there.
+func (s *Simulation) GetFoodAtPoint(point utils.Point) *food.Item {
+	return s.foodManager.GetFoodAtPoint(point)
 }
 
-// OrganismResolveDuration returns the total duration to resolve all organism actions for a single cycle
-func (s *Simulation) OrganismResolveDuration() time.Duration {
-	return s.world.OrganismManager.ResolveDuration
+// CheckFoodAtPoint returns the result of running a check against any food Item
+// object found at a given Point.
+func (s *Simulation) CheckFoodAtPoint(point utils.Point, checkFunc organism.FoodCheck) bool {
+	item := s.foodManager.GetFoodAtPoint(point)
+	return checkFunc(item)
+}
+
+// AddFoodAtPoint attempts to add a food value to a given point and returns the actual
+// amount of food added.
+func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) int {
+	return s.foodManager.AddFoodAtPoint(point, value)
+}
+
+// RemoveFoodAtPoint attempts to add a food value to a given point and returns the actual
+// amount of food added.
+func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
+	return s.foodManager.RemoveFoodAtPoint(point, value)
+}
+
+// AddGridPointToUpdate indicates a point on the grid has been updated
+// and needs to be re-rendered
+func (s *Simulation) AddGridPointToUpdate(point utils.Point) {
+	s.UpdatedPoints[point.ToString()] = point
 }

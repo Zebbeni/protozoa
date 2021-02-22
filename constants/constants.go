@@ -8,8 +8,6 @@ const (
 	GridHeight    = 1000
 	GridUnitsWide = 280
 	GridUnitsHigh = 200
-	PanelWidth    = 400
-	PanelHeight   = 1000
 	ScreenWidth   = 1800
 	ScreenHeight  = 1000
 
@@ -18,7 +16,6 @@ const (
 	ChanceToAddFoodItem = 0.5
 	MaxFoodValue        = 100
 	MinFoodValue        = 2
-	MaxFoodLifespan     = 100
 
 	// Organism constants
 	MaxCyclesBetweenSpawns          = 100
@@ -44,16 +41,4 @@ const (
 
 	// Decision Tree constants
 	HealthPercentToChangeDecisionTree = 0.10
-	MaxNodes                          = 30
-	MaxNodesToMutate                  = 4
-	PercentActions                    = 0.6
-	PercentConditions                 = 0.4
-
-	// Time trial constants
-	OrganismAgeToEndSimulation = 1000
-	MaxCyclesToRunHeadless     = 100000
-
-	// Reporting constants
-	PopulationDifferenceToReport = 5
-	PrintReportCycleInterval     = 100
 )

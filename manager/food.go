@@ -11,15 +11,15 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	worldAPI food.WorldAPI
-	Items    map[string]*food.Item
+	api   food.API
+	Items map[string]*food.Item
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(worldAPI food.WorldAPI) *FoodManager {
+func NewFoodManager(api food.API) *FoodManager {
 	return &FoodManager{
-		worldAPI: worldAPI,
-		Items:    make(map[string]*food.Item),
+		api:   api,
+		Items: make(map[string]*food.Item),
 	}
 }
 
@@ -43,7 +43,7 @@ func (m *FoodManager) AddRandomFoodItem() {
 	value := rand.Intn(c.MaxFoodValue)
 	point := u.Point{X: x, Y: y}
 	if added := m.AddFoodAtPoint(point, value); added > 0 {
-		m.worldAPI.AddGridPointToUpdate(point)
+		m.api.AddGridPointToUpdate(point)
 	}
 }
 
@@ -54,7 +54,7 @@ func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
 		return 0
 	}
 
-	m.worldAPI.AddGridPointToUpdate(point)
+	m.api.AddGridPointToUpdate(point)
 
 	locationString := point.ToString()
 	item, exists := m.Items[locationString]
@@ -87,7 +87,7 @@ func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
 		return 0
 	}
 
-	m.worldAPI.AddGridPointToUpdate(point)
+	m.api.AddGridPointToUpdate(point)
 
 	originalValue := item.Value
 	item.Value -= value
