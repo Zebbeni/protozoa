@@ -15,17 +15,30 @@ const (
 	padding     = 15
 	panelWidth  = 400
 	panelHeight = 1000
+
+	titleXOffset = padding
+	titleYOffset = padding
+
+	statsXOffset = padding
+	statsYOffset = 69
+
+	graphXOffset = padding
+	graphYOffset = 237
+	graphWidth   = 370
+	graphHeight  = 120
 )
 
 type Panel struct {
 	MouseHandler
 	simulation         *s.Simulation
 	previousPanelImage *ebiten.Image
+	graph              *Graph
 }
 
 func NewPanel(sim *s.Simulation) *Panel {
 	return &Panel{
 		simulation: sim,
+		graph:      NewGraph(sim),
 	}
 }
 
@@ -37,6 +50,7 @@ func (p *Panel) Render() *ebiten.Image {
 		p.renderTitle(panelImage)
 		p.renderPlayPauseButton(panelImage)
 		p.renderStats(panelImage)
+		p.renderGraph(panelImage)
 
 		p.previousPanelImage, _ = ebiten.NewImage(panelWidth, panelHeight, ebiten.FilterDefault)
 		p.previousPanelImage.DrawImage(panelImage, nil)
@@ -56,20 +70,26 @@ func (p *Panel) renderDividingLine(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
-	xOffset, yOffset := padding, padding
 	bounds := text.BoundString(r.FontInversionz40, "protozoa")
-	text.Draw(panelImage, "protozoa", r.FontInversionz40, xOffset, yOffset+bounds.Dy(), color.White)
+	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
 }
 
 func (p *Panel) renderPlayPauseButton(panelImage *ebiten.Image) {
-	drawOptions := &ebiten.DrawImageOptions{}
-	drawOptions.GeoM.Translate(float64(panelWidth)-float64(r.PauseButton.Bounds().Dx())-padding, padding-2)
-	panelImage.DrawImage(r.PauseButton, drawOptions)
+	imageOptions := &ebiten.DrawImageOptions{}
+	imageOptions.GeoM.Translate(float64(panelWidth)-float64(r.PauseButton.Bounds().Dx())-padding, padding-2)
+	panelImage.DrawImage(r.PauseButton, imageOptions)
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image) {
 	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nFOOD:      %5d",
 		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetFoodCount())
-	xOffset, yOffset := padding, 60
-	text.Draw(panelImage, statsString, r.FontSourceCodePro12, xOffset, yOffset, color.White)
+	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset, color.White)
+}
+
+func (p *Panel) renderGraph(panelImage *ebiten.Image) {
+	text.Draw(panelImage, "POPULATION HISTORY", r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
+	graphOptions := &ebiten.DrawImageOptions{}
+	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+20)
+	graphImage := p.graph.Render()
+	panelImage.DrawImage(graphImage, graphOptions)
 }

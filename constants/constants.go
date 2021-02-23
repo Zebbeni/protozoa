@@ -11,6 +11,10 @@ const (
 	ScreenWidth   = 1800
 	ScreenHeight  = 1000
 
+	// Statistics constants
+	MinFamilyPopulationToLog = 5
+	PopulationUpdateInterval = 100
+
 	// Environment constants
 	ChanceToAddOrganism = 0.05
 	ChanceToAddFoodItem = 0.5

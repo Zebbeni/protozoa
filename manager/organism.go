@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"math/rand"
 	"time"
@@ -31,6 +32,9 @@ type OrganismManager struct {
 	MostReproductiveCurrent  *organism.Organism
 	AncestorDescendantsCount map[int]int
 
+	originalAncestors map[int]color.Color   // all original ancestor IDs with at least one descendant
+	populationHistory map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
+
 	UpdateDuration, ResolveDuration time.Duration
 }
 
@@ -47,6 +51,8 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organism.Organism{},
 		MostReproductiveCurrent:  &organism.Organism{},
+		originalAncestors:        make(map[int]color.Color),
+		populationHistory:        make(map[int]map[int]int16),
 	}
 	return manager
 }
@@ -71,6 +77,41 @@ func (m *OrganismManager) Update() {
 	}
 	m.ResolveDuration = time.Since(start)
 	m.updateOrganismOrder()
+	m.updateHistory()
+}
+
+// updateHistory updates the population map for all living organisms
+func (m *OrganismManager) updateHistory() {
+	cycle := m.api.Cycle()
+	if cycle%c.PopulationUpdateInterval != 0 {
+		return
+	}
+
+	populationMap := make(map[int]int16)
+	for _, o := range m.organisms {
+		if o.OriginalAncestorID == o.ID {
+			continue
+		}
+
+		if _, ok := populationMap[o.OriginalAncestorID]; !ok {
+			populationMap[o.OriginalAncestorID] = 0
+		}
+		populationMap[o.OriginalAncestorID]++
+	}
+
+	m.populationHistory[cycle] = populationMap
+}
+
+// GetHistory returns the full population history of all original ancestors as a
+// map of cycles to maps of ancestorIDs to the living descendants at that time
+func (m *OrganismManager) GetHistory() map[int]map[int]int16 {
+	return m.populationHistory
+}
+
+// GetOriginalAncestors returns a map of all ancestors with at least one descendant
+// and the ancestor's color
+func (m *OrganismManager) GetOriginalAncestors() map[int]color.Color {
+	return m.originalAncestors
 }
 
 // updateOrganismOrder creates a new ordered list of all organismIDs that are
@@ -141,8 +182,8 @@ func (m *OrganismManager) evaluateBest(o *organism.Organism) {
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		index := m.totalOrganismsCreated
-		organism := organism.NewRandom(index, spawnPoint, m.api)
-		m.registerNewOrganism(organism, index)
+		o := organism.NewRandom(index, spawnPoint, m.api)
+		m.registerNewOrganism(o, index)
 	}
 }
 
@@ -152,8 +193,9 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	if spawnPoint, found := m.getChildSpawnLocation(parent); found {
 		index := m.totalOrganismsCreated
-		organism := parent.NewChild(index, spawnPoint, m.api)
-		m.registerNewOrganism(organism, index)
+		o := parent.NewChild(index, spawnPoint, m.api)
+		m.registerNewOrganism(o, index)
+		m.addToOriginalAncestors(parent)
 		return true
 	}
 	return false
@@ -167,7 +209,7 @@ func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 	m.organismIDGrid[o.X()][o.Y()] = index
 	m.newOrganismIDs = append(m.newOrganismIDs, index)
 
-	// update ancestors
+	// update originalAncestors
 	ancestorID := o.OriginalAncestorID
 	if ancestorID != o.ID {
 		if _, ok := m.AncestorDescendantsCount[ancestorID]; !ok {
@@ -175,6 +217,13 @@ func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 		}
 		m.AncestorDescendantsCount[ancestorID]++
 	}
+}
+
+func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
+	if _, ok := m.originalAncestors[o.ID]; ok {
+		return
+	}
+	m.originalAncestors[o.ID] = o.Color()
 }
 
 // returns a random point and whether it is empty

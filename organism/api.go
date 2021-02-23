@@ -17,6 +17,7 @@ type LookupAPI interface {
 	CheckOrganismAtPoint(point utils.Point, checkFunc OrgCheck) bool
 	GetFoodAtPoint(point utils.Point) *food.Item
 	OrganismCount() int
+	Cycle() int
 }
 
 // ChangeAPI provides callback functions to make changes to the simulation

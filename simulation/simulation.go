@@ -6,6 +6,7 @@ import (
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/utils"
+	"image/color"
 
 	c "github.com/Zebbeni/protozoa/constants"
 )
@@ -76,6 +77,18 @@ func (s *Simulation) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
 // GetOrganismInfoByID returns the Organism Info for a given ID (nil if none)
 func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
 	return s.organismManager.GetOrganismInfoByID(id)
+}
+
+// GetHistory returns the full population history of all original ancestors as a
+// map of cycles to maps of ancestorIDs to the living descendants at that time
+func (s *Simulation) GetHistory() map[int]map[int]int16 {
+	return s.organismManager.GetHistory()
+}
+
+// GetOriginalAncestors returns a map of all ancestors with at least one descendant
+// and the ancestor's color
+func (s *Simulation) GetOriginalAncestors() map[int]color.Color {
+	return s.organismManager.GetOriginalAncestors()
 }
 
 // GetMostReproductiveID returns the ID of the living organism with the most children.
