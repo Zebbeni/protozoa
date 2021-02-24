@@ -30,6 +30,7 @@ func update(screen *ebiten.Image) error {
 		return nil
 	}
 	ui.Render(screen)
+	simulation.UpdateCycle()
 
 	return nil
 	//if isDebug {

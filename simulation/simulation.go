@@ -36,7 +36,10 @@ func NewSimulation() *Simulation {
 func (s *Simulation) Update() {
 	s.foodManager.Update()
 	s.organismManager.Update()
+}
 
+// UpdateCycle iterates the current cycle. (Do this separately after render done)
+func (s *Simulation) UpdateCycle() {
 	s.cycle++
 }
 
@@ -85,10 +88,15 @@ func (s *Simulation) GetHistory() map[int]map[int]int16 {
 	return s.organismManager.GetHistory()
 }
 
-// GetOriginalAncestors returns a map of all ancestors with at least one descendant
+// GetAncestorColors returns a map of all ancestors with at least one descendant
 // and the ancestor's color
-func (s *Simulation) GetOriginalAncestors() map[int]color.Color {
-	return s.organismManager.GetOriginalAncestors()
+func (s *Simulation) GetAncestorColors() map[int]color.Color {
+	return s.organismManager.GetAncestorColors()
+}
+
+// GetAncestorsSorted returns a list of all original ancestor IDs in order
+func (s *Simulation) GetAncestorsSorted() []int {
+	return s.organismManager.GetAncestorsSorted()
 }
 
 // GetMostReproductiveID returns the ID of the living organism with the most children.

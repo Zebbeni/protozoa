@@ -1,32 +1,28 @@
 package ux
 
 import (
-	"github.com/Zebbeni/protozoa/constants"
+	c "github.com/Zebbeni/protozoa/constants"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
-	"image/color"
-	"sort"
+	"math"
 )
 
 const (
-	barWidth = 5
+	barWidthPx  = 5.0 //
+	orgHeightPx = 2.0 // height of bar to draw per-organism
 )
 
 type Graph struct {
 	MouseHandler
-	simulation         *s.Simulation
-	previousGraphImage *ebiten.Image
-
-	graphWidth, graphHeight float64
-	lastCycleRendered       int
+	simulation *s.Simulation
+	graphImage *ebiten.Image
 }
 
 func NewGraph(sim *s.Simulation) *Graph {
 	return &Graph{
-		simulation:         sim,
-		previousGraphImage: nil,
-		lastCycleRendered:  0,
+		simulation: sim,
+		graphImage: nil,
 	}
 }
 
@@ -35,90 +31,119 @@ func NewGraph(sim *s.Simulation) *Graph {
 // population bar instead of re-rendering the full history. We can scale it down
 // to whatever dimensions we need when we return it.
 func (g *Graph) Render() *ebiten.Image {
-	cyclesPassed := (g.simulation.Cycle() / constants.PopulationUpdateInterval) + 1
-	g.graphWidth = float64(cyclesPassed * barWidth)
-
-	var graphImage *ebiten.Image
-
-	// redraw everything if selection has changed or we're drawing for the first time.
+	var image *ebiten.Image
 	if g.shouldRefresh() {
-		graphImage, _ = ebiten.NewImage(graphWidth, graphHeight, ebiten.FilterDefault)
-		g.renderPopulation(graphImage)
-		g.renderBorders(graphImage)
+		image = g.renderAll()
 	} else if g.shouldAddBar() {
-		graphImage, _ = ebiten.NewImage(graphWidth, graphHeight, ebiten.FilterDefault)
-		graphImage.DrawImage(g.previousGraphImage, nil)
+		image = g.renderNewBar()
 	} else {
-		return g.previousGraphImage
+		return g.graphImage
 	}
 
-	g.previousGraphImage, _ = ebiten.NewImage(graphWidth, graphHeight, ebiten.FilterDefault)
-	g.previousGraphImage.DrawImage(graphImage, nil)
+	g.graphImage, _ = ebiten.NewImage(image.Bounds().Dx(), image.Bounds().Dy(), ebiten.FilterDefault)
+	g.graphImage.DrawImage(image, nil)
 
-	return graphImage
+	return image
 }
 
-func (g *Graph) renderBorders(graphImage *ebiten.Image) {
-	left, top, right, bottom := float64(1), float64(0), float64(graphWidth), float64(graphHeight-1)
-	ebitenutil.DrawLine(graphImage, left, top, right, top, color.White)
-	ebitenutil.DrawLine(graphImage, right, top, right, bottom, color.White)
-	ebitenutil.DrawLine(graphImage, left, bottom, right, bottom, color.White)
-	ebitenutil.DrawLine(graphImage, left, top, left, bottom, color.White)
+func (g *Graph) renderAll() *ebiten.Image {
+	width := g.simulation.Cycle() / c.PopulationUpdateInterval
+	height := g.getMaxPopulation()
+	image, _ := ebiten.NewImage(width, height, ebiten.FilterDefault)
+
+	for cycle := 0; cycle <= g.simulation.Cycle(); cycle += c.PopulationUpdateInterval {
+		barImage := g.renderGraphBar(cycle)
+		options := &ebiten.DrawImageOptions{}
+		xOffset := float64(cycle/c.PopulationUpdateInterval) * barWidthPx
+		yOffset := float64(height - barImage.Bounds().Dy())
+		options.GeoM.Translate(xOffset, yOffset)
+		image.DrawImage(barImage, options)
+	}
+
+	return image
 }
 
-func (g *Graph) renderPopulation(graphImage *ebiten.Image) {
+func (g *Graph) renderNewBar() *ebiten.Image {
+	cycle := g.simulation.Cycle()
+	barImage := g.renderGraphBar(cycle)
+
+	newWidth := g.graphImage.Bounds().Dx() + barWidthPx
+	newHeight := int(math.Max(float64(g.graphImage.Bounds().Dy()), float64(barImage.Bounds().Dy())))
+	image, _ := ebiten.NewImage(newWidth, newHeight, ebiten.FilterDefault)
+
+	originalOptions := &ebiten.DrawImageOptions{}
+	originalOptions.GeoM.Translate(0, float64(newHeight-g.graphImage.Bounds().Dy()))
+	image.DrawImage(g.graphImage, originalOptions)
+
+	newBarOptions := &ebiten.DrawImageOptions{}
+	xOffset := float64(newWidth - barWidthPx)
+	yOffset := float64(newHeight - barImage.Bounds().Dy())
+	newBarOptions.GeoM.Translate(xOffset, yOffset)
+	image.DrawImage(barImage, newBarOptions)
+
+	return image
+}
+
+// draw and return an image exactly the size of the requested bar
+func (g *Graph) renderGraphBar(cycle int) *ebiten.Image {
 	populationMap := g.simulation.GetHistory()
-	ancestorColorMap := g.simulation.GetOriginalAncestors()
-	sortedAncestorIDs := sortAncestorIDs(ancestorColorMap)
+	ancestorColorMap := g.simulation.GetAncestorColors()
+	sortedAncestorIDs := g.simulation.GetAncestorsSorted()
 
-	maxTotal := int16(0)
-	for _, populationCycle := range populationMap {
-		total := int16(0)
-		for _, familyPopulation := range populationCycle {
-			total += familyPopulation
+	familyPopulations, found := populationMap[cycle]
+	if !found {
+		barImage, _ := ebiten.NewImage(barWidthPx, orgHeightPx, ebiten.FilterDefault)
+		return barImage
+	}
+
+	total := int16(0)
+	for _, familyPopulation := range familyPopulations {
+		total += familyPopulation
+	}
+	barHeightPx := int(total) * orgHeightPx
+	barImage, _ := ebiten.NewImage(barWidthPx, barHeightPx, ebiten.FilterDefault)
+
+	bottom := float64(barHeightPx)
+	for _, id := range sortedAncestorIDs {
+		if population, found := familyPopulations[id]; found {
+			popHeight := float64(population) * orgHeightPx
+			bottom -= popHeight
+			ebitenutil.DrawRect(barImage, 0, bottom, barWidthPx, popHeight, ancestorColorMap[id])
 		}
+	}
+
+	return barImage
+}
+
+func (g *Graph) getMaxPopulation() int {
+	maxTotal := int16(0)
+	for cycle := 0; cycle <= g.simulation.Cycle(); cycle += c.PopulationUpdateInterval {
+		total := g.getPopulationByCycle(cycle)
 		if total > maxTotal {
 			maxTotal = total
 		}
 	}
-	yPixelsPerPop := float64(graphHeight) / float64(maxTotal)
-	barWidth := float64(graphWidth) / float64(len(populationMap))
-
-	left := float64(0)
-	for c := 0; c <= g.simulation.Cycle(); c += constants.PopulationUpdateInterval {
-		populationMap, found := populationMap[c]
-		if !found {
-			continue
-		}
-
-		bottom := float64(graphHeight)
-		for _, id := range sortedAncestorIDs {
-			if population, found := populationMap[id]; found {
-				barHeight := float64(population) * yPixelsPerPop
-				bottom -= barHeight
-				ebitenutil.DrawRect(graphImage, left, bottom, barWidth, barHeight, ancestorColorMap[id])
-			}
-		}
-
-		left += barWidth
-	}
-
-	g.lastCycleRendered = g.simulation.Cycle()
+	return int(maxTotal)
 }
 
-func sortAncestorIDs(ancestorMap map[int]color.Color) []int {
-	ancestorIDs := make([]int, 0, len(ancestorMap))
-	for k := range ancestorMap {
-		ancestorIDs = append(ancestorIDs, k)
+func (g *Graph) getPopulationByCycle(cycle int) int16 {
+	populationMap := g.simulation.GetHistory()
+	populationAtCycle, ok := populationMap[cycle]
+	if !ok {
+		return 0
 	}
-	sort.Ints(ancestorIDs)
-	return ancestorIDs
+
+	total := int16(0)
+	for _, familyPopulation := range populationAtCycle {
+		total += familyPopulation
+	}
+	return total
 }
 
 func (g *Graph) shouldRefresh() bool {
-	return g.previousGraphImage == nil
+	return g.graphImage == nil
 }
 
 func (g *Graph) shouldAddBar() bool {
-	return g.simulation.Cycle()%0 == 0 && g.simulation.Cycle() > g.lastCycleRendered
+	return g.simulation.Cycle()%c.PopulationUpdateInterval == 0
 }

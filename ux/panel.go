@@ -88,8 +88,19 @@ func (p *Panel) renderStats(panelImage *ebiten.Image) {
 
 func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	text.Draw(panelImage, "POPULATION HISTORY", r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
-	graphOptions := &ebiten.DrawImageOptions{}
-	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+20)
 	graphImage := p.graph.Render()
+	graphOptions := &ebiten.DrawImageOptions{}
+	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())
+	scaleY := float64(graphHeight) / float64(graphImage.Bounds().Dy())
+	graphOptions.GeoM.Scale(scaleX, scaleY)
+	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+20)
+
 	panelImage.DrawImage(graphImage, graphOptions)
+
+	// draw border around graph
+	left, top, right, bottom := float64(graphXOffset), float64(graphYOffset+20), float64(graphXOffset+graphWidth), float64(graphYOffset+graphHeight+20)
+	ebitenutil.DrawLine(panelImage, left, top, right, top, color.White)
+	ebitenutil.DrawLine(panelImage, right, top, right, bottom, color.White)
+	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, color.White)
+	ebitenutil.DrawLine(panelImage, left, top, left, bottom, color.White)
 }

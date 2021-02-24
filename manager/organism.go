@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sort"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/constants"
@@ -32,8 +33,9 @@ type OrganismManager struct {
 	MostReproductiveCurrent  *organism.Organism
 	AncestorDescendantsCount map[int]int
 
-	originalAncestors map[int]color.Color   // all original ancestor IDs with at least one descendant
-	populationHistory map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
+	originalAncestorsSorted []int
+	originalAncestorColors  map[int]color.Color   // all original ancestor IDs with at least one descendant
+	populationHistory       map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
 
 	UpdateDuration, ResolveDuration time.Duration
 }
@@ -51,7 +53,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organism.Organism{},
 		MostReproductiveCurrent:  &organism.Organism{},
-		originalAncestors:        make(map[int]color.Color),
+		originalAncestorColors:   make(map[int]color.Color),
 		populationHistory:        make(map[int]map[int]int16),
 	}
 	return manager
@@ -108,10 +110,14 @@ func (m *OrganismManager) GetHistory() map[int]map[int]int16 {
 	return m.populationHistory
 }
 
-// GetOriginalAncestors returns a map of all ancestors with at least one descendant
-// and the ancestor's color
-func (m *OrganismManager) GetOriginalAncestors() map[int]color.Color {
-	return m.originalAncestors
+// GetAncestorColors returns a map all original ancestor IDs to their color
+func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
+	return m.originalAncestorColors
+}
+
+// GetAncestorsSorted returns a list of all original ancestor IDs in order
+func (m *OrganismManager) GetAncestorsSorted() []int {
+	return m.originalAncestorsSorted
 }
 
 // updateOrganismOrder creates a new ordered list of all organismIDs that are
@@ -209,7 +215,7 @@ func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 	m.organismIDGrid[o.X()][o.Y()] = index
 	m.newOrganismIDs = append(m.newOrganismIDs, index)
 
-	// update originalAncestors
+	// update originalAncestorColors
 	ancestorID := o.OriginalAncestorID
 	if ancestorID != o.ID {
 		if _, ok := m.AncestorDescendantsCount[ancestorID]; !ok {
@@ -220,10 +226,12 @@ func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 }
 
 func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
-	if _, ok := m.originalAncestors[o.ID]; ok {
+	if _, ok := m.originalAncestorColors[o.ID]; ok {
 		return
 	}
-	m.originalAncestors[o.ID] = o.Color()
+	m.originalAncestorColors[o.ID] = o.Color()
+	m.originalAncestorsSorted = append(m.originalAncestorsSorted, o.ID)
+	sort.Ints(m.originalAncestorsSorted)
 }
 
 // returns a random point and whether it is empty
