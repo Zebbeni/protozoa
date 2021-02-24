@@ -13,7 +13,7 @@ const (
 
 	// Statistics constants
 	MinFamilyPopulationToLog = 5
-	PopulationUpdateInterval = 100
+	PopulationUpdateInterval = 50
 
 	// Environment constants
 	ChanceToAddOrganism = 0.05

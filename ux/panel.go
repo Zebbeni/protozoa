@@ -93,12 +93,12 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())
 	scaleY := float64(graphHeight) / float64(graphImage.Bounds().Dy())
 	graphOptions.GeoM.Scale(scaleX, scaleY)
-	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+20)
+	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+10)
 
 	panelImage.DrawImage(graphImage, graphOptions)
 
 	// draw border around graph
-	left, top, right, bottom := float64(graphXOffset), float64(graphYOffset+20), float64(graphXOffset+graphWidth), float64(graphYOffset+graphHeight+20)
+	left, top, right, bottom := float64(graphXOffset), float64(graphYOffset+10), float64(graphXOffset+graphWidth), float64(graphYOffset+graphHeight+10)
 	ebitenutil.DrawLine(panelImage, left, top, right, top, color.White)
 	ebitenutil.DrawLine(panelImage, right, top, right, bottom, color.White)
 	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, color.White)

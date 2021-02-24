@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	barWidthPx  = 5.0 //
-	orgHeightPx = 2.0 // height of bar to draw per-organism
+	barWidthPx  = 1.0 //
+	orgHeightPx = 0.5 // height of bar to draw per-organism
 )
 
 type Graph struct {
@@ -92,7 +92,7 @@ func (g *Graph) renderGraphBar(cycle int) *ebiten.Image {
 
 	familyPopulations, found := populationMap[cycle]
 	if !found {
-		barImage, _ := ebiten.NewImage(barWidthPx, orgHeightPx, ebiten.FilterDefault)
+		barImage, _ := ebiten.NewImage(barWidthPx, 1, ebiten.FilterDefault)
 		return barImage
 	}
 
@@ -100,7 +100,7 @@ func (g *Graph) renderGraphBar(cycle int) *ebiten.Image {
 	for _, familyPopulation := range familyPopulations {
 		total += familyPopulation
 	}
-	barHeightPx := int(total) * orgHeightPx
+	barHeightPx := int(math.Ceil(float64(total) * orgHeightPx))
 	barImage, _ := ebiten.NewImage(barWidthPx, barHeightPx, ebiten.FilterDefault)
 
 	bottom := float64(barHeightPx)
