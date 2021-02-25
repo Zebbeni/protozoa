@@ -2,60 +2,45 @@ package simulation
 
 import (
 	"fmt"
-	"image/color"
-	"time"
-
-	c "github.com/Zebbeni/protozoa/constants"
-	"github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/utils"
-	w "github.com/Zebbeni/protozoa/world"
-	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
-)
+	"image/color"
 
-type size int
-
-var (
-	backgroundColor = color.RGBA{15, 5, 15, 255}
-)
-
-const (
-	sizeSmall size = iota
-	sizeMedium
-	sizeLarge
+	c "github.com/Zebbeni/protozoa/constants"
 )
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	world     *w.World
-	numCycles int
+	organismManager *manager.OrganismManager
+	foodManager     *manager.FoodManager
 
-	totalUpdateDuration, totalRenderDuration time.Duration
-	previousRenderFrame                      *ebiten.Image
+	cycle int
+
+	UpdatedPoints map[string]utils.Point
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation() Simulation {
-	world := w.NewWorld()
-	simulation := Simulation{
-		world:     world,
-		numCycles: 0,
+func NewSimulation() *Simulation {
+	simulation := &Simulation{
+		cycle:         0,
+		UpdatedPoints: make(map[string]utils.Point),
 	}
+	simulation.foodManager = manager.NewFoodManager(simulation)
+	simulation.organismManager = manager.NewOrganismManager(simulation)
 	return simulation
 }
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
-	start := time.Now()
-	s.world.Update()
-	s.numCycles++
-	if s.numCycles%c.PrintReportCycleInterval == 0 {
-		fmt.Printf("\nCycle: %d\n", s.numCycles)
-		s.world.PrintStats()
-	}
-	s.totalUpdateDuration = time.Since(start)
+	s.foodManager.Update()
+	s.organismManager.Update()
+}
+
+// UpdateCycle iterates the current cycle. (Do this separately after render done)
+func (s *Simulation) UpdateCycle() {
+	s.cycle++
 }
 
 // IsDone returns true if end condition met
@@ -67,164 +52,116 @@ func (s *Simulation) IsDone() bool {
 	return false
 }
 
-// NumCycles returns the total number of simulated cycles
-func (s *Simulation) NumCycles() int {
-	return s.numCycles
+// Cycle returns the current simulation cycle number
+func (s *Simulation) Cycle() int {
+	return s.cycle
+}
+
+// AddUpdatedGridPoint adds a point to the grid locations that have been updated
+func (s *Simulation) AddUpdatedGridPoint(point utils.Point) {
+	s.UpdatedPoints[point.ToString()] = point
+}
+
+// ClearUpdatedGridPoints clears the current pointsToUpdate map
+func (s *Simulation) ClearUpdatedGridPoints() {
+	s.UpdatedPoints = make(map[string]utils.Point)
+}
+
+// GetAllOrganismInfo returns a map of Info on all living organisms
+func (s *Simulation) GetAllOrganismInfo() map[int]*organism.Info {
+	return s.organismManager.GetAllOrganismInfo()
+}
+
+// GetOrganismInfoAtPoint returns the Organism at a given point (nil if none found)
+func (s *Simulation) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
+	return s.organismManager.GetOrganismInfoAtPoint(point)
+}
+
+// GetOrganismInfoByID returns the Organism Info for a given ID (nil if none)
+func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
+	return s.organismManager.GetOrganismInfoByID(id)
+}
+
+// GetHistory returns the full population history of all original ancestors as a
+// map of cycles to maps of ancestorIDs to the living descendants at that time
+func (s *Simulation) GetHistory() map[int]map[int]int16 {
+	return s.organismManager.GetHistory()
+}
+
+// GetAncestorColors returns a map of all ancestors with at least one descendant
+// and the ancestor's color
+func (s *Simulation) GetAncestorColors() map[int]color.Color {
+	return s.organismManager.GetAncestorColors()
+}
+
+// GetAncestorsSorted returns a list of all original ancestor IDs in order
+func (s *Simulation) GetAncestorsSorted() []int {
+	return s.organismManager.GetAncestorsSorted()
+}
+
+// GetMostReproductiveID returns the ID of the living organism with the most children.
+func (s *Simulation) GetMostReproductiveID() int {
+	return s.organismManager.MostReproductiveCurrent.ID
 }
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
-	return s.world.GetNumOrganisms()
+	return s.organismManager.OrganismCount()
 }
 
 // GetFoodCount returns the total number of all food items in the simulation.
 func (s *Simulation) GetFoodCount() int {
-	return len(s.world.GetFoodItems())
+	return len(s.foodManager.GetFoodItems())
 }
 
-// Render draws all particles and forces to the screen
-func (s *Simulation) Render(screen *ebiten.Image) {
-	screen.Clear()
-
-	renderFrame, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
-
-	ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
-	organisms, mostReproductiveID := s.world.GetOrganisms()
-	// Come up with a better way to trigger a refresh than this
-	if s.shouldRefresh() {
-		start := time.Now()
-		ebitenutil.DrawRect(renderFrame, 0, 0, c.ScreenWidth, c.ScreenHeight, backgroundColor)
-		for _, foodItem := range s.world.GetFoodItems() {
-			renderFood(foodItem, renderFrame)
-		}
-		for _, o := range organisms {
-			renderOrganism(*o, renderFrame, mostReproductiveID)
-		}
-		s.totalRenderDuration = time.Since(start)
-	} else {
-		start := time.Now()
-		renderFrame.DrawImage(s.previousRenderFrame, nil)
-		for _, point := range s.world.PointsToUpdate {
-			// paint background over grid square to update first
-			ebitenutil.DrawRect(renderFrame, float64(point.X)*c.GridUnitSize, float64(point.Y)*c.GridUnitSize, c.GridUnitSize, c.GridUnitSize, backgroundColor)
-			if foodItem := s.world.FoodManager.GetFoodAtPoint(point); foodItem != nil {
-				renderFood(foodItem, renderFrame)
-				continue
-			}
-			if o := s.world.OrganismManager.GetOrganismAtPoint(point); o != nil {
-				renderOrganism(*o, renderFrame, mostReproductiveID)
-				continue
-			}
-		}
-		s.totalRenderDuration = time.Since(start)
-	}
-
-	s.previousRenderFrame, _ = ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
-	s.previousRenderFrame.DrawImage(renderFrame, nil)
-	screen.DrawImage(renderFrame, nil)
-
-	if selectedOrganism, ok := organisms[mostReproductiveID]; ok {
-		selectionBox, _ := ebiten.NewImage(c.ScreenWidth, c.ScreenHeight, ebiten.FilterDefault)
-		renderSelection(selectedOrganism.Location, selectionBox, selectedOrganism.Color())
-		screen.DrawImage(selectionBox, nil)
-	}
-
-	s.world.ResetGridPointsToUpdate()
+// GetFoodItems returns an array of all food items in grid
+func (s *Simulation) GetFoodItems() map[string]*food.Item {
+	return s.foodManager.GetFoodItems()
 }
 
-func (s *Simulation) shouldRefresh() bool {
-	return len(s.world.PointsToUpdate) == 0
+// PrintStats shows various info about current simulation
+func (s *Simulation) PrintStats() {
+	s.organismManager.PrintBest()
 }
 
-// TotalDuration returns the total duration to update and render a single cycle
-func (s *Simulation) TotalDuration() time.Duration {
-	return s.totalUpdateDuration + s.totalRenderDuration
+// CheckOrganismAtPoint returns the result of running a check against any
+// Organism object found at a given Point.
+func (s *Simulation) CheckOrganismAtPoint(point utils.Point, checkFunc organism.OrgCheck) bool {
+	return s.organismManager.CheckOrganismAtPoint(point, checkFunc)
 }
 
-// TotalUpdateDuration returns the total duration to render a single cycle
-func (s *Simulation) TotalUpdateDuration() time.Duration {
-	return s.totalUpdateDuration
+// OrganismCount returns the current number of Organisms alive in the simulation
+func (s *Simulation) OrganismCount() int {
+	return s.organismManager.OrganismCount()
 }
 
-// TotalRenderDuration returns the total duration to render a single cycle
-func (s *Simulation) TotalRenderDuration() time.Duration {
-	return s.totalRenderDuration
+// GetFoodAtPoint returns the value of any food at a given point and whether
+// a food item actually exists there.
+func (s *Simulation) GetFoodAtPoint(point utils.Point) *food.Item {
+	return s.foodManager.GetFoodAtPoint(point)
 }
 
-// OrganismUpdateDuration returns the total duration to update all organism actions for a single cycle
-func (s *Simulation) OrganismUpdateDuration() time.Duration {
-	return s.world.OrganismManager.UpdateDuration
+// CheckFoodAtPoint returns the result of running a check against any food Item
+// object found at a given Point.
+func (s *Simulation) CheckFoodAtPoint(point utils.Point, checkFunc organism.FoodCheck) bool {
+	item := s.foodManager.GetFoodAtPoint(point)
+	return checkFunc(item)
 }
 
-// OrganismResolveDuration returns the total duration to resolve all organism actions for a single cycle
-func (s *Simulation) OrganismResolveDuration() time.Duration {
-	return s.world.OrganismManager.ResolveDuration
+// AddFoodAtPoint attempts to add a food value to a given point and returns the actual
+// amount of food added.
+func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) int {
+	return s.foodManager.AddFoodAtPoint(point, value)
 }
 
-// renderSelection draws a square around a single item on the grid
-func renderSelection(point utils.Point, img *ebiten.Image, col color.Color) {
-	x, y := float64(point.X*c.GridUnitSize), float64(point.Y*c.GridUnitSize)
-	ebitenutil.DrawLine(img, x-2, y-2, x+c.GridUnitSize+3, y-2, col)                               // top
-	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+c.GridUnitSize+3, col)                               // left
-	ebitenutil.DrawLine(img, x-2, y+c.GridUnitSize+3, x+c.GridUnitSize+3, y+c.GridUnitSize+3, col) // bottom
-	ebitenutil.DrawLine(img, x+c.GridUnitSize+3, y-2, x+c.GridUnitSize+3, y+c.GridUnitSize+3, col) // right
+// RemoveFoodAtPoint attempts to add a food value to a given point and returns the actual
+// amount of food added.
+func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
+	return s.foodManager.RemoveFoodAtPoint(point, value)
 }
 
-// renderFood draws a food source to the given image
-func renderFood(item *food.Item, img *ebiten.Image) {
-	x := float64(item.Point.X) * c.GridUnitSize
-	y := float64(item.Point.Y) * c.GridUnitSize
-	alpha := 60
-	foodColor := color.RGBA{100, 255, 100, uint8(alpha)}
-
-	value := float64(item.Value)
-	foodSize := sizeSmall
-	if value < c.MaxFoodValue*0.4375 {
-		foodSize = sizeSmall
-	} else if value < c.MaxFoodValue*0.8125 {
-		foodSize = sizeMedium
-	} else {
-		foodSize = sizeLarge
-	}
-
-	drawSquare(img, x, y, foodSize, foodColor)
-}
-
-// renderOrganism draws a food source to the given image
-func renderOrganism(o organism.Organism, img *ebiten.Image, mostReproductiveID int) {
-	point := o.Location.Times(c.GridUnitSize)
-	x, y := float64(point.X), float64(point.Y)
-
-	organismSize := sizeSmall
-	if o.Size < c.MaximumMaxSize*0.4375 {
-		organismSize = sizeSmall
-	} else if o.Size < c.MaximumMaxSize*0.8125 {
-		organismSize = sizeMedium
-	} else {
-		organismSize = sizeLarge
-	}
-
-	organismColor := o.Color()
-	if o.Action() == decisions.ActAttack {
-		organismColor = color.White
-	}
-
-	drawSquare(img, x, y, organismSize, organismColor)
-}
-
-func drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {
-	padding := 1.5
-	switch sz {
-	case sizeSmall:
-		padding = 1.5
-		break
-	case sizeMedium:
-		padding = 1.0
-		break
-	case sizeLarge:
-		padding = 0.5
-		break
-	}
-
-	ebitenutil.DrawRect(screen, x+padding, y+padding, c.GridUnitSize-(2*padding), c.GridUnitSize-(2*padding), col)
+// AddGridPointToUpdate indicates a point on the grid has been updated
+// and needs to be re-rendered
+func (s *Simulation) AddGridPointToUpdate(point utils.Point) {
+	s.UpdatedPoints[point.ToString()] = point
 }

@@ -36,11 +36,11 @@ type Organism struct {
 	decisionTreeCyclesRemaining int
 	action                      d.Action
 
-	lookupAPI WorldLookupAPI
+	lookupAPI LookupAPI
 }
 
 // NewRandom initializes organism at with random grid location and direction
-func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
+func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits()
 	nodeLibrary := d.NewNodeLibrary()
 	decisionTree := nodeLibrary.GetRandomNode()
@@ -69,7 +69,7 @@ func NewRandom(id int, point utils.Point, api WorldLookupAPI) *Organism {
 }
 
 // NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
-func (o *Organism) NewChild(id int, point utils.Point, api WorldLookupAPI) *Organism {
+func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated()
 	nodeLibrary := d.NewNodeLibrary()
 	inheritedTree := o.GetBestDecisionTreeCopy(false)
@@ -101,6 +101,17 @@ func (o *Organism) NewChild(id int, point utils.Point, api WorldLookupAPI) *Orga
 	return &organism
 }
 
+func (o *Organism) Info() *Info {
+	return &Info{
+		ID:         o.ID,
+		Location:   o.Location,
+		Size:       o.Size,
+		Action:     o.action,
+		AncestorID: o.OriginalAncestorID,
+		Color:      o.traits.OrganismColor,
+	}
+}
+
 // UpdateStats runs on each cycle and updates Age, CyclesSinceLastSpawn, etc.
 // Also calculates the change in health since the last cycle and applies this
 // to the success metrics of the last-used decision tree.
@@ -122,7 +133,7 @@ func (o *Organism) UpdateStats() {
 		o.UpdateDecisionTree()
 	}
 
-	o.pruneNodeLibrary()
+	o.pruneNodes()
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision
@@ -259,8 +270,8 @@ func (o *Organism) setDecisionTree(decisionTree *d.Node) {
 	o.decisionTree.SetUsedInCurrentDecisionTree(true)
 }
 
-func (o *Organism) pruneNodeLibrary() {
-	o.nodeLibrary.PruneUnusedNodes()
+func (o *Organism) pruneNodes() {
+	o.nodeLibrary.Prune()
 }
 
 // ApplyHealthChange adds a value to the organism's health, bounded by 0 and MaxSize

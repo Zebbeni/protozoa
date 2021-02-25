@@ -77,30 +77,37 @@ func (nl *NodeLibrary) GetBestDecisionTree() *Node {
 	return best
 }
 
-// PruneUnusedNodes removes any unused nodes from the node library to improve
-// performance.
-func (nl *NodeLibrary) PruneUnusedNodes() {
-	if len(nl.Map) <= MaxNodesAllowed {
+// GetTopLevelNodes returns a list of all decision tree nodes with top-level
+// uses
+func (nl *NodeLibrary) GetTopLevelNodes() map[string]*Node {
+	topLevelNodes := make(map[string]*Node)
+	for key, node := range nl.Map {
+		if node.TopLevelUses >= 0 {
+			topLevelNodes[key] = node
+		}
+	}
+	return topLevelNodes
+}
+
+// Prune deletes the worst-performing top-level decision tree if
+// Map contains more than the max number of top-level nodes allowed
+func (nl *NodeLibrary) Prune() {
+	topLevelNodes := nl.GetTopLevelNodes()
+	if len(topLevelNodes) <= MaxTopLevelNodes {
 		return
 	}
 
-	nodesToRemove := len(nl.Map) - MaxNodesAllowed
-	nodesRemoved := 0
 	worstTopLevelAvgHealth := math.MaxFloat64
 	var worstTopLevelNodeID string
 
-	for key, node := range nl.Map {
-		if node.TopLevelUses <= 0 {
-			delete(nl.Map, key)
-			nodesRemoved++
-			if nodesRemoved >= nodesToRemove {
-				return
-			}
-		} else {
-			if node.AvgHealthWhenTopLevel < worstTopLevelAvgHealth {
-				worstTopLevelAvgHealth = node.AvgHealthWhenTopLevel
-				worstTopLevelNodeID = node.ID
-			}
+	for key, node := range topLevelNodes {
+		// avoid pruning currently-used decision tree
+		if node.InDecisionTree || node.UsedLastCycle {
+			continue
+		}
+		if node.AvgHealthWhenTopLevel < worstTopLevelAvgHealth {
+			worstTopLevelAvgHealth = node.AvgHealthWhenTopLevel
+			worstTopLevelNodeID = key
 		}
 	}
 
