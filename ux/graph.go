@@ -1,13 +1,11 @@
 package ux
 
 import (
-	"fmt"
 	c "github.com/Zebbeni/protozoa/constants"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/hajimehoshi/ebiten"
 	"image"
 	"math"
-	"time"
 )
 
 const (
@@ -35,7 +33,6 @@ func NewGraph(sim *s.Simulation) *Graph {
 // population bar instead of re-rendering the full history. We can scale it down
 // to whatever dimensions we need when we return it.
 func (g *Graph) Render() *ebiten.Image {
-	start := time.Now()
 	var image *ebiten.Image
 	if g.shouldRefresh() {
 		image = g.renderAll()
@@ -44,7 +41,6 @@ func (g *Graph) Render() *ebiten.Image {
 	} else {
 		return g.graphImage
 	}
-	fmt.Printf("\ngraph time: %s, cycle: %d", time.Since(start), g.simulation.Cycle())
 
 	g.graphImage, _ = ebiten.NewImage(realGraphWidth, realGraphHeight, ebiten.FilterDefault)
 	g.graphImage.DrawImage(image, nil)
@@ -75,15 +71,12 @@ func (g *Graph) renderAll() *ebiten.Image {
 }
 
 func (g *Graph) renderNewBar() *ebiten.Image {
-	start := time.Now()
 	barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval)
 	barWidth := realGraphWidth / float64(barCount)
 	barImage, graphBarPopulation := g.renderGraphBar(g.simulation.Cycle())
-	fmt.Printf("\n  render graph bar: %s", time.Since(start))
 
 	image, _ := ebiten.NewImage(realGraphWidth, realGraphHeight, ebiten.FilterDefault)
 
-	startDrawOriginal := time.Now()
 	originalOptions := &ebiten.DrawImageOptions{}
 	xScaleOriginal := (float64(barCount) - 1) / float64(barCount)
 	yScaleOriginal := 1.0
@@ -96,9 +89,7 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	yOffsetOriginal := realGraphHeight - float64(g.graphImage.Bounds().Dy())*yScaleOriginal
 	originalOptions.GeoM.Translate(xOffsetOriginal, yOffsetOriginal)
 	image.DrawImage(g.graphImage, originalOptions)
-	fmt.Printf("\n  scale and draw original: %s", time.Since(startDrawOriginal))
 
-	startDrawNewBar := time.Now()
 	newBarOptions := &ebiten.DrawImageOptions{}
 	xScaleNewBar := barWidth / float64(barImage.Bounds().Dx())
 	yScaleNewBar := 1.0
@@ -109,10 +100,8 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	yOffsetNewBar := realGraphHeight - float64(barImage.Bounds().Dy())*yScaleNewBar
 	newBarOptions.GeoM.Scale(xScaleNewBar, yScaleNewBar)
 	newBarOptions.GeoM.Translate(xOffsetNewBar, yOffsetNewBar)
-	image.DrawImage(barImage, newBarOptions)
-	fmt.Printf("\n  scale and draw new bar: %s", time.Since(startDrawNewBar))
 
-	fmt.Printf("\n  renderNewBar total: %s", time.Since(start))
+	image.DrawImage(barImage, newBarOptions)
 	return image
 }
 
