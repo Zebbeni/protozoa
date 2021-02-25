@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	gridBackground = color.RGBA{15, 5, 15, 255}
+	gridBackground = color.RGBA{0, 0, 0, 255}
 )
 
 type Grid struct {

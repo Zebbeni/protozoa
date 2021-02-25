@@ -4,20 +4,19 @@ package constants
 const (
 	// Drawing constants
 	GridUnitSize  = 5
-	GridWidth     = 1400
-	GridHeight    = 1000
-	GridUnitsWide = 280
-	GridUnitsHigh = 200
-	ScreenWidth   = 1800
-	ScreenHeight  = 1000
+	GridWidth     = 1000
+	GridHeight    = 800
+	GridUnitsWide = 200
+	GridUnitsHigh = 160
+	ScreenWidth   = 1400
+	ScreenHeight  = 800
 
 	// Statistics constants
-	MinFamilyPopulationToLog = 5
-	PopulationUpdateInterval = 50
+	PopulationUpdateInterval = 100
 
 	// Environment constants
 	ChanceToAddOrganism = 0.05
-	ChanceToAddFoodItem = 0.5
+	ChanceToAddFoodItem = 0.1
 	MaxFoodValue        = 100
 	MinFoodValue        = 2
 

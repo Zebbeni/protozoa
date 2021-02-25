@@ -23,7 +23,7 @@ const (
 	statsYOffset = 69
 
 	graphXOffset = padding
-	graphYOffset = 237
+	graphYOffset = 130
 	graphWidth   = 370
 	graphHeight  = 120
 )
@@ -87,7 +87,7 @@ func (p *Panel) renderStats(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderGraph(panelImage *ebiten.Image) {
-	text.Draw(panelImage, "POPULATION HISTORY", r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
+	text.Draw(panelImage, "HISTORY", r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
 	graphImage := p.graph.Render()
 	graphOptions := &ebiten.DrawImageOptions{}
 	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())
