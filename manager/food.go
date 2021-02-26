@@ -4,28 +4,33 @@ import (
 	"math"
 	"math/rand"
 
-	c "github.com/Zebbeni/protozoa/constants"
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	u "github.com/Zebbeni/protozoa/utils"
 )
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	api   food.API
+	*config.Protozoa
+
+	api food.API
+
 	Items map[string]*food.Item
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(api food.API) *FoodManager {
-	return &FoodManager{
+func NewFoodManager(api food.API, protozoa *config.Protozoa) *FoodManager {
+	m := &FoodManager{
 		api:   api,
 		Items: make(map[string]*food.Item),
 	}
+	m.Protozoa = protozoa
+	return m
 }
 
 // Update is called on every cycle and adds new FoodItems at a constant rate
 func (m *FoodManager) Update() {
-	if rand.Float64() < c.ChanceToAddFoodItem {
+	if rand.Float64() < m.ChanceToAddFoodItem {
 		m.AddRandomFoodItem()
 	}
 }
@@ -38,9 +43,9 @@ func (m *FoodManager) FoodCount() int {
 // AddRandomFoodItem attempts to add a FoodItem object to a random location
 // Gives up if first attempt to place food fails.
 func (m *FoodManager) AddRandomFoodItem() {
-	x := rand.Intn(c.GridUnitsWide)
-	y := rand.Intn(c.GridUnitsHigh)
-	value := rand.Intn(c.MaxFoodValue)
+	x := rand.Intn(m.GridUnitsWide)
+	y := rand.Intn(m.GridUnitsHigh)
+	value := rand.Intn(m.MaxFoodValue)
 	point := u.Point{X: x, Y: y}
 	if added := m.AddFoodAtPoint(point, value); added > 0 {
 		m.api.AddGridPointToUpdate(point)
@@ -59,16 +64,16 @@ func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
 	locationString := point.ToString()
 	item, exists := m.Items[locationString]
 	if !exists {
-		value = int(math.Min(math.Max(0, float64(value)), c.MaxFoodValue))
+		value = int(math.Min(math.Max(0.0, float64(value)), float64(m.MaxFoodValue)))
 		m.Items[locationString] = food.NewItem(point, value)
 		return value
 	}
 
 	originalValue := item.Value
 	item.Value += value
-	if item.Value > c.MaxFoodValue {
-		item.Value = c.MaxFoodValue
-		return c.MaxFoodValue - originalValue
+	if item.Value > m.MaxFoodValue {
+		item.Value = m.MaxFoodValue
+		return m.MaxFoodValue - originalValue
 	}
 	return value
 }
@@ -92,7 +97,7 @@ func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
 	originalValue := item.Value
 	item.Value -= value
 
-	if item.Value < c.MinFoodValue {
+	if item.Value < m.MinFoodValue {
 		delete(m.Items, locationString)
 	}
 

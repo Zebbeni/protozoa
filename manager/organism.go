@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	c "github.com/Zebbeni/protozoa/constants"
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decisions"
 	d "github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
@@ -20,6 +20,8 @@ var descendantsPrintThreshold = 10
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
+	*config.Protozoa
+
 	api organism.API
 
 	organisms             map[int]*organism.Organism
@@ -41,14 +43,14 @@ type OrganismManager struct {
 }
 
 // NewOrganismManager creates all Organisms and updates grid
-func NewOrganismManager(api organism.API) *OrganismManager {
-	grid := initializeGrid()
+func NewOrganismManager(api organism.API, protozoa *config.Protozoa) *OrganismManager {
+	grid := initializeGrid(protozoa)
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
 		api:                      api,
 		organismIDGrid:           grid,
 		organisms:                organisms,
-		organismUpdateOrder:      make([]int, 0, c.MaxOrganisms),
+		organismUpdateOrder:      make([]int, 0, protozoa.MaxOrganisms),
 		newOrganismIDs:           make([]int, 0, 100),
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organism.Organism{},
@@ -56,6 +58,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		originalAncestorColors:   make(map[int]color.Color),
 		populationHistory:        make(map[int]map[int]int16),
 	}
+	manager.Protozoa = protozoa
 	return manager
 }
 
@@ -64,7 +67,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 func (m *OrganismManager) Update() {
 	m.MostReproductiveCurrent = &organism.Organism{}
 	// Periodically add new random organisms if population below a certain amount
-	if len(m.organisms) < c.MaxOrganisms && rand.Float64() < c.ChanceToAddOrganism {
+	if len(m.organisms) < m.MaxOrganisms && rand.Float64() < m.ChanceToAddOrganism {
 		m.SpawnRandomOrganism()
 	}
 	// FUTURE: do this multi-threaded
@@ -85,7 +88,7 @@ func (m *OrganismManager) Update() {
 // updateHistory updates the population map for all living organisms
 func (m *OrganismManager) updateHistory() {
 	cycle := m.api.Cycle()
-	if cycle%c.PopulationUpdateInterval != 0 {
+	if cycle%m.PopulationUpdateInterval != 0 {
 		return
 	}
 
@@ -136,13 +139,13 @@ func (m *OrganismManager) updateOrganismOrder() {
 	m.newOrganismIDs = make([]int, 0, 100)
 }
 
-func initializeGrid() [][]int {
-	grid := make([][]int, c.GridUnitsWide)
-	for r := 0; r < c.GridUnitsWide; r++ {
-		grid[r] = make([]int, c.GridUnitsHigh)
+func initializeGrid(p *config.Protozoa) [][]int {
+	grid := make([][]int, p.GridUnitsWide)
+	for r := 0; r < p.GridUnitsWide; r++ {
+		grid[r] = make([]int, p.GridUnitsHigh)
 	}
-	for x := 0; x < c.GridUnitsWide; x++ {
-		for y := 0; y < c.GridUnitsHigh; y++ {
+	for x := 0; x < p.GridUnitsWide; x++ {
+		for y := 0; y < p.GridUnitsHigh; y++ {
 			grid[x][y] = -1
 		}
 	}
@@ -188,7 +191,7 @@ func (m *OrganismManager) evaluateBest(o *organism.Organism) {
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		index := m.totalOrganismsCreated
-		o := organism.NewRandom(index, spawnPoint, m.api)
+		o := organism.NewRandom(index, spawnPoint, m.api, m.Protozoa)
 		m.registerNewOrganism(o, index)
 	}
 }
@@ -236,19 +239,19 @@ func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
 
 // returns a random point and whether it is empty
 func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
-	point := utils.GetRandomPoint()
+	point := utils.GetRandomPoint(m.GridUnitsWide, m.GridUnitsHigh)
 	return point, m.isGridLocationEmpty(point)
 }
 
 func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, bool) {
 	direction := utils.GetRandomDirection()
-	point := parent.Location.Add(direction)
+	point := parent.Location.Add(direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	for i := 0; i < 4; i++ {
 		if m.isGridLocationEmpty(point) {
 			return point, true
 		}
 		direction = direction.Left()
-		point = parent.Location.Add(direction)
+		point = parent.Location.Add(direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	}
 	return point, false
 }
@@ -340,11 +343,11 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) updateHealth(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangePerCycle * o.Size)
+	o.ApplyHealthChange(m.HealthChangePerCycle * o.Size)
 }
 
 func (m *OrganismManager) applyIdle(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromBeingIdle*o.Size)
+	m.applyHealthChange(o, m.HealthChangeFromBeingIdle*o.Size)
 }
 
 func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64) {
@@ -357,12 +360,12 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 
 func (m *OrganismManager) applyAttack(o *organism.Organism) {
 	m.api.AddUpdatedGridPoint(o.Location)
-	m.applyHealthChange(o, c.HealthChangeFromAttacking*o.Size)
-	targetPoint := o.Location.Add(o.Direction)
+	m.applyHealthChange(o, m.HealthChangeFromAttacking*o.Size)
+	targetPoint := o.Location.Add(o.Direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	if m.isOrganismAtLocation(targetPoint) {
 		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
-		m.applyHealthChange(targetOrganism, c.HealthChangeInflictedByAttack*o.Size)
+		m.applyHealthChange(targetOrganism, m.HealthChangeInflictedByAttack*o.Size)
 		m.removeIfDead(targetOrganism)
 	}
 }
@@ -387,9 +390,9 @@ func (m *OrganismManager) applySpawn(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyFeed(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromFeeding*o.Size)
-	amountToFeed := c.HealthChangeFromFeeding * o.Size
-	targetPoint := o.Location.Add(o.Direction)
+	m.applyHealthChange(o, m.HealthChangeFromFeeding*o.Size)
+	amountToFeed := m.HealthChangeFromFeeding * o.Size
+	targetPoint := o.Location.Add(o.Direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	if m.isOrganismAtLocation(targetPoint) {
 		targetOrganismIndex := m.organismIDGrid[targetPoint.X][targetPoint.Y]
 		targetOrganism := m.organisms[targetOrganismIndex]
@@ -400,8 +403,8 @@ func (m *OrganismManager) applyFeed(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyEat(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromEatingAttempt*o.Size)
-	targetPoint := o.Location.Add(o.Direction)
+	m.applyHealthChange(o, m.HealthChangeFromEatingAttempt*o.Size)
+	targetPoint := o.Location.Add(o.Direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	if item := m.api.GetFoodAtPoint(targetPoint); item != nil {
 		maxCanEat := o.Size
 		amountToEat := math.Min(float64(item.Value), maxCanEat)
@@ -411,9 +414,9 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyMove(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromMoving*o.Size)
+	m.applyHealthChange(o, m.HealthChangeFromMoving*o.Size)
 
-	targetPoint := o.Location.Add(o.Direction)
+	targetPoint := o.Location.Add(o.Direction).Wrap(m.GridUnitsWide, m.GridUnitsHigh)
 	if m.isGridLocationEmpty(targetPoint) {
 		m.api.AddUpdatedGridPoint(o.Location)
 		m.api.AddUpdatedGridPoint(targetPoint)
@@ -425,13 +428,13 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyRightTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning*o.Size)
+	m.applyHealthChange(o, m.HealthChangeFromTurning*o.Size)
 
 	o.Direction = o.Direction.Right()
 }
 
 func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning*o.Size)
+	m.applyHealthChange(o, m.HealthChangeFromTurning*o.Size)
 
 	o.Direction = o.Direction.Left()
 }
