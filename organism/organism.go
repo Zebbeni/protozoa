@@ -101,6 +101,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 
 		lookupAPI: api,
 	}
+	organism.Protozoa = o.Protozoa
 	return &organism
 }
 
