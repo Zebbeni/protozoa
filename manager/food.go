@@ -11,7 +11,7 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	*config.Protozoa
+	*config.Globals
 
 	api food.API
 
@@ -19,12 +19,12 @@ type FoodManager struct {
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(api food.API, protozoa *config.Protozoa) *FoodManager {
+func NewFoodManager(api food.API, g *config.Globals) *FoodManager {
 	m := &FoodManager{
 		api:   api,
 		Items: make(map[string]*food.Item),
 	}
-	m.Protozoa = protozoa
+	m.Globals = g
 	return m
 }
 

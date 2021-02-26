@@ -39,14 +39,14 @@ func update(screen *ebiten.Image) error {
 	//}
 }
 
-func RunSimulation(opts *config.Options, protozoa *config.Protozoa) {
+func RunSimulation(opts *config.Options, g *config.Globals) {
 	r.Init()
 	rand.Seed(0)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
 		for count := 0; count < opts.TrialCount; count++ {
-			sim = simulation.NewSimulation(protozoa)
+			sim = simulation.NewSimulation(g)
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
@@ -58,9 +58,9 @@ func RunSimulation(opts *config.Options, protozoa *config.Protozoa) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		sim = simulation.NewSimulation(protozoa)
+		sim = simulation.NewSimulation(g)
 		ui = ux.NewInterface(sim)
-		if err := ebiten.Run(update, sim.ScreenWidth, sim.ScreenHeight, 1, "Protozoa"); err != nil {
+		if err := ebiten.Run(update, sim.ScreenWidth, sim.ScreenHeight, 1, "Globals"); err != nil {
 			log.Fatal(err)
 		}
 	}

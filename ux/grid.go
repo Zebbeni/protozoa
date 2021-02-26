@@ -26,7 +26,7 @@ var (
 )
 
 type Grid struct {
-	*config.Protozoa
+	*config.Globals
 
 	simulation        *s.Simulation
 	previousGridImage *ebiten.Image
@@ -39,7 +39,7 @@ func NewGrid(simulation *s.Simulation) *Grid {
 		previousGridImage: nil,
 		selectedID:        -1,
 	}
-	g.Protozoa = simulation.Protozoa
+	g.Globals = simulation.Globals
 	return g
 }
 

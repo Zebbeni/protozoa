@@ -20,7 +20,7 @@ var descendantsPrintThreshold = 10
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
-	*config.Protozoa
+	*config.Globals
 
 	api organism.API
 
@@ -43,14 +43,14 @@ type OrganismManager struct {
 }
 
 // NewOrganismManager creates all Organisms and updates grid
-func NewOrganismManager(api organism.API, protozoa *config.Protozoa) *OrganismManager {
-	grid := initializeGrid(protozoa)
+func NewOrganismManager(api organism.API, g *config.Globals) *OrganismManager {
+	grid := initializeGrid(g)
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
 		api:                      api,
 		organismIDGrid:           grid,
 		organisms:                organisms,
-		organismUpdateOrder:      make([]int, 0, protozoa.MaxOrganisms),
+		organismUpdateOrder:      make([]int, 0, g.MaxOrganisms),
 		newOrganismIDs:           make([]int, 0, 100),
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organism.Organism{},
@@ -58,7 +58,7 @@ func NewOrganismManager(api organism.API, protozoa *config.Protozoa) *OrganismMa
 		originalAncestorColors:   make(map[int]color.Color),
 		populationHistory:        make(map[int]map[int]int16),
 	}
-	manager.Protozoa = protozoa
+	manager.Globals = g
 	return manager
 }
 
@@ -139,7 +139,7 @@ func (m *OrganismManager) updateOrganismOrder() {
 	m.newOrganismIDs = make([]int, 0, 100)
 }
 
-func initializeGrid(p *config.Protozoa) [][]int {
+func initializeGrid(p *config.Globals) [][]int {
 	grid := make([][]int, p.GridUnitsWide)
 	for r := 0; r < p.GridUnitsWide; r++ {
 		grid[r] = make([]int, p.GridUnitsHigh)
@@ -191,7 +191,7 @@ func (m *OrganismManager) evaluateBest(o *organism.Organism) {
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		index := m.totalOrganismsCreated
-		o := organism.NewRandom(index, spawnPoint, m.api, m.Protozoa)
+		o := organism.NewRandom(index, spawnPoint, m.api, m.Globals)
 		m.registerNewOrganism(o, index)
 	}
 }

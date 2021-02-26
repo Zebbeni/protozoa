@@ -5,7 +5,7 @@ import (
 	"io"
 )
 
-type Protozoa struct {
+type Globals struct {
 	// Drawing parameters
 	GridUnitSize  int `json:"grid_unit_size"`
 	GridWidth     int `json:"grid_width"`
@@ -50,7 +50,7 @@ type Protozoa struct {
 	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
 }
 
-var defaultProtozoa Protozoa = Protozoa{
+var defaultGlobals Globals = Globals{
 	GridUnitSize:                      5,
 	GridWidth:                         1000,
 	GridHeight:                        800,
@@ -84,28 +84,28 @@ var defaultProtozoa Protozoa = Protozoa{
 	HealthPercentToChangeDecisionTree: 0.10,
 }
 
-func NewProtozoa() Protozoa {
-	return defaultProtozoa
+func NewGlobals() Globals {
+	return defaultGlobals
 }
 
-func LoadProtozoa(file io.Reader) *Protozoa {
-	protozoa := NewProtozoa()
+func LoadGlobals(file io.Reader) *Globals {
+	g := NewGlobals()
 	decoder := json.NewDecoder(file)
-	err := decoder.Decode(&protozoa)
+	err := decoder.Decode(&g)
 	if err != nil {
-		panic("failed to read protozoa from file")
+		panic("failed to read globals from file")
 	}
-	return &protozoa
+	return &g
 }
 
-func DumpProtozoa(protozoa *Protozoa, file io.Writer) {
-	data, err := json.MarshalIndent(protozoa, "", "  ")
+func DumpGlobals(g *Globals, file io.Writer) {
+	data, err := json.MarshalIndent(g, "", "  ")
 	if err != nil {
-		panic("failed to convert protozoa to json")
+		panic("failed to convert globals to json")
 	}
 
 	_, err = file.Write(data)
 	if err != nil {
-		panic("failed to write protozoa to file")
+		panic("failed to write globals to file")
 	}
 }

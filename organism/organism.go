@@ -18,7 +18,7 @@ import (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	*config.Protozoa
+	*config.Globals
 
 	ID                   int
 	Age                  int
@@ -42,8 +42,8 @@ type Organism struct {
 }
 
 // NewRandom initializes organism at with random grid location and direction
-func NewRandom(id int, point utils.Point, api LookupAPI, protozoa *config.Protozoa) *Organism {
-	traits := newRandomTraits(protozoa)
+func NewRandom(id int, point utils.Point, api LookupAPI, g *config.Globals) *Organism {
+	traits := newRandomTraits(g)
 	nodeLibrary := d.NewNodeLibrary()
 	decisionTree := nodeLibrary.GetRandomNode()
 	organism := Organism{
@@ -67,13 +67,13 @@ func NewRandom(id int, point utils.Point, api LookupAPI, protozoa *config.Protoz
 
 		lookupAPI: api,
 	}
-	organism.Protozoa = protozoa
+	organism.Globals = g
 	return &organism
 }
 
 // NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
 func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := o.traits.copyMutated(o.Protozoa)
+	traits := o.traits.copyMutated(o.Globals)
 	nodeLibrary := d.NewNodeLibrary()
 	inheritedTree := o.GetBestDecisionTreeCopy(false)
 	if inheritedTree == nil {
@@ -101,7 +101,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 
 		lookupAPI: api,
 	}
-	organism.Protozoa = o.Protozoa
+	organism.Globals = o.Globals
 	return &organism
 }
 

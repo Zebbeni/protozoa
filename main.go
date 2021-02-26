@@ -11,22 +11,22 @@ func main() {
 	opts := config.GetOptions()
 
 	if opts.DumpConfig {
-		protozoa := config.NewProtozoa()
-		config.DumpProtozoa(&protozoa, os.Stdout)
+		g := config.NewGlobals()
+		config.DumpGlobals(&g, os.Stdout)
 		os.Exit(0)
 	}
 
-	var protozoa *config.Protozoa
+	var globals *config.Globals
 	if opts.ConfigFile != "" {
 		file, err := os.Open(opts.ConfigFile)
 		if err != nil {
 			panic("failed to read config file")
 		}
-		protozoa = config.LoadProtozoa(file)
+		globals = config.LoadGlobals(file)
 	} else {
-		p := config.NewProtozoa()
-		protozoa = &p
+		p := config.NewGlobals()
+		globals = &p
 	}
 
-	runner.RunSimulation(opts, protozoa)
+	runner.RunSimulation(opts, globals)
 }

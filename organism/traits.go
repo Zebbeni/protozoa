@@ -26,7 +26,7 @@ type Traits struct {
 	CyclesToEvaluateDecisionTree int
 }
 
-func newRandomTraits(p *config.Protozoa) Traits {
+func newRandomTraits(p *config.Globals) Traits {
 	organismColor := u.GetRandomColor()
 	maxSize := rand.Float64() * p.MaximumMaxSize
 	spawnHealth := rand.Float64() * maxSize * p.MaxSpawnHealthPercent
@@ -45,7 +45,7 @@ func newRandomTraits(p *config.Protozoa) Traits {
 	}
 }
 
-func (t Traits) copyMutated(p *config.Protozoa) Traits {
+func (t Traits) copyMutated(p *config.Globals) Traits {
 	organismColor := mutateColor(t.OrganismColor)
 	// maxSize = previous +- previous +- <5.0, bounded by MinimumMaxSize and MaximumMaxSize
 	maxSize := mutateFloat(t.MaxSize, 5.0, p.MinimumMaxSize, p.MaximumMaxSize)

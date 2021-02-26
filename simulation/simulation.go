@@ -12,7 +12,7 @@ import (
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	*config.Protozoa
+	*config.Globals
 
 	organismManager *manager.OrganismManager
 	foodManager     *manager.FoodManager
@@ -23,14 +23,14 @@ type Simulation struct {
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation(protozoa *config.Protozoa) *Simulation {
+func NewSimulation(g *config.Globals) *Simulation {
 	sim := &Simulation{
 		cycle:         0,
 		UpdatedPoints: make(map[string]utils.Point),
 	}
-	sim.foodManager = manager.NewFoodManager(sim, protozoa)
-	sim.organismManager = manager.NewOrganismManager(sim, protozoa)
-	sim.Protozoa = protozoa
+	sim.foodManager = manager.NewFoodManager(sim, g)
+	sim.organismManager = manager.NewOrganismManager(sim, g)
+	sim.Globals = g
 
 	return sim
 }
