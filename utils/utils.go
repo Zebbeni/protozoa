@@ -10,5 +10,5 @@ func GetRandomColor() color.Color {
 	r := uint8(55 + rand.Intn(200))
 	g := uint8(55 + rand.Intn(200))
 	b := uint8(55 + rand.Intn(200))
-	return color.RGBA{r, g, b, 255}
+	return color.RGBA{R: r, G: g, B: b, A: 255}
 }

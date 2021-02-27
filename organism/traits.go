@@ -1,11 +1,11 @@
 package organism
 
 import (
+	c "github.com/Zebbeni/protozoa/config"
 	"image/color"
 	"math"
 	"math/rand"
 
-	c "github.com/Zebbeni/protozoa/constants"
 	u "github.com/Zebbeni/protozoa/utils"
 )
 
@@ -28,12 +28,12 @@ type Traits struct {
 
 func newRandomTraits() Traits {
 	organismColor := u.GetRandomColor()
-	maxSize := rand.Float64() * c.MaximumMaxSize
-	spawnHealth := rand.Float64() * maxSize * c.MaxSpawnHealthPercent
+	maxSize := rand.Float64() * c.MaximumMaxSize()
+	spawnHealth := rand.Float64() * maxSize * c.MaxSpawnHealthPercent()
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
-	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns)
-	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree, rand.Float64()*c.MaxChanceToMutateDecisionTree)
-	cyclesToEvaluateDecisionTree := rand.Intn(c.MaxCyclesToEvaluateDecisionTree)
+	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns())
+	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
+	cyclesToEvaluateDecisionTree := rand.Intn(c.MaxCyclesToEvaluateDecisionTree())
 	return Traits{
 		OrganismColor:                organismColor,
 		MaxSize:                      maxSize,
@@ -48,17 +48,17 @@ func newRandomTraits() Traits {
 func (t Traits) copyMutated() Traits {
 	organismColor := mutateColor(t.OrganismColor)
 	// maxSize = previous +- previous +- <5.0, bounded by MinimumMaxSize and MaximumMaxSize
-	maxSize := mutateFloat(t.MaxSize, 5.0, c.MinimumMaxSize, c.MaximumMaxSize)
+	maxSize := mutateFloat(t.MaxSize, 5.0, c.MinimumMaxSize(), c.MaximumMaxSize())
 	// minCyclesBetweenSpawns = previous +- <=5, bounded by 0 and MaxCyclesBetweenSpawns
-	minCyclesBetweenSpawns := mutateInt(t.MinCyclesBetweenSpawns, 5, 0, c.MaxCyclesBetweenSpawns)
+	minCyclesBetweenSpawns := mutateInt(t.MinCyclesBetweenSpawns, 5, 0, c.MaxCyclesBetweenSpawns())
 	// spawnHealth = previous +- <0.05, bounded by MinSpawnHealth and maxSize
-	spawnHealth := mutateFloat(t.SpawnHealth, 0.1, c.MinSpawnHealth, maxSize*c.MaxSpawnHealthPercent)
+	spawnHealth := mutateFloat(t.SpawnHealth, 0.1, c.MinSpawnHealth(), maxSize*c.MaxSpawnHealthPercent())
 	// minHealthToSpawn = previous +- <5.0, bounded by spawnHealthPercent and maxSize (both calculated above)
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.01, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
-	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.01, c.MinChanceToMutateDecisionTree, c.MaxChanceToMutateDecisionTree)
+	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.01, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
 	// cyclesToEvaluateDecisionTree = previous +1, +0 or +(-1), bounded by 1 and CyclesToEvaluateDecisionTree
-	cyclesToEvaluateDecisionTree := mutateInt(t.CyclesToEvaluateDecisionTree, 1, 1, c.MaxCyclesToEvaluateDecisionTree)
+	cyclesToEvaluateDecisionTree := mutateInt(t.CyclesToEvaluateDecisionTree, 1, 1, c.MaxCyclesToEvaluateDecisionTree())
 	return Traits{
 		OrganismColor:                organismColor,
 		MaxSize:                      maxSize,
@@ -87,7 +87,7 @@ func mutateColor(originalColor color.Color) color.Color {
 	g := mutateColorValue(g32)
 	b := mutateColorValue(b32)
 	a := uint8(a32)
-	return color.RGBA{r, g, b, a}
+	return color.RGBA{R: r, G: g, B: b, A: a}
 }
 
 func mutateColorValue(v uint32) uint8 {

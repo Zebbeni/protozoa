@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	c "github.com/Zebbeni/protozoa/constants"
+	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/utils"
@@ -150,14 +150,14 @@ func (o *Organism) UpdateAction() {
 func (o *Organism) shouldSpawn() bool {
 	cyclesRequirementMet := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
 	healthRequirementMet := o.Health > o.MinHealthToSpawn()
-	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms
+	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms()
 	return populationRequirementMet && cyclesRequirementMet && healthRequirementMet
 }
 
 // chooseAction walks through nodes of an organism's decision tree, eventually
 // returning the chosen action
 //
-// As chooseAction walks thorugh nodes, it also sets UsedLastCycle=true, allowing
+// As chooseAction walks through nodes, it also sets UsedLastCycle=true, allowing
 // the organism to attribute success or failure to the previously-chosen path
 func (o *Organism) chooseAction(node *d.Node) d.Action {
 	node.UsedLastCycle = true
@@ -281,7 +281,7 @@ func (o *Organism) ApplyHealthChange(change float64) {
 	if o.Health > o.Size {
 		// When eating causes size to increase, increase slowly, not all at once.
 		difference := o.Health - o.Size
-		o.Size = math.Min(o.Size+(difference*c.GrowthFactor), o.traits.MaxSize)
+		o.Size = math.Min(o.Size+(difference*c.GrowthFactor()), o.traits.MaxSize)
 	}
 	o.Health = math.Min(math.Max(o.Health, 0.0), o.Size)
 }
@@ -311,7 +311,7 @@ func (o *Organism) UpdateDecisionTree() {
 
 func (o *Organism) shouldChangeDecisionTree() bool {
 	o.decisionTreeCyclesRemaining--
-	isHealthEmergency := o.Health < o.Size*c.HealthPercentToChangeDecisionTree
+	isHealthEmergency := o.Health < o.Size*c.HealthPercentToChangeDecisionTree()
 	return o.decisionTreeCyclesRemaining <= 0 || isHealthEmergency
 }
 

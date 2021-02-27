@@ -2,9 +2,8 @@ package utils
 
 import (
 	"fmt"
+	c "github.com/Zebbeni/protozoa/config"
 	"math/rand"
-
-	"github.com/Zebbeni/protozoa/constants"
 )
 
 // Point contains simple X and Y coordinates for a point in space
@@ -29,10 +28,10 @@ var (
 )
 
 // GetRandomPoint returns a random point somewhere on the simulation grid
-func GetRandomPoint() Point {
+func GetRandomPoint(width, height int) Point {
 	return Point{
-		X: rand.Intn(constants.GridUnitsWide),
-		Y: rand.Intn(constants.GridUnitsHigh),
+		X: rand.Intn(width),
+		Y: rand.Intn(height),
 	}
 }
 
@@ -61,16 +60,16 @@ func (p Point) Add(toAdd Point) Point {
 // Times multiplies a given value and returns the result
 func (p *Point) Times(toMultiply int) Point {
 	return Point{
-		X: (p.X * toMultiply),
-		Y: (p.Y * toMultiply),
+		X: p.X * toMultiply,
+		Y: p.Y * toMultiply,
 	}
 }
 
 // Wrap returns a point value after wrapping it around the grid
 func (p Point) Wrap() Point {
 	return Point{
-		X: (p.X + constants.GridUnitsWide) % constants.GridUnitsWide,
-		Y: (p.Y + constants.GridUnitsHigh) % constants.GridUnitsHigh,
+		X: (p.X + c.GridUnitsWide()) % c.GridUnitsWide(),
+		Y: (p.Y + c.GridUnitsHigh()) % c.GridUnitsHigh(),
 	}
 }
 
