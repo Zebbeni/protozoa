@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	c "github.com/Zebbeni/protozoa/config"
 	"math/rand"
 )
 
@@ -53,7 +54,7 @@ func GetRandomDirection() Point {
 
 // Add add a given Point and returns the result
 func (p Point) Add(toAdd Point) Point {
-	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}
+	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
 }
 
 // Times multiplies a given value and returns the result
@@ -65,10 +66,10 @@ func (p *Point) Times(toMultiply int) Point {
 }
 
 // Wrap returns a point value after wrapping it around the grid
-func (p Point) Wrap(width, height int) Point {
+func (p Point) Wrap() Point {
 	return Point{
-		X: (p.X + width) % width,
-		Y: (p.Y + height) % height,
+		X: (p.X + c.GridUnitsWide()) % c.GridUnitsWide(),
+		Y: (p.Y + c.GridUnitsHigh()) % c.GridUnitsHigh(),
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten"
 
-	"github.com/Zebbeni/protozoa/config"
+	c "github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux"
@@ -39,14 +39,14 @@ func update(screen *ebiten.Image) error {
 	//}
 }
 
-func RunSimulation(opts *config.Options, g *config.Globals) {
+func RunSimulation(opts *c.Options) {
 	r.Init()
 	rand.Seed(0)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
 		for count := 0; count < opts.TrialCount; count++ {
-			sim = simulation.NewSimulation(g)
+			sim = simulation.NewSimulation()
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
@@ -58,9 +58,9 @@ func RunSimulation(opts *config.Options, g *config.Globals) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		sim = simulation.NewSimulation(g)
+		sim = simulation.NewSimulation()
 		ui = ux.NewInterface(sim)
-		if err := ebiten.Run(update, sim.ScreenWidth, sim.ScreenHeight, 1, "Globals"); err != nil {
+		if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Globals"); err != nil {
 			log.Fatal(err)
 		}
 	}

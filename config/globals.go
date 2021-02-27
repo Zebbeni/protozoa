@@ -5,6 +5,48 @@ import (
 	"io"
 )
 
+var constants *Globals
+
+// SetGlobals allows a one-time initialization of all globally-referenced constants
+func SetGlobals(g *Globals) {
+	if constants != nil {
+		return
+	}
+	constants = g
+}
+
+func GridUnitSize() int                          { return constants.GridUnitSize }
+func GridWidth() int                             { return constants.GridWidth }
+func GridHeight() int                            { return constants.GridHeight }
+func GridUnitsWide() int                         { return constants.GridUnitsWide }
+func GridUnitsHigh() int                         { return constants.GridUnitsHigh }
+func ScreenWidth() int                           { return constants.ScreenWidth }
+func ScreenHeight() int                          { return constants.ScreenHeight }
+func PopulationUpdateInterval() int              { return constants.PopulationUpdateInterval }
+func ChanceToAddOrganism() float64               { return constants.ChanceToAddOrganism }
+func ChanceToAddFoodItem() float64               { return constants.ChanceToAddFoodItem }
+func MaxFoodValue() int                          { return constants.MaxFoodValue }
+func MinFoodValue() int                          { return constants.MinFoodValue }
+func MaxCyclesBetweenSpawns() int                { return constants.MaxCyclesBetweenSpawns }
+func MinSpawnHealth() float64                    { return constants.MinSpawnHealth }
+func MaxSpawnHealthPercent() float64             { return constants.MaxSpawnHealthPercent }
+func MinChanceToMutateDecisionTree() float64     { return constants.MinChanceToMutateDecisionTree }
+func MaxChanceToMutateDecisionTree() float64     { return constants.MaxChanceToMutateDecisionTree }
+func MaxCyclesToEvaluateDecisionTree() int       { return constants.MaxCyclesToEvaluateDecisionTree }
+func MaxOrganisms() int                          { return constants.MaxOrganisms }
+func GrowthFactor() float64                      { return constants.GrowthFactor }
+func MaximumMaxSize() float64                    { return constants.MaximumMaxSize }
+func MinimumMaxSize() float64                    { return constants.MinimumMaxSize }
+func HealthChangePerCycle() float64              { return constants.HealthChangePerCycle }
+func HealthChangeFromBeingIdle() float64         { return constants.HealthChangeFromBeingIdle }
+func HealthChangeFromTurning() float64           { return constants.HealthChangeFromTurning }
+func HealthChangeFromMoving() float64            { return constants.HealthChangeFromMoving }
+func HealthChangeFromEatingAttempt() float64     { return constants.HealthChangeFromEatingAttempt }
+func HealthChangeFromAttacking() float64         { return constants.HealthChangeFromAttacking }
+func HealthChangeInflictedByAttack() float64     { return constants.HealthChangeInflictedByAttack }
+func HealthChangeFromFeeding() float64           { return constants.HealthChangeFromFeeding }
+func HealthPercentToChangeDecisionTree() float64 { return constants.HealthPercentToChangeDecisionTree }
+
 type Globals struct {
 	// Drawing parameters
 	GridUnitSize  int `json:"grid_unit_size"`

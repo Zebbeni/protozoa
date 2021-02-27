@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/Zebbeni/protozoa/config"
+	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decisions"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/utils"
@@ -18,8 +18,6 @@ import (
 // - algorithm code (String? or []int?)
 // - algorithm (func)
 type Organism struct {
-	*config.Globals
-
 	ID                   int
 	Age                  int
 	Health               float64
@@ -42,8 +40,8 @@ type Organism struct {
 }
 
 // NewRandom initializes organism at with random grid location and direction
-func NewRandom(id int, point utils.Point, api LookupAPI, g *config.Globals) *Organism {
-	traits := newRandomTraits(g)
+func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
+	traits := newRandomTraits()
 	nodeLibrary := d.NewNodeLibrary()
 	decisionTree := nodeLibrary.GetRandomNode()
 	organism := Organism{
@@ -67,13 +65,12 @@ func NewRandom(id int, point utils.Point, api LookupAPI, g *config.Globals) *Org
 
 		lookupAPI: api,
 	}
-	organism.Globals = g
 	return &organism
 }
 
 // NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
 func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := o.traits.copyMutated(o.Globals)
+	traits := o.traits.copyMutated()
 	nodeLibrary := d.NewNodeLibrary()
 	inheritedTree := o.GetBestDecisionTreeCopy(false)
 	if inheritedTree == nil {
@@ -101,7 +98,6 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 
 		lookupAPI: api,
 	}
-	organism.Globals = o.Globals
 	return &organism
 }
 
@@ -154,14 +150,14 @@ func (o *Organism) UpdateAction() {
 func (o *Organism) shouldSpawn() bool {
 	cyclesRequirementMet := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
 	healthRequirementMet := o.Health > o.MinHealthToSpawn()
-	populationRequirementMet := o.lookupAPI.OrganismCount() < o.MaxOrganisms
+	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms()
 	return populationRequirementMet && cyclesRequirementMet && healthRequirementMet
 }
 
 // chooseAction walks through nodes of an organism's decision tree, eventually
 // returning the chosen action
 //
-// As chooseAction walks thorugh nodes, it also sets UsedLastCycle=true, allowing
+// As chooseAction walks through nodes, it also sets UsedLastCycle=true, allowing
 // the organism to attribute success or failure to the previously-chosen path
 func (o *Organism) chooseAction(node *d.Node) d.Action {
 	node.UsedLastCycle = true
@@ -285,7 +281,7 @@ func (o *Organism) ApplyHealthChange(change float64) {
 	if o.Health > o.Size {
 		// When eating causes size to increase, increase slowly, not all at once.
 		difference := o.Health - o.Size
-		o.Size = math.Min(o.Size+(difference*o.GrowthFactor), o.traits.MaxSize)
+		o.Size = math.Min(o.Size+(difference*c.GrowthFactor()), o.traits.MaxSize)
 	}
 	o.Health = math.Min(math.Max(o.Health, 0.0), o.Size)
 }
@@ -315,20 +311,20 @@ func (o *Organism) UpdateDecisionTree() {
 
 func (o *Organism) shouldChangeDecisionTree() bool {
 	o.decisionTreeCyclesRemaining--
-	isHealthEmergency := o.Health < o.Size*o.HealthPercentToChangeDecisionTree
+	isHealthEmergency := o.Health < o.Size*c.HealthPercentToChangeDecisionTree()
 	return o.decisionTreeCyclesRemaining <= 0 || isHealthEmergency
 }
 
 func (o *Organism) isFoodAhead() bool {
-	return o.isFoodAtPoint(o.Location.Add(o.Direction).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isFoodAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isFoodLeft() bool {
-	return o.isFoodAtPoint(o.Location.Add(o.Direction.Left()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isFoodAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isFoodRight() bool {
-	return o.isFoodAtPoint(o.Location.Add(o.Direction.Right()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isFoodAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isFoodAtPoint(point utils.Point) bool {
@@ -338,51 +334,51 @@ func (o *Organism) isFoodAtPoint(point utils.Point) bool {
 }
 
 func (o *Organism) isOrganismAhead() bool {
-	return o.isOrganismAtPoint(o.Location.Add(o.Direction).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isBiggerOrganismAhead() bool {
-	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isSmallerOrganismAhead() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isRelatedOrganismAhead() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isOrganismLeft() bool {
-	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isBiggerOrganismLeft() bool {
-	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Left()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isSmallerOrganismLeft() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Left()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isRelatedOrganismLeft() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Left()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isOrganismRight() bool {
-	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isBiggerOrganismRight() bool {
-	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Right()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isSmallerOrganismRight() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Right()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isRelatedOrganismRight() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Right()).Wrap(o.GridUnitsWide, o.GridUnitsHigh))
+	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
