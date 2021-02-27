@@ -1,0 +1,9 @@
+{
+  "grid_unit_size": 8,
+  "grid_width": 1000,
+  "grid_height": 800,
+  "grid_units_wide": 125,
+  "grid_units_high": 100,
+  "screen_width": 1400,
+  "screen_height": 800
+}

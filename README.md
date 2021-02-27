@@ -1,13 +1,10 @@
 # Protozoa
-This is a experiment to simulate organisms that change their decision-making algorithm to become more successful at surviving in their environment. 
-
-All organisms act according to a binary decision tree, which they mutate or switch according to whichever decision tree in use appears to have the highest success rate in maintaining good organism health.
+An experiment to simulate simple organisms navigating their environment through binary decision trees. Each organism maintains a library of decision trees that it uses and modifies as it seeks the algorithm most successful in improving its health.
 
 Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Demo
 ![Protozoa Demo](https://s3-us-west-2.amazonaws.com/andrewsrandom/Github+Media/protozoa_2.gif)
-
 
 ## Simulation rules
 
@@ -20,25 +17,48 @@ Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
   - Organisms gain up to 100 health when they eat a food in front of them
   - Organisms can attack an organism in front of them, decreasing their health.
 - Decision Trees may contain any mix of the following conditions:
-    - If Can Move Ahead
-    - If Food Ahead
-    - If Food Left
-    - If Food Right
-    - If Organism Ahead
-    - If Organism Left
-    - If Organism Right
+    - Can Move Ahead
+    - If FiftyFifty
+    - Is Food Ahead
+    - Is Food Left
+    - Is Food Right
+    - Is Organism Ahead
+    - Is Organism Left
+    - Is Organism Right
+    - Is Bigger Organism Ahead
+    - Is Bigger Organism Left
+    - Is Bigger Organism Right
+    - Is Smaller Organism Ahead
+    - Is Smaller Organism Left
+    - Is Smaller Organism Right
+    - Is Related Organism Ahead
+    - Is Related Organism Left
+    - Is Related Organism Right
+    - If Health Above 50%
 - Decision Trees may contain any mix of the following actions:
     - Be Idle
     - Attack
+    - Feed
     - Eat
     - Move Ahead
     - Turn Left
     - Turn Right
-
+  
 # Setup
 ```
 go get
 go run main.go
+```
+
+# Config
+Simulation config values can be overridden by providing json config files at runtime.
+- Print the default settings as json:
+```
+go run main.go -dump-config
+```
+- Run with custom overrides:
+```
+go run main.go -config=settings/small.json
 ```
 
 # Run Headless

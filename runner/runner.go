@@ -60,7 +60,7 @@ func RunSimulation(opts *c.Options) {
 	} else {
 		sim = simulation.NewSimulation()
 		ui = ux.NewInterface(sim)
-		if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Globals"); err != nil {
+		if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
 			log.Fatal(err)
 		}
 	}
