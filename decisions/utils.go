@@ -3,6 +3,8 @@ package decisions
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/Zebbeni/protozoa/config"
 )
 
 // GetRandomCondition returns a random Condition from the Conditions array
@@ -82,14 +84,18 @@ func (node *Node) getAllSubNodes(includeActions, includeConditions bool) []*Node
 	return nodes
 }
 
-// MutateNode randomly mutates a single node of a tree
+// MutateNode randomly mutates a single node of a tree. This function
+// should only be called on root tree nodes because it uses the tree size.
 func MutateNode(node *Node) {
 	// pick a random node anywhere in the decision tree
 	allSubNodes := node.getAllSubNodes(true, true)
 	toMutate := allSubNodes[rand.Intn(len(allSubNodes))]
 
+	treeSize := node.Size()
+	maxTreeSize := config.MaxDecisionTreeSize()
+
 	if toMutate.IsAction() {
-		if rand.Intn(2) == 0 {
+		if rand.Intn(2) == 0 && treeSize < maxTreeSize {
 			// convert action to condition
 			originalAction := toMutate.NodeType.(Action)
 			toMutate.NodeType = GetRandomCondition()

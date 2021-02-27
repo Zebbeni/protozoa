@@ -46,6 +46,7 @@ func HealthChangeFromAttacking() float64         { return constants.HealthChange
 func HealthChangeInflictedByAttack() float64     { return constants.HealthChangeInflictedByAttack }
 func HealthChangeFromFeeding() float64           { return constants.HealthChangeFromFeeding }
 func HealthPercentToChangeDecisionTree() float64 { return constants.HealthPercentToChangeDecisionTree }
+func MaxDecisionTreeSize() int                   { return constants.MaxDecisionTreeSize }
 
 type Globals struct {
 	// Drawing parameters
@@ -90,6 +91,7 @@ type Globals struct {
 
 	// Decision tree parameters
 	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
+	MaxDecisionTreeSize               int     `json:"max_decision_tree_size"`
 }
 
 var defaultGlobals Globals = Globals{
@@ -124,6 +126,7 @@ var defaultGlobals Globals = Globals{
 	HealthChangeInflictedByAttack:     -0.5,
 	HealthChangeFromFeeding:           -0.005,
 	HealthPercentToChangeDecisionTree: 0.10,
+	MaxDecisionTreeSize:               16,
 }
 
 func NewGlobals() Globals {
