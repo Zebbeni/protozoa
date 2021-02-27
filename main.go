@@ -28,5 +28,7 @@ func main() {
 		globals = &p
 	}
 
-	runner.RunSimulation(opts, globals)
+	config.SetGlobals(globals)
+
+	runner.RunSimulation(opts)
 }

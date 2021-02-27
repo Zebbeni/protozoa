@@ -2,7 +2,7 @@ package simulation
 
 import (
 	"fmt"
-	"github.com/Zebbeni/protozoa/config"
+	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
@@ -12,8 +12,6 @@ import (
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	*config.Globals
-
 	organismManager *manager.OrganismManager
 	foodManager     *manager.FoodManager
 
@@ -23,14 +21,13 @@ type Simulation struct {
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation(g *config.Globals) *Simulation {
+func NewSimulation() *Simulation {
 	sim := &Simulation{
 		cycle:         0,
 		UpdatedPoints: make(map[string]utils.Point),
 	}
-	sim.foodManager = manager.NewFoodManager(sim, g)
-	sim.organismManager = manager.NewOrganismManager(sim, g)
-	sim.Globals = g
+	sim.foodManager = manager.NewFoodManager(sim)
+	sim.organismManager = manager.NewOrganismManager(sim)
 
 	return sim
 }
@@ -48,8 +45,8 @@ func (s *Simulation) UpdateCycle() {
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	if s.GetNumOrganisms() >= s.MaxOrganisms {
-		fmt.Printf("\nSimulation ended with %d organisms alive.", s.MaxOrganisms)
+	if s.GetNumOrganisms() >= c.MaxOrganisms() {
+		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganisms())
 		return true
 	}
 	return false
