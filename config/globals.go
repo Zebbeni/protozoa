@@ -7,7 +7,7 @@ import (
 
 var constants *Globals
 
-// SetGlobals allows a one-time setting of all globally-referenced constants
+// SetGlobals allows a one-time initialization of all globally-referenced constants
 func SetGlobals(g *Globals) {
 	if constants != nil {
 		return
