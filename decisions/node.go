@@ -69,12 +69,10 @@ func (n *Node) SetUsedInCurrentDecisionTree(isUsing bool) {
 // Recursively walks through Node tree updating ID for itself and all children.
 func (n *Node) UpdateNodeIDs() string {
 	var buffer bytes.Buffer
-	nodeTypeString := fmt.Sprintf("%v", n.NodeType)
+	nodeTypeString := fmt.Sprintf("%02d", n.NodeType)
 	buffer.WriteString(nodeTypeString)
 	if n.IsCondition() {
-		buffer.WriteString("-")
 		buffer.WriteString(n.YesNode.UpdateNodeIDs())
-		buffer.WriteString("-")
 		buffer.WriteString(n.NoNode.UpdateNodeIDs())
 	}
 	n.ID = buffer.String()
