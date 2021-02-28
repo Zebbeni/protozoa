@@ -1,9 +1,10 @@
 package organism
 
 import (
+	"image/color"
+
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/utils"
-	"image/color"
 )
 
 // Info contains all information relevant to rendering an organism

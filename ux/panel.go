@@ -2,13 +2,14 @@ package ux
 
 import (
 	"fmt"
-	s "github.com/Zebbeni/protozoa/simulation"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"image/color"
 
-	r "github.com/Zebbeni/protozoa/resources"
 	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"github.com/hajimehoshi/ebiten/text"
+
+	r "github.com/Zebbeni/protozoa/resources"
+	s "github.com/Zebbeni/protozoa/simulation"
 )
 
 const (

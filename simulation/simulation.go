@@ -2,12 +2,13 @@ package simulation
 
 import (
 	"fmt"
+	"image/color"
+
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/utils"
-	"image/color"
 )
 
 // Simulation contains a list of forces, particles, and drawing settings

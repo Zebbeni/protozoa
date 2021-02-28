@@ -2,8 +2,9 @@ package utils
 
 import (
 	"fmt"
-	c "github.com/Zebbeni/protozoa/config"
 	"math/rand"
+
+	c "github.com/Zebbeni/protozoa/config"
 )
 
 // Point contains simple X and Y coordinates for a point in space
