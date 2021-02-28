@@ -1,10 +1,10 @@
 package ux
 
 import (
-	c "github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/decision"
 	"image/color"
 
+	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
