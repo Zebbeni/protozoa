@@ -1,4 +1,4 @@
-package decisions
+package decision
 
 // Action is the custom type for all Organism actions
 type Action int
@@ -96,10 +96,4 @@ var (
 		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 	}
-	ChanceOfAddingNewSubTree  = 0.5
-	MinUsesToConsiderChanging = 100
-	// NodeLibrary constants
-	UsesToConsiderPruningMultiplier = 200
-	MaxTopLevelNodes                = 50
-	MinTopLevelUsesToConsiderPrune  = 25
 )

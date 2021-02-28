@@ -32,6 +32,7 @@ func MinSpawnHealth() float64                    { return constants.MinSpawnHeal
 func MaxSpawnHealthPercent() float64             { return constants.MaxSpawnHealthPercent }
 func MinChanceToMutateDecisionTree() float64     { return constants.MinChanceToMutateDecisionTree }
 func MaxChanceToMutateDecisionTree() float64     { return constants.MaxChanceToMutateDecisionTree }
+func MinCyclesToEvaluateDecisionTree() int       { return constants.MinCyclesToEvaluateDecisionTree }
 func MaxCyclesToEvaluateDecisionTree() int       { return constants.MaxCyclesToEvaluateDecisionTree }
 func MaxOrganisms() int                          { return constants.MaxOrganisms }
 func GrowthFactor() float64                      { return constants.GrowthFactor }
@@ -47,6 +48,7 @@ func HealthChangeInflictedByAttack() float64     { return constants.HealthChange
 func HealthChangeFromFeeding() float64           { return constants.HealthChangeFromFeeding }
 func HealthPercentToChangeDecisionTree() float64 { return constants.HealthPercentToChangeDecisionTree }
 func MaxDecisionTreeSize() int                   { return constants.MaxDecisionTreeSize }
+func MaxDecisionTrees() int                      { return constants.MaxDecisionTrees }
 
 type Globals struct {
 	// Drawing parameters
@@ -73,6 +75,7 @@ type Globals struct {
 	MaxSpawnHealthPercent           float64 `json:"max_spawn_health_percent"`
 	MinChanceToMutateDecisionTree   float64 `json:"min_chance_to_mutate_decision_tree"`
 	MaxChanceToMutateDecisionTree   float64 `json:"max_chance_to_mutate_decision_tree"`
+	MinCyclesToEvaluateDecisionTree int     `json:"min_cycles_to_evaluate_decision_tree"`
 	MaxCyclesToEvaluateDecisionTree int     `json:"max_cycles_to_evaluate_decision_tree"`
 	MaxOrganisms                    int     `json:"max_organisms"`
 	GrowthFactor                    float64 `json:"growth_factor"`
@@ -92,6 +95,7 @@ type Globals struct {
 	// Decision tree parameters
 	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
 	MaxDecisionTreeSize               int     `json:"max_decision_tree_size"`
+	MaxDecisionTrees                  int     `json:"max_decision_trees"`
 }
 
 var defaultGlobals = Globals{
@@ -112,6 +116,7 @@ var defaultGlobals = Globals{
 	MaxSpawnHealthPercent:             0.5,
 	MinChanceToMutateDecisionTree:     0.01,
 	MaxChanceToMutateDecisionTree:     1.0,
+	MinCyclesToEvaluateDecisionTree:   5,
 	MaxCyclesToEvaluateDecisionTree:   100,
 	MaxOrganisms:                      20000,
 	GrowthFactor:                      0.5,
@@ -127,6 +132,7 @@ var defaultGlobals = Globals{
 	HealthChangeFromFeeding:           -0.005,
 	HealthPercentToChangeDecisionTree: 0.10,
 	MaxDecisionTreeSize:               16,
+	MaxDecisionTrees:                  10,
 }
 
 func NewGlobals() Globals {
