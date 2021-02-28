@@ -471,7 +471,7 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 		o.OriginalAncestorID, o.CyclesToEvaluateDecisionTree(),
 		o.Health, o.ChanceToMutateDecisionTree(),
 		o.Size, o.MaxSize(),
-		o.GetCurrentDecisionTreeCopy(true).Print("", true, false))
+		o.GetCurrentDecisionTreeCopy(true).PrintTree("", true, false))
 }
 
 func (m *OrganismManager) printBestAncestors() {

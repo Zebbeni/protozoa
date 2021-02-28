@@ -3,6 +3,8 @@ package decisions
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/Zebbeni/protozoa/config"
 )
 
 // GetRandomCondition returns a random Condition from the Conditions array
@@ -82,18 +84,22 @@ func (node *Node) getAllSubNodes(includeActions, includeConditions bool) []*Node
 	return nodes
 }
 
-// MutateNode randomly mutates a single node of a tree
+// MutateNode randomly mutates a single node of a tree. This function
+// should only be called on root tree nodes because it uses the tree size.
 func MutateNode(node *Node) {
 	// pick a random node anywhere in the decision tree
 	allSubNodes := node.getAllSubNodes(true, true)
 	toMutate := allSubNodes[rand.Intn(len(allSubNodes))]
 
+	treeSize := node.Size()
+	maxTreeSize := config.MaxDecisionTreeSize()
+
 	if toMutate.IsAction() {
-		if rand.Intn(2) == 0 {
-			// convert action to condition
+		if rand.Intn(2) == 0 && treeSize < maxTreeSize-1 {
+			// convert action to condition + 2 actions
 			originalAction := toMutate.NodeType.(Action)
 			toMutate.NodeType = GetRandomCondition()
-			if rand.Float64() < 0.5 {
+			if rand.Intn(2) == 0 {
 				toMutate.YesNode = TreeFromAction(GetRandomAction())
 				toMutate.NoNode = TreeFromAction(originalAction)
 			} else {
@@ -122,8 +128,8 @@ func MutateNode(node *Node) {
 	node.UsedLastCycle = false
 }
 
-// Print pretty prints the node
-func (node *Node) Print(indent string, first, last bool) string {
+// PrintTree pretty prints the node
+func (n *Node) PrintTree(indent string, first, last bool) string {
 	toPrint := indent
 	newIndent := indent
 	if first {
@@ -135,22 +141,20 @@ func (node *Node) Print(indent string, first, last bool) string {
 		toPrint = fmt.Sprintf("%s├─", toPrint)
 		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
-	toPrint = fmt.Sprintf("%s%s (%d uses)\n", toPrint, Map[node.NodeType], node.Uses)
-	if node.IsCondition() {
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false, false))
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, false, true))
+	toPrint = fmt.Sprintf("%s%s (%d uses)\n", toPrint, Map[n.NodeType], n.Uses)
+	if n.IsCondition() {
+		toPrint = fmt.Sprintf("%s%s", toPrint, n.YesNode.PrintTree(newIndent, false, false))
+		toPrint = fmt.Sprintf("%s%s", toPrint, n.NoNode.PrintTree(newIndent, false, true))
 	}
-
-	if first {
-		toPrint = fmt.Sprintf(
-			"%s\nUses: %d\nAvgHealth: %.2f\nTopLevelUses:%d\nAvgHealthWhenTopLevel: %.2f\n",
-			toPrint,
-			node.Uses,
-			node.AvgHealth,
-			node.TopLevelUses,
-			node.AvgHealthWhenTopLevel,
-		)
-	}
-
 	return toPrint
+}
+
+func (n *Node) PrintStats() string {
+	return fmt.Sprintf(
+		"Uses: %d\nAvgHealth: %.2f\nTopLevelUses:%d\nAvgHealthWhenTopLevel: %.2f\n",
+		n.Uses,
+		n.AvgHealth,
+		n.TopLevelUses,
+		n.AvgHealthWhenTopLevel,
+	)
 }
