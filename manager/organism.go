@@ -9,8 +9,7 @@ import (
 	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/decisions"
-	d "github.com/Zebbeni/protozoa/decisions"
+	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/utils"
@@ -150,7 +149,7 @@ func initializeGrid() [][]int {
 }
 
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
-	if o.Action() == decisions.ActAttack {
+	if o.Action() == d.ActAttack {
 		m.api.AddUpdatedGridPoint(o.Location)
 	}
 	o.UpdateStats()
@@ -464,14 +463,14 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 		"\nAncestor: %10d   |  CyclesToEvaluateTree: %4d"+
 		"\n  Health: %10.2f   |   ChanceToMutateTree:  %4.2f"+
 		"\n    Size: %10.2f   |              MaxSize:  %4.2f"+
-		"\n  DecisionTree:\n%s",
+		"\n  Tree:\n%s",
 		o.ID, int(o.InitialHealth()),
 		o.Age, int(o.MinHealthToSpawn()),
 		o.Children, o.MinCyclesBetweenSpawns(),
 		o.OriginalAncestorID, o.CyclesToEvaluateDecisionTree(),
 		o.Health, o.ChanceToMutateDecisionTree(),
 		o.Size, o.MaxSize(),
-		o.GetCurrentDecisionTreeCopy(true).PrintTree("", true, false))
+		o.GetCurrentDecisionTreeCopy(true).Print())
 }
 
 func (m *OrganismManager) printBestAncestors() {

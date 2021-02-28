@@ -1,6 +1,6 @@
-package decisions
+package decision
 
-// Size returns the total size of the tree, including this node.
+// Size returns the total size of the tree, including this tree.
 func (n *Node) Size() int {
 	if n.IsAction() {
 		return 1

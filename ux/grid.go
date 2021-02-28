@@ -1,10 +1,10 @@
 package ux
 
 import (
-	c "github.com/Zebbeni/protozoa/config"
 	"image/color"
 
-	"github.com/Zebbeni/protozoa/decisions"
+	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -149,7 +149,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image, mostReprod
 	}
 
 	organismColor := info.Color
-	if info.Action == decisions.ActAttack {
+	if info.Action == decision.ActAttack {
 		organismColor = color.White
 	}
 

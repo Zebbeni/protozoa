@@ -1,7 +1,7 @@
 package organism
 
 import (
-	"github.com/Zebbeni/protozoa/decisions"
+	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/utils"
 	"image/color"
 )
@@ -11,7 +11,7 @@ type Info struct {
 	ID         int
 	Location   utils.Point
 	Size       float64
-	Action     decisions.Action
+	Action     decision.Action
 	AncestorID int
 	Color      color.Color
 }

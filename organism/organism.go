@@ -6,7 +6,7 @@ import (
 	"math/rand"
 
 	c "github.com/Zebbeni/protozoa/config"
-	d "github.com/Zebbeni/protozoa/decisions"
+	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -31,8 +31,8 @@ type Organism struct {
 
 	traits Traits
 
-	nodeLibrary                 *d.NodeLibrary
-	decisionTree                *d.Node
+	decisionTreeLibrary         d.Library
+	decisionTree                *d.Tree
 	decisionTreeCyclesRemaining int
 	action                      d.Action
 
@@ -42,8 +42,8 @@ type Organism struct {
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits()
-	nodeLibrary := d.NewNodeLibrary()
-	decisionTree := nodeLibrary.GetRandomNode()
+	library := d.NewLibrary()
+	decisionTree := library.GetRandomNode()
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -58,7 +58,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 
 		traits: traits,
 
-		nodeLibrary:                 nodeLibrary,
+		decisionTreeLibrary:         library,
 		decisionTree:                decisionTree,
 		decisionTreeCyclesRemaining: traits.CyclesToEvaluateDecisionTree,
 		action:                      d.ActIdle,
@@ -68,15 +68,15 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	return &organism
 }
 
-// NewChild initializes and returns a new organism with a copied NodeLibrary from its parent
+// NewChild initializes and returns a new organism with a copied TreeLibrary from its parent
 func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated()
-	nodeLibrary := d.NewNodeLibrary()
+	nodeLibrary := d.NewLibrary()
 	inheritedTree := o.GetBestDecisionTreeCopy(false)
 	if inheritedTree == nil {
 		inheritedTree = o.GetCurrentDecisionTreeCopy(false)
 	}
-	decisionTree := nodeLibrary.RegisterAndReturnNewNode(inheritedTree)
+	decisionTree := nodeLibrary.RegisterAndReturnTree(inheritedTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -91,9 +91,9 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 
 		traits: traits,
 
-		nodeLibrary:                 nodeLibrary,
+		decisionTreeLibrary:         nodeLibrary,
 		decisionTree:                decisionTree,
-		decisionTreeCyclesRemaining: decisionTree.Complexity * traits.CyclesToEvaluateDecisionTree,
+		decisionTreeCyclesRemaining: decisionTree.Size() * traits.CyclesToEvaluateDecisionTree,
 		action:                      d.ActIdle,
 
 		lookupAPI: api,
@@ -126,7 +126,7 @@ func (o *Organism) UpdateStats() {
 		healthChange -= o.Size * o.HealthCostToReproduce()
 	}
 
-	o.decisionTree.UpdateStats(healthChange, true, o.CyclesToEvaluateDecisionTree())
+	o.decisionTree.UpdateStats(healthChange, o.CyclesToEvaluateDecisionTree())
 	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree() {
@@ -144,7 +144,7 @@ func (o *Organism) UpdateAction() {
 		return
 	}
 
-	o.action = o.chooseAction(o.decisionTree)
+	o.action = o.chooseAction(o.decisionTree.Node)
 }
 
 func (o *Organism) shouldSpawn() bool {
@@ -219,13 +219,14 @@ func (o *Organism) X() int { return o.Location.X }
 func (o *Organism) Y() int { return o.Location.Y }
 
 // GetBestDecisionTreeCopy returns a copy of an organism's most successful decision tree
-func (o *Organism) GetBestDecisionTreeCopy(copyHistory bool) *d.Node {
-	return d.CopyTreeByValue(o.nodeLibrary.GetBestDecisionTree(), copyHistory)
+func (o *Organism) GetBestDecisionTreeCopy(copyHistory bool) *d.Tree {
+	bestTree := o.decisionTreeLibrary.GetBestDecisionTree()
+	return bestTree.CopyTree(copyHistory)
 }
 
 // GetCurrentDecisionTreeCopy returns a copy of an organism's currently-used decision tree
-func (o *Organism) GetCurrentDecisionTreeCopy(copyHistory bool) *d.Node {
-	return d.CopyTreeByValue(o.decisionTree, copyHistory)
+func (o *Organism) GetCurrentDecisionTreeCopy(copyHistory bool) *d.Tree {
+	return o.decisionTree.CopyTree(copyHistory)
 }
 
 // GetAction returns the last-chosen Organism action
@@ -262,16 +263,16 @@ func (o Organism) Color() color.Color { return o.traits.OrganismColor }
 // MaxSize returns an organism's maximum size
 func (o *Organism) MaxSize() float64 { return o.traits.MaxSize }
 
-func (o *Organism) setDecisionTree(decisionTree *d.Node) {
+func (o *Organism) setDecisionTree(decisionTree *d.Tree) {
 	if o.decisionTree != nil {
-		o.decisionTree.SetUsedInCurrentDecisionTree(false)
+		o.decisionTree.SetUsedInCurrentTree(false)
 	}
 	o.decisionTree = decisionTree
-	o.decisionTree.SetUsedInCurrentDecisionTree(true)
+	o.decisionTree.SetUsedInCurrentTree(true)
 }
 
 func (o *Organism) pruneNodes() {
-	o.nodeLibrary.Prune()
+	o.decisionTreeLibrary.Prune()
 }
 
 // ApplyHealthChange adds a value to the organism's health, bounded by 0 and MaxSize
@@ -286,26 +287,26 @@ func (o *Organism) ApplyHealthChange(change float64) {
 	o.Health = math.Min(math.Max(o.Health, 0.0), o.Size)
 }
 
-// UpdateDecisionTree either swaps its current DecisionTree with a new one or,
+// UpdateDecisionTree either swaps its current Tree with a new one or,
 // if already using the best node for the sought metric, mutates its existing
 // algorithm
 func (o *Organism) UpdateDecisionTree() {
-	o.decisionTree.SetUsedInCurrentDecisionTree(false)
+	o.decisionTree.SetUsedInCurrentTree(false)
 
 	decisionTree := o.decisionTree
-	best := o.nodeLibrary.GetBestDecisionTree()
+	best := o.decisionTreeLibrary.GetBestDecisionTree()
 	if best != nil {
 		decisionTree = best
 	}
 
 	if rand.Float64() < o.ChanceToMutateDecisionTree() {
 		mutatedTree := d.MutateTree(decisionTree)
-		o.decisionTree = o.nodeLibrary.RegisterAndReturnNewNode(mutatedTree)
+		o.decisionTree = o.decisionTreeLibrary.RegisterAndReturnTree(mutatedTree)
 	} else {
-		o.decisionTree = o.nodeLibrary.RegisterAndReturnNewNode(decisionTree)
+		o.decisionTree = o.decisionTreeLibrary.RegisterAndReturnTree(decisionTree)
 	}
 
-	o.decisionTree.SetUsedInCurrentDecisionTree(true)
+	o.decisionTree.SetUsedInCurrentTree(true)
 	o.decisionTreeCyclesRemaining = o.CyclesToEvaluateDecisionTree()
 }
 
