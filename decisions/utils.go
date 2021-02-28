@@ -95,11 +95,11 @@ func MutateNode(node *Node) {
 	maxTreeSize := config.MaxDecisionTreeSize()
 
 	if toMutate.IsAction() {
-		if rand.Intn(2) == 0 && treeSize < maxTreeSize {
-			// convert action to condition
+		if rand.Intn(2) == 0 && treeSize < maxTreeSize-1 {
+			// convert action to condition + 2 actions
 			originalAction := toMutate.NodeType.(Action)
 			toMutate.NodeType = GetRandomCondition()
-			if rand.Float64() < 0.5 {
+			if rand.Intn(2) == 0 {
 				toMutate.YesNode = TreeFromAction(GetRandomAction())
 				toMutate.NoNode = TreeFromAction(originalAction)
 			} else {
