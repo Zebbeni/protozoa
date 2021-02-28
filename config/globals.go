@@ -92,7 +92,7 @@ type Globals struct {
 	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
 }
 
-var defaultGlobals Globals = Globals{
+var defaultGlobals = Globals{
 	GridUnitSize:                      5,
 	GridWidth:                         1000,
 	GridHeight:                        800,
