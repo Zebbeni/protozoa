@@ -28,6 +28,13 @@ var (
 	PlayButton *ebiten.Image
 	// PauseButton is a 30x30 image
 	PauseButton *ebiten.Image
+
+	// OrganismSmall5x5 is a 5x5 image to render for small organisms
+	OrganismSmall5x5 *ebiten.Image
+	// OrganismSmall5x5 is a 5x5 image to render for medium organisms
+	OrganismMedium5x5 *ebiten.Image
+	// OrganismSmall5x5 is a 5x5 image to render for large organisms
+	OrganismLarge5x5 *ebiten.Image
 )
 
 // Init loads all fonts and images to be used in the UI
@@ -45,8 +52,13 @@ func initFonts() {
 }
 
 func initImages() {
+	// Panel Images
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
+	// Grid Images
+	OrganismSmall5x5 = loadImage("resources/images/grid/5x5_organism_small.png")
+	OrganismMedium5x5 = loadImage("resources/images/grid/5x5_organism_medium.png")
+	OrganismLarge5x5 = loadImage("resources/images/grid/5x5_organism_large.png")
 }
 
 func loadImage(path string) *ebiten.Image {

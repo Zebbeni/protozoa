@@ -4,9 +4,9 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/Zebbeni/protozoa/config"
-
 	"github.com/stretchr/testify/assert"
+
+	"github.com/Zebbeni/protozoa/config"
 )
 
 func TestMutateAndRegisterTree(t *testing.T) {
