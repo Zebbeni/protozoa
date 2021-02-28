@@ -128,8 +128,8 @@ func MutateNode(node *Node) {
 	node.UsedLastCycle = false
 }
 
-// Print pretty prints the node
-func (node *Node) Print(indent string, first, last bool) string {
+// PrintTree pretty prints the node
+func (n *Node) PrintTree(indent string, first, last bool) string {
 	toPrint := indent
 	newIndent := indent
 	if first {
@@ -141,22 +141,20 @@ func (node *Node) Print(indent string, first, last bool) string {
 		toPrint = fmt.Sprintf("%s├─", toPrint)
 		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
-	toPrint = fmt.Sprintf("%s%s (%d uses)\n", toPrint, Map[node.NodeType], node.Uses)
-	if node.IsCondition() {
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.YesNode.Print(newIndent, false, false))
-		toPrint = fmt.Sprintf("%s%s", toPrint, node.NoNode.Print(newIndent, false, true))
+	toPrint = fmt.Sprintf("%s%s (%d uses)\n", toPrint, Map[n.NodeType], n.Uses)
+	if n.IsCondition() {
+		toPrint = fmt.Sprintf("%s%s", toPrint, n.YesNode.PrintTree(newIndent, false, false))
+		toPrint = fmt.Sprintf("%s%s", toPrint, n.NoNode.PrintTree(newIndent, false, true))
 	}
-
-	if first {
-		toPrint = fmt.Sprintf(
-			"%s\nUses: %d\nAvgHealth: %.2f\nTopLevelUses:%d\nAvgHealthWhenTopLevel: %.2f\n",
-			toPrint,
-			node.Uses,
-			node.AvgHealth,
-			node.TopLevelUses,
-			node.AvgHealthWhenTopLevel,
-		)
-	}
-
 	return toPrint
+}
+
+func (n *Node) PrintStats() string {
+	return fmt.Sprintf(
+		"Uses: %d\nAvgHealth: %.2f\nTopLevelUses:%d\nAvgHealthWhenTopLevel: %.2f\n",
+		n.Uses,
+		n.AvgHealth,
+		n.TopLevelUses,
+		n.AvgHealthWhenTopLevel,
+	)
 }
