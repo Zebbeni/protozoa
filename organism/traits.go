@@ -1,19 +1,28 @@
 package organism
 
 import (
-	"image/color"
 	"math"
 	"math/rand"
 
-	c "github.com/Zebbeni/protozoa/config"
+	"github.com/lucasb-eyer/go-colorful"
 
-	u "github.com/Zebbeni/protozoa/utils"
+	c "github.com/Zebbeni/protozoa/config"
+)
+
+const (
+	maxHueMutation        = 5.0
+	maxSaturationMutation = 0.02
+	maxSaturation         = 1.0
+	minSaturation         = 0.5
+	maxLuminanceMutation  = 0.02
+	maxLuminance          = 0.9
+	minLuminance          = 0.5
 )
 
 // Traits contains organism-specific values that dictate how and when organisms
 // perform certain activities, which are passed down from parents to children.
 type Traits struct {
-	OrganismColor color.Color
+	OrganismColor colorful.Color
 	// MaxSize represents the maximum size an organism can reach.
 	MaxSize float64
 	// SpawnHealth: The health value - and size - this organism and its
@@ -28,7 +37,7 @@ type Traits struct {
 }
 
 func newRandomTraits() Traits {
-	organismColor := u.GetRandomColor()
+	organismColor := getRandomColor()
 	maxSize := rand.Float64() * c.MaximumMaxSize()
 	spawnHealth := rand.Float64() * maxSize * c.MaxSpawnHealthPercent()
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
@@ -83,17 +92,31 @@ func mutateInt(value, maxChange, min, max int) int {
 }
 
 // MutateColor returns a slight variation on a given color
-func mutateColor(originalColor color.Color) color.Color {
-	r32, g32, b32, a32 := originalColor.RGBA()
-	r := mutateColorValue(r32)
-	g := mutateColorValue(g32)
-	b := mutateColorValue(b32)
-	a := uint8(a32)
-	return color.RGBA{R: r, G: g, B: b, A: a}
+func mutateColor(originalColor colorful.Color) colorful.Color {
+	h, s, l := originalColor.HSLuv()
+	h = mutateHue(h)
+	s = mutateSaturation(s)
+	l = mutateLuminance(l)
+	return colorful.HSLuv(h, s, l)
 }
 
-func mutateColorValue(v uint32) uint8 {
-	converted := int(uint8(v)) // cast to uint8 and back to int to avoid overflow
-	mutated := math.Max(math.Min(float64(converted+rand.Intn(21)-10), 255), 50)
-	return uint8(mutated)
+func mutateHue(h float64) float64 {
+	return math.Mod(h+360.0+(rand.Float64()*maxHueMutation*2.0)-maxHueMutation, 360)
+}
+
+func mutateSaturation(s float64) float64 {
+	s += rand.Float64()*maxSaturationMutation*2.0 - maxSaturationMutation
+	return math.Min(math.Max(s, minSaturation), maxSaturation)
+}
+
+func mutateLuminance(l float64) float64 {
+	l += rand.Float64()*maxLuminanceMutation*2.0 - maxLuminanceMutation
+	return math.Min(math.Max(l, minLuminance), maxLuminance)
+}
+
+func getRandomColor() colorful.Color {
+	h := rand.Float64() * 360.0
+	s := minSaturation + (rand.Float64() * (maxSaturation - minSaturation))
+	l := minLuminance + (rand.Float64() * (maxLuminance - minLuminance))
+	return colorful.HSLuv(h, s, l)
 }

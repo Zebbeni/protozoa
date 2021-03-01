@@ -9,13 +9,11 @@ import (
 // Library is a Map containing all top-level decision trees for a given Organism
 type Library map[string]*Tree
 
-// NewLibrary creates a new Tree Library, initialized with single Actions
+// NewLibrary creates a new Tree Library, initialized with a single random Action
 func NewLibrary() Library {
 	library := make(Library)
-	for _, a := range Actions {
-		tree := TreeFromAction(a)
-		library.RegisterAndReturnTree(tree)
-	}
+	tree := TreeFromAction(GetRandomAction())
+	tree = library.RegisterAndReturnTree(tree)
 	return library
 }
 

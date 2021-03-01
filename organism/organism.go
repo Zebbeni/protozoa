@@ -129,7 +129,7 @@ func (o *Organism) UpdateStats() {
 	o.decisionTree.UpdateStats(healthChange, o.CyclesToEvaluateDecisionTree())
 	o.PrevHealth = o.Health
 
-	if o.shouldChangeDecisionTree() {
+	if o.shouldChangeDecisionTree(healthChange) {
 		o.UpdateDecisionTree()
 	}
 
@@ -310,9 +310,9 @@ func (o *Organism) UpdateDecisionTree() {
 	o.decisionTreeCyclesRemaining = o.CyclesToEvaluateDecisionTree()
 }
 
-func (o *Organism) shouldChangeDecisionTree() bool {
+func (o *Organism) shouldChangeDecisionTree(lastHealthChange float64) bool {
 	o.decisionTreeCyclesRemaining--
-	isHealthEmergency := o.Health < o.Size*c.HealthPercentToChangeDecisionTree()
+	isHealthEmergency := o.Health < o.Size*c.HealthPercentToChangeDecisionTree() && lastHealthChange < 0
 	return o.decisionTreeCyclesRemaining <= 0 || isHealthEmergency
 }
 

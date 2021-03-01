@@ -2,7 +2,8 @@ package ux
 
 import (
 	"fmt"
-	"image/color"
+
+	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/resources"
 
@@ -26,8 +27,9 @@ const (
 )
 
 var (
-	gridBackground                         = color.RGBA{R: 0, G: 0, B: 0, A: 255}
-	orgImgSmall, orgImgMedium, orgImgLarge *ebiten.Image
+	gridBackground                                  = colorful.HSLuv(0, 0, 0)
+	foodColor                                       = colorful.HSLuv(120, 0.2, 0.25)
+	squareImgSmall, squareImgMedium, squareImgLarge *ebiten.Image
 )
 
 type Grid struct {
@@ -48,9 +50,9 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 
 func loadOrganismImages() {
 	if config.GridUnitSize() == 5 {
-		orgImgSmall = resources.OrganismSmall5x5
-		orgImgMedium = resources.OrganismMedium5x5
-		orgImgLarge = resources.OrganismLarge5x5
+		squareImgSmall = resources.SquareSmall5x5
+		squareImgMedium = resources.SquareMedium5x5
+		squareImgLarge = resources.SquareLarge5x5
 	} else {
 		panic(fmt.Sprintf("No tiles found for the requested grid unit size: %d", config.GridUnitSize()))
 	}
@@ -122,7 +124,7 @@ func (g *Grid) shouldRefresh() bool {
 }
 
 // renderSelection draws a square around a single item on the grid
-func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col color.Color) {
+func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col colorful.Color) {
 	x, y := float64(point.X*config.GridUnitSize()), float64(point.Y*config.GridUnitSize())
 	ebitenutil.DrawLine(img, x-2, y-2, x+float64(config.GridUnitSize())+3, y-2, col)                                                               // top
 	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+float64(config.GridUnitSize())+3, col)                                                               // left
@@ -134,8 +136,6 @@ func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col color.C
 func (g *Grid) renderFood(item *food.Item, img *ebiten.Image) {
 	x := float64(item.Point.X) * float64(config.GridUnitSize())
 	y := float64(item.Point.Y) * float64(config.GridUnitSize())
-	alpha := 60
-	foodColor := color.RGBA{R: 100, G: 255, B: 100, A: uint8(alpha)}
 
 	value := float64(item.Value)
 	foodSize := sizeSmall
@@ -166,25 +166,29 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image, mostReprod
 
 	organismColor := info.Color
 	if info.Action == decision.ActAttack {
-		organismColor = color.White
+		organismColor = colorful.HSLuv(0.0, 255.0, 1.0)
 	}
 
 	g.drawSquare(img, x, y, organismSize, organismColor)
 }
 
-func (g *Grid) drawSquare(screen *ebiten.Image, x, y float64, sz size, col color.Color) {
-	padding := 1.5
+func (g *Grid) drawSquare(screen *ebiten.Image, x, y float64, sz size, col colorful.Color) {
+	var squareImg *ebiten.Image
 	switch sz {
 	case sizeSmall:
-		padding = 1.5
+		squareImg = squareImgSmall
 		break
 	case sizeMedium:
-		padding = 1.0
+		squareImg = squareImgMedium
 		break
 	case sizeLarge:
-		padding = 0.5
+		squareImg = squareImgLarge
 		break
 	}
 
-	ebitenutil.DrawRect(screen, x+padding, y+padding, float64(config.GridUnitSize())-(2*padding), float64(config.GridUnitSize())-(2*padding), col)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(x, y)
+	op.ColorM.Translate(col.R, col.G, col.B, 0)
+
+	screen.DrawImage(squareImg, op)
 }
