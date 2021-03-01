@@ -11,12 +11,12 @@ import (
 
 const (
 	maxHueMutation        = 5.0
-	maxSaturationMutation = 0.02
+	maxSaturationMutation = 0.05
 	maxSaturation         = 1.0
 	minSaturation         = 0.5
-	maxLuminanceMutation  = 0.02
-	maxLuminance          = 0.9
-	minLuminance          = 0.5
+	maxLuminanceMutation  = 0.05
+	maxLuminance          = 0.8
+	minLuminance          = 0.4
 )
 
 // Traits contains organism-specific values that dictate how and when organisms

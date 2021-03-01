@@ -1,8 +1,6 @@
 package ux
 
 import (
-	"fmt"
-
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/resources"
@@ -27,9 +25,9 @@ const (
 )
 
 var (
-	gridBackground                                  = colorful.HSLuv(0, 0, 0)
-	foodColor                                       = colorful.HSLuv(120, 0.2, 0.25)
-	squareImgSmall, squareImgMedium, squareImgLarge *ebiten.Image
+	gridBackground                                                      = colorful.HSLuv(0, 0, 0)
+	foodColor                                                           = colorful.HSLuv(120, 0.2, 0.25)
+	squareImgSmall, squareImgMedium, squareImgLarge, poisonImg, wallImg *ebiten.Image
 )
 
 type Grid struct {
@@ -49,13 +47,11 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 }
 
 func loadOrganismImages() {
-	if config.GridUnitSize() == 5 {
-		squareImgSmall = resources.SquareSmall5x5
-		squareImgMedium = resources.SquareMedium5x5
-		squareImgLarge = resources.SquareLarge5x5
-	} else {
-		panic(fmt.Sprintf("No tiles found for the requested grid unit size: %d", config.GridUnitSize()))
-	}
+	squareImgSmall = resources.SquareSmall
+	squareImgMedium = resources.SquareMedium
+	squareImgLarge = resources.SquareLarge
+	poisonImg = resources.Poison
+	wallImg = resources.Wall
 }
 
 // Render draws all organisms and food on the simulation grid

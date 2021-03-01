@@ -32,7 +32,7 @@ func update(screen *ebiten.Image) error {
 
 func RunSimulation(opts *c.Options) {
 	r.Init()
-	rand.Seed(0)
+	rand.Seed(1)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
@@ -41,6 +41,10 @@ func RunSimulation(opts *c.Options) {
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
+				if sim.Cycle()%100 == 0 {
+					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount())
+				}
+				sim.UpdateCycle()
 			}
 			sumAllCycles += sim.Cycle()
 			elapsed := time.Since(start)

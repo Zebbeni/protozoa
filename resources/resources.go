@@ -2,10 +2,13 @@ package resources
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"io/ioutil"
 	"log"
 	"path/filepath"
+
+	"github.com/Zebbeni/protozoa/config"
 
 	"github.com/hajimehoshi/ebiten"
 	"golang.org/x/image/font"
@@ -29,12 +32,16 @@ var (
 	// PauseButton is a 30x30 image
 	PauseButton *ebiten.Image
 
-	// SquareSmall5x5 is a 5x5 image to render for small organisms
-	SquareSmall5x5 *ebiten.Image
-	// SquareSmall5x5 is a 5x5 image to render for medium organisms
-	SquareMedium5x5 *ebiten.Image
-	// SquareSmall5x5 is a 5x5 image to render for large organisms
-	SquareLarge5x5 *ebiten.Image
+	// SquareSmall is an image to render for small organisms and food
+	SquareSmall *ebiten.Image
+	// SquareMedium is an image to render for medium organisms and food
+	SquareMedium *ebiten.Image
+	// SquareLarge is an image to render for large organisms and food
+	SquareLarge *ebiten.Image
+	// SquarePoison is an image to render for poison locations
+	Poison *ebiten.Image
+	// SquarePoison is an image to render for wall locations
+	Wall *ebiten.Image
 )
 
 // Init loads all fonts and images to be used in the UI
@@ -55,10 +62,26 @@ func initImages() {
 	// Panel Images
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
-	// Grid Images
-	SquareSmall5x5 = loadImage("resources/images/grid/5x5_square_small.png")
-	SquareMedium5x5 = loadImage("resources/images/grid/5x5_square_medium.png")
-	SquareLarge5x5 = loadImage("resources/images/grid/5x5_square_large.png")
+
+	var dir string
+	switch config.GridUnitSize() {
+	case 4:
+		dir = "4x4"
+		break
+	case 5:
+		dir = "5x5"
+		break
+	case 8:
+		dir = "8x8"
+		break
+	default:
+		panic(fmt.Sprintf("Unsupported grid unit size: %d", config.GridUnitSize()))
+	}
+	SquareSmall = loadImage(fmt.Sprintf("resources/images/grid/%s/square_small.png", dir))
+	SquareMedium = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
+	SquareLarge = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
+	Poison = loadImage(fmt.Sprintf("resources/images/grid/%s/poison.png", dir))
+	Wall = loadImage(fmt.Sprintf("resources/images/grid/%s/wall.png", dir))
 }
 
 func loadImage(path string) *ebiten.Image {

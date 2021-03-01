@@ -126,7 +126,7 @@ func (o *Organism) UpdateStats() {
 		healthChange -= o.Size * o.HealthCostToReproduce()
 	}
 
-	o.decisionTree.UpdateStats(healthChange, o.CyclesToEvaluateDecisionTree())
+	o.decisionTree.UpdateStats(healthChange, o.CyclesToEvaluateDecisionTree()*10)
 	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree(healthChange) {
@@ -140,6 +140,7 @@ func (o *Organism) UpdateStats() {
 // tree before running it to determine its next action
 func (o *Organism) UpdateAction() {
 	if o.shouldSpawn() {
+		o.CyclesSinceLastSpawn = 0
 		o.action = d.ActSpawn
 		return
 	}
