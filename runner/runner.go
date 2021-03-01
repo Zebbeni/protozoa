@@ -22,34 +22,29 @@ var (
 func update(screen *ebiten.Image) error {
 	// update simulation every time. Only re-render if not running slowly
 	sim.Update()
-	if ebiten.IsRunningSlowly() {
+	if ebiten.IsDrawingSkipped() {
 		return nil
 	}
 	ui.Render(screen)
 	sim.UpdateCycle()
-
 	return nil
-	//if isDebug {
-	//	var m runtime.MemStats
-	//	runtime.ReadMemStats(&m)
-	//	// write info to screen
-	//	infoString := fmt.Sprintf("FPS: %0.2f\nAlloc = %v\nTotalAlloc = %v\nSys = %v\nNumGC = %v\nOrganisms: %d\nFood: %d\ntotalDuration: %10s\nupdateDuration: %10s\norganismUpdate: %10s\norganismResolve: %10s\nrenderDuration: %10s",
-	//		ebiten.CurrentFPS(), m.Alloc/1024, m.TotalAlloc/1024, m.Sys/1024, m.NumGC, simulation.GetNumOrganisms(), simulation.GetFoodCount(), simulation.TotalDuration(), simulation.TotalUpdateDuration(), simulation.OrganismUpdateDuration(), simulation.OrganismResolveDuration(), simulation.TotalRenderDuration())
-	//	ebitenutil.DebugPrint(screen, infoString)
-	//}
 }
 
 func RunSimulation(opts *c.Options) {
 	r.Init()
-	rand.Seed(0)
+	rand.Seed(1)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
 		for count := 0; count < opts.TrialCount; count++ {
-			sim = simulation.NewSimulation()
+			sim = simulation.NewSimulation(opts)
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
+				if sim.Cycle()%100 == 0 {
+					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount())
+				}
+				sim.UpdateCycle()
 			}
 			sumAllCycles += sim.Cycle()
 			elapsed := time.Since(start)
@@ -58,7 +53,7 @@ func RunSimulation(opts *c.Options) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		sim = simulation.NewSimulation()
+		sim = simulation.NewSimulation(opts)
 		ui = ux.NewInterface(sim)
 		if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
 			log.Fatal(err)

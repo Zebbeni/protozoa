@@ -1,10 +1,9 @@
 package organism
 
 import (
-	"image/color"
-
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/utils"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 // Info contains all information relevant to rendering an organism
@@ -14,5 +13,5 @@ type Info struct {
 	Size       float64
 	Action     decision.Action
 	AncestorID int
-	Color      color.Color
+	Color      colorful.Color
 }

@@ -4,9 +4,9 @@ import (
 	"math"
 	"math/rand"
 
-	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
-	u "github.com/Zebbeni/protozoa/utils"
+	"github.com/Zebbeni/protozoa/utils"
 )
 
 // FoodManager contains 2D array of all food values
@@ -27,7 +27,7 @@ func NewFoodManager(api food.API) *FoodManager {
 
 // Update is called on every cycle and adds new FoodItems at a constant rate
 func (m *FoodManager) Update() {
-	if rand.Float64() < c.ChanceToAddFoodItem() {
+	if rand.Float64() < config.ChanceToAddFoodItem() {
 		m.AddRandomFoodItem()
 	}
 }
@@ -40,10 +40,10 @@ func (m *FoodManager) FoodCount() int {
 // AddRandomFoodItem attempts to add a FoodItem object to a random location
 // Gives up if first attempt to place food fails.
 func (m *FoodManager) AddRandomFoodItem() {
-	x := rand.Intn(c.GridUnitsWide())
-	y := rand.Intn(c.GridUnitsHigh())
-	value := rand.Intn(c.MaxFoodValue())
-	point := u.Point{X: x, Y: y}
+	x := rand.Intn(config.GridUnitsWide())
+	y := rand.Intn(config.GridUnitsHigh())
+	value := rand.Intn(config.MaxFoodValue())
+	point := utils.Point{X: x, Y: y}
 	if added := m.AddFoodAtPoint(point, value); added > 0 {
 		m.api.AddGridPointToUpdate(point)
 	}
@@ -51,7 +51,7 @@ func (m *FoodManager) AddRandomFoodItem() {
 
 // AddFoodAtPoint adds a foodItem with a given value at a given location if not
 // occupied. Returns the value added
-func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
+func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) int {
 	if value <= 0 {
 		return 0
 	}
@@ -61,16 +61,16 @@ func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
 	locationString := point.ToString()
 	item, exists := m.Items[locationString]
 	if !exists {
-		value = int(math.Min(math.Max(0.0, float64(value)), float64(c.MaxFoodValue())))
+		value = int(math.Min(math.Max(0.0, float64(value)), float64(config.MaxFoodValue())))
 		m.Items[locationString] = food.NewItem(point, value)
 		return value
 	}
 
 	originalValue := item.Value
 	item.Value += value
-	if item.Value > c.MaxFoodValue() {
-		item.Value = c.MaxFoodValue()
-		return c.MaxFoodValue() - originalValue
+	if item.Value > config.MaxFoodValue() {
+		item.Value = config.MaxFoodValue()
+		return config.MaxFoodValue() - originalValue
 	}
 	return value
 }
@@ -78,7 +78,7 @@ func (m *FoodManager) AddFoodAtPoint(point u.Point, value int) int {
 // RemoveFoodAtPoint subtracts a given value from the Item at a given point.
 // If value is more than the current food value, remove foodItem from the map
 // Returns the actual amount of food removed.
-func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
+func (m *FoodManager) RemoveFoodAtPoint(point utils.Point, value int) int {
 	if value <= 0 {
 		return 0
 	}
@@ -94,7 +94,7 @@ func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
 	originalValue := item.Value
 	item.Value -= value
 
-	if item.Value < c.MinFoodValue() {
+	if item.Value < config.MinFoodValue() {
 		delete(m.Items, locationString)
 	}
 
@@ -106,7 +106,7 @@ func (m *FoodManager) RemoveFoodAtPoint(point u.Point, value int) int {
 }
 
 // GetFoodAtPoint returns the FoodItem value at a given point (nil if none found)
-func (m *FoodManager) GetFoodAtPoint(point u.Point) *food.Item {
+func (m *FoodManager) GetFoodAtPoint(point utils.Point) *food.Item {
 	foodItem, _ := m.Items[point.ToString()]
 	return foodItem
 }

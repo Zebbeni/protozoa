@@ -378,9 +378,8 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {
+	o.ApplyHealthChange(o.HealthCostToReproduce())
 	if success := m.SpawnChildOrganism(o); success {
-		o.ApplyHealthChange(o.HealthCostToReproduce())
-		o.CyclesSinceLastSpawn = 0
 		o.Children++
 	}
 }

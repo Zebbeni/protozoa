@@ -3,8 +3,9 @@ package simulation
 import (
 	"fmt"
 	"image/color"
+	"time"
 
-	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
@@ -13,17 +14,23 @@ import (
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
-	organismManager *manager.OrganismManager
-	foodManager     *manager.FoodManager
+	options *config.Options
 
 	cycle int
 
+	organismManager *manager.OrganismManager
+	foodManager     *manager.FoodManager
+
 	UpdatedPoints map[string]utils.Point
+
+	// debug statistics
+	UpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 }
 
 // NewSimulation returns a simulation with generated world and organisms
-func NewSimulation() *Simulation {
+func NewSimulation(options *config.Options) *Simulation {
 	sim := &Simulation{
+		options:       options,
 		cycle:         0,
 		UpdatedPoints: make(map[string]utils.Point),
 	}
@@ -35,8 +42,24 @@ func NewSimulation() *Simulation {
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
+	start := time.Now()
+
+	s.updateFood()
+	s.updateOrganisms()
+
+	s.UpdateTime = time.Since(start)
+}
+
+func (s *Simulation) updateFood() {
+	start := time.Now()
 	s.foodManager.Update()
+	s.FoodUpdateTime = time.Since(start)
+}
+
+func (s *Simulation) updateOrganisms() {
+	start := time.Now()
 	s.organismManager.Update()
+	s.OrganismUpdateTime = time.Since(start)
 }
 
 // UpdateCycle iterates the current cycle. (Do this separately after render done)
@@ -46,11 +69,16 @@ func (s *Simulation) UpdateCycle() {
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	if s.GetNumOrganisms() >= c.MaxOrganisms() {
-		fmt.Printf("\nSimulation ended with %d organisms alive.", c.MaxOrganisms())
+	if s.GetNumOrganisms() >= config.MaxOrganisms() {
+		fmt.Printf("\nSimulation ended with %d organisms alive.", config.MaxOrganisms())
 		return true
 	}
 	return false
+}
+
+// IsDebug returns true if debug flag set on run
+func (s *Simulation) IsDebug() bool {
+	return s.options.IsDebugging
 }
 
 // Cycle returns the current simulation cycle number
