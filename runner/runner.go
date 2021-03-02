@@ -42,7 +42,7 @@ func RunSimulation(opts *c.Options) {
 			for !sim.IsDone() {
 				sim.Update()
 				if sim.Cycle()%100 == 0 {
-					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount())
+					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount(), "time:", time.Since(start))
 				}
 				sim.UpdateCycle()
 			}

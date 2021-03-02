@@ -129,7 +129,7 @@ func (o *Organism) UpdateStats() {
 		healthChange -= o.Size * o.HealthCostToReproduce()
 	}
 
-	o.decisionTree.UpdateStats(healthChange, o.CyclesToEvaluateDecisionTree()*10)
+	o.decisionTree.UpdateStats(healthChange)
 	o.PrevHealth = o.Health
 
 	if o.shouldChangeDecisionTree(healthChange) {

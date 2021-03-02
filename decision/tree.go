@@ -27,9 +27,9 @@ func TreeFromAction(action Action) *Tree {
 
 // UpdateStats updates a Tree's Uses and average health change history
 // cyclesToConsider provides a maximum number of cycles to factor
-func (t *Tree) UpdateStats(health float64, cyclesToConsider int) {
+func (t *Tree) UpdateStats(health float64) {
 	t.Uses++
-	uses := math.Min(float64(t.Uses), float64(cyclesToConsider))
+	uses := math.Min(float64(t.Uses), float64(config.MaxCyclesToCalculateStatsAverage()))
 	t.AvgHealthChange = (t.AvgHealthChange*(uses-1.0) + health) / uses
 
 	// set UsedLastCycle to false for this and all child Nodes

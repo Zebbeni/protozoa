@@ -75,7 +75,7 @@ func (m *OrganismManager) Update() {
 }
 
 func (m *OrganismManager) updateOrganisms() {
-	workerCount := 100
+	workerCount := 10
 	start := time.Now()
 	in := make(chan *organism.Organism)
 	done := make(chan error)
