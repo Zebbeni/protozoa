@@ -25,8 +25,7 @@ type OrganismManager struct {
 	organismIDGrid        [][]int
 	totalOrganismsCreated int
 
-	organismUpdateOrder []int
-	newOrganismIDs      []int
+	newOrganismIDs []int
 
 	MostReproductiveAllTime  *organism.Organism
 	MostReproductiveCurrent  *organism.Organism
@@ -47,7 +46,6 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		api:                      api,
 		organismIDGrid:           grid,
 		organisms:                organisms,
-		organismUpdateOrder:      make([]int, 0, c.MaxOrganisms()),
 		newOrganismIDs:           make([]int, 0, 100),
 		AncestorDescendantsCount: make(map[int]int),
 		MostReproductiveAllTime:  &organism.Organism{},
@@ -66,19 +64,50 @@ func (m *OrganismManager) Update() {
 	if len(m.organisms) < c.MaxOrganisms() && rand.Float64() < c.ChanceToAddOrganism() {
 		m.SpawnRandomOrganism()
 	}
-	// FUTURE: do this multi-threaded
+
+	m.updateOrganisms()
 	start := time.Now()
-	for _, id := range m.organismUpdateOrder {
-		m.updateOrganism(m.organisms[id])
-	}
-	m.UpdateDuration = time.Since(start)
-	start = time.Now()
-	for _, id := range m.organismUpdateOrder {
-		m.resolveOrganismAction(m.organisms[id])
+	for _, o := range m.organisms {
+		m.resolveOrganismAction(o)
 	}
 	m.ResolveDuration = time.Since(start)
-	m.updateOrganismOrder()
 	m.updateHistory()
+}
+
+func (m *OrganismManager) updateOrganisms() {
+	workerCount := 100
+	start := time.Now()
+	in := make(chan *organism.Organism)
+	done := make(chan error)
+	// start workers, which will wait for in channel to be populated
+	for w := 0; w < workerCount; w++ {
+		go worker(in, done, m.updateOrganism)
+	}
+	// populate the in channel with all organisms
+	go func() {
+		for _, o := range m.organisms {
+			in <- o
+		}
+		// close channel so all workers will stop when they reach the end
+		close(in)
+	}()
+	// wait for all workers to complete
+	count := 0
+	for range done {
+		count++
+		if count == workerCount {
+			close(done)
+			break
+		}
+	}
+	m.UpdateDuration = time.Since(start)
+}
+
+func worker(in chan *organism.Organism, done chan error, update func(*organism.Organism)) {
+	for o := range in {
+		update(o)
+	}
+	done <- fmt.Errorf("done")
 }
 
 // updateHistory updates the population map for all living organisms
@@ -117,22 +146,6 @@ func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (m *OrganismManager) GetAncestorsSorted() []int {
 	return m.originalAncestorsSorted
-}
-
-// updateOrganismOrder creates a new ordered list of all organismIDs that are
-// alive after the current cycle, appending any newly spawned organisms.
-// This means iterating the full list of organisms again, but this should be
-// faster than just deleting the dead IDs and shifting all others to the left
-func (m *OrganismManager) updateOrganismOrder() {
-	orderedIDs := append(m.organismUpdateOrder, m.newOrganismIDs...)
-	organismUpdateOrder := make([]int, 0, len(orderedIDs))
-	for _, id := range orderedIDs {
-		if _, ok := m.organisms[id]; ok {
-			organismUpdateOrder = append(organismUpdateOrder, id)
-		}
-	}
-	m.organismUpdateOrder = organismUpdateOrder
-	m.newOrganismIDs = make([]int, 0, 100)
 }
 
 func initializeGrid() [][]int {

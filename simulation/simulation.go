@@ -3,6 +3,7 @@ package simulation
 import (
 	"fmt"
 	"image/color"
+	"sync"
 	"time"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -24,7 +25,8 @@ type Simulation struct {
 	UpdatedPoints map[string]utils.Point
 
 	// debug statistics
-	UpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
+	UpdateTime, FoodUpdateTime, OrganismUpdateTime, OrganismResolveTime time.Duration
+	mu                                                                  sync.Mutex
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -57,9 +59,8 @@ func (s *Simulation) updateFood() {
 }
 
 func (s *Simulation) updateOrganisms() {
-	start := time.Now()
 	s.organismManager.Update()
-	s.OrganismUpdateTime = time.Since(start)
+	s.OrganismUpdateTime, s.OrganismResolveTime = s.organismManager.UpdateDuration, s.organismManager.ResolveDuration
 }
 
 // UpdateCycle iterates the current cycle. (Do this separately after render done)
@@ -88,7 +89,9 @@ func (s *Simulation) Cycle() int {
 
 // AddUpdatedGridPoint adds a point to the grid locations that have been updated
 func (s *Simulation) AddUpdatedGridPoint(point utils.Point) {
+	s.mu.Lock()
 	s.UpdatedPoints[point.ToString()] = point
+	s.mu.Unlock()
 }
 
 // ClearUpdatedGridPoints clears the current pointsToUpdate map
