@@ -11,7 +11,8 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	api food.API
+	api         food.API
+	initialized bool
 
 	Items map[string]*food.Item
 }
@@ -19,10 +20,18 @@ type FoodManager struct {
 // NewFoodManager initializes a new foodItem map of MinFood
 func NewFoodManager(api food.API) *FoodManager {
 	m := &FoodManager{
-		api:   api,
-		Items: make(map[string]*food.Item),
+		api:         api,
+		initialized: false,
+		Items:       make(map[string]*food.Item),
 	}
+	m.InitializeFood(config.InitialFood())
 	return m
+}
+
+func (m *FoodManager) InitializeFood(count int) {
+	for i := 0; i < count; i++ {
+		m.AddRandomFoodItem()
+	}
 }
 
 // Update is called on every cycle and adds new FoodItems at a constant rate
@@ -30,6 +39,7 @@ func (m *FoodManager) Update() {
 	if rand.Float64() < config.ChanceToAddFoodItem() {
 		m.AddRandomFoodItem()
 	}
+	return
 }
 
 // FoodCount returns a count of all food items in the FoodManager map

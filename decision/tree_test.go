@@ -10,7 +10,7 @@ import (
 )
 
 func TestMutateAndRegisterTree(t *testing.T) {
-	globals := config.NewGlobals()
+	globals := config.GetDefaultGlobals()
 	config.SetGlobals(&globals)
 	rand.Seed(2)
 	// Test simple decision tree

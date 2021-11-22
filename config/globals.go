@@ -3,8 +3,10 @@ package config
 import (
 	"encoding/json"
 	"io"
+	"os"
 )
 
+var defaultFilePath = "settings/default.json"
 var constants *Globals
 
 // SetGlobals allows a one-time initialization of all globally-referenced constants
@@ -23,6 +25,8 @@ func GridUnitsHigh() int                         { return constants.GridUnitsHig
 func ScreenWidth() int                           { return constants.ScreenWidth }
 func ScreenHeight() int                          { return constants.ScreenHeight }
 func PopulationUpdateInterval() int              { return constants.PopulationUpdateInterval }
+func InitialOrganisms() int                      { return constants.InitialOrganisms }
+func InitialFood() int                           { return constants.InitialFood }
 func ChanceToAddOrganism() float64               { return constants.ChanceToAddOrganism }
 func ChanceToAddFoodItem() float64               { return constants.ChanceToAddFoodItem }
 func MaxFoodValue() int                          { return constants.MaxFoodValue }
@@ -64,6 +68,8 @@ type Globals struct {
 	PopulationUpdateInterval int `json:"population_update_interval"`
 
 	// Environment parameters
+	InitialOrganisms    int     `json:"initial_organisms"`
+	InitialFood         int     `json:"initial_food"`
 	ChanceToAddOrganism float64 `json:"chance_to_add_organism"`
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
 	MaxFoodValue        int     `json:"max_food_value"`
@@ -98,49 +104,28 @@ type Globals struct {
 	MaxDecisionTrees                  int     `json:"max_decision_trees"`
 }
 
-var defaultGlobals = Globals{
-	GridUnitSize:                      5,
-	GridWidth:                         1000,
-	GridHeight:                        800,
-	GridUnitsWide:                     200,
-	GridUnitsHigh:                     160,
-	ScreenWidth:                       1400,
-	ScreenHeight:                      800,
-	PopulationUpdateInterval:          100,
-	ChanceToAddOrganism:               0.01,
-	ChanceToAddFoodItem:               0.01,
-	MaxFoodValue:                      100,
-	MinFoodValue:                      2,
-	MaxCyclesBetweenSpawns:            100,
-	MinSpawnHealth:                    1.0,
-	MaxSpawnHealthPercent:             0.5,
-	MinChanceToMutateDecisionTree:     0.01,
-	MaxChanceToMutateDecisionTree:     1.0,
-	MinCyclesToEvaluateDecisionTree:   5,
-	MaxCyclesToEvaluateDecisionTree:   100,
-	MaxOrganisms:                      20000,
-	GrowthFactor:                      0.5,
-	MaximumMaxSize:                    100.0,
-	MinimumMaxSize:                    10.0,
-	HealthChangePerCycle:              -0.0001,
-	HealthChangeFromBeingIdle:         +0.0002,
-	HealthChangeFromTurning:           -0.001,
-	HealthChangeFromMoving:            -0.002,
-	HealthChangeFromEatingAttempt:     -0.005,
-	HealthChangeFromAttacking:         -0.01,
-	HealthChangeInflictedByAttack:     -0.10,
-	HealthChangeFromFeeding:           -0.05,
-	HealthPercentToChangeDecisionTree: 0.10,
-	MaxDecisionTreeSize:               32,
-	MaxDecisionTrees:                  5,
+func LoadFile(filePath string) io.Reader {
+	file, err := os.Open(filePath)
+	if err != nil {
+		panic("failed to read config file")
+	}
+	return file
 }
 
-func NewGlobals() Globals {
-	return defaultGlobals
+func GetDefaultGlobals() Globals {
+	defaultFile := LoadFile(defaultFilePath)
+	g := applyGlobalsFromJson(defaultFile, Globals{})
+	return *g
 }
 
 func LoadGlobals(file io.Reader) *Globals {
-	g := NewGlobals()
+	defaults := GetDefaultGlobals()
+	g := applyGlobalsFromJson(file, defaults)
+	return g
+}
+
+func applyGlobalsFromJson(file io.Reader, globals Globals) *Globals {
+	g := globals
 	decoder := json.NewDecoder(file)
 	err := decoder.Decode(&g)
 	if err != nil {

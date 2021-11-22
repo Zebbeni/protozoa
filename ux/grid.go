@@ -75,7 +75,7 @@ func (g *Grid) Render() *ebiten.Image {
 	} else {
 		err := gridImage.DrawImage(g.previousGridImage, nil)
 		if err != nil {
-			panic("failed to draw image")
+			panic(err)
 		}
 
 		for _, point := range g.simulation.UpdatedPoints {
@@ -116,7 +116,7 @@ func (g *Grid) Render() *ebiten.Image {
 }
 
 func (g *Grid) shouldRefresh() bool {
-	return len(g.simulation.UpdatedPoints) == 0
+	return len(g.simulation.UpdatedPoints) == 0 || g.simulation.Cycle() == 0
 }
 
 // renderSelection draws a square around a single item on the grid
