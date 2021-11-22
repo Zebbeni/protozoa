@@ -55,7 +55,14 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		originalAncestorColors:   make(map[int]color.Color),
 		populationHistory:        make(map[int]map[int]int16),
 	}
+	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
+}
+
+func (m *OrganismManager) InitializeOrganisms(count int) {
+	for i := 0; i < count; i++ {
+		m.SpawnRandomOrganism()
+	}
 }
 
 // Update walks through decision tree of each organism and applies the

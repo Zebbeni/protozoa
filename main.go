@@ -11,20 +11,17 @@ func main() {
 	opts := config.GetOptions()
 
 	if opts.DumpConfig {
-		g := config.NewGlobals()
+		g := config.GetDefaultGlobals()
 		config.DumpGlobals(&g, os.Stdout)
 		os.Exit(0)
 	}
 
 	var globals *config.Globals
 	if opts.ConfigFile != "" {
-		file, err := os.Open(opts.ConfigFile)
-		if err != nil {
-			panic("failed to read config file")
-		}
+		file := config.LoadFile(opts.ConfigFile)
 		globals = config.LoadGlobals(file)
 	} else {
-		p := config.NewGlobals()
+		p := config.GetDefaultGlobals()
 		globals = &p
 	}
 
