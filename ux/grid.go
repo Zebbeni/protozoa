@@ -5,8 +5,8 @@ import (
 
 	"github.com/Zebbeni/protozoa/resources"
 
-	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
@@ -56,7 +56,7 @@ func loadOrganismImages() {
 
 // Render draws all organisms and food on the simulation grid
 func (g *Grid) Render() *ebiten.Image {
-	gridImage, _ := ebiten.NewImage(config.GridWidth(), config.GridHeight(), ebiten.FilterDefault)
+	gridImage := ebiten.NewImage(config.GridWidth(), config.GridHeight())
 	ebitenutil.DrawRect(gridImage, 0, 0, float64(config.GridWidth()), float64(config.GridHeight()), gridBackground)
 
 	mostReproductiveID := g.simulation.GetMostReproductiveID()
@@ -73,10 +73,7 @@ func (g *Grid) Render() *ebiten.Image {
 			g.renderOrganism(info, gridImage, mostReproductiveID)
 		}
 	} else {
-		err := gridImage.DrawImage(g.previousGridImage, nil)
-		if err != nil {
-			panic(err)
-		}
+		gridImage.DrawImage(g.previousGridImage, nil)
 
 		for _, point := range g.simulation.UpdatedPoints {
 			// paint background over grid square to update first
@@ -93,21 +90,14 @@ func (g *Grid) Render() *ebiten.Image {
 		}
 	}
 
-	g.previousGridImage, _ = ebiten.NewImage(config.GridWidth(), config.GridHeight(), ebiten.FilterDefault)
-
-	err := g.previousGridImage.DrawImage(gridImage, nil)
-	if err != nil {
-		panic("failed to draw image")
-	}
+	g.previousGridImage = ebiten.NewImage(config.GridWidth(), config.GridHeight())
+	g.previousGridImage.DrawImage(gridImage, nil)
 
 	if info := g.simulation.GetOrganismInfoByID(g.selectedID); info != nil {
-		selectionBox, _ := ebiten.NewImage(config.GridWidth(), config.GridHeight(), ebiten.FilterDefault)
+		selectionBox := ebiten.NewImage(config.GridWidth(), config.GridHeight())
 		g.renderSelection(info.Location, selectionBox, info.Color)
 
-		err := gridImage.DrawImage(selectionBox, nil)
-		if err != nil {
-			panic("failed to draw image")
-		}
+		gridImage.DrawImage(selectionBox, nil)
 	}
 
 	g.simulation.ClearUpdatedGridPoints()

@@ -4,7 +4,7 @@ import (
 	"image"
 	"math"
 
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -44,11 +44,8 @@ func (g *Graph) Render() *ebiten.Image {
 		return g.graphImage
 	}
 
-	g.graphImage, _ = ebiten.NewImage(realGraphWidth, realGraphHeight, ebiten.FilterDefault)
-	err := g.graphImage.DrawImage(img, nil)
-	if err != nil {
-		panic("failed to draw image")
-	}
+	g.graphImage = ebiten.NewImage(realGraphWidth, realGraphHeight)
+	g.graphImage.DrawImage(img, nil)
 
 	return img
 }
@@ -58,7 +55,7 @@ func (g *Graph) renderAll() *ebiten.Image {
 	barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
 	barWidth := realGraphWidth / float64(barCount)
 	g.maxTotalPopulation = g.getMaxPopulation()
-	img, _ := ebiten.NewImage(realGraphWidth, realGraphHeight, ebiten.FilterDefault)
+	img := ebiten.NewImage(realGraphWidth, realGraphHeight)
 
 	for cycle := 0; cycle <= g.simulation.Cycle(); cycle += c.PopulationUpdateInterval() {
 		barImage, graphBarPopulation := g.renderGraphBar(cycle)
@@ -69,10 +66,7 @@ func (g *Graph) renderAll() *ebiten.Image {
 		yOffset := realGraphHeight - (float64(barImage.Bounds().Dy()) * scaleY)
 		options.GeoM.Scale(scaleX, scaleY)
 		options.GeoM.Translate(xOffset, yOffset)
-		err := img.DrawImage(barImage, options)
-		if err != nil {
-			panic("failed to draw image")
-		}
+		img.DrawImage(barImage, options)
 	}
 
 	return img
@@ -83,7 +77,7 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	barWidth := realGraphWidth / float64(barCount)
 	barImage, graphBarPopulation := g.renderGraphBar(g.simulation.Cycle())
 
-	img, _ := ebiten.NewImage(realGraphWidth, realGraphHeight, ebiten.FilterDefault)
+	img := ebiten.NewImage(realGraphWidth, realGraphHeight)
 
 	originalOptions := &ebiten.DrawImageOptions{}
 	xScaleOriginal := (float64(barCount) - 1) / float64(barCount)
@@ -96,10 +90,7 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	xOffsetOriginal := 0.0
 	yOffsetOriginal := realGraphHeight - float64(g.graphImage.Bounds().Dy())*yScaleOriginal
 	originalOptions.GeoM.Translate(xOffsetOriginal, yOffsetOriginal)
-	err := img.DrawImage(g.graphImage, originalOptions)
-	if err != nil {
-		panic("failed to draw image")
-	}
+	img.DrawImage(g.graphImage, originalOptions)
 
 	newBarOptions := &ebiten.DrawImageOptions{}
 	xScaleNewBar := barWidth / float64(barImage.Bounds().Dx())
@@ -112,10 +103,7 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	newBarOptions.GeoM.Scale(xScaleNewBar, yScaleNewBar)
 	newBarOptions.GeoM.Translate(xOffsetNewBar, yOffsetNewBar)
 
-	err = img.DrawImage(barImage, newBarOptions)
-	if err != nil {
-		panic("failed to draw image")
-	}
+	img.DrawImage(barImage, newBarOptions)
 
 	return img
 }
@@ -138,7 +126,7 @@ func (g *Graph) renderGraphBar(cycle int) (*ebiten.Image, int) {
 	maxTotal := math.Max(float64(newTotal), float64(prevTotal))
 	heightPerPop := realGraphHeight / maxTotal
 
-	barImage, _ := ebiten.NewImage(realBarWidth, realGraphHeight, ebiten.FilterDefault)
+	barImage := ebiten.NewImage(realBarWidth, realGraphHeight)
 
 	newBottom, prevBottom := float32(realGraphHeight), float32(realGraphHeight)
 	for _, id := range sortedAncestorIDs {
@@ -167,12 +155,8 @@ func (g *Graph) renderGraphBar(cycle int) (*ebiten.Image, int) {
 		newV2 := createVertex(newX2, newY2)
 		vertexes := make([]ebiten.Vertex, 0, 6)
 
-		emptyImage, _ := ebiten.NewImage(1, 1, ebiten.FilterDefault)
-
-		err := emptyImage.Fill(ancestorColorMap[id])
-		if err != nil {
-			panic("failed to fill image")
-		}
+		emptyImage := ebiten.NewImage(1, 1)
+		emptyImage.Fill(ancestorColorMap[id])
 
 		src := emptyImage.SubImage(image.Rect(0, 0, 1, 1)).(*ebiten.Image)
 

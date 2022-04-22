@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
@@ -20,11 +20,7 @@ var (
 )
 
 func update(screen *ebiten.Image) error {
-	// update simulation every time. Only re-render if not running slowly
 	sim.Update()
-	if ebiten.IsDrawingSkipped() {
-		return nil
-	}
 	ui.Render(screen)
 	sim.UpdateCycle()
 	return nil
@@ -53,9 +49,17 @@ func RunSimulation(opts *c.Options) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
+		// We need to define a game object that satisfies the ebiten 'Game' interface, with the
+		// update as its Update function and
+		// and then call RunGame on that game object
+		// game :=
+
 		sim = simulation.NewSimulation(opts)
 		ui = ux.NewInterface(sim)
-		if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
+		//if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
+		//	log.Fatal(err)
+		//}
+		if err := ebiten.RunGame(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
 			log.Fatal(err)
 		}
 	}

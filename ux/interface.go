@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/Zebbeni/protozoa/simulation"
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type Interface struct {

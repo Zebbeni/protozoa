@@ -10,7 +10,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -97,10 +97,7 @@ func loadImage(path string) *ebiten.Image {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ebitenImg, err := ebiten.NewImageFromImage(image, ebiten.FilterDefault)
-	if err != nil {
-		log.Fatal(err)
-	}
+	ebitenImg := ebiten.NewImageFromImage(image)
 	return ebitenImg
 }
 
