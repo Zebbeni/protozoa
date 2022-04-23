@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image/color"
 
-	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
-	"github.com/hajimehoshi/ebiten/text"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -44,7 +44,7 @@ func NewPanel(sim *s.Simulation) *Panel {
 }
 
 func (p *Panel) Render() *ebiten.Image {
-	panelImage, _ := ebiten.NewImage(panelWidth, panelHeight, ebiten.FilterDefault)
+	panelImage := ebiten.NewImage(panelWidth, panelHeight)
 
 	if p.shouldRefresh() {
 		p.renderDividingLine(panelImage)
@@ -53,7 +53,7 @@ func (p *Panel) Render() *ebiten.Image {
 		p.renderStats(panelImage)
 		p.renderGraph(panelImage)
 
-		p.previousPanelImage, _ = ebiten.NewImage(panelWidth, panelHeight, ebiten.FilterDefault)
+		p.previousPanelImage = ebiten.NewImage(panelWidth, panelHeight)
 		p.previousPanelImage.DrawImage(panelImage, nil)
 	} else {
 		panelImage.DrawImage(p.previousPanelImage, nil)

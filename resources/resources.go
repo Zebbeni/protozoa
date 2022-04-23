@@ -1,16 +1,16 @@
 package resources
 
 import (
-	"bytes"
 	"fmt"
-	"image"
+	"image/png"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/Zebbeni/protozoa/config"
 
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
@@ -89,18 +89,16 @@ func loadImage(path string) *ebiten.Image {
 	if err != nil {
 		log.Fatal(err)
 	}
-	imageData, err := ioutil.ReadFile(filepath)
+	reader, err := os.Open(filepath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	image, _, err := image.Decode(bytes.NewReader(imageData))
+	img, err := png.Decode(reader)
 	if err != nil {
+		fmt.Println("shit")
 		log.Fatal(err)
 	}
-	ebitenImg, err := ebiten.NewImageFromImage(image, ebiten.FilterDefault)
-	if err != nil {
-		log.Fatal(err)
-	}
+	ebitenImg := ebiten.NewImageFromImage(img)
 	return ebitenImg
 }
 

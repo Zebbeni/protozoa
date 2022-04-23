@@ -7,8 +7,8 @@ import (
 
 	"github.com/Zebbeni/protozoa/simulation"
 
-	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
 const (
@@ -32,7 +32,7 @@ func NewDebug(sim *simulation.Simulation) *Debug {
 }
 
 func (d *Debug) render() *ebiten.Image {
-	image, _ := ebiten.NewImage(debugWidth, debugHeight, ebiten.FilterDefault)
+	image := ebiten.NewImage(debugWidth, debugHeight)
 
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)

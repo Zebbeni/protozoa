@@ -1,7 +1,7 @@
 package ux
 
 import (
-	"github.com/hajimehoshi/ebiten"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // MouseState describes what the mouse is doing relative to a given MouseHandler
