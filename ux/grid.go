@@ -1,9 +1,8 @@
 package ux
 
 import (
-	"github.com/lucasb-eyer/go-colorful"
-
 	"github.com/Zebbeni/protozoa/resources"
+	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -27,20 +26,20 @@ const (
 var (
 	gridBackground                                                      = colorful.HSLuv(0, 0, 0)
 	foodColor                                                           = colorful.HSLuv(120, 0.2, 0.25)
+	attackColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
+	selectColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
 	squareImgSmall, squareImgMedium, squareImgLarge, poisonImg, wallImg *ebiten.Image
 )
 
 type Grid struct {
 	simulation        *simulation.Simulation
 	previousGridImage *ebiten.Image
-	selectedID        int
 }
 
 func NewGrid(simulation *simulation.Simulation) *Grid {
 	g := &Grid{
 		simulation:        simulation,
 		previousGridImage: nil,
-		selectedID:        -1,
 	}
 	loadOrganismImages()
 	return g
@@ -93,9 +92,9 @@ func (g *Grid) Render() *ebiten.Image {
 	g.previousGridImage = ebiten.NewImage(config.GridWidth(), config.GridHeight())
 	g.previousGridImage.DrawImage(gridImage, nil)
 
-	if info := g.simulation.GetOrganismInfoByID(g.selectedID); info != nil {
+	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
 		selectionBox := ebiten.NewImage(config.GridWidth(), config.GridHeight())
-		g.renderSelection(info.Location, selectionBox, info.Color)
+		g.renderSelection(info.Location, selectionBox, selectColor)
 
 		gridImage.DrawImage(selectionBox, nil)
 	}
@@ -152,7 +151,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image, mostReprod
 
 	organismColor := info.Color
 	if info.Action == decision.ActAttack {
-		organismColor = colorful.HSLuv(0.0, 255.0, 1.0)
+		organismColor = attackColor
 	}
 
 	g.drawSquare(img, x, y, organismSize, organismColor)

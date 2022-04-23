@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"fmt"
+	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
 	"time"
 
@@ -18,6 +19,8 @@ type Simulation struct {
 
 	cycle    int
 	isPaused bool
+
+	selectedID int
 
 	organismManager *manager.OrganismManager
 	foodManager     *manager.FoodManager
@@ -125,6 +128,12 @@ func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
 	return s.organismManager.GetOrganismInfoByID(id)
 }
 
+// GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
+// given organism (nil if no organism found)
+func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {
+	return s.organismManager.GetOrganismDecisionTreeByID(id)
+}
+
 // GetHistory returns the full population history of all original ancestors as a
 // map of cycles to maps of ancestorIDs to the living descendants at that time
 func (s *Simulation) GetHistory() map[int]map[int]int16 {
@@ -212,4 +221,14 @@ func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
 // and needs to be re-rendered
 func (s *Simulation) AddGridPointToUpdate(point utils.Point) {
 	s.UpdatedPoints[point.ToString()] = point
+}
+
+// Select sets the currently selected organism ID. -1 if none selected
+func (s *Simulation) Select(id int) {
+	s.selectedID = id
+}
+
+// GetSelected returns the currently selected organism ID. -1 if none selected
+func (s *Simulation) GetSelected() int {
+	return s.selectedID
 }

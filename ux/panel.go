@@ -2,11 +2,10 @@ package ux
 
 import (
 	"fmt"
-	"image/color"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"image/color"
 
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -24,6 +23,9 @@ const (
 
 	statsXOffset = padding
 	statsYOffset = 69
+
+	selectedXOffset = padding
+	selectedYOffset = 300
 
 	graphXOffset = padding
 	graphYOffset = 130
@@ -54,6 +56,7 @@ func (p *Panel) Render() *ebiten.Image {
 		p.renderPlayPauseText(panelImage)
 		p.renderStats(panelImage)
 		p.renderGraph(panelImage)
+		p.renderSelected(panelImage)
 
 		p.previousPanelImage = ebiten.NewImage(panelWidth, panelHeight)
 		p.previousPanelImage.DrawImage(panelImage, nil)
@@ -111,4 +114,24 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	ebitenutil.DrawLine(panelImage, right, top, right, bottom, color.White)
 	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, color.White)
 	ebitenutil.DrawLine(panelImage, left, top, left, bottom, color.White)
+}
+
+func (p *Panel) renderSelected(panelImage *ebiten.Image) {
+	id := p.simulation.GetSelected()
+	info := p.simulation.GetOrganismInfoByID(id)
+	decisionTree := p.simulation.GetOrganismDecisionTreeByID(id)
+	if info == nil || decisionTree == nil {
+		return
+	}
+
+	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
+
+	infoString := fmt.Sprintf("SELECTED ORGANISM\n"+
+		"ID: %11d\n          ANCESTOR: %5d\nSIZE:   %7.2f",
+		info.ID, info.AncestorID, info.Size)
+	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
+	offsetY := selectedYOffset + bounds.Dy() + padding
+
+	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, selectedYOffset, color.White)
+	text.Draw(panelImage, decisionTreeString, r.FontSourceCodePro12, selectedXOffset, offsetY, color.White)
 }
