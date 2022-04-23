@@ -316,6 +316,11 @@ func (m *OrganismManager) OrganismCount() int {
 	return len(m.organisms)
 }
 
+// DeadCount returns the total number of organisms that have died in the simulation
+func (m *OrganismManager) DeadCount() int {
+	return m.totalOrganismsCreated - len(m.organisms)
+}
+
 func (m *OrganismManager) applyAction(o *organism.Organism) {
 	switch o.Action() {
 	case d.ActIdle:
@@ -346,6 +351,7 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) updateHealth(o *organism.Organism) {
+	o.ApplyHealthChange(c.HealthChangePerDecisionTreeNode() * float64(o.GetCurrentDecisionTreeLength()))
 	o.ApplyHealthChange(c.HealthChangePerCycle() * o.Size)
 }
 

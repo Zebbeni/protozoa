@@ -50,6 +50,7 @@ func HealthChangeFromEatingAttempt() float64     { return constants.HealthChange
 func HealthChangeFromAttacking() float64         { return constants.HealthChangeFromAttacking }
 func HealthChangeInflictedByAttack() float64     { return constants.HealthChangeInflictedByAttack }
 func HealthChangeFromFeeding() float64           { return constants.HealthChangeFromFeeding }
+func HealthChangePerDecisionTreeNode() float64   { return constants.HealthChangePerDecisionTreeNode }
 func HealthPercentToChangeDecisionTree() float64 { return constants.HealthPercentToChangeDecisionTree }
 func MaxDecisionTreeSize() int                   { return constants.MaxDecisionTreeSize }
 func MaxDecisionTrees() int                      { return constants.MaxDecisionTrees }
@@ -89,14 +90,15 @@ type Globals struct {
 	MinimumMaxSize                  float64 `json:"minimum_max_size"`
 
 	// Health parameters (percent of organism size)
-	HealthChangePerCycle          float64 `json:"health_change_per_cycle"`
-	HealthChangeFromBeingIdle     float64 `json:"health_change_from_being_idle"`
-	HealthChangeFromTurning       float64 `json:"health_change_from_turning"`
-	HealthChangeFromMoving        float64 `json:"health_change_from_moving"`
-	HealthChangeFromEatingAttempt float64 `json:"health_change_from_eating_attempt"`
-	HealthChangeFromAttacking     float64 `json:"health_change_from_attacking"`
-	HealthChangeInflictedByAttack float64 `json:"health_change_inflicted_by_attack"`
-	HealthChangeFromFeeding       float64 `json:"health_change_from_feeding"`
+	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`
+	HealthChangeFromBeingIdle       float64 `json:"health_change_from_being_idle"`
+	HealthChangeFromTurning         float64 `json:"health_change_from_turning"`
+	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`
+	HealthChangeFromEatingAttempt   float64 `json:"health_change_from_eating_attempt"`
+	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`
+	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
+	HealthChangeFromFeeding         float64 `json:"health_change_from_feeding"`
+	HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
 
 	// Decision tree parameters
 	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
