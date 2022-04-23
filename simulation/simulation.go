@@ -16,7 +16,8 @@ import (
 type Simulation struct {
 	options *config.Options
 
-	cycle int
+	cycle    int
+	isPaused bool
 
 	organismManager *manager.OrganismManager
 	foodManager     *manager.FoodManager
@@ -34,6 +35,7 @@ func NewSimulation(options *config.Options) *Simulation {
 	sim := &Simulation{
 		options:       options,
 		cycle:         -1,
+		isPaused:      false,
 		UpdatedPoints: make(map[string]utils.Point),
 	}
 	sim.foodManager = manager.NewFoodManager(sim)
@@ -44,6 +46,10 @@ func NewSimulation(options *config.Options) *Simulation {
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
+	if s.isPaused {
+		return
+	}
+
 	s.cycle++
 	start := time.Now()
 
@@ -82,6 +88,16 @@ func (s *Simulation) IsDebug() bool {
 // Cycle returns the current simulation cycle number
 func (s *Simulation) Cycle() int {
 	return s.cycle
+}
+
+// IsPaused returns whether the simulation is currently stopped
+func (s *Simulation) IsPaused() bool {
+	return s.isPaused
+}
+
+// Pause sets isPaused to the given boolean value
+func (s *Simulation) Pause(pause bool) {
+	s.isPaused = pause
 }
 
 // AddUpdatedGridPoint adds a point to the grid locations that have been updated

@@ -17,11 +17,30 @@ import (
 type Runner struct {
 	sim *simulation.Simulation
 	ui  *ux.Interface
+
+	pressedKeys map[ebiten.Key]bool
 }
 
 func (r *Runner) Update() error {
+	r.HandleInput()
 	r.sim.Update()
 	return nil
+}
+
+func (r *Runner) HandleInput() {
+	// There's no ebiten support for checking if a key is released
+	// that I can tell, so keeping track of pressed keys ourselves.
+	// Generalize this pattern if we want to handle several key
+	// bindings in the future.
+	spacePressed := ebiten.IsKeyPressed(ebiten.KeySpace)
+	if wasPressed := r.pressedKeys[ebiten.KeySpace]; wasPressed {
+		if !spacePressed {
+			r.sim.Pause(!r.sim.IsPaused())
+			r.pressedKeys[ebiten.KeySpace] = false
+		}
+	} else if spacePressed {
+		r.pressedKeys[ebiten.KeySpace] = true
+	}
 }
 
 func (r *Runner) Draw(screen *ebiten.Image) {
@@ -57,8 +76,9 @@ func RunSimulation(opts *c.Options) {
 		sim := simulation.NewSimulation(opts)
 		ui := ux.NewInterface(sim)
 		gameRunner := &Runner{
-			sim: sim,
-			ui:  ui,
+			sim:         sim,
+			ui:          ui,
+			pressedKeys: map[ebiten.Key]bool{},
 		}
 
 		ebiten.SetWindowResizable(true)

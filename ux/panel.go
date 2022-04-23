@@ -19,6 +19,8 @@ const (
 
 	titleXOffset = padding
 	titleYOffset = padding
+	playXOffset  = padding
+	playYOffset  = padding
 
 	statsXOffset = padding
 	statsYOffset = 69
@@ -49,7 +51,7 @@ func (p *Panel) Render() *ebiten.Image {
 	if p.shouldRefresh() {
 		p.renderDividingLine(panelImage)
 		p.renderTitle(panelImage)
-		p.renderPlayPauseButton(panelImage)
+		p.renderPlayPauseText(panelImage)
 		p.renderStats(panelImage)
 		p.renderGraph(panelImage)
 
@@ -75,10 +77,15 @@ func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
 }
 
-func (p *Panel) renderPlayPauseButton(panelImage *ebiten.Image) {
-	imageOptions := &ebiten.DrawImageOptions{}
-	imageOptions.GeoM.Translate(float64(panelWidth)-float64(r.PauseButton.Bounds().Dx())-padding, padding-2)
-	panelImage.DrawImage(r.PauseButton, imageOptions)
+func (p *Panel) renderPlayPauseText(panelImage *ebiten.Image) {
+	message := "[Space] to Pause"
+	if p.simulation.IsPaused() {
+		message = "[Space] to Resume"
+	}
+
+	bounds := text.BoundString(r.FontSourceCodePro12, message)
+	xOffset := panelWidth - playXOffset - bounds.Dx()
+	text.Draw(panelImage, message, r.FontSourceCodePro12, xOffset, playYOffset+bounds.Dy(), color.White)
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image) {
