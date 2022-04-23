@@ -14,4 +14,6 @@ type Info struct {
 	Action     decision.Action
 	AncestorID int
 	Color      colorful.Color
+	Age        int
+	Children   int
 }

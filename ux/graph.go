@@ -16,7 +16,6 @@ const (
 )
 
 type Graph struct {
-	MouseHandler
 	simulation *s.Simulation
 	graphImage *ebiten.Image
 
