@@ -33,7 +33,8 @@ func (n *Node) IsCondition() bool {
 // CopyNode returns a new Node with the same structure as the original
 func (n Node) CopyNode() *Node {
 	copy := &Node{
-		NodeType: n.NodeType,
+		NodeType:      n.NodeType,
+		UsedLastCycle: n.UsedLastCycle,
 	}
 	if n.IsAction() {
 		return copy

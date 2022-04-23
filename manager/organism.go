@@ -303,6 +303,15 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 	return nil
 }
 
+// GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
+// given organism (nil if no organism found)
+func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
+	if o, ok := m.organisms[id]; ok {
+		return o.GetCurrentDecisionTreeCopy(true)
+	}
+	return nil
+}
+
 // GetOrganismInfoByID returns the Organism Info for a given Organism ID. (nil if not found)
 func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 	if o, found := m.organisms[id]; found {

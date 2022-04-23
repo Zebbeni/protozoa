@@ -1,14 +1,18 @@
 package ux
 
 import (
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/utils"
 	"time"
 
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type Interface struct {
 	simulation *simulation.Simulation
+	selection  *organism.Info
 
 	grid  *Grid
 	panel *Panel
@@ -47,6 +51,23 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	if i.simulation.IsDebug() {
 		debugImage := i.debug.render()
 		screen.DrawImage(debugImage, i.debugOptions)
+	}
+}
+
+func (i *Interface) HandleClick(x, y int) {
+	relativeGridX := x - panelWidth
+	relativeGridY := y
+	gridX := relativeGridX / config.GridUnitSize()
+	gridY := relativeGridY / config.GridUnitSize()
+	if gridX < 0 || gridY < 0 || gridX >= config.GridUnitsWide() || gridY >= config.GridUnitsHigh() {
+		return
+	}
+
+	selectedPoint := utils.Point{X: gridX, Y: gridY}
+	if info := i.simulation.GetOrganismInfoAtPoint(selectedPoint); info != nil {
+		i.simulation.Select(info.ID)
+	} else {
+		i.simulation.Select(-1)
 	}
 }
 

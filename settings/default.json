@@ -25,7 +25,7 @@
   "maximum_max_size": 100,
   "minimum_max_size": 10,
   "health_change_per_cycle": -0.001,
-  "health_change_from_being_idle": 0.005,
+  "health_change_from_being_idle": 0.0015,
   "health_change_from_turning": -0.001,
   "health_change_from_moving": -0.005,
   "health_change_from_eating_attempt": -0.0005,

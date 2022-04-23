@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/resources"
@@ -28,18 +29,12 @@ func (r *Runner) Update() error {
 }
 
 func (r *Runner) HandleInput() {
-	// There's no ebiten support for checking if a key is released
-	// that I can tell, so keeping track of pressed keys ourselves.
-	// Generalize this pattern if we want to handle several key
-	// bindings in the future.
-	spacePressed := ebiten.IsKeyPressed(ebiten.KeySpace)
-	if wasPressed := r.pressedKeys[ebiten.KeySpace]; wasPressed {
-		if !spacePressed {
-			r.sim.Pause(!r.sim.IsPaused())
-			r.pressedKeys[ebiten.KeySpace] = false
-		}
-	} else if spacePressed {
-		r.pressedKeys[ebiten.KeySpace] = true
+	if inpututil.IsKeyJustReleased(ebiten.KeySpace) {
+		r.sim.Pause(!r.sim.IsPaused())
+	}
+
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		r.ui.HandleClick(ebiten.CursorPosition())
 	}
 }
 
