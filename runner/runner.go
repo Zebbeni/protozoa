@@ -9,38 +9,43 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
-	r "github.com/Zebbeni/protozoa/resources"
+	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux"
 )
 
-var (
+type Runner struct {
 	sim *simulation.Simulation
 	ui  *ux.Interface
-)
+}
 
-func update(screen *ebiten.Image) error {
-	sim.Update()
-	ui.Render(screen)
-	sim.UpdateCycle()
+func (r *Runner) Update() error {
+	r.sim.Update()
 	return nil
 }
 
+func (r *Runner) Draw(screen *ebiten.Image) {
+	r.ui.Render(screen)
+}
+
+func (r *Runner) Layout(_, _ int) (int, int) {
+	return c.ScreenWidth(), c.ScreenHeight()
+}
+
 func RunSimulation(opts *c.Options) {
-	r.Init()
+	resources.Init()
 	rand.Seed(1)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
 		for count := 0; count < opts.TrialCount; count++ {
-			sim = simulation.NewSimulation(opts)
+			sim := simulation.NewSimulation(opts)
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
 				if sim.Cycle()%100 == 0 {
 					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount())
 				}
-				sim.UpdateCycle()
 			}
 			sumAllCycles += sim.Cycle()
 			elapsed := time.Since(start)
@@ -49,17 +54,16 @@ func RunSimulation(opts *c.Options) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		// We need to define a game object that satisfies the ebiten 'Game' interface, with the
-		// update as its Update function and
-		// and then call RunGame on that game object
-		// game :=
+		sim := simulation.NewSimulation(opts)
+		ui := ux.NewInterface(sim)
+		gameRunner := &Runner{
+			sim: sim,
+			ui:  ui,
+		}
 
-		sim = simulation.NewSimulation(opts)
-		ui = ux.NewInterface(sim)
-		//if err := ebiten.Run(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
-		//	log.Fatal(err)
-		//}
-		if err := ebiten.RunGame(update, c.ScreenWidth(), c.ScreenHeight(), 1, "Protozoa"); err != nil {
+		ebiten.SetScreenClearedEveryFrame(false)
+
+		if err := ebiten.RunGame(gameRunner); err != nil {
 			log.Fatal(err)
 		}
 	}

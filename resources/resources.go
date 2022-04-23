@@ -1,11 +1,11 @@
 package resources
 
 import (
-	"bytes"
 	"fmt"
-	"image"
+	"image/png"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -89,15 +89,16 @@ func loadImage(path string) *ebiten.Image {
 	if err != nil {
 		log.Fatal(err)
 	}
-	imageData, err := ioutil.ReadFile(filepath)
+	reader, err := os.Open(filepath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	image, _, err := image.Decode(bytes.NewReader(imageData))
+	img, err := png.Decode(reader)
 	if err != nil {
+		fmt.Println("shit")
 		log.Fatal(err)
 	}
-	ebitenImg := ebiten.NewImageFromImage(image)
+	ebitenImg := ebiten.NewImageFromImage(img)
 	return ebitenImg
 }
 

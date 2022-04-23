@@ -28,10 +28,12 @@ type Simulation struct {
 }
 
 // NewSimulation returns a simulation with generated world and organisms
+// cycle increments at the beginning of Update() so start at -1 to ensure
+// first actions are attributed to cycle 0
 func NewSimulation(options *config.Options) *Simulation {
 	sim := &Simulation{
 		options:       options,
-		cycle:         0,
+		cycle:         -1,
 		UpdatedPoints: make(map[string]utils.Point),
 	}
 	sim.foodManager = manager.NewFoodManager(sim)
@@ -42,6 +44,7 @@ func NewSimulation(options *config.Options) *Simulation {
 
 // Update calls Update functions for controllers in simulation
 func (s *Simulation) Update() {
+	s.cycle++
 	start := time.Now()
 
 	s.updateFood()
@@ -60,11 +63,6 @@ func (s *Simulation) updateOrganisms() {
 	start := time.Now()
 	s.organismManager.Update()
 	s.OrganismUpdateTime = time.Since(start)
-}
-
-// UpdateCycle iterates the current cycle. (Do this separately after render done)
-func (s *Simulation) UpdateCycle() {
-	s.cycle++
 }
 
 // IsDone returns true if end condition met
