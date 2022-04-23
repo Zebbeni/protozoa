@@ -82,8 +82,8 @@ func (p *Panel) renderPlayPauseButton(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image) {
-	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nFOOD:      %5d",
-		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetFoodCount())
+	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nDEAD: %10d",
+		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetDeadCount())
 	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset, color.White)
 }
 

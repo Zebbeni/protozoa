@@ -141,6 +141,11 @@ func (s *Simulation) GetFoodCount() int {
 	return len(s.foodManager.GetFoodItems())
 }
 
+// GetDeadCount returns the total number of organisms that have died in the simulation.
+func (s *Simulation) GetDeadCount() int {
+	return s.organismManager.DeadCount()
+}
+
 // GetFoodItems returns an array of all food items in grid
 func (s *Simulation) GetFoodItems() map[string]*food.Item {
 	return s.foodManager.GetFoodItems()

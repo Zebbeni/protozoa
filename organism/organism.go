@@ -230,6 +230,12 @@ func (o *Organism) GetCurrentDecisionTreeCopy(copyHistory bool) *d.Tree {
 	return o.decisionTree.CopyTree(copyHistory)
 }
 
+// GetCurrentDecisionTreeLength returns the number of nodes in the organism's currently-used
+// decision tree
+func (o *Organism) GetCurrentDecisionTreeLength() int {
+	return o.decisionTree.Size()
+}
+
 // GetAction returns the last-chosen Organism action
 func (o Organism) GetAction() d.Action { return o.action }
 
