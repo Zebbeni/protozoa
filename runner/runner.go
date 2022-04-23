@@ -61,6 +61,7 @@ func RunSimulation(opts *c.Options) {
 			ui:  ui,
 		}
 
+		ebiten.SetWindowResizable(true)
 		ebiten.SetScreenClearedEveryFrame(false)
 
 		if err := ebiten.RunGame(gameRunner); err != nil {
