@@ -118,17 +118,19 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	id := p.simulation.GetSelected()
 	info := p.simulation.GetOrganismInfoByID(id)
+	traits, found := p.simulation.GetOrganismTraitsByID(id)
 	decisionTree := p.simulation.GetOrganismDecisionTreeByID(id)
-	if info == nil || decisionTree == nil {
+	if info == nil || decisionTree == nil || found == false {
 		return
 	}
 
 	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
 
 	infoString := fmt.Sprintf("ORGANISM ID: %7d\n"+
-		"ANCESTOR ID: %7d        SIZE:     %5.2f\n"+
-		"AGE:         %7d        CHILDREN: %7d\n",
-		info.ID, info.AncestorID, info.Size, info.Age, info.Children)
+		"ANCESTOR ID: %7d        SIZE:      %5.2f\n"+
+		"AGE:         %7d        CHILDREN: %7d\n"+
+		"MUTATE CHANCE:   %3.0f        SPAWN TIME: %5d\n",
+		info.ID, info.AncestorID, info.Size, info.Age, info.Children, traits.ChanceToMutateDecisionTree*100.0, traits.MinCyclesBetweenSpawns)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 

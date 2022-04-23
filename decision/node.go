@@ -67,18 +67,18 @@ func (n *Node) ResetUsedLastCycle() {
 	}
 }
 
-// GenerateID generates and returns a string representing a Node's
+// Serialize generates and returns a string representing a Node's
 // full Tree structure.
 //
-// Recursively walks through the Node tree to accumulate an ID representing
+// Recursively walks through the Node tree to accumulate a string representing
 // itself and all its children
-func (n *Node) GenerateID() string {
+func (n *Node) Serialize() string {
 	var buffer bytes.Buffer
 	nodeTypeString := fmt.Sprintf("%02d", n.NodeType)
 	buffer.WriteString(nodeTypeString)
 	if n.IsCondition() {
-		buffer.WriteString(n.YesNode.GenerateID())
-		buffer.WriteString(n.NoNode.GenerateID())
+		buffer.WriteString(n.YesNode.Serialize())
+		buffer.WriteString(n.NoNode.Serialize())
 	}
 	return buffer.String()
 }

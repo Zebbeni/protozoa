@@ -30,10 +30,9 @@ type Traits struct {
 	SpawnHealth float64
 	// MinHealthToSpawn: the minimum health needed in order to spawn-
 	// must be greater than spawnHealth and less than maxSize
-	MinHealthToSpawn             float64
-	MinCyclesBetweenSpawns       int
-	ChanceToMutateDecisionTree   float64
-	CyclesToEvaluateDecisionTree int
+	MinHealthToSpawn           float64
+	MinCyclesBetweenSpawns     int
+	ChanceToMutateDecisionTree float64
 }
 
 func newRandomTraits() Traits {
@@ -43,16 +42,13 @@ func newRandomTraits() Traits {
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
 	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns())
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
-	maxCycles, minCycles := c.MaxCyclesToEvaluateDecisionTree(), c.MinCyclesToEvaluateDecisionTree()
-	cyclesToEvaluateDecisionTree := minCycles + rand.Intn(maxCycles-minCycles)
 	return Traits{
-		OrganismColor:                organismColor,
-		MaxSize:                      maxSize,
-		SpawnHealth:                  spawnHealth,
-		MinHealthToSpawn:             minHealthToSpawn,
-		MinCyclesBetweenSpawns:       minCyclesBetweenSpawns,
-		ChanceToMutateDecisionTree:   chanceToMutateDecisionTree,
-		CyclesToEvaluateDecisionTree: cyclesToEvaluateDecisionTree,
+		OrganismColor:              organismColor,
+		MaxSize:                    maxSize,
+		SpawnHealth:                spawnHealth,
+		MinHealthToSpawn:           minHealthToSpawn,
+		MinCyclesBetweenSpawns:     minCyclesBetweenSpawns,
+		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
 	}
 }
 
@@ -68,16 +64,13 @@ func (t Traits) copyMutated() Traits {
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.05, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
-	// cyclesToEvaluateDecisionTree = previous +- <5, +0, bounded by MinCyclesToEvaluateDecisionTree and MaxCyclesToEvaluateDecisionTree
-	cyclesToEvaluateDecisionTree := mutateInt(t.CyclesToEvaluateDecisionTree, 5, c.MinCyclesToEvaluateDecisionTree(), c.MaxCyclesToEvaluateDecisionTree())
 	return Traits{
-		OrganismColor:                organismColor,
-		MaxSize:                      maxSize,
-		SpawnHealth:                  spawnHealth,
-		MinHealthToSpawn:             minHealthToSpawn,
-		MinCyclesBetweenSpawns:       minCyclesBetweenSpawns,
-		ChanceToMutateDecisionTree:   chanceToMutateDecisionTree,
-		CyclesToEvaluateDecisionTree: cyclesToEvaluateDecisionTree,
+		OrganismColor:              organismColor,
+		MaxSize:                    maxSize,
+		SpawnHealth:                spawnHealth,
+		MinHealthToSpawn:           minHealthToSpawn,
+		MinCyclesBetweenSpawns:     minCyclesBetweenSpawns,
+		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
 	}
 }
 

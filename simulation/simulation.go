@@ -128,6 +128,11 @@ func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
 	return s.organismManager.GetOrganismInfoByID(id)
 }
 
+// GetOrganismTraitsByID returns the Organism Traits for a given ID and whether
+func (s *Simulation) GetOrganismTraitsByID(id int) (organism.Traits, bool) {
+	return s.organismManager.GetOrganismTraitsByID(id)
+}
+
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
 // given organism (nil if no organism found)
 func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {

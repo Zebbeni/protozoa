@@ -17,43 +17,39 @@ func SetGlobals(g *Globals) {
 	constants = g
 }
 
-func GridUnitSize() int                          { return constants.GridUnitSize }
-func GridWidth() int                             { return constants.GridWidth }
-func GridHeight() int                            { return constants.GridHeight }
-func GridUnitsWide() int                         { return constants.GridUnitsWide }
-func GridUnitsHigh() int                         { return constants.GridUnitsHigh }
-func ScreenWidth() int                           { return constants.ScreenWidth }
-func ScreenHeight() int                          { return constants.ScreenHeight }
-func PopulationUpdateInterval() int              { return constants.PopulationUpdateInterval }
-func InitialOrganisms() int                      { return constants.InitialOrganisms }
-func InitialFood() int                           { return constants.InitialFood }
-func ChanceToAddOrganism() float64               { return constants.ChanceToAddOrganism }
-func ChanceToAddFoodItem() float64               { return constants.ChanceToAddFoodItem }
-func MaxFoodValue() int                          { return constants.MaxFoodValue }
-func MinFoodValue() int                          { return constants.MinFoodValue }
-func MaxCyclesBetweenSpawns() int                { return constants.MaxCyclesBetweenSpawns }
-func MinSpawnHealth() float64                    { return constants.MinSpawnHealth }
-func MaxSpawnHealthPercent() float64             { return constants.MaxSpawnHealthPercent }
-func MinChanceToMutateDecisionTree() float64     { return constants.MinChanceToMutateDecisionTree }
-func MaxChanceToMutateDecisionTree() float64     { return constants.MaxChanceToMutateDecisionTree }
-func MinCyclesToEvaluateDecisionTree() int       { return constants.MinCyclesToEvaluateDecisionTree }
-func MaxCyclesToEvaluateDecisionTree() int       { return constants.MaxCyclesToEvaluateDecisionTree }
-func MaxOrganisms() int                          { return constants.MaxOrganisms }
-func GrowthFactor() float64                      { return constants.GrowthFactor }
-func MaximumMaxSize() float64                    { return constants.MaximumMaxSize }
-func MinimumMaxSize() float64                    { return constants.MinimumMaxSize }
-func HealthChangePerCycle() float64              { return constants.HealthChangePerCycle }
-func HealthChangeFromBeingIdle() float64         { return constants.HealthChangeFromBeingIdle }
-func HealthChangeFromTurning() float64           { return constants.HealthChangeFromTurning }
-func HealthChangeFromMoving() float64            { return constants.HealthChangeFromMoving }
-func HealthChangeFromEatingAttempt() float64     { return constants.HealthChangeFromEatingAttempt }
-func HealthChangeFromAttacking() float64         { return constants.HealthChangeFromAttacking }
-func HealthChangeInflictedByAttack() float64     { return constants.HealthChangeInflictedByAttack }
-func HealthChangeFromFeeding() float64           { return constants.HealthChangeFromFeeding }
-func HealthChangePerDecisionTreeNode() float64   { return constants.HealthChangePerDecisionTreeNode }
-func HealthPercentToChangeDecisionTree() float64 { return constants.HealthPercentToChangeDecisionTree }
-func MaxDecisionTreeSize() int                   { return constants.MaxDecisionTreeSize }
-func MaxDecisionTrees() int                      { return constants.MaxDecisionTrees }
+func GridUnitSize() int                        { return constants.GridUnitSize }
+func GridWidth() int                           { return constants.GridWidth }
+func GridHeight() int                          { return constants.GridHeight }
+func GridUnitsWide() int                       { return constants.GridUnitsWide }
+func GridUnitsHigh() int                       { return constants.GridUnitsHigh }
+func ScreenWidth() int                         { return constants.ScreenWidth }
+func ScreenHeight() int                        { return constants.ScreenHeight }
+func PopulationUpdateInterval() int            { return constants.PopulationUpdateInterval }
+func InitialOrganisms() int                    { return constants.InitialOrganisms }
+func InitialFood() int                         { return constants.InitialFood }
+func ChanceToAddOrganism() float64             { return constants.ChanceToAddOrganism }
+func ChanceToAddFoodItem() float64             { return constants.ChanceToAddFoodItem }
+func MaxFoodValue() int                        { return constants.MaxFoodValue }
+func MinFoodValue() int                        { return constants.MinFoodValue }
+func MaxCyclesBetweenSpawns() int              { return constants.MaxCyclesBetweenSpawns }
+func MinSpawnHealth() float64                  { return constants.MinSpawnHealth }
+func MaxSpawnHealthPercent() float64           { return constants.MaxSpawnHealthPercent }
+func MinChanceToMutateDecisionTree() float64   { return constants.MinChanceToMutateDecisionTree }
+func MaxChanceToMutateDecisionTree() float64   { return constants.MaxChanceToMutateDecisionTree }
+func MaxOrganisms() int                        { return constants.MaxOrganisms }
+func GrowthFactor() float64                    { return constants.GrowthFactor }
+func MaximumMaxSize() float64                  { return constants.MaximumMaxSize }
+func MinimumMaxSize() float64                  { return constants.MinimumMaxSize }
+func HealthChangePerCycle() float64            { return constants.HealthChangePerCycle }
+func HealthChangeFromBeingIdle() float64       { return constants.HealthChangeFromBeingIdle }
+func HealthChangeFromTurning() float64         { return constants.HealthChangeFromTurning }
+func HealthChangeFromMoving() float64          { return constants.HealthChangeFromMoving }
+func HealthChangeFromEatingAttempt() float64   { return constants.HealthChangeFromEatingAttempt }
+func HealthChangeFromAttacking() float64       { return constants.HealthChangeFromAttacking }
+func HealthChangeInflictedByAttack() float64   { return constants.HealthChangeInflictedByAttack }
+func HealthChangeFromFeeding() float64         { return constants.HealthChangeFromFeeding }
+func HealthChangePerDecisionTreeNode() float64 { return constants.HealthChangePerDecisionTreeNode }
+func MaxDecisionTreeSize() int                 { return constants.MaxDecisionTreeSize }
 
 type Globals struct {
 	// Drawing parameters
@@ -77,17 +73,16 @@ type Globals struct {
 	MinFoodValue        int     `json:"min_food_value"`
 
 	// Organism parameters
-	MaxCyclesBetweenSpawns          int     `json:"max_cycles_between_spawns"`
-	MinSpawnHealth                  float64 `json:"min_spawn_health"`
-	MaxSpawnHealthPercent           float64 `json:"max_spawn_health_percent"`
-	MinChanceToMutateDecisionTree   float64 `json:"min_chance_to_mutate_decision_tree"`
-	MaxChanceToMutateDecisionTree   float64 `json:"max_chance_to_mutate_decision_tree"`
-	MinCyclesToEvaluateDecisionTree int     `json:"min_cycles_to_evaluate_decision_tree"`
-	MaxCyclesToEvaluateDecisionTree int     `json:"max_cycles_to_evaluate_decision_tree"`
-	MaxOrganisms                    int     `json:"max_organisms"`
-	GrowthFactor                    float64 `json:"growth_factor"`
-	MaximumMaxSize                  float64 `json:"maximum_max_size"`
-	MinimumMaxSize                  float64 `json:"minimum_max_size"`
+	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
+	MinSpawnHealth                float64 `json:"min_spawn_health"`
+	MaxSpawnHealthPercent         float64 `json:"max_spawn_health_percent"`
+	MaxOrganisms                  int     `json:"max_organisms"`
+	GrowthFactor                  float64 `json:"growth_factor"`
+	MaximumMaxSize                float64 `json:"maximum_max_size"`
+	MinimumMaxSize                float64 `json:"minimum_max_size"`
+	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
+	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
+	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 
 	// Health parameters (percent of organism size)
 	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`
@@ -99,11 +94,6 @@ type Globals struct {
 	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
 	HealthChangeFromFeeding         float64 `json:"health_change_from_feeding"`
 	HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
-
-	// Decision tree parameters
-	HealthPercentToChangeDecisionTree float64 `json:"health_percent_to_change_decision_tree"`
-	MaxDecisionTreeSize               int     `json:"max_decision_tree_size"`
-	MaxDecisionTrees                  int     `json:"max_decision_trees"`
 }
 
 func LoadFile(filePath string) io.Reader {

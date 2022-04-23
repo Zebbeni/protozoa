@@ -16,8 +16,6 @@
   "max_spawn_health_percent": 0.5,
   "min_chance_to_mutate_decision_tree": 0.01,
   "max_chance_to_mutate_decision_tree": 1,
-  "min_cycles_to_evaluate_decision_tree": 5,
-  "max_cycles_to_evaluate_decision_tree": 25,
   "max_organisms": 20000,
   "growth_factor": 0.5,
   "maximum_max_size": 100,
@@ -30,7 +28,6 @@
   "health_change_from_attacking": -0.05,
   "health_change_inflicted_by_attack": -0.5,
   "health_change_from_feeding": -0.05,
-  "health_percent_to_change_decision_tree": 0.1,
   "max_decision_tree_size": 16,
   "max_decision_trees": 5
 }
