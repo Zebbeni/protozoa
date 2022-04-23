@@ -34,7 +34,6 @@ const (
 )
 
 type Panel struct {
-	MouseHandler
 	simulation         *s.Simulation
 	previousPanelImage *ebiten.Image
 	graph              *Graph
@@ -126,9 +125,10 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 
 	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
 
-	infoString := fmt.Sprintf("SELECTED ORGANISM\n"+
-		"ID: %11d\n          ANCESTOR: %5d\nSIZE:   %7.2f",
-		info.ID, info.AncestorID, info.Size)
+	infoString := fmt.Sprintf("ORGANISM ID: %7d\n"+
+		"ANCESTOR ID: %7d        SIZE:     %5.2f\n"+
+		"AGE:         %7d        CHILDREN: %7d\n",
+		info.ID, info.AncestorID, info.Size, info.Age, info.Children)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 

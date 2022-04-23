@@ -1,13 +1,15 @@
 package ux
 
 import (
-	"github.com/Zebbeni/protozoa/organism"
-	"github.com/Zebbeni/protozoa/utils"
 	"time"
 
-	"github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/utils"
 )
 
 type Interface struct {
@@ -54,20 +56,40 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	}
 }
 
-func (i *Interface) HandleClick(x, y int) {
-	relativeGridX := x - panelWidth
-	relativeGridY := y
-	gridX := relativeGridX / config.GridUnitSize()
-	gridY := relativeGridY / config.GridUnitSize()
-	if gridX < 0 || gridY < 0 || gridX >= config.GridUnitsWide() || gridY >= config.GridUnitsHigh() {
-		return
-	}
+func (i *Interface) HandleUserInput() {
+	i.handleKeyboard()
+	i.handleMouse()
+}
 
-	selectedPoint := utils.Point{X: gridX, Y: gridY}
-	if info := i.simulation.GetOrganismInfoAtPoint(selectedPoint); info != nil {
-		i.simulation.Select(info.ID)
-	} else {
-		i.simulation.Select(-1)
+func (i *Interface) handleKeyboard() {
+	if inpututil.IsKeyJustReleased(ebiten.KeySpace) {
+		i.simulation.Pause(!i.simulation.IsPaused())
+	}
+}
+
+// eventually let's implement a more comprehensive event handler system
+// but for right now, when the grid is the only thing we're using with mouse
+// events, I think this is fine.
+func (i *Interface) handleMouse() {
+	i.handleMouseHover()
+
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		i.handleLeftClick()
+	}
+}
+
+func (i *Interface) handleMouseHover() {
+	gridLocation, onGrid := i.getMouseGridLocation()
+	i.grid.MouseHover(gridLocation, onGrid)
+}
+
+func (i *Interface) handleLeftClick() {
+	if selectedPoint, onGrid := i.getMouseGridLocation(); onGrid {
+		if info := i.simulation.GetOrganismInfoAtPoint(selectedPoint); info != nil {
+			i.simulation.Select(info.ID)
+		} else {
+			i.simulation.Select(-1)
+		}
 	}
 }
 
@@ -83,4 +105,18 @@ func (i *Interface) renderPanel(screen *ebiten.Image) {
 	panelImage := i.panel.Render()
 	screen.DrawImage(panelImage, i.panelOptions)
 	i.debug.panelRenderTime = time.Since(start)
+}
+
+// getMouseGridLocation returns the mouse's point on the grid along with a
+// boolean telling us if the point is within the grid bounds
+func (i *Interface) getMouseGridLocation() (utils.Point, bool) {
+	mouseX, mouseY := ebiten.CursorPosition()
+	relativeGridX := mouseX - panelWidth
+	relativeGridY := mouseY
+	gridX := relativeGridX / config.GridUnitSize()
+	gridY := relativeGridY / config.GridUnitSize()
+	gridW := config.GridUnitsWide()
+	gridH := config.GridUnitsHigh()
+	onGrid := gridX >= 0 && gridY >= 0 && gridX < gridW && gridY < gridH
+	return utils.Point{X: gridX, Y: gridY}, onGrid
 }

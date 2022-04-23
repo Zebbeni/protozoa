@@ -6,13 +6,11 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
-
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 type Runner struct {
@@ -23,19 +21,13 @@ type Runner struct {
 }
 
 func (r *Runner) Update() error {
-	r.HandleInput()
+	r.handleUserInput()
 	r.sim.Update()
 	return nil
 }
 
-func (r *Runner) HandleInput() {
-	if inpututil.IsKeyJustReleased(ebiten.KeySpace) {
-		r.sim.Pause(!r.sim.IsPaused())
-	}
-
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		r.ui.HandleClick(ebiten.CursorPosition())
-	}
+func (r *Runner) handleUserInput() {
+	r.ui.HandleUserInput()
 }
 
 func (r *Runner) Draw(screen *ebiten.Image) {

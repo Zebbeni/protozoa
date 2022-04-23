@@ -28,12 +28,16 @@ var (
 	foodColor                                                           = colorful.HSLuv(120, 0.2, 0.25)
 	attackColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
 	selectColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
+	hoverColor                                                          = colorful.HSLuv(0.0, 0, 0.5)
 	squareImgSmall, squareImgMedium, squareImgLarge, poisonImg, wallImg *ebiten.Image
 )
 
 type Grid struct {
 	simulation        *simulation.Simulation
 	previousGridImage *ebiten.Image
+
+	mouseHoverLocation utils.Point
+	mouseOnGrid        bool
 }
 
 func NewGrid(simulation *simulation.Simulation) *Grid {
@@ -92,16 +96,30 @@ func (g *Grid) Render() *ebiten.Image {
 	g.previousGridImage = ebiten.NewImage(config.GridWidth(), config.GridHeight())
 	g.previousGridImage.DrawImage(gridImage, nil)
 
-	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
-		selectionBox := ebiten.NewImage(config.GridWidth(), config.GridHeight())
-		g.renderSelection(info.Location, selectionBox, selectColor)
+	selectionBox := ebiten.NewImage(config.GridWidth(), config.GridHeight())
 
-		gridImage.DrawImage(selectionBox, nil)
+	if g.mouseOnGrid {
+		if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
+			g.renderSelection(g.mouseHoverLocation, selectionBox, info.Color)
+		} else {
+			g.renderSelection(g.mouseHoverLocation, selectionBox, hoverColor)
+		}
 	}
+
+	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
+		g.renderSelection(info.Location, selectionBox, selectColor)
+	}
+
+	gridImage.DrawImage(selectionBox, nil)
 
 	g.simulation.ClearUpdatedGridPoints()
 
 	return gridImage
+}
+
+func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
+	g.mouseHoverLocation = point
+	g.mouseOnGrid = onGrid
 }
 
 func (g *Grid) shouldRefresh() bool {

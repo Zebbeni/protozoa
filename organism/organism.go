@@ -109,6 +109,8 @@ func (o *Organism) Info() *Info {
 		Action:     o.action,
 		AncestorID: o.OriginalAncestorID,
 		Color:      o.traits.OrganismColor,
+		Age:        o.Age,
+		Children:   o.Children,
 	}
 }
 
