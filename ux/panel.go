@@ -135,5 +135,5 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	offsetY := selectedYOffset + bounds.Dy() + padding
 
 	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, selectedYOffset, color.White)
-	text.Draw(panelImage, decisionTreeString, r.FontSourceCodePro12, selectedXOffset, offsetY, color.White)
+	text.Draw(panelImage, decisionTreeString, r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)
 }

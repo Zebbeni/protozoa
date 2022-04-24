@@ -17,8 +17,8 @@
   "min_spawn_health": 1,
   "max_spawn_health_percent": 0.5,
 
-  "min_chance_to_mutate_decision_tree": 0.01,
-  "max_chance_to_mutate_decision_tree": 1,
+  "min_chance_to_mutate_decision_tree": 0.5,
+  "max_chance_to_mutate_decision_tree": 1.00,
   "max_decision_tree_size": 32,
 
   "max_organisms": 20000,
