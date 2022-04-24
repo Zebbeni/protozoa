@@ -175,12 +175,7 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 
 func (m *OrganismManager) evaluateBest(o *organism.Organism) {
 	if o.Children > m.MostReproductiveCurrent.Children {
-		decisionTree := o.GetBestDecisionTreeCopy(true)
-		if decisionTree == nil {
-			decisionTree = o.GetCurrentDecisionTreeCopy(true)
-		}
 		m.MostReproductiveCurrent = o
-
 		if o.Children > m.MostReproductiveAllTime.Children {
 			m.MostReproductiveAllTime = o
 		}
@@ -307,7 +302,7 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 // given organism (nil if no organism found)
 func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	if o, ok := m.organisms[id]; ok {
-		return o.GetCurrentDecisionTreeCopy(true)
+		return o.GetDecisionTreeCopy()
 	}
 	return nil
 }
@@ -318,6 +313,15 @@ func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 		return o.Info()
 	}
 	return nil
+}
+
+// GetOrganismTraitsByID returns the Organism Traits for a given Organism ID and whether it was
+// successfully found
+func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) {
+	if o, found := m.organisms[id]; found {
+		return o.Traits(), true
+	}
+	return organism.Traits{}, false
 }
 
 // OrganismCount returns the current number of organisms alive in the simulation
@@ -481,17 +485,17 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 	return fmt.Sprintf("\n      ID: %10d   |         InitialHealth: %4d"+
 		"\n     Age: %10d   |      MinHealthToSpawn: %4d"+
 		"\nChildren: %10d   |      MinCyclesToSpawn: %4d"+
-		"\nAncestor: %10d   |  CyclesToEvaluateTree: %4d"+
+		"\nAncestor: %10d   |  "+
 		"\n  Health: %10.2f   |   ChanceToMutateTree:  %4.2f"+
 		"\n    Size: %10.2f   |              MaxSize:  %4.2f"+
 		"\n  Tree:\n%s",
 		o.ID, int(o.InitialHealth()),
 		o.Age, int(o.MinHealthToSpawn()),
 		o.Children, o.MinCyclesBetweenSpawns(),
-		o.OriginalAncestorID, o.CyclesToEvaluateDecisionTree(),
+		o.OriginalAncestorID,
 		o.Health, o.ChanceToMutateDecisionTree(),
 		o.Size, o.MaxSize(),
-		o.GetCurrentDecisionTreeCopy(true).Print())
+		o.GetDecisionTreeCopy().Print())
 }
 
 func (m *OrganismManager) printBestAncestors() {

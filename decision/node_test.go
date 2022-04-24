@@ -12,7 +12,7 @@ func TestUpdateNodeIDs(t *testing.T) {
 	}
 
 	for index, testCase := range testCases {
-		actual := testCase.tree.GenerateID()
+		actual := testCase.tree.Serialize()
 		expected := testCase.expected
 		if actual != expected {
 			t.Errorf("tree ID %d was %s, expected %s\n", index, actual, expected)
