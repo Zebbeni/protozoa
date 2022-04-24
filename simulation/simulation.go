@@ -22,8 +22,9 @@ type Simulation struct {
 
 	selectedID int
 
-	organismManager *manager.OrganismManager
-	foodManager     *manager.FoodManager
+	organismManager    *manager.OrganismManager
+	foodManager        *manager.FoodManager
+	environmentManager *manager.EnvironmentManager
 
 	UpdatedPoints map[string]utils.Point
 
@@ -43,6 +44,7 @@ func NewSimulation(options *config.Options) *Simulation {
 	}
 	sim.foodManager = manager.NewFoodManager(sim)
 	sim.organismManager = manager.NewOrganismManager(sim)
+	sim.environmentManager = manager.NewEnvironmentManager(sim)
 
 	return sim
 }
@@ -236,4 +238,14 @@ func (s *Simulation) Select(id int) {
 // GetSelected returns the currently selected organism ID. -1 if none selected
 func (s *Simulation) GetSelected() int {
 	return s.selectedID
+}
+
+// GetPh returns the current Ph of the environment
+func (s *Simulation) GetPh() float64 {
+	return s.environmentManager.GetPh()
+}
+
+// UpdatePh adds a given change value to the environment's Ph
+func (s *Simulation) UpdatePh(change float64) {
+	s.environmentManager.UpdatePh(change)
 }
