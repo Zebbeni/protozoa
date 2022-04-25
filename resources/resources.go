@@ -38,9 +38,13 @@ var (
 	SquareMedium *ebiten.Image
 	// SquareLarge is an image to render for large organisms and food
 	SquareLarge *ebiten.Image
-	// SquarePoison is an image to render for poison locations
+
+	// PhPatternMap is an image used to initialize environmental pH levels
+	PhPatternMap *ebiten.Image
+
+	// Poison is an image to render for poison locations
 	Poison *ebiten.Image
-	// SquarePoison is an image to render for wall locations
+	// Wall is an image to render for wall locations
 	Wall *ebiten.Image
 )
 
@@ -62,6 +66,9 @@ func initImages() {
 	// Panel Images
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
+
+	// Environment Images
+	PhPatternMap = loadImage("resources/images/grid/ph_map.png")
 
 	var dir string
 	switch config.GridUnitSize() {

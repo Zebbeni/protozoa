@@ -15,8 +15,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-var descendantsPrintThreshold = 10
-
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	api organism.API
@@ -28,9 +26,7 @@ type OrganismManager struct {
 	organismUpdateOrder []int
 	newOrganismIDs      []int
 
-	MostReproductiveAllTime  *organism.Organism
-	MostReproductiveCurrent  *organism.Organism
-	AncestorDescendantsCount map[int]int
+	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
 
 	originalAncestorsSorted []int
 	originalAncestorColors  map[int]color.Color   // all original ancestor IDs with at least one descendant
@@ -44,16 +40,14 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 	grid := initializeGrid()
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
-		api:                      api,
-		organismIDGrid:           grid,
-		organisms:                organisms,
-		organismUpdateOrder:      make([]int, 0, c.MaxOrganisms()),
-		newOrganismIDs:           make([]int, 0, 100),
-		AncestorDescendantsCount: make(map[int]int),
-		MostReproductiveAllTime:  &organism.Organism{},
-		MostReproductiveCurrent:  &organism.Organism{},
-		originalAncestorColors:   make(map[int]color.Color),
-		populationHistory:        make(map[int]map[int]int16),
+		api:                    api,
+		organismIDGrid:         grid,
+		organisms:              organisms,
+		organismUpdateOrder:    make([]int, 0, c.MaxOrganisms()),
+		newOrganismIDs:         make([]int, 0, 100),
+		updatedPoints:          make(map[string]utils.Point),
+		originalAncestorColors: make(map[int]color.Color),
+		populationHistory:      make(map[int]map[int]int16),
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -68,7 +62,6 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	m.MostReproductiveCurrent = &organism.Organism{}
 	// Periodically add new random organisms if population below a certain amount
 	if len(m.organisms) < c.MaxOrganisms() && rand.Float64() < c.ChanceToAddOrganism() {
 		m.SpawnRandomOrganism()
@@ -155,9 +148,21 @@ func initializeGrid() [][]int {
 	return grid
 }
 
+func (m *OrganismManager) GetUpdatedPoints() map[string]utils.Point {
+	return m.updatedPoints
+}
+
+func (m *OrganismManager) ClearUpdatedPoints() {
+	m.updatedPoints = make(map[string]utils.Point)
+}
+
+func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
+	m.updatedPoints[point.ToString()] = point
+}
+
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
 	if o.Action() == d.ActAttack {
-		m.api.AddUpdatedGridPoint(o.Location)
+		m.addUpdatedPoint(o.Location)
 	}
 	o.UpdateStats()
 	o.UpdateAction()
@@ -169,17 +174,7 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 	}
 	m.updateHealth(o)
 	m.applyAction(o)
-	m.evaluateBest(o)
 	m.removeIfDead(o)
-}
-
-func (m *OrganismManager) evaluateBest(o *organism.Organism) {
-	if o.Children > m.MostReproductiveCurrent.Children {
-		m.MostReproductiveCurrent = o
-		if o.Children > m.MostReproductiveAllTime.Children {
-			m.MostReproductiveAllTime = o
-		}
-	}
 }
 
 // SpawnRandomOrganism creates an Organism with random position.
@@ -209,21 +204,12 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 }
 
 func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
-	m.api.AddUpdatedGridPoint(o.Location)
+	m.addUpdatedPoint(o.Location)
 
 	m.organisms[index] = o
 	m.totalOrganismsCreated++
 	m.organismIDGrid[o.X()][o.Y()] = index
 	m.newOrganismIDs = append(m.newOrganismIDs, index)
-
-	// update originalAncestorColors
-	ancestorID := o.OriginalAncestorID
-	if ancestorID != o.ID {
-		if _, ok := m.AncestorDescendantsCount[ancestorID]; !ok {
-			m.AncestorDescendantsCount[ancestorID] = 0
-		}
-		m.AncestorDescendantsCount[ancestorID]++
-	}
 }
 
 func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
@@ -376,12 +362,12 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 	prevSize := o.Size
 	o.ApplyHealthChange(amount)
 	if o.Size > prevSize {
-		m.api.AddUpdatedGridPoint(o.Location)
+		m.addUpdatedPoint(o.Location)
 	}
 }
 
 func (m *OrganismManager) applyAttack(o *organism.Organism) {
-	m.api.AddUpdatedGridPoint(o.Location)
+	m.addUpdatedPoint(o.Location)
 	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size)
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isOrganismAtLocation(targetPoint) {
@@ -396,7 +382,7 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 	if o.Health > 0.0 {
 		return false
 	}
-	m.api.AddUpdatedGridPoint(o.Location)
+	m.addUpdatedPoint(o.Location)
 	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
 	m.api.AddFoodAtPoint(o.Location, int(o.Size))
 	delete(m.organisms, o.ID)
@@ -439,8 +425,8 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isGridLocationEmpty(targetPoint) {
-		m.api.AddUpdatedGridPoint(o.Location)
-		m.api.AddUpdatedGridPoint(targetPoint)
+		m.addUpdatedPoint(o.Location)
+		m.addUpdatedPoint(targetPoint)
 
 		m.organismIDGrid[o.Location.X][o.Location.Y] = -1
 		m.organismIDGrid[targetPoint.X][targetPoint.Y] = o.ID
@@ -469,18 +455,6 @@ func (m *OrganismManager) GetAllOrganismInfo() map[int]*organism.Info {
 	return infoMap
 }
 
-// PrintBest prints the highest current score of any Organism (and their index)
-func (m *OrganismManager) PrintBest() {
-	m.printBestAncestors()
-	fmt.Print("\n\n")
-	m.printBestCurrent()
-}
-
-func (m *OrganismManager) printBestCurrent() {
-	fmt.Printf("\n  - Best Organism Current - \n")
-	m.printOrganismInfo(m.MostReproductiveCurrent)
-}
-
 func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 	return fmt.Sprintf("\n      ID: %10d   |         InitialHealth: %4d"+
 		"\n     Age: %10d   |      MinHealthToSpawn: %4d"+
@@ -496,23 +470,4 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 		o.Health, o.ChanceToMutateDecisionTree(),
 		o.Size, o.MaxSize(),
 		o.GetDecisionTreeCopy().Print())
-}
-
-func (m *OrganismManager) printBestAncestors() {
-	fmt.Printf("\n - Original Ancestors: %d\n", len(m.AncestorDescendantsCount))
-	fmt.Printf("   Best (%d descendants or more) -\n", descendantsPrintThreshold)
-	fmt.Print("  Ancestor ID  | Descendants\n")
-
-	// updateThreshold := false
-	for ancestorID, descendants := range m.AncestorDescendantsCount {
-		if descendants >= descendantsPrintThreshold {
-			fmt.Printf("\n%13d  |%12d", ancestorID, descendants)
-			// if descendants > descendantsPrintThreshold*2 {
-			// 	updateThreshold = true
-			// }
-		}
-	}
-	// if updateThreshold {
-	// 	descendantsPrintThreshold = int(math.Ceil(float64(descendantsPrintThreshold) * 1.1))
-	// }
 }

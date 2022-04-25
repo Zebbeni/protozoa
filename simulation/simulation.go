@@ -3,6 +3,7 @@ package simulation
 import (
 	"fmt"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/hajimehoshi/ebiten/v2"
 	"image/color"
 	"time"
 
@@ -26,8 +27,6 @@ type Simulation struct {
 	foodManager        *manager.FoodManager
 	environmentManager *manager.EnvironmentManager
 
-	UpdatedPoints map[string]utils.Point
-
 	// debug statistics
 	UpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 }
@@ -37,14 +36,13 @@ type Simulation struct {
 // first actions are attributed to cycle 0
 func NewSimulation(options *config.Options) *Simulation {
 	sim := &Simulation{
-		options:       options,
-		cycle:         -1,
-		isPaused:      false,
-		UpdatedPoints: make(map[string]utils.Point),
+		options:  options,
+		cycle:    -1,
+		isPaused: false,
 	}
-	sim.foodManager = manager.NewFoodManager(sim)
+	sim.environmentManager = manager.NewEnvironmentManager()
+	sim.foodManager = manager.NewFoodManager()
 	sim.organismManager = manager.NewOrganismManager(sim)
-	sim.environmentManager = manager.NewEnvironmentManager(sim)
 
 	return sim
 }
@@ -105,14 +103,22 @@ func (s *Simulation) Pause(pause bool) {
 	s.isPaused = pause
 }
 
-// AddUpdatedGridPoint adds a point to the grid locations that have been updated
-func (s *Simulation) AddUpdatedGridPoint(point utils.Point) {
-	s.UpdatedPoints[point.ToString()] = point
+// GetUpdatedFoodPoints returns a map of all points recently updated by the
+// foodManager
+func (s *Simulation) GetUpdatedFoodPoints() map[string]utils.Point {
+	return s.foodManager.GetUpdatedPoints()
 }
 
-// ClearUpdatedGridPoints clears the current pointsToUpdate map
-func (s *Simulation) ClearUpdatedGridPoints() {
-	s.UpdatedPoints = make(map[string]utils.Point)
+// GetUpdatedOrganismPoints returns a map of all points recently updated by the
+// organismManager
+func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
+	return s.organismManager.GetUpdatedPoints()
+}
+
+// ClearUpdatedPoints clears all updated points for all content managers
+func (s *Simulation) ClearUpdatedPoints() {
+	s.foodManager.ClearUpdatedPoints()
+	s.organismManager.ClearUpdatedPoints()
 }
 
 // GetAllOrganismInfo returns a map of Info on all living organisms
@@ -158,11 +164,6 @@ func (s *Simulation) GetAncestorsSorted() []int {
 	return s.organismManager.GetAncestorsSorted()
 }
 
-// GetMostReproductiveID returns the ID of the living organism with the most children.
-func (s *Simulation) GetMostReproductiveID() int {
-	return s.organismManager.MostReproductiveCurrent.ID
-}
-
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
 func (s *Simulation) GetNumOrganisms() int {
 	return s.organismManager.OrganismCount()
@@ -181,11 +182,6 @@ func (s *Simulation) GetDeadCount() int {
 // GetFoodItems returns an array of all food items in grid
 func (s *Simulation) GetFoodItems() map[string]*food.Item {
 	return s.foodManager.GetFoodItems()
-}
-
-// PrintStats shows various info about current simulation
-func (s *Simulation) PrintStats() {
-	s.organismManager.PrintBest()
 }
 
 // CheckOrganismAtPoint returns the result of running a check against any
@@ -224,12 +220,6 @@ func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
 	return s.foodManager.RemoveFoodAtPoint(point, value)
 }
 
-// AddGridPointToUpdate indicates a point on the grid has been updated
-// and needs to be re-rendered
-func (s *Simulation) AddGridPointToUpdate(point utils.Point) {
-	s.UpdatedPoints[point.ToString()] = point
-}
-
 // Select sets the currently selected organism ID. -1 if none selected
 func (s *Simulation) Select(id int) {
 	s.selectedID = id
@@ -240,12 +230,18 @@ func (s *Simulation) GetSelected() int {
 	return s.selectedID
 }
 
-// GetPh returns the current Ph of the environment
-func (s *Simulation) GetPh() float64 {
-	return s.environmentManager.GetPh()
+// GetPhMap returns the black and white image used to represent pH levels
+// in the environment
+func (s *Simulation) GetPhMap() *ebiten.Image {
+	return s.environmentManager.GetPhMap()
 }
 
-// UpdatePh adds a given change value to the environment's Ph
-func (s *Simulation) UpdatePh(change float64) {
-	s.environmentManager.UpdatePh(change)
+// GetPhAtPoint returns the current Ph of the environment at a given location
+func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
+	return s.environmentManager.GetPhAtPoint(point)
+}
+
+// AddPhChange adds a given value to the environment's Ph at a given location
+func (s *Simulation) AddPhChange(change float64) {
+	s.environmentManager.AddPhChange(change)
 }

@@ -2,31 +2,52 @@ package manager
 
 import (
 	c "github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/environment"
-	"math"
+	"github.com/Zebbeni/protozoa/resources"
+	"github.com/Zebbeni/protozoa/utils"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
+// EnvironmentManager contains an image
 type EnvironmentManager struct {
-	api environment.API
-
-	pH float64
+	phMap *ebiten.Image
 }
 
-func NewEnvironmentManager(api environment.API) *EnvironmentManager {
+func NewEnvironmentManager() *EnvironmentManager {
 	manager := &EnvironmentManager{
-		api: api,
-		pH:  c.InitialPh(),
+		phMap: initializePhMap(),
 	}
+
 	return manager
 }
 
-// GetPh returns the current pH level of the environment
-func (e *EnvironmentManager) GetPh() float64 {
-	return e.pH
+func initializePhMap() *ebiten.Image {
+	phMap := ebiten.NewImage(c.GridUnitsWide(), c.GridUnitsHigh())
+	patternMap := resources.PhPatternMap
+
+	patternW, patternH := patternMap.Size()
+	scaleW := float64(c.GridUnitsWide()) / float64(patternW)
+	scaleH := float64(c.GridUnitsHigh()) / float64(patternH)
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(scaleW, scaleH)
+
+	phMap.DrawImage(patternMap, op)
+	return phMap
 }
 
-// UpdatePh adds a positive or negative value to pH, bounded by the
+func (m *EnvironmentManager) GetPhMap() *ebiten.Image {
+	return m.phMap
+}
+
+// GetPhAtPoint returns the current pH level of the environment at a given point
+func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
+	color := m.phMap.At(point.X, point.Y)
+	_, _, b, _ := color.RGBA()
+	return float64(b) / 25.5
+}
+
+// AddPhChange adds a positive or negative value to pH, bounded by the
 // minimum and maximum pH values provided by the config
-func (e *EnvironmentManager) UpdatePh(change float64) {
-	e.pH = math.Min(math.Max(e.pH+change, c.MinPh()), c.MaxPh())
+func (m *EnvironmentManager) AddPhChange(change float64) {
+
 }
