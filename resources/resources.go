@@ -38,14 +38,8 @@ var (
 	SquareMedium *ebiten.Image
 	// SquareLarge is an image to render for large organisms and food
 	SquareLarge *ebiten.Image
-
-	// PhPatternMap is an image used to initialize environmental pH levels
-	PhPatternMap *ebiten.Image
-
-	// Poison is an image to render for poison locations
-	Poison *ebiten.Image
-	// Wall is an image to render for wall locations
-	Wall *ebiten.Image
+	// SquareFill is an image to render for totally filled grid spaces
+	SquareFill *ebiten.Image
 )
 
 // Init loads all fonts and images to be used in the UI
@@ -67,9 +61,6 @@ func initImages() {
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	// Environment Images
-	PhPatternMap = loadImage("resources/images/grid/ph_map.png")
-
 	var dir string
 	switch config.GridUnitSize() {
 	case 4:
@@ -87,8 +78,7 @@ func initImages() {
 	SquareSmall = loadImage(fmt.Sprintf("resources/images/grid/%s/square_small.png", dir))
 	SquareMedium = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
 	SquareLarge = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
-	Poison = loadImage(fmt.Sprintf("resources/images/grid/%s/poison.png", dir))
-	Wall = loadImage(fmt.Sprintf("resources/images/grid/%s/wall.png", dir))
+	SquareFill = loadImage(fmt.Sprintf("resources/images/grid/%s/square_fill.png", dir))
 }
 
 func loadImage(path string) *ebiten.Image {
@@ -102,7 +92,6 @@ func loadImage(path string) *ebiten.Image {
 	}
 	img, err := png.Decode(reader)
 	if err != nil {
-		fmt.Println("shit")
 		log.Fatal(err)
 	}
 	ebitenImg := ebiten.NewImageFromImage(img)

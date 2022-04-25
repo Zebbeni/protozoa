@@ -49,6 +49,7 @@ func MinPhToleranceRange() float64             { return constants.MinPhTolerance
 func MaxPhToleranceRange() float64             { return constants.MaxPhToleranceRange }
 func MinChangeToPh() float64                   { return constants.MinChangeToPh }
 func MaxChangeToPh() float64                   { return constants.MaxChangeToPh }
+func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
 func HealthChangePerCycle() float64            { return constants.HealthChangePerCycle }
 func HealthChangeFromBeingIdle() float64       { return constants.HealthChangeFromBeingIdle }
 func HealthChangeFromTurning() float64         { return constants.HealthChangeFromTurning }
@@ -102,6 +103,7 @@ type Globals struct {
 	MaxPhToleranceRange           float64 `json:"max_ph_tolerance_range"`
 	MinChangeToPh                 float64 `json:"min_change_to_ph"`
 	MaxChangeToPh                 float64 `json:"max_change_to_ph"`
+	PhIncrementToDisplay          float64 `json:"ph_increment_to_display"`
 
 	// Health parameters (percent of organism size)
 	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`

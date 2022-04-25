@@ -3,7 +3,6 @@ package simulation
 import (
 	"fmt"
 	d "github.com/Zebbeni/protozoa/decision"
-	"github.com/hajimehoshi/ebiten/v2"
 	"image/color"
 	"time"
 
@@ -40,7 +39,7 @@ func NewSimulation(options *config.Options) *Simulation {
 		cycle:    -1,
 		isPaused: false,
 	}
-	sim.environmentManager = manager.NewEnvironmentManager()
+	sim.environmentManager = manager.NewEnvironmentManager(sim)
 	sim.foodManager = manager.NewFoodManager()
 	sim.organismManager = manager.NewOrganismManager(sim)
 
@@ -115,8 +114,15 @@ func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
 	return s.organismManager.GetUpdatedPoints()
 }
 
+// GetUpdatedPhPoints returns a map of all points recently updated by the
+// environmentManager
+func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
+	return s.environmentManager.GetUpdatedPoints()
+}
+
 // ClearUpdatedPoints clears all updated points for all content managers
 func (s *Simulation) ClearUpdatedPoints() {
+	s.environmentManager.ClearUpdatedPoints()
 	s.foodManager.ClearUpdatedPoints()
 	s.organismManager.ClearUpdatedPoints()
 }
@@ -230,9 +236,8 @@ func (s *Simulation) GetSelected() int {
 	return s.selectedID
 }
 
-// GetPhMap returns the black and white image used to represent pH levels
-// in the environment
-func (s *Simulation) GetPhMap() *ebiten.Image {
+// GetPhMap returns the full 2D map of all pH values in the environment
+func (s *Simulation) GetPhMap() [][]float64 {
 	return s.environmentManager.GetPhMap()
 }
 
@@ -241,7 +246,7 @@ func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
 	return s.environmentManager.GetPhAtPoint(point)
 }
 
-// AddPhChange adds a given value to the environment's Ph at a given location
-func (s *Simulation) AddPhChange(change float64) {
-	s.environmentManager.AddPhChange(change)
+// AddPhChangeAtPoint adds a given value to the environment's Ph at a given location
+func (s *Simulation) AddPhChangeAtPoint(point utils.Point, change float64) {
+	s.environmentManager.AddPhChangeAtPoint(point, change)
 }

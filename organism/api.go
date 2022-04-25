@@ -29,9 +29,9 @@ type ChangeAPI interface {
 	// RemoveFoodAtPoint requests removing some amount of food at a Point
 	// returns how much food was actually removed
 	RemoveFoodAtPoint(point utils.Point, value int) int
-	// AddPhChange adds a positive or negative value to environment's pH at a
-	// given point, bounded by the min / max pH values allowed by the config
-	AddPhChange(change float64)
+	// AddPhChangeAtPoint adds a positive or negative value to the environment
+	// pH at a given point, bounded by the min / max pH allowed by the config
+	AddPhChangeAtPoint(point utils.Point, change float64)
 }
 
 // API provides functions needed to lookup and make changes to world objects

@@ -22,17 +22,23 @@ const (
 	sizeSmall size = iota
 	sizeMedium
 	sizeLarge
+	sizeFill
+)
+
+const (
+	phMinHue     = 0.0
+	phMaxHue     = 120.0
+	phSaturation = 0.5
+	phLightness  = 0.15
 )
 
 var (
-	clearColor                                                          = color.Alpha{A: 0x00}
-	phHighColor                                                         = colorful.LinearRgb(0, 0, 255.0)
-	pHLowColor                                                          = colorful.LinearRgb(255, 0, 0)
-	foodColor                                                           = colorful.HSLuv(120, 0.2, 0.25)
-	attackColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
-	selectColor                                                         = colorful.HSLuv(0.0, 255.0, 1.0)
-	hoverColor                                                          = colorful.HSLuv(0.0, 0, 0.5)
-	squareImgSmall, squareImgMedium, squareImgLarge, poisonImg, wallImg *ebiten.Image
+	clearColor                                                     = color.Alpha{A: 0x00}
+	foodColor                                                      = colorful.HSLuv(120, 0.2, 0.25)
+	attackColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
+	selectColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
+	hoverColor                                                     = colorful.HSLuv(0.0, 0, 0.5)
+	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill *ebiten.Image
 )
 
 type Grid struct {
@@ -61,8 +67,7 @@ func loadOrganismImages() {
 	squareImgSmall = resources.SquareSmall
 	squareImgMedium = resources.SquareMedium
 	squareImgLarge = resources.SquareLarge
-	poisonImg = resources.Poison
-	wallImg = resources.Wall
+	squareImgFill = resources.SquareFill
 }
 
 // Render draws all organisms and food on the simulation grid
@@ -95,14 +100,32 @@ func (g *Grid) Render() *ebiten.Image {
 }
 
 func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
-	phMap := g.simulation.GetPhMap()
+	if refresh {
+		phMap := g.simulation.GetPhMap()
+		for x := range phMap {
+			for y := range phMap[x] {
+				g.renderPhValue(envImage, x, y, phMap[x][y])
+			}
+		}
+	} else {
+		envImage.DrawImage(g.previousEnvImage, nil)
+		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
+		for _, point := range updatedPoints {
+			// clear square to be updated
+			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
+			g.clearSquare(envImage, float64(x), float64(y))
 
-	ebitenutil.DrawRect(envImage, 0, 0, float64(config.GridWidth()), float64(config.GridHeight()), pHLowColor)
+			phVal := g.simulation.GetPhAtPoint(point)
+			g.renderPhValue(envImage, x, y, phVal)
+		}
+	}
+}
 
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(config.GridUnitSize()), float64(config.GridUnitSize()))
-	op.ColorM.Translate(phHighColor.R, phHighColor.G, phHighColor.B, 0)
-	envImage.DrawImage(phMap, op)
+func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
+	x := float64(gridX) * float64(config.GridUnitSize())
+	y := float64(gridY) * float64(config.GridUnitSize())
+	col := colorful.HSLuv((phVal/config.MaxPh())*phMaxHue, phSaturation, phLightness)
+	g.drawSquare(envImage, x, y, sizeFill, col)
 }
 
 func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
@@ -162,7 +185,7 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 }
 
 func (g *Grid) shouldRefresh() bool {
-	return g.simulation.Cycle() == 1
+	return g.simulation.Cycle() == 0
 }
 
 func newBlankLayer() *ebiten.Image {
@@ -234,6 +257,9 @@ func (g *Grid) drawSquare(img *ebiten.Image, x, y float64, sz size, col colorful
 		break
 	case sizeLarge:
 		squareImg = squareImgLarge
+		break
+	case sizeFill:
+		squareImg = squareImgFill
 		break
 	}
 
