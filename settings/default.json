@@ -20,14 +20,14 @@
 
   "min_ph": 0.0,
   "max_ph": 10.0,
-  "initial_ph": 5.0,
+  "min_initial_ph": 4.5,
+  "max_initial_ph": 5.5,
+  "min_ideal_ph": 3.0,
+  "max_ideal_ph": 7.0,
   "min_ph_tolerance": 1.0,
-  "max_ph_tolerance": 9.0,
-  "min_ph_tolerance_range": 1.0,
-  "max_ph_tolerance_range": 5.0,
-  "min_change_to_ph": -1.0,
-  "max_change_to_ph": 1.0,
-  "ph_diffuse_factor": 0.01,
+  "max_ph_tolerance": 3.0,
+  "max_organism_ph_effect": 0.001,
+  "ph_diffuse_factor": 0.5,
   "ph_increment_to_display": 0.1,
 
   "min_chance_to_mutate_decision_tree": 0.01,
@@ -38,7 +38,7 @@
   "growth_factor": 0.5,
   "maximum_max_size": 100,
   "minimum_max_size": 10,
-  "health_change_per_cycle": -0.001,
+  "health_change_per_cycle": -0.000,
   "health_change_from_being_idle": 0.003,
   "health_change_from_turning": -0.001,
   "health_change_from_moving": -0.01,
@@ -47,5 +47,5 @@
   "health_change_inflicted_by_attack": -0.5,
   "health_change_from_feeding": -0.01,
   "health_change_per_decision_tree_node": -0.001,
-  "health_change_from_unhealthy_ph": -0.005
+  "health_change_per_unhealthy_ph": -0.01
 }

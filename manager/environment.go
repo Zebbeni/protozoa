@@ -34,7 +34,7 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.phMap[1][x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
 			// initialize with random values
-			val := (rand.Float64()*c.MaxPh() - c.MinPh()) + c.MinPh()
+			val := rand.Float64()*(c.MaxInitialPh()-c.MinInitialPh()) + c.MinInitialPh()
 			m.phMap[0][x][y] = val
 			m.phMap[1][x][y] = val
 		}

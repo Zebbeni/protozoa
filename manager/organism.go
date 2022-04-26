@@ -160,7 +160,12 @@ func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
 	m.updatedPoints[point.ToString()] = point
 }
 
+func (m *OrganismManager) updateEnvironmentPh(o *organism.Organism) {
+	m.api.AddPhChangeAtPoint(o.Location, o.Traits().PhEffect*o.Size)
+}
+
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
+	m.updateEnvironmentPh(o)
 	if o.Action() == d.ActAttack {
 		m.addUpdatedPoint(o.Location)
 	}
@@ -352,6 +357,16 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 func (m *OrganismManager) updateHealth(o *organism.Organism) {
 	o.ApplyHealthChange(c.HealthChangePerDecisionTreeNode() * float64(o.GetCurrentDecisionTreeLength()))
 	o.ApplyHealthChange(c.HealthChangePerCycle() * o.Size)
+	m.applyPhHealthEffects(o)
+}
+
+// Add a negative health change if organism is too far away from its ideal ph
+func (m *OrganismManager) applyPhHealthEffects(o *organism.Organism) {
+	phDist := math.Abs(o.Traits().IdealPh - m.api.GetPhAtPoint(o.Location))
+	if phDist > o.Traits().PhTolerance {
+		effect := (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
+		o.ApplyHealthChange(effect)
+	}
 }
 
 func (m *OrganismManager) applyIdle(o *organism.Organism) {

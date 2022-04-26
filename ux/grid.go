@@ -12,6 +12,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/lucasb-eyer/go-colorful"
 	"image/color"
+	"math"
 )
 
 type size int
@@ -24,10 +25,7 @@ const (
 )
 
 const (
-	phMinHue     = 0.0
-	phMaxHue     = 120.0
-	phSaturation = 0.5
-	phLightness  = 0.2
+	phMaxHue = 120.0
 )
 
 var (
@@ -119,7 +117,9 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
 	x := float64(gridX) * float64(config.GridUnitSize())
 	y := float64(gridY) * float64(config.GridUnitSize())
-	col := colorful.HSLuv((phVal/config.MaxPh())*phMaxHue, phSaturation, phLightness)
+	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
+	light := sat
+	col := colorful.HSLuv((phVal/config.MaxPh())*phMaxHue, sat, light)
 	g.drawSquare(envImage, x, y, sizeFill, col)
 }
 
