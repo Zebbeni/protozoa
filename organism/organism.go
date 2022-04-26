@@ -104,6 +104,7 @@ func (o *Organism) Info() *Info {
 		Color:      o.traits.OrganismColor,
 		Age:        o.Age,
 		Children:   o.Children,
+		PhEffect:   o.traits.PhEffect,
 	}
 }
 

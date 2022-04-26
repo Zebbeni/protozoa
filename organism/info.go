@@ -17,4 +17,5 @@ type Info struct {
 	Color      colorful.Color
 	Age        int
 	Children   int
+	PhEffect   float64
 }
