@@ -38,8 +38,10 @@ func MaxInitialPh() float64                    { return constants.MaxInitialPh }
 func MaxCyclesBetweenSpawns() int              { return constants.MaxCyclesBetweenSpawns }
 func MinSpawnHealth() float64                  { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64           { return constants.MaxSpawnHealthPercent }
+func InitialDecisionTreeMutations() int        { return constants.InitialDecisionTreeMutations }
 func MinChanceToMutateDecisionTree() float64   { return constants.MinChanceToMutateDecisionTree }
 func MaxChanceToMutateDecisionTree() float64   { return constants.MaxChanceToMutateDecisionTree }
+func MinOrganisms() int                        { return constants.MinOrganisms }
 func MaxOrganisms() int                        { return constants.MaxOrganisms }
 func GrowthFactor() float64                    { return constants.GrowthFactor }
 func MaximumMaxSize() float64                  { return constants.MaximumMaxSize }
@@ -52,7 +54,7 @@ func MaxOrganismPhEffect() float64             { return constants.MaxOrganismPhE
 func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64                 { return constants.PhDiffuseFactor }
 func HealthChangePerCycle() float64            { return constants.HealthChangePerCycle }
-func HealthChangeFromBeingIdle() float64       { return constants.HealthChangeFromBeingIdle }
+func HealthChangeFromChemosynthesis() float64  { return constants.HealthChangeFromChemosynthesis }
 func HealthChangeFromTurning() float64         { return constants.HealthChangeFromTurning }
 func HealthChangeFromMoving() float64          { return constants.HealthChangeFromMoving }
 func HealthChangeFromEatingAttempt() float64   { return constants.HealthChangeFromEatingAttempt }
@@ -92,10 +94,12 @@ type Globals struct {
 	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
 	MinSpawnHealth                float64 `json:"min_spawn_health"`
 	MaxSpawnHealthPercent         float64 `json:"max_spawn_health_percent"`
+	MinOrganisms                  int     `json:"min_organisms"`
 	MaxOrganisms                  int     `json:"max_organisms"`
 	GrowthFactor                  float64 `json:"growth_factor"`
 	MaximumMaxSize                float64 `json:"maximum_max_size"`
 	MinimumMaxSize                float64 `json:"minimum_max_size"`
+	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
 	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
 	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
@@ -111,7 +115,7 @@ type Globals struct {
 
 	// Health parameters (percent of organism size)
 	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`
-	HealthChangeFromBeingIdle       float64 `json:"health_change_from_being_idle"`
+	HealthChangeFromChemosynthesis  float64 `json:"health_change_from_chemosynthesis"`
 	HealthChangeFromTurning         float64 `json:"health_change_from_turning"`
 	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`
 	HealthChangeFromEatingAttempt   float64 `json:"health_change_from_eating_attempt"`

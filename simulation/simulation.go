@@ -127,7 +127,7 @@ func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
 	return s.environmentManager.GetUpdatedPoints()
 }
 
-// ClearUpdatedPoints clears all updated points for all content managers
+// clearUpdatedPoints clears all updated points for all content managers
 func (s *Simulation) ClearUpdatedPoints() {
 	s.environmentManager.ClearUpdatedPoints()
 	s.foodManager.ClearUpdatedPoints()

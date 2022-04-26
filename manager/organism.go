@@ -63,7 +63,7 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
 	// Periodically add new random organisms if population below a certain amount
-	if len(m.organisms) < c.MaxOrganisms() && rand.Float64() < c.ChanceToAddOrganism() {
+	if len(m.organisms) < c.MinOrganisms() && rand.Float64() < c.ChanceToAddOrganism() {
 		m.SpawnRandomOrganism()
 	}
 	// FUTURE: do this multi-threaded
@@ -165,7 +165,6 @@ func (m *OrganismManager) updateEnvironmentPh(o *organism.Organism) {
 }
 
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
-	m.updateEnvironmentPh(o)
 	if o.Action() == d.ActAttack {
 		m.addUpdatedPoint(o.Location)
 	}
@@ -327,8 +326,8 @@ func (m *OrganismManager) DeadCount() int {
 
 func (m *OrganismManager) applyAction(o *organism.Organism) {
 	switch o.Action() {
-	case d.ActIdle:
-		m.applyIdle(o)
+	case d.ActChemosynthesis:
+		m.applyChemosynthesis(o)
 		break
 	case d.ActAttack:
 		m.applyAttack(o)
@@ -369,8 +368,15 @@ func (m *OrganismManager) applyPhHealthEffects(o *organism.Organism) {
 	}
 }
 
-func (m *OrganismManager) applyIdle(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromBeingIdle()*o.Size)
+// add a positive health change if organism attempts chemosynthesis in a
+// favorable ph environment
+func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
+	ph := m.api.GetPhAtPoint(o.Location)
+	ideal := o.Traits().IdealPh
+	tolerance := o.Traits().PhTolerance
+	if math.Abs(ideal-ph) < tolerance {
+		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
+	}
 }
 
 func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64) {
@@ -378,6 +384,8 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 	o.ApplyHealthChange(amount)
 	if o.Size > prevSize {
 		m.addUpdatedPoint(o.Location)
+		// Organism growth affects ph
+		m.updateEnvironmentPh(o)
 	}
 }
 
