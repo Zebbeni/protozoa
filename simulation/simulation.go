@@ -27,7 +27,7 @@ type Simulation struct {
 	environmentManager *manager.EnvironmentManager
 
 	// debug statistics
-	UpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
+	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -55,10 +55,17 @@ func (s *Simulation) Update() {
 	s.cycle++
 	start := time.Now()
 
+	s.updateEnvironment()
 	s.updateFood()
 	s.updateOrganisms()
 
 	s.UpdateTime = time.Since(start)
+}
+
+func (s *Simulation) updateEnvironment() {
+	start := time.Now()
+	s.environmentManager.Update()
+	s.EnvironmentUpdateTime = time.Since(start)
 }
 
 func (s *Simulation) updateFood() {

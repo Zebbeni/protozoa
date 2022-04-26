@@ -69,12 +69,17 @@ func (m *EnvironmentManager) ClearUpdatedPoints() {
 // AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the
 // minimum and maximum pH values provided by the config
 func (m *EnvironmentManager) AddPhChangeAtPoint(point utils.Point, change float64) {
-	prevVal := m.phMap[m.getPreviousIndex()][point.X][point.Y]
-	newVal := m.phMap[m.getCurrentIndex()][point.X][point.Y] + change
-	newVal = math.Max(math.Min(newVal, c.MaxPh()), c.MinPh())
+	m.setPhAtPoint(point, change+m.phMap[m.getCurrentIndex()][point.X][point.Y])
+}
+
+func (m *EnvironmentManager) setPhAtPoint(point utils.Point, val float64) {
+	prevPh := m.phMap[m.getPreviousIndex()][point.X][point.Y]
+	newPh := math.Max(math.Min(val, c.MaxPh()), c.MinPh())
+
+	m.phMap[m.getCurrentIndex()][point.X][point.Y] = newPh
 
 	// only flag a worthwhile update if change is passed the difference threshhold
-	if int(prevVal/c.PhIncrementToDisplay()) != int(newVal/c.PhIncrementToDisplay()) {
+	if int(prevPh/c.PhIncrementToDisplay()) != int(newPh/c.PhIncrementToDisplay()) {
 		m.addUpdatedPoint(point)
 	}
 }
@@ -93,6 +98,26 @@ func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
 	m.updatedPoints[point.ToString()] = point
 }
 
+// simulate diffusion of ph across the environment by adjusting each
+// ph value toward its neighbors' values
 func (m *EnvironmentManager) diffusePhLevels() {
+	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
+	prev := m.getPreviousIndex()
+	diffFactor := c.PhDiffuseFactor()
+	// set each value in the current phMap to its value in the previous phMap, plus
+	// the average difference between itself and its N,S,E,W neighbors (times the
+	// diffusion factor provided by the config)
+	for x := 0; x < gridW; x++ {
+		for y := 0; y < gridH; y++ {
+			prevVal := m.phMap[prev][x][y]
 
+			nVal := m.phMap[prev][x][(y+1)%gridH]
+			sVal := m.phMap[prev][x][(y+gridH-1)%gridH]
+			eVal := m.phMap[prev][(x+1)%gridH][y]
+			wVal := m.phMap[prev][(x+gridH-1)%gridH][y]
+			change := (((nVal + sVal + eVal + wVal) / 4) - prevVal) * diffFactor
+
+			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
+		}
+	}
 }

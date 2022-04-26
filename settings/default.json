@@ -27,6 +27,7 @@
   "max_ph_tolerance_range": 5.0,
   "min_change_to_ph": -0.00001,
   "max_change_to_ph": 0.00001,
+  "ph_diffuse_factor": 0.5,
   "ph_increment_to_display": 0.5,
 
   "min_chance_to_mutate_decision_tree": 0.01,
