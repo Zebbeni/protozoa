@@ -9,6 +9,7 @@ import (
 // Info contains all information relevant to rendering an organism
 type Info struct {
 	ID         int
+	Health     float64
 	Location   utils.Point
 	Size       float64
 	Action     decision.Action

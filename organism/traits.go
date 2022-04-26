@@ -33,6 +33,16 @@ type Traits struct {
 	MinHealthToSpawn           float64
 	MinCyclesBetweenSpawns     int
 	ChanceToMutateDecisionTree float64
+	// IdealPh: the middle of the ph range the organism can tolerate without
+	// suffering health damage
+	IdealPh float64
+	// PhTolerance: the distance from IdealPh the organism can handle without
+	// suffering health effects due to ph
+	PhTolerance float64
+	// PhEffect: the effect organism has on the environment's ph level at its
+	// current location, a small positive or negative number which gets
+	// multiplied by the organism's current size
+	PhEffect float64
 }
 
 func newRandomTraits() Traits {
@@ -42,6 +52,9 @@ func newRandomTraits() Traits {
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
 	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns())
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
+	idealPh := rand.Float64()*(c.MaxIdealPh()-c.MinIdealPh()) + c.MinIdealPh()
+	phTolerance := rand.Float64() * c.MaxPhTolerance()
+	phEffect := rand.Float64()*(c.MaxOrganismPhEffect()*2.0) - c.MaxOrganismPhEffect()
 	return Traits{
 		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,
@@ -49,6 +62,9 @@ func newRandomTraits() Traits {
 		MinHealthToSpawn:           minHealthToSpawn,
 		MinCyclesBetweenSpawns:     minCyclesBetweenSpawns,
 		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
+		IdealPh:                    idealPh,
+		PhTolerance:                phTolerance,
+		PhEffect:                   phEffect,
 	}
 }
 
@@ -64,6 +80,12 @@ func (t Traits) copyMutated() Traits {
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.05, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
+	// phEffect = previous +- 0.001, bounded by MaxOrganismPhEffect (and -1 * MaxOrganismPhEffect)
+	phEffect := mutateFloat(t.PhEffect, 0.01, c.MaxOrganismPhEffect()*-1, c.MaxOrganismPhEffect())
+	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
+	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
+	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance
+	phTolerance := mutateFloat(t.PhTolerance, 0.1, c.MinPhTolerance(), c.MaxPhTolerance())
 	return Traits{
 		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,
@@ -71,6 +93,9 @@ func (t Traits) copyMutated() Traits {
 		MinHealthToSpawn:           minHealthToSpawn,
 		MinCyclesBetweenSpawns:     minCyclesBetweenSpawns,
 		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
+		IdealPh:                    idealPh,
+		PhTolerance:                phTolerance,
+		PhEffect:                   phEffect,
 	}
 }
 

@@ -42,6 +42,7 @@ func (d *Debug) render() *ebiten.Image {
 	info = fmt.Sprintf("%s\nTotalAlloc: %v", info, m.TotalAlloc/1024)
 	info = fmt.Sprintf("%s\nSys: %v", info, m.Sys/1024)
 	info = fmt.Sprintf("%s\nNumGC: %v", info, m.NumGC/1024)
+	info = fmt.Sprintf("%s\nEnvironmentUpdate: %7s", info, d.simulation.EnvironmentUpdateTime)
 	info = fmt.Sprintf("%s\nFoodUpdate:     %10s", info, d.simulation.FoodUpdateTime)
 	info = fmt.Sprintf("%s\nOrganismUpdate: %10s", info, d.simulation.OrganismUpdateTime)
 	info = fmt.Sprintf("%s\nTotal Update:   %10s", info, d.simulation.UpdateTime)

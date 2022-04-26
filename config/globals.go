@@ -31,6 +31,10 @@ func ChanceToAddOrganism() float64             { return constants.ChanceToAddOrg
 func ChanceToAddFoodItem() float64             { return constants.ChanceToAddFoodItem }
 func MaxFoodValue() int                        { return constants.MaxFoodValue }
 func MinFoodValue() int                        { return constants.MinFoodValue }
+func MinPh() float64                           { return constants.MinPh }
+func MaxPh() float64                           { return constants.MaxPh }
+func MinInitialPh() float64                    { return constants.MinInitialPh }
+func MaxInitialPh() float64                    { return constants.MaxInitialPh }
 func MaxCyclesBetweenSpawns() int              { return constants.MaxCyclesBetweenSpawns }
 func MinSpawnHealth() float64                  { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64           { return constants.MaxSpawnHealthPercent }
@@ -40,6 +44,13 @@ func MaxOrganisms() int                        { return constants.MaxOrganisms }
 func GrowthFactor() float64                    { return constants.GrowthFactor }
 func MaximumMaxSize() float64                  { return constants.MaximumMaxSize }
 func MinimumMaxSize() float64                  { return constants.MinimumMaxSize }
+func MinIdealPh() float64                      { return constants.MinIdealPh }
+func MaxIdealPh() float64                      { return constants.MaxIdealPh }
+func MinPhTolerance() float64                  { return constants.MinPhTolerance }
+func MaxPhTolerance() float64                  { return constants.MaxPhTolerance }
+func MaxOrganismPhEffect() float64             { return constants.MaxOrganismPhEffect }
+func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
+func PhDiffuseFactor() float64                 { return constants.PhDiffuseFactor }
 func HealthChangePerCycle() float64            { return constants.HealthChangePerCycle }
 func HealthChangeFromBeingIdle() float64       { return constants.HealthChangeFromBeingIdle }
 func HealthChangeFromTurning() float64         { return constants.HealthChangeFromTurning }
@@ -49,6 +60,7 @@ func HealthChangeFromAttacking() float64       { return constants.HealthChangeFr
 func HealthChangeInflictedByAttack() float64   { return constants.HealthChangeInflictedByAttack }
 func HealthChangeFromFeeding() float64         { return constants.HealthChangeFromFeeding }
 func HealthChangePerDecisionTreeNode() float64 { return constants.HealthChangePerDecisionTreeNode }
+func HealthChangePerUnhealthyPh() float64      { return constants.HealthChangePerCycleUnhealthyPh }
 func MaxDecisionTreeSize() int                 { return constants.MaxDecisionTreeSize }
 
 type Globals struct {
@@ -71,6 +83,10 @@ type Globals struct {
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
 	MaxFoodValue        int     `json:"max_food_value"`
 	MinFoodValue        int     `json:"min_food_value"`
+	MinPh               float64 `json:"min_ph"`
+	MaxPh               float64 `json:"max_ph"`
+	MinInitialPh        float64 `json:"min_initial_ph"`
+	MaxInitialPh        float64 `json:"max_initial_ph"`
 
 	// Organism parameters
 	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
@@ -83,6 +99,15 @@ type Globals struct {
 	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
 	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
+	MinIdealPh                    float64 `json:"min_ideal_ph"`
+	MaxIdealPh                    float64 `json:"max_ideal_ph"`
+	MinPhTolerance                float64 `json:"min_ph_tolerance"`
+	MaxPhTolerance                float64 `json:"max_ph_tolerance"`
+	MaxOrganismPhEffect           float64 `json:"max_organism_ph_effect"`
+	MinChangeToPh                 float64 `json:"min_change_to_ph"`
+	MaxChangeToPh                 float64 `json:"max_change_to_ph"`
+	PhIncrementToDisplay          float64 `json:"ph_increment_to_display"`
+	PhDiffuseFactor               float64 `json:"ph_diffuse_factor"`
 
 	// Health parameters (percent of organism size)
 	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`
@@ -94,6 +119,7 @@ type Globals struct {
 	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
 	HealthChangeFromFeeding         float64 `json:"health_change_from_feeding"`
 	HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
+	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
 }
 
 func LoadFile(filePath string) io.Reader {

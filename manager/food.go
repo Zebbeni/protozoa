@@ -11,18 +11,19 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	api         food.API
 	initialized bool
+
+	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
 
 	Items map[string]*food.Item
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(api food.API) *FoodManager {
+func NewFoodManager() *FoodManager {
 	m := &FoodManager{
-		api:         api,
-		initialized: false,
-		Items:       make(map[string]*food.Item),
+		initialized:   false,
+		updatedPoints: make(map[string]utils.Point),
+		Items:         make(map[string]*food.Item),
 	}
 	m.InitializeFood(config.InitialFood())
 	return m
@@ -55,7 +56,7 @@ func (m *FoodManager) AddRandomFoodItem() {
 	value := rand.Intn(config.MaxFoodValue())
 	point := utils.Point{X: x, Y: y}
 	if added := m.AddFoodAtPoint(point, value); added > 0 {
-		m.api.AddGridPointToUpdate(point)
+		m.addUpdatedPoint(point)
 	}
 }
 
@@ -66,7 +67,7 @@ func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) int {
 		return 0
 	}
 
-	m.api.AddGridPointToUpdate(point)
+	m.addUpdatedPoint(point)
 
 	locationString := point.ToString()
 	item, exists := m.Items[locationString]
@@ -99,7 +100,7 @@ func (m *FoodManager) RemoveFoodAtPoint(point utils.Point, value int) int {
 		return 0
 	}
 
-	m.api.AddGridPointToUpdate(point)
+	m.addUpdatedPoint(point)
 
 	originalValue := item.Value
 	item.Value -= value
@@ -124,4 +125,16 @@ func (m *FoodManager) GetFoodAtPoint(point utils.Point) *food.Item {
 // GetFoodItems returns the current list of food items
 func (m *FoodManager) GetFoodItems() map[string]*food.Item {
 	return m.Items
+}
+
+func (m *FoodManager) GetUpdatedPoints() map[string]utils.Point {
+	return m.updatedPoints
+}
+
+func (m *FoodManager) ClearUpdatedPoints() {
+	m.updatedPoints = make(map[string]utils.Point)
+}
+
+func (m *FoodManager) addUpdatedPoint(point utils.Point) {
+	m.updatedPoints[point.ToString()] = point
 }
