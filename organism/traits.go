@@ -80,8 +80,8 @@ func (t Traits) copyMutated() Traits {
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.05, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
-	// phEffect = previous +- 0.01, bounded by MaxOrganismPhEffect (and -1 * MaxOrganismPhEffect)
-	phEffect := mutateFloat(t.PhEffect, 0.01, c.MaxInitialPh()*-1, c.MaxOrganismPhEffect())
+	// phEffect = previous +- 0.001, bounded by MaxOrganismPhEffect (and -1 * MaxOrganismPhEffect)
+	phEffect := mutateFloat(t.PhEffect, 0.01, c.MaxOrganismPhEffect()*-1, c.MaxOrganismPhEffect())
 	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
 	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance

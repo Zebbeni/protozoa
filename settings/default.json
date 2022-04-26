@@ -22,11 +22,11 @@
   "max_ph": 10.0,
   "min_initial_ph": 4.5,
   "max_initial_ph": 5.5,
-  "min_ideal_ph": 3.0,
-  "max_ideal_ph": 7.0,
-  "min_ph_tolerance": 1.0,
-  "max_ph_tolerance": 3.0,
-  "max_organism_ph_effect": 0.001,
+  "min_ideal_ph": 2.0,
+  "max_ideal_ph": 8.0,
+  "min_ph_tolerance": 0.5,
+  "max_ph_tolerance": 2.0,
+  "max_organism_ph_effect": 0.01,
   "ph_diffuse_factor": 0.5,
   "ph_increment_to_display": 0.1,
 
@@ -47,5 +47,5 @@
   "health_change_inflicted_by_attack": -0.5,
   "health_change_from_feeding": -0.01,
   "health_change_per_decision_tree_node": -0.001,
-  "health_change_per_unhealthy_ph": -0.01
+  "health_change_per_unhealthy_ph": -0.1
 }

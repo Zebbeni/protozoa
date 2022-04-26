@@ -1,6 +1,7 @@
 package ux
 
 import (
+	"fmt"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
@@ -10,6 +11,7 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
 	"image/color"
 	"math"
@@ -33,7 +35,8 @@ var (
 	foodColor                                                      = colorful.HSLuv(120, 0.2, 0.25)
 	attackColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
 	selectColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
-	hoverColor                                                     = colorful.HSLuv(0.0, 0, 0.5)
+	hoverColor                                                     = colorful.HSLuv(0.0, 0, 0.7)
+	selectionInfoColor                                             = colorful.HSLuv(0.0, 0, 1.0)
 	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill *ebiten.Image
 )
 
@@ -117,9 +120,10 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
 	x := float64(gridX) * float64(config.GridUnitSize())
 	y := float64(gridY) * float64(config.GridUnitSize())
+	hue := (phVal / config.MaxPh()) * phMaxHue
 	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
 	light := sat
-	col := colorful.HSLuv((phVal/config.MaxPh())*phMaxHue, sat, light)
+	col := colorful.HSLuv(hue, sat, light)
 	g.drawSquare(envImage, x, y, sizeFill, col)
 }
 
@@ -167,11 +171,20 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 
 func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 	if g.mouseOnGrid {
+		infoColor := hoverColor
+		infoText := fmt.Sprintf("PH: %2.1f", g.simulation.GetPhAtPoint(g.mouseHoverLocation))
 		if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
-			g.renderSelection(g.mouseHoverLocation, selectionsImage, info.Color)
+			infoText += fmt.Sprintf("\nORG: %d", info.ID)
+			infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
+			infoColor = info.Color
 		} else {
-			g.renderSelection(g.mouseHoverLocation, selectionsImage, hoverColor)
+			if foodItem := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); foodItem != nil {
+				infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
+			}
 		}
+
+		g.renderSelection(g.mouseHoverLocation, selectionsImage, infoColor)
+		g.renderSelectionText(g.mouseHoverLocation, selectionsImage, infoText, selectionInfoColor)
 	}
 
 	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
@@ -199,6 +212,17 @@ func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col colorfu
 	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+float64(config.GridUnitSize())+3, col)                                                               // left
 	ebitenutil.DrawLine(img, x-2, y+float64(config.GridUnitSize())+3, x+float64(config.GridUnitSize())+3, y+float64(config.GridUnitSize())+3, col) // bottom
 	ebitenutil.DrawLine(img, x+float64(config.GridUnitSize())+3, y-2, x+float64(config.GridUnitSize())+3, y+float64(config.GridUnitSize())+3, col) // right
+}
+
+func (g *Grid) renderSelectionText(point utils.Point, img *ebiten.Image, message string, col colorful.Color) {
+	xPadding := 10
+	bounds := text.BoundString(resources.FontSourceCodePro10, message)
+	x := xPadding + config.GridUnitSize() + (point.X * config.GridUnitSize())
+	y := point.Y * config.GridUnitSize()
+	if x+bounds.Dx() > config.GridWidth() {
+		x = (point.X * config.GridUnitSize()) - xPadding - bounds.Dx()
+	}
+	text.Draw(img, message, resources.FontSourceCodePro10, x, y, col)
 }
 
 // renderFoodItem draws a food item to the given image

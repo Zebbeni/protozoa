@@ -24,8 +24,10 @@ var (
 	FontInversionz40 font.Face
 	// FontSourceCodePro12 is a size 12 SourceCodePro (Regular) font face
 	FontSourceCodePro12 font.Face
-	// FontSourceCodePro10 is a size 11 SourceCodePro (Regular) font face
+	// FontSourceCodePro10 is a size 10 SourceCodePro (Regular) font face
 	FontSourceCodePro10 font.Face
+	// FontSourceCodePro8 is a size 8 SourceCodePro (Regular) font face
+	FontSourceCodePro8 font.Face
 
 	// PlayButton is a 30x30 image
 	PlayButton *ebiten.Image
@@ -54,6 +56,7 @@ func initFonts() {
 	sourceCode := loadFont("resources/fonts/SourceCodePro-Regular.ttf")
 	FontSourceCodePro12 = fontFace(sourceCode, 12)
 	FontSourceCodePro10 = fontFace(sourceCode, 10)
+	FontSourceCodePro8 = fontFace(sourceCode, 8)
 }
 
 func initImages() {

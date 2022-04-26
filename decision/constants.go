@@ -72,9 +72,9 @@ var (
 		IsRandomFiftyPercent,
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
-		IsHealthyPhAhead,
-		IsHealthyPhLeft,
-		IsHealthyPhRight,
+		//IsHealthyPhAhead, <-- These don't seem to be much different in practice than checking 'here'
+		//IsHealthyPhLeft,
+		//IsHealthyPhRight,
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",

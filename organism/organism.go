@@ -93,6 +93,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 func (o *Organism) Info() *Info {
 	return &Info{
 		ID:         o.ID,
+		Health:     o.Health,
 		Location:   o.Location,
 		Size:       o.Size,
 		Action:     o.action,
