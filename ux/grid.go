@@ -1,19 +1,17 @@
 package ux
 
 import (
-	"github.com/Zebbeni/protozoa/resources"
-	"github.com/lucasb-eyer/go-colorful"
-	"image/color"
-
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/lucasb-eyer/go-colorful"
+	"image/color"
 )
 
 type size int
@@ -29,7 +27,7 @@ const (
 	phMinHue     = 0.0
 	phMaxHue     = 120.0
 	phSaturation = 0.5
-	phLightness  = 0.15
+	phLightness  = 0.2
 )
 
 var (
@@ -109,14 +107,11 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 		}
 	} else {
 		envImage.DrawImage(g.previousEnvImage, nil)
-		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
+		updatedPoints := g.simulation.GetUpdatedPhPoints()
 		for _, point := range updatedPoints {
 			// clear square to be updated
-			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
-			g.clearSquare(envImage, float64(x), float64(y))
-
 			phVal := g.simulation.GetPhAtPoint(point)
-			g.renderPhValue(envImage, x, y, phVal)
+			g.renderPhValue(envImage, point.X, point.Y, phVal)
 		}
 	}
 }
@@ -271,9 +266,10 @@ func (g *Grid) drawSquare(img *ebiten.Image, x, y float64, sz size, col colorful
 }
 
 func (g *Grid) clearSquare(img *ebiten.Image, x, y float64) {
-	squareImg := squareImgLarge
+	squareImg := squareImgFill
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(x, y)
+	op.ColorM.Translate(0, 0, 0, 1.0)
 	op.CompositeMode = ebiten.CompositeModeDestinationOut
 
 	img.DrawImage(squareImg, op)
