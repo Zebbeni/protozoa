@@ -32,6 +32,7 @@ func (r *Runner) handleUserInput() {
 
 func (r *Runner) Draw(screen *ebiten.Image) {
 	r.ui.Render(screen)
+	r.sim.ClearUpdatedPoints()
 }
 
 func (r *Runner) Layout(_, _ int) (int, int) {
@@ -61,6 +62,11 @@ func RunSimulation(opts *c.Options) {
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
 		sim := simulation.NewSimulation(opts)
+		//for sim.Cycle() < -1 {
+		//	sim.Update()
+		//	fmt.Printf("\nCycle: %5d, organisms: %5d", sim.Cycle(), sim.OrganismCount())
+		//}
+
 		ui := ux.NewInterface(sim)
 		gameRunner := &Runner{
 			sim:         sim,
@@ -70,7 +76,6 @@ func RunSimulation(opts *c.Options) {
 
 		ebiten.SetWindowResizable(true)
 		ebiten.SetScreenClearedEveryFrame(false)
-
 		if err := ebiten.RunGame(gameRunner); err != nil {
 			log.Fatal(err)
 		}

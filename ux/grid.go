@@ -88,8 +88,6 @@ func (g *Grid) Render() *ebiten.Image {
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
 
-	g.simulation.ClearUpdatedPoints()
-
 	gridImage.DrawImage(envImage, nil)
 	gridImage.DrawImage(foodImage, nil)
 	gridImage.DrawImage(orgsImage, nil)

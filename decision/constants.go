@@ -11,7 +11,7 @@ const (
 	ActAttack Action = iota
 	ActFeed
 	ActEat
-	ActIdle
+	ActChemosynthesis
 	ActMove
 	ActTurnLeft
 	ActTurnRight
@@ -46,7 +46,7 @@ var (
 		ActAttack,
 		ActFeed,
 		ActEat,
-		ActIdle,
+		ActChemosynthesis,
 		ActMove,
 		ActTurnLeft,
 		ActTurnRight,
@@ -72,15 +72,12 @@ var (
 		IsRandomFiftyPercent,
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
-		//IsHealthyPhAhead, <-- These don't seem to be much different in practice than checking 'here'
-		//IsHealthyPhLeft,
-		//IsHealthyPhRight,
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",
 		ActFeed:                   "Feed",
 		ActEat:                    "Eat",
-		ActIdle:                   "Be Idle",
+		ActChemosynthesis:         "Chemosynthesis",
 		ActMove:                   "Move Ahead",
 		ActTurnLeft:               "Turn Left",
 		ActTurnRight:              "Turn Right",
@@ -104,8 +101,5 @@ var (
 		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 		IsHealthyPhHere:           "IsHealthyPhHere",
-		IsHealthyPhAhead:          "IsHealthyPhAhead",
-		IsHealthyPhLeft:           "IsHealthyPhLeft",
-		IsHealthyPhRight:          "IsHealthyPhRight",
 	}
 )

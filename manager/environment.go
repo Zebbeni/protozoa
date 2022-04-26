@@ -113,8 +113,8 @@ func (m *EnvironmentManager) diffusePhLevels() {
 
 			nVal := m.phMap[prev][x][(y+1)%gridH]
 			sVal := m.phMap[prev][x][(y+gridH-1)%gridH]
-			eVal := m.phMap[prev][(x+1)%gridH][y]
-			wVal := m.phMap[prev][(x+gridH-1)%gridH][y]
+			eVal := m.phMap[prev][(x+1)%gridW][y]
+			wVal := m.phMap[prev][(x+gridW-1)%gridW][y]
 			change := (((nVal + sVal + eVal + wVal) / 4) - prevVal) * diffFactor
 
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)

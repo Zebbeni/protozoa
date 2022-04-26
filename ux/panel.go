@@ -85,9 +85,9 @@ func (p *Panel) renderPlayPauseText(panelImage *ebiten.Image) {
 		message = "[Space] to Resume"
 	}
 
-	bounds := text.BoundString(r.FontSourceCodePro12, message)
+	bounds := text.BoundString(r.FontSourceCodePro10, message)
 	xOffset := panelWidth - playXOffset - bounds.Dx()
-	text.Draw(panelImage, message, r.FontSourceCodePro12, xOffset, playYOffset+bounds.Dy(), color.White)
+	text.Draw(panelImage, message, r.FontSourceCodePro10, xOffset, playYOffset+bounds.Dy(), color.White)
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image) {
@@ -126,11 +126,11 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	}
 	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
 
-	infoString := fmt.Sprintf("ORGANISM ID:  %7d       HEALTH:      %3.0f%%", info.ID, 100.0*info.Health/info.Size)
-	infoString += fmt.Sprintf("\nANCESTOR ID:  %7d       SIZE:       %5.2f", info.AncestorID, info.Size)
-	infoString += fmt.Sprintf("\nAGE:          %7d       CHILDREN: %7d", info.Age, info.Children)
-	infoString += fmt.Sprintf("\nMUTATE CHANCE:   %3.0f%%       SPAWN TIME: %5d", traits.ChanceToMutateDecisionTree*100.0, traits.MinCyclesBetweenSpawns)
-	infoString += fmt.Sprintf("\nPH TOLERANCE: %1.1f-%1.1f       PH EFFECT: %1.4f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect*info.Size)
+	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:        %3.2f", info.ID, info.Health)
+	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
+	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
+	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN TIME:   %5d", traits.ChanceToMutateDecisionTree*100.0, traits.MinCyclesBetweenSpawns)
+	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT:  %1.4f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect*info.Size)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 

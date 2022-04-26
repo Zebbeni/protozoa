@@ -41,6 +41,9 @@ type Organism struct {
 func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits()
 	decisionTree := d.TreeFromAction(d.GetRandomAction())
+	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
+		decisionTree = d.MutateTree(decisionTree)
+	}
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -55,7 +58,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 
 		traits:       traits,
 		decisionTree: decisionTree,
-		action:       d.ActIdle,
+		action:       d.ActChemosynthesis,
 
 		lookupAPI: api,
 	}
@@ -83,7 +86,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 
 		traits:       traits,
 		decisionTree: inheritedTree,
-		action:       d.ActIdle,
+		action:       d.ActChemosynthesis,
 
 		lookupAPI: api,
 	}
