@@ -200,12 +200,6 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.Health > o.Size*0.5
 	case d.IsHealthyPhHere:
 		return o.isHealthyPhHere()
-	case d.IsHealthyPhAhead:
-		return o.isHealthyPhAhead()
-	case d.IsHealthyPhLeft:
-		return o.isHealthyPhLeft()
-	case d.IsHealthyPhRight:
-		return o.isHealthyPhRight()
 	}
 	return false
 }
@@ -347,18 +341,6 @@ func (o *Organism) isRelatedOrganismRight() bool {
 
 func (o *Organism) isHealthyPhHere() bool {
 	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, o.Traits().PhTolerance)
-}
-
-func (o *Organism) isHealthyPhAhead() bool {
-	return o.isPhHealthyAtPoint(o.Location.Add(o.Direction), o.Traits().IdealPh, o.Traits().PhTolerance)
-}
-
-func (o *Organism) isHealthyPhLeft() bool {
-	return o.isPhHealthyAtPoint(o.Location.Add(o.Direction.Left()), o.Traits().IdealPh, o.Traits().PhTolerance)
-}
-
-func (o *Organism) isHealthyPhRight() bool {
-	return o.isPhHealthyAtPoint(o.Location.Add(o.Direction.Right()), o.Traits().IdealPh, o.Traits().PhTolerance)
 }
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {

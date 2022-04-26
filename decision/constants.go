@@ -35,9 +35,6 @@ const (
 	IsRandomFiftyPercent
 	IsHealthAboveFiftyPercent
 	IsHealthyPhHere
-	IsHealthyPhAhead
-	IsHealthyPhLeft
-	IsHealthyPhRight
 )
 
 // Define slices
