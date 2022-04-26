@@ -175,24 +175,14 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isOrganismAhead()
 	case d.IsBiggerOrganismAhead:
 		return o.isBiggerOrganismAhead()
-	case d.IsSmallerOrganismAhead:
-		return o.isSmallerOrganismAhead()
 	case d.IsRelatedOrganismAhead:
 		return o.isRelatedOrganismAhead()
 	case d.IsOrganismLeft:
 		return o.isOrganismLeft()
-	case d.IsBiggerOrganismLeft:
-		return o.isBiggerOrganismLeft()
-	case d.IsSmallerOrganismLeft:
-		return o.isSmallerOrganismLeft()
 	case d.IsRelatedOrganismLeft:
 		return o.isRelatedOrganismLeft()
 	case d.IsOrganismRight:
 		return o.isOrganismRight()
-	case d.IsBiggerOrganismRight:
-		return o.isBiggerOrganismRight()
-	case d.IsSmallerOrganismRight:
-		return o.isSmallerOrganismRight()
 	case d.IsRelatedOrganismRight:
 		return o.isRelatedOrganismRight()
 	case d.IsRandomFiftyPercent:
@@ -300,10 +290,6 @@ func (o *Organism) isBiggerOrganismAhead() bool {
 	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
-func (o *Organism) isSmallerOrganismAhead() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction))
-}
-
 func (o *Organism) isRelatedOrganismAhead() bool {
 	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction))
 }
@@ -312,28 +298,12 @@ func (o *Organism) isOrganismLeft() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
-func (o *Organism) isBiggerOrganismLeft() bool {
-	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Left()))
-}
-
-func (o *Organism) isSmallerOrganismLeft() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Left()))
-}
-
 func (o *Organism) isRelatedOrganismLeft() bool {
 	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
 func (o *Organism) isOrganismRight() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
-}
-
-func (o *Organism) isBiggerOrganismRight() bool {
-	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction.Right()))
-}
-
-func (o *Organism) isSmallerOrganismRight() bool {
-	return o.isSmallerOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isRelatedOrganismRight() bool {
@@ -347,12 +317,6 @@ func (o *Organism) isHealthyPhHere() bool {
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
 		return x != nil && x.Size > o.Size
-	})
-}
-
-func (o *Organism) isSmallerOrganismAtPoint(p utils.Point) bool {
-	return o.lookupAPI.CheckOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.Size < o.Size
 	})
 }
 

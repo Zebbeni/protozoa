@@ -41,7 +41,7 @@ func (r *Runner) Layout(_, _ int) (int, int) {
 
 func RunSimulation(opts *c.Options) {
 	resources.Init()
-	rand.Seed(1)
+	rand.Seed(100)
 
 	if opts.IsHeadless {
 		sumAllCycles := 0

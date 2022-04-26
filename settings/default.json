@@ -1,7 +1,7 @@
 {
   "initial_food": 5000,
   "initial_organisms": 1000,
-  "initial_organism_decision_tree_mutations": 10,
+  "initial_organism_decision_tree_mutations": 5,
   "grid_unit_size": 4,
   "grid_width": 1000,
   "grid_height": 800,
@@ -27,8 +27,8 @@
   "max_ideal_ph": 9.0,
   "min_ph_tolerance": 0.7,
   "max_ph_tolerance": 0.9,
-  "max_organism_ph_effect": 0.05,
-  "ph_diffuse_factor": 0.5,
+  "max_organism_ph_effect": 0.02,
+  "ph_diffuse_factor": 0.2,
   "ph_increment_to_display": 0.1,
 
   "min_chance_to_mutate_decision_tree": 0.01,

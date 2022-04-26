@@ -108,7 +108,11 @@ func (n *Node) print(indent string, first, last bool) string {
 		toPrint = fmt.Sprintf("%s├─", toPrint)
 		newIndent = fmt.Sprintf("%s│ ", newIndent)
 	}
-	toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[n.NodeType])
+	if n.UsedLastCycle {
+		toPrint = fmt.Sprintf("%s%s ◀◀\n", toPrint, Map[n.NodeType])
+	} else {
+		toPrint = fmt.Sprintf("%s%s\n", toPrint, Map[n.NodeType])
+	}
 	if n.IsCondition() {
 		toPrint = fmt.Sprintf("%s%s", toPrint, n.YesNode.print(newIndent, false, false))
 		toPrint = fmt.Sprintf("%s%s", toPrint, n.NoNode.print(newIndent, false, true))

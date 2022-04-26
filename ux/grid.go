@@ -62,6 +62,7 @@ type Grid struct {
 
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
+	doRefresh          bool
 	viewMode           mode
 }
 
@@ -71,6 +72,7 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 		previousEnvImage:  newBlankLayer(),
 		previousFoodImage: newBlankLayer(),
 		previousOrgsImage: newBlankLayer(),
+		doRefresh:         true,
 		viewMode:          orgsPhMode,
 	}
 	loadOrganismImages()
@@ -92,11 +94,9 @@ func (g *Grid) Render() *ebiten.Image {
 	selImage := newBlankLayer()
 	gridImage := newBlankLayer()
 
-	doRefresh := g.shouldRefresh()
-
-	g.renderEnvironment(envImage, doRefresh)
-	g.renderFood(foodImage, doRefresh)
-	g.renderOrganisms(orgsImage, doRefresh)
+	g.renderEnvironment(envImage, g.doRefresh)
+	g.renderFood(foodImage, g.doRefresh)
+	g.renderOrganisms(orgsImage, g.doRefresh)
 	g.renderSelections(selImage)
 
 	g.previousEnvImage = envImage
@@ -110,6 +110,8 @@ func (g *Grid) Render() *ebiten.Image {
 	gridImage.DrawImage(foodImage, nil)
 	gridImage.DrawImage(orgsImage, nil)
 	gridImage.DrawImage(selImage, nil)
+
+	g.doRefresh = false
 
 	return gridImage
 }
@@ -209,10 +211,6 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 	}
 }
 
-func (g *Grid) shouldRefresh() bool {
-	return g.simulation.Cycle() == 0
-}
-
 func newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(config.GridWidth(), config.GridHeight())
 }
@@ -220,6 +218,7 @@ func newBlankLayer() *ebiten.Image {
 // ChangeMode switches to the next mode listed in viewModes
 func (g *Grid) ChangeMode() {
 	g.viewMode = viewModes[(int(g.viewMode)+1)%len(viewModes)]
+	g.doRefresh = true
 }
 
 func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
@@ -291,9 +290,10 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 
 	if g.viewMode == orgsPhEffectsMode {
 		maxEffect := config.MaxOrganismPhEffect()
-		hue := phMaxHue * (maxEffect + info.PhEffect) / (2 * maxEffect)
-		sat := 1.0
-		light := 0.5
+		spectrumValue := (maxEffect + info.PhEffect) / (2 * maxEffect)
+		hue := phMaxHue * spectrumValue
+		sat := 0.25 + math.Abs(spectrumValue-0.5)
+		light := 0.25 + math.Abs(spectrumValue-0.5)
 		organismColor = colorful.HSLuv(hue, sat, light)
 	}
 
