@@ -62,10 +62,6 @@ func RunSimulation(opts *c.Options) {
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
 		sim := simulation.NewSimulation(opts)
-		//for sim.Cycle() < -1 {
-		//	sim.Update()
-		//	fmt.Printf("\nCycle: %5d, organisms: %5d", sim.Cycle(), sim.OrganismCount())
-		//}
 
 		ui := ux.NewInterface(sim)
 		gameRunner := &Runner{

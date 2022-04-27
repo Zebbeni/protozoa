@@ -9,7 +9,6 @@
   "screen_width": 1400,
   "screen_height": 800,
   "population_update_interval": 100,
-  "chance_to_add_organism": 1.0,
   "chance_to_add_food_item": 0.1,
   "max_food_value": 100,
   "min_food_value": 2,
