@@ -364,7 +364,7 @@ func (m *OrganismManager) applyPhHealthEffects(o *organism.Organism) {
 	phDist := math.Abs(o.Traits().IdealPh - m.api.GetPhAtPoint(o.Location))
 	if phDist > o.Traits().PhTolerance {
 		effect := (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
-		o.ApplyHealthChange(effect)
+		o.ApplyHealthChange(effect * o.Size)
 	}
 }
 

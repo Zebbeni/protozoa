@@ -1,12 +1,11 @@
 {
-  "initial_food": 5000,
-  "initial_organisms": 1000,
-  "initial_organism_decision_tree_mutations": 5,
-  "grid_unit_size": 4,
+  "initial_food": 3200,
+  "initial_organisms": 640,
+  "grid_unit_size": 5,
   "grid_width": 1000,
   "grid_height": 800,
-  "grid_units_wide": 250,
-  "grid_units_high": 200,
+  "grid_units_wide": 200,
+  "grid_units_high": 160,
   "screen_width": 1400,
   "screen_height": 800,
   "population_update_interval": 100,
@@ -31,6 +30,7 @@
   "ph_diffuse_factor": 0.2,
   "ph_increment_to_display": 0.1,
 
+  "initial_organism_decision_tree_mutations": 5,
   "min_chance_to_mutate_decision_tree": 0.01,
   "max_chance_to_mutate_decision_tree": 1.00,
   "max_decision_tree_size": 32,
@@ -49,5 +49,5 @@
   "health_change_inflicted_by_attack": -1.0,
   "health_change_from_feeding": -0.01,
   "health_change_per_decision_tree_node": -0.001,
-  "health_change_per_unhealthy_ph": -2.0
+  "health_change_per_unhealthy_ph": -0.01
 }

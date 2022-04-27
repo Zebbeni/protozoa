@@ -1,4 +1,6 @@
 {
+  "initial_food": 5000,
+  "initial_organisms": 1000,
   "grid_unit_size": 4,
   "grid_width": 1000,
   "grid_height": 800,
