@@ -71,7 +71,7 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **Feed -** _transfers a small amount of health to any organism directly ahead- deposits this amount as food if no organism ahead_
 
 ##### Decision Tree Health Effects
-Because decision trees are randomly generated and mutated, many trees will have areas of redundancy and illogic, containing branches that have no logical possibility of ever being reached. As a way to reward logical, efficient algorithms, Organisms lose a very small amount of health each cycle for every node in their decision tree, as a way to simulate the energy needed to process complicated decision-making algorithms. Over time, subsequent mutations to successful algorithms serve to iron out some areas of illogic and produce more successful organisms.
+Because decision trees are randomly generated and mutated, many trees will have areas of redundancy and illogic, containing branches that have no possibility of ever being reached. As a way to reward logical algorithms, Organisms lose a very small amount of health each cycle for every node in their decision tree, as a way to simulate the energy needed to process complicated decision-making. Thus, over time, subsequent mutations to decision trees should allow more efficient organisms to outpace those with similar behaviors but less efficient algorithms.
 
 #### Display
 Clicking on an organism in the simulation grid will display its traits and decision tree in the left-hand panel, as shown:
