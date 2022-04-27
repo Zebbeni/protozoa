@@ -7,19 +7,23 @@ Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
 ![Demo](https://user-images.githubusercontent.com/3377325/165461211-7025ac40-121f-4fbf-a068-e9eabc054dac.gif)
 
 ## Simulation Rules 
-The simulation starts by randomly generating a number of organisms and food items on a 2D grid. 
-Each render cycle, organisms  choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms who survive long enough can spawn offspring, passing on their decision trees and genetic traits and propagating successful behaviors. 
+Each simulation run begins by generating a number of organisms and food items at random on a 2D grid. 
+Each render cycle, organisms must choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms who survive long enough can spawn offspring, passing on their decision trees and genetic traits and propagating successful behaviors.
 
 ### Environment
 The environment consists of a simple 2D wraparound grid where each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
 
-Low ph (acidic) locations appear pink, while high ph (alkaline) locations are green. Neutral ph locations (~5.0 ph) appear black.
-
 Each cycle, ph values diffuse between neighboring grid locations at a regular rate, such that the whole environment will gradually approach a single ph value in the absence of organism activity.
+
+Low ph (acidic) locations appear pink, high ph (alkaline) locations are green, and neutral locations (~5.0 ph) are black.
+
+<img src="https://user-images.githubusercontent.com/3377325/165464843-372bce5d-d150-4ffd-89ac-138aaa45787d.png" width="300">
 
 ### Food
 
-Food items are represented by 
+Food items are generated at a regular rate throughout the simulation and placed randomly on the grid. Each food item is represented by a dull gray square and contain a value between 0 and 100, representing the amount of 'food' it contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health.
+
+![Food Items](https://user-images.githubusercontent.com/3377325/165467819-fb51b843-5fe3-422c-adf3-21212d65b1e3.png)
 
 ### Organisms
 
