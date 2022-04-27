@@ -24,7 +24,6 @@ func GridUnitsWide() int                       { return constants.GridUnitsWide 
 func GridUnitsHigh() int                       { return constants.GridUnitsHigh }
 func ScreenWidth() int                         { return constants.ScreenWidth }
 func ScreenHeight() int                        { return constants.ScreenHeight }
-func PopulationUpdateInterval() int            { return constants.PopulationUpdateInterval }
 func InitialOrganisms() int                    { return constants.InitialOrganisms }
 func InitialFood() int                         { return constants.InitialFood }
 func ChanceToAddOrganism() float64             { return constants.ChanceToAddOrganism }
@@ -74,9 +73,6 @@ type Globals struct {
 	GridUnitsHigh int `json:"grid_units_high"`
 	ScreenWidth   int `json:"screen_width"`
 	ScreenHeight  int `json:"screen_height"`
-
-	// Statistics parameters
-	PopulationUpdateInterval int `json:"population_update_interval"`
 
 	// Environment parameters
 	InitialOrganisms    int     `json:"initial_organisms"`

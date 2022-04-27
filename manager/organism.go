@@ -29,8 +29,7 @@ type OrganismManager struct {
 	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
 
 	originalAncestorsSorted []int
-	originalAncestorColors  map[int]color.Color   // all original ancestor IDs with at least one descendant
-	populationHistory       map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
+	originalAncestorColors  map[int]color.Color // all original ancestor IDs with at least one descendant
 
 	UpdateDuration, ResolveDuration time.Duration
 }
@@ -47,7 +46,6 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		newOrganismIDs:         make([]int, 0, 100),
 		updatedPoints:          make(map[string]utils.Point),
 		originalAncestorColors: make(map[int]color.Color),
-		populationHistory:      make(map[int]map[int]int16),
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -78,35 +76,6 @@ func (m *OrganismManager) Update() {
 	}
 	m.ResolveDuration = time.Since(start)
 	m.updateOrganismOrder()
-	m.updateHistory()
-}
-
-// updateHistory updates the population map for all living organisms
-func (m *OrganismManager) updateHistory() {
-	cycle := m.api.Cycle()
-	if cycle%c.PopulationUpdateInterval() != 0 {
-		return
-	}
-
-	populationMap := make(map[int]int16)
-	for _, o := range m.organisms {
-		if o.OriginalAncestorID == o.ID {
-			continue
-		}
-
-		if _, ok := populationMap[o.OriginalAncestorID]; !ok {
-			populationMap[o.OriginalAncestorID] = 0
-		}
-		populationMap[o.OriginalAncestorID]++
-	}
-
-	m.populationHistory[cycle] = populationMap
-}
-
-// GetHistory returns the full population history of all original ancestors as a
-// map of cycles to maps of ancestorIDs to the living descendants at that time
-func (m *OrganismManager) GetHistory() map[int]map[int]int16 {
-	return m.populationHistory
 }
 
 // GetAncestorColors returns a map all original ancestor IDs to their color
