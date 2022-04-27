@@ -8,7 +8,7 @@ Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Simulation Rules 
 Each simulation run begins by generating a number of organisms and food items at random on a 2D grid. 
-Each render cycle, organisms must choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms who survive long enough can spawn offspring, passing on their decision trees and genetic traits and propagating successful behaviors.
+Each render cycle, organisms must choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms that survive long enough can spawn nearly identical offspring, thus propagating successful traits and behaviors.
 
 ### Environment
 The environment consists of a simple 2D wraparound grid where each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
@@ -21,7 +21,9 @@ Low ph (acidic) locations appear pink, high ph (alkaline) locations are green, a
 
 ### Food
 
-Food items are generated at a regular rate throughout the simulation and placed randomly on the grid. Each food item is represented by a dull gray square and contain a value between 0 and 100, representing the amount of 'food' it contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health.
+Food items are generated at a regular rate throughout the simulation and placed randomly on the grid. Each food item is represented by a dark gray square and contains a value between 0 and 100, representing how much 'food' the food item contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health. If a food item's value is reduced to 0, it disappears from the grid. Conversely, when an organism dies it is immediately replaced with a food item, whose value is set equal to the organism's size at death.
+
+Apart from feeding organisms, food items also prevent movement. Organisms and food items cannot occupy the same location, and an organism facing a food item directly ahead cannot move through it.
 
 ![Food Items](https://user-images.githubusercontent.com/3377325/165467819-fb51b843-5fe3-422c-adf3-21212d65b1e3.png)
 
