@@ -19,7 +19,7 @@ const (
 	titleXOffset = padding
 	titleYOffset = padding
 	playXOffset  = padding
-	playYOffset  = padding
+	playYOffset  = 0
 
 	statsXOffset = padding
 	statsYOffset = 69
@@ -52,7 +52,7 @@ func (p *Panel) Render() *ebiten.Image {
 	if p.shouldRefresh() {
 		p.renderDividingLine(panelImage)
 		p.renderTitle(panelImage)
-		p.renderPlayPauseText(panelImage)
+		p.renderKeyBindingText(panelImage)
 		p.renderStats(panelImage)
 		p.renderGraph(panelImage)
 		p.renderSelected(panelImage)
@@ -79,10 +79,10 @@ func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
 }
 
-func (p *Panel) renderPlayPauseText(panelImage *ebiten.Image) {
-	message := "[Space] to Pause"
+func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
+	message := "[Space] to Pause\n[M] to Change Mode"
 	if p.simulation.IsPaused() {
-		message = "[Space] to Resume"
+		message = "[Space] to Resume\n[M] to Change Mode"
 	}
 
 	bounds := text.BoundString(r.FontSourceCodePro10, message)
@@ -130,7 +130,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
 	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN TIME:   %5d", traits.ChanceToMutateDecisionTree*100.0, traits.MinCyclesBetweenSpawns)
-	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT:  %1.4f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect*info.Size)
+	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 

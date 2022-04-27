@@ -22,15 +22,10 @@ const (
 	IsFoodRight
 	IsOrganismAhead
 	IsBiggerOrganismAhead
-	IsSmallerOrganismAhead
 	IsRelatedOrganismAhead
 	IsOrganismLeft
-	IsBiggerOrganismLeft
-	IsSmallerOrganismLeft
 	IsRelatedOrganismLeft
 	IsOrganismRight
-	IsBiggerOrganismRight
-	IsSmallerOrganismRight
 	IsRelatedOrganismRight
 	IsRandomFiftyPercent
 	IsHealthAboveFiftyPercent
@@ -56,15 +51,10 @@ var (
 		IsFoodRight,
 		IsOrganismAhead,
 		IsBiggerOrganismAhead,
-		IsSmallerOrganismAhead,
 		IsRelatedOrganismAhead,
 		IsOrganismLeft,
-		IsBiggerOrganismLeft,
-		IsSmallerOrganismLeft,
 		IsRelatedOrganismLeft,
 		IsOrganismRight,
-		IsBiggerOrganismRight,
-		IsSmallerOrganismRight,
 		IsRelatedOrganismRight,
 		IsRandomFiftyPercent,
 		IsHealthAboveFiftyPercent,
@@ -85,15 +75,10 @@ var (
 		IsFoodRight:               "If Food Right",
 		IsOrganismAhead:           "If Organism Ahead",
 		IsBiggerOrganismAhead:     "If Bigger Organism Ahead",
-		IsSmallerOrganismAhead:    "If Smaller Organism Ahead",
 		IsRelatedOrganismAhead:    "If Related Organism Ahead",
 		IsOrganismLeft:            "If Organism Left",
-		IsBiggerOrganismLeft:      "If Bigger Organism Left",
-		IsSmallerOrganismLeft:     "If Smaller Organism Left",
 		IsRelatedOrganismLeft:     "If Related Organism Left",
 		IsOrganismRight:           "If Organism Right",
-		IsBiggerOrganismRight:     "If Bigger Organism Right",
-		IsSmallerOrganismRight:    "If Smaller Organism Right",
 		IsRelatedOrganismRight:    "If Related Organism Right",
 		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",

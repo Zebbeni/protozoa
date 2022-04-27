@@ -34,6 +34,10 @@ func NewGraph(sim *s.Simulation) *Graph {
 // population bar instead of re-rendering the full history. We can scale it down
 // to whatever dimensions we need when we return it.
 func (g *Graph) Render() *ebiten.Image {
+	if g.simulation.IsPaused() {
+		return g.graphImage
+	}
+
 	var img *ebiten.Image
 	if g.shouldRefresh() {
 		img = g.renderAll()

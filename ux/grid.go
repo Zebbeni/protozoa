@@ -13,11 +13,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
-	"image/color"
 	"math"
 )
 
 type size int
+type mode int
 
 const (
 	sizeSmall size = iota
@@ -26,18 +26,31 @@ const (
 	sizeFill
 )
 
+// use separate constant group to ensure orgsPhMode starts at 0
+const (
+	orgsPhMode mode = iota
+	orgsPhEffectsMode
+	organismsOnlyMode
+)
+
 const (
 	phMaxHue = 120.0
 )
 
 var (
-	clearColor                                                     = color.Alpha{A: 0x00}
-	foodColor                                                      = colorful.HSLuv(120, 0.2, 0.25)
-	attackColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
-	selectColor                                                    = colorful.HSLuv(0.0, 255.0, 1.0)
-	hoverColor                                                     = colorful.HSLuv(0.0, 0, 0.7)
-	selectionInfoColor                                             = colorful.HSLuv(0.0, 0, 1.0)
 	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill *ebiten.Image
+
+	foodColor          = colorful.HSLuv(120, 0.2, 0.25)
+	attackColor        = colorful.HSLuv(0.0, 255.0, 1.0)
+	selectColor        = colorful.HSLuv(0.0, 255.0, 1.0)
+	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
+	selectionInfoColor = colorful.HSLuv(0.0, 0, 1.0)
+	viewModes          = []mode{orgsPhMode, orgsPhEffectsMode, organismsOnlyMode}
+	viewModeNames      = map[mode]string{
+		orgsPhMode:        "ORGANISMS & PH",
+		orgsPhEffectsMode: "ORGANISMS & PH EFFECTS",
+		organismsOnlyMode: "ORGANISMS ONLY",
+	}
 )
 
 type Grid struct {
@@ -49,6 +62,8 @@ type Grid struct {
 
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
+	doRefresh          bool
+	viewMode           mode
 }
 
 func NewGrid(simulation *simulation.Simulation) *Grid {
@@ -57,6 +72,8 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 		previousEnvImage:  newBlankLayer(),
 		previousFoodImage: newBlankLayer(),
 		previousOrgsImage: newBlankLayer(),
+		doRefresh:         true,
+		viewMode:          orgsPhMode,
 	}
 	loadOrganismImages()
 	return g
@@ -77,21 +94,24 @@ func (g *Grid) Render() *ebiten.Image {
 	selImage := newBlankLayer()
 	gridImage := newBlankLayer()
 
-	doRefresh := g.shouldRefresh()
-
-	g.renderEnvironment(envImage, doRefresh)
-	g.renderFood(foodImage, doRefresh)
-	g.renderOrganisms(orgsImage, doRefresh)
+	g.renderEnvironment(envImage, g.doRefresh)
+	g.renderFood(foodImage, g.doRefresh)
+	g.renderOrganisms(orgsImage, g.doRefresh)
 	g.renderSelections(selImage)
 
 	g.previousEnvImage = envImage
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
 
-	gridImage.DrawImage(envImage, nil)
+	if g.viewMode != organismsOnlyMode {
+		gridImage.DrawImage(envImage, nil)
+	}
+
 	gridImage.DrawImage(foodImage, nil)
 	gridImage.DrawImage(orgsImage, nil)
 	gridImage.DrawImage(selImage, nil)
+
+	g.doRefresh = false
 
 	return gridImage
 }
@@ -183,6 +203,7 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 
 		g.renderSelection(g.mouseHoverLocation, selectionsImage, infoColor)
 		g.renderSelectionText(g.mouseHoverLocation, selectionsImage, infoText, selectionInfoColor)
+		g.renderViewModeName(selectionsImage)
 	}
 
 	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
@@ -190,12 +211,14 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 	}
 }
 
-func (g *Grid) shouldRefresh() bool {
-	return g.simulation.Cycle() == 0
-}
-
 func newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(config.GridWidth(), config.GridHeight())
+}
+
+// ChangeMode switches to the next mode listed in viewModes
+func (g *Grid) ChangeMode() {
+	g.viewMode = viewModes[(int(g.viewMode)+1)%len(viewModes)]
+	g.doRefresh = true
 }
 
 func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
@@ -221,6 +244,14 @@ func (g *Grid) renderSelectionText(point utils.Point, img *ebiten.Image, message
 		x = (point.X * config.GridUnitSize()) - xPadding - bounds.Dx()
 	}
 	text.Draw(img, message, resources.FontSourceCodePro10, x, y, col)
+}
+
+func (g *Grid) renderViewModeName(img *ebiten.Image) {
+	xPadding := 10
+	yPadding := 20
+	x := xPadding
+	y := yPadding
+	text.Draw(img, viewModeNames[g.viewMode], resources.FontSourceCodePro10, x, y, selectionInfoColor)
 }
 
 // renderFoodItem draws a food item to the given image
@@ -256,6 +287,16 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	}
 
 	organismColor := info.Color
+
+	if g.viewMode == orgsPhEffectsMode {
+		maxEffect := config.MaxOrganismPhEffect()
+		spectrumValue := (maxEffect + info.PhEffect) / (2 * maxEffect)
+		hue := phMaxHue * spectrumValue
+		sat := 0.25 + math.Abs(spectrumValue-0.5)
+		light := 0.25 + math.Abs(spectrumValue-0.5)
+		organismColor = colorful.HSLuv(hue, sat, light)
+	}
+
 	if info.Action == decision.ActAttack {
 		organismColor = attackColor
 	}

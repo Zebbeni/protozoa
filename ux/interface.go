@@ -65,6 +65,9 @@ func (i *Interface) handleKeyboard() {
 	if inpututil.IsKeyJustReleased(ebiten.KeySpace) {
 		i.simulation.Pause(!i.simulation.IsPaused())
 	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyM) {
+		i.grid.ChangeMode()
+	}
 }
 
 // eventually let's implement a more comprehensive event handler system
