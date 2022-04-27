@@ -4,7 +4,7 @@ A simulation of single-celled organisms navigating a simple environment via deci
 Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Demo
-![Protozoa Demo](https://s3-us-west-2.amazonaws.com/andrewsrandom/Github+Media/protozoa_2.gif)
+![Demo](https://user-images.githubusercontent.com/3377325/165461211-7025ac40-121f-4fbf-a068-e9eabc054dac.gif)
 
 ## Simulation Rules 
 Each simulation run starts by generating a number of organisms and food items, placed randomly on a 2D grid. 
