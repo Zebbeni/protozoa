@@ -21,7 +21,7 @@ Low ph (acidic) locations appear pink, high ph (alkaline) locations are green, a
 
 ### Food
 
-Food items are generated at a regular rate throughout the simulation and placed randomly on the grid. Each food item is represented by a dark gray square and contains a value between 0 and 100, representing how much 'food' the food item contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health. If a food item's value is reduced to 0, it disappears from the grid. Conversely, when an organism dies it is immediately replaced with a food item, whose value is set equal to the organism's size at death.
+Food items are generated at a regular rate throughout the simulation run and will appear randomly where there is room to place them. Each food item is represented by a dark gray square and contains a value between 0 and 100, representing how much the food item contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health. If a food item's value is reduced to 0, it disappears from the grid. Conversely, when an organism dies it is immediately replaced with a food item, whose value is set equal to the organism's size at death.
 
 Apart from feeding organisms, food items also prevent movement. Organisms and food items cannot occupy the same location, and an organism facing a food item directly ahead cannot move through it.
 
@@ -46,17 +46,13 @@ Apart from feeding organisms, food items also prevent movement. Organisms and fo
     - Is Organism Left
     - Is Organism Right
     - Is Bigger Organism Ahead
-    - Is Bigger Organism Left
-    - Is Bigger Organism Right
     - Is Smaller Organism Ahead
-    - Is Smaller Organism Left
-    - Is Smaller Organism Right
     - Is Related Organism Ahead
     - Is Related Organism Left
     - Is Related Organism Right
     - If Health Above 50%
 - Decision Trees may contain any mix of the following actions:
-    - Be Idle
+    - Chemosynthesis
     - Attack
     - Feed
     - Eat
