@@ -1,21 +1,19 @@
 # Protozoa
-A simulation of single-celled organisms navigating a simple environment via decision trees and inherited traits.
+A simulation of organisms navigating their environment according to inherited traits and decision trees.
 
-Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
+Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Demo
 ![Demo](https://user-images.githubusercontent.com/3377325/165461211-7025ac40-121f-4fbf-a068-e9eabc054dac.gif)
 
 ## Simulation Rules 
-Each simulation run starts by generating a number of organisms and food items, placed randomly on a 2D grid. 
-Each render cycle, organisms  choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. 
-
-Organisms whose decisions allow them to survive spawn children that inherit their decision trees and genetic traits, propagating successful 'species' and behaviors. 
+The simulation starts by randomly generating a number of organisms and food items on a 2D grid. 
+Each render cycle, organisms  choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms who survive long enough can spawn offspring, passing on their decision trees and genetic traits and propagating successful behaviors. 
 
 ### Environment
 The environment consists of a simple 2D wraparound grid where each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
 
-'Acidic', low ph locations are shown as pink, while 'Alkaline', high ph locations appear green. Neutral ph locations (~5.0 ph) are drawn black.
+Low ph (acidic) locations appear pink, while high ph (alkaline) locations are green. Neutral ph locations (~5.0 ph) appear black.
 
 Each cycle, ph values diffuse between neighboring grid locations at a regular rate, such that the whole environment will gradually approach a single ph value in the absence of organism activity.
 
