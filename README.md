@@ -4,8 +4,8 @@ An experiment to simulate simple organisms navigating their environment through 
 Rendered using [ebiten](https://github.com/hajimehoshi/ebiten)
 
 ## Demo
-![protozoa](https://user-images.githubusercontent.com/3377325/165453769-82150116-a285-4a08-986c-a754b59189fd.gif)
 
+![Demo](https://andrewsrandom.s3.us-west-2.amazonaws.com/Github+Media/protozoa_demo.gif)
 
 ## Simulation rules
 
