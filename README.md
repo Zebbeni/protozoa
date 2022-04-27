@@ -60,7 +60,7 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **IsRelatedOrganismLeft -** _true if an organism with a shared ancestor lies 90 degrees to the left_
   * **IsRelatedOrganismRight -** _true if an organism with a shared ancestor lies 90 degrees to the right_
   * **IfHealthAboveFiftyPercent -** _true if organism's health values more than half its current size_
-  * **IsHealthyPhHere -** _true if the ph level at current location is not harmful and allows chemosynthesis_
+  * **IsHealthyPhHere -** _true if the ph level at current location is within the organism's tolerance - having no harmful health effects and allowing for chemosynthesis_
 ##### Actions
   * **Chemosynthesis -** _generates a small amount of health, if performed at a location with healthy ph_
   * **Eat -** _consumes a small amount of health to consume any food that lies directly ahead_
@@ -70,10 +70,13 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **Attack -** _consumes a large amount of health to reduce the health of any organism directly ahead_
   * **Feed -** _transfers a small amount of health to any organism directly ahead- deposits this amount as food if no organism ahead_
 
+##### Decision Tree Health Effects
+Because decision trees are randomly generated and mutated, many trees will have areas of redundancy and illogic, containing branches that have no logical possibility of ever being reached. As a way to reward logical, efficient algorithms, Organisms lose a very small amount of health each cycle for every node in their decision tree, as a way to simulate the energy needed to process complicated decision-making algorithms. Over time, subsequent mutations to successful algorithms serve to iron out some areas of illogic and produce more successful organisms.
+
 #### Display
 Clicking on an organism in the simulation grid will display its traits and decision tree in the left-hand panel, as shown:
 
-![Screen Shot 2022-04-26 at 9 14 18 PM](https://user-images.githubusercontent.com/3377325/165596847-a73b1ae0-5ad4-4bf0-96c2-fa8479a3fb48.png)  
+![Screen Shot 2022-04-26 at 9 14 18 PM](https://user-images.githubusercontent.com/3377325/165596847-a73b1ae0-5ad4-4bf0-96c2-fa8479a3fb48.png) ![Decision Tree](https://user-images.githubusercontent.com/3377325/165603440-53925db2-e02d-4dc7-944b-1b73506a5197.jpg)
 
 As printed, each conditional statement (eg. "If Can Move Ahead") is followed by a line that splits into two branches. The first, top-most branch is the logic the organism will follow if the checked condition returns true. The second, bottom branch will evaluate if the condition returns false. All decision tree nodes evaluated in the previous cycle are followed by "◀◀". Thus, the example decision tree shows - in the previous cycle - the selected organism checked 'If Can Move Ahead' (true), checked 'If Food Right' (false), and so it chose the 'Move Ahead' action.
 
