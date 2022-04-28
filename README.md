@@ -95,7 +95,7 @@ go run main.go -config=settings/big.json
 ```
 go run main.go -seed=2
 ```
-```--debug``` Display memory usage and FPS
+```-debug``` Display memory usage and FPS
 ```
 go run main.go -debug=true
 ```
