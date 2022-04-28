@@ -8,6 +8,7 @@ type Options struct {
 	IsHeadless  bool
 	IsDebugging bool
 	TrialCount  int
+	Seed        int
 }
 
 func GetOptions() *Options {
@@ -17,6 +18,7 @@ func GetOptions() *Options {
 	flag.BoolVar(&opts.IsDebugging, "debug", false, "Run simulation and display debug statistics")
 	flag.BoolVar(&opts.IsHeadless, "headless", false, "Run simulation without visualization")
 	flag.IntVar(&opts.TrialCount, "trials", 1, "Number of trials to run")
+	flag.IntVar(&opts.Seed, "seed", 0, "Set the random seed")
 	flag.StringVar(&opts.ConfigFile, "config", "", "Config file in JSON format")
 
 	flag.Parse()
