@@ -45,11 +45,10 @@ func (t *Tree) mutate() {
 	allSubNodes := t.getNodes()
 	node := allSubNodes[rand.Intn(len(allSubNodes))]
 
-	treeSize := t.Size()
 	maxTreeSize := config.MaxDecisionTreeSize()
 
 	if node.IsAction() {
-		if rand.Intn(2) == 0 && treeSize < maxTreeSize-1 {
+		if rand.Intn(2) == 0 && t.size < maxTreeSize-1 {
 			// convert action to condition + 2 actions
 			originalAction := node.NodeType.(Action)
 			node.NodeType = GetRandomCondition()
@@ -75,8 +74,13 @@ func (t *Tree) mutate() {
 			node.NodeType = GetRandomCondition()
 		}
 	}
-	node.UsedLastCycle = false
-	t.UsedLastCycle = false
+
+	t.size = t.CalcAndUpdateSize()
+	t.ResetUsedLastCycle()
+}
+
+func (t *Tree) Size() int {
+	return t.size
 }
 
 // Print prints the full tree structure

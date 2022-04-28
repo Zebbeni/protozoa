@@ -146,7 +146,7 @@ func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal flo
 	y := float64(gridY) * float64(config.GridUnitSize())
 	hue := (phVal / config.MaxPh()) * phMaxHue
 	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
-	light := sat
+	light := math.Pow(sat, 1.3)
 	col := colorful.HSLuv(hue, sat, light)
 	g.drawSquare(envImage, x, y, sizeFill, col)
 }

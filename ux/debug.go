@@ -45,6 +45,8 @@ func (d *Debug) render() *ebiten.Image {
 	info = fmt.Sprintf("%s\nEnvironmentUpdate: %7s", info, d.simulation.EnvironmentUpdateTime)
 	info = fmt.Sprintf("%s\nFoodUpdate:     %10s", info, d.simulation.FoodUpdateTime)
 	info = fmt.Sprintf("%s\nOrganismUpdate: %10s", info, d.simulation.OrganismUpdateTime)
+	info = fmt.Sprintf("%s\n  OrganismUpdateLoop:  %10s", info, d.simulation.OrganismUpdateLoopTime)
+	info = fmt.Sprintf("%s\n  OrganismResolveLoop: %10s", info, d.simulation.OrganismResolveLoopTime)
 	info = fmt.Sprintf("%s\nTotal Update:   %10s", info, d.simulation.UpdateTime)
 	info = fmt.Sprintf("%s\nRender Grid:    %10s", info, d.gridRenderTime)
 	info = fmt.Sprintf("%s\nRender Panel:   %10s", info, d.panelRenderTime)
