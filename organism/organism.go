@@ -11,12 +11,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// Organism contains:
-// - location (X, Y)
-// - direction (angle, x & y vectors)
-// - current action (Action)
-// - algorithm code (String? or []int?)
-// - algorithm (func)
 type Organism struct {
 	ID                   int
 	Age                  int

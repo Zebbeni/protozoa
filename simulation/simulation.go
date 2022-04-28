@@ -28,6 +28,7 @@ type Simulation struct {
 
 	// debug statistics
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
+	OrganismUpdateLoopTime, OrganismResolveLoopTime                       time.Duration
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -78,6 +79,8 @@ func (s *Simulation) updateOrganisms() {
 	start := time.Now()
 	s.organismManager.Update()
 	s.OrganismUpdateTime = time.Since(start)
+	s.OrganismUpdateLoopTime = s.organismManager.UpdateDuration
+	s.OrganismResolveLoopTime = s.organismManager.ResolveDuration
 }
 
 // IsDone returns true if end condition met

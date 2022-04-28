@@ -171,7 +171,7 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 	if o == nil {
 		return
 	}
-	m.updateHealth(o)
+	m.applyCycleHealthChanges(o)
 	m.applyAction(o)
 	m.removeIfDead(o)
 }
@@ -348,19 +348,16 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 	}
 }
 
-func (m *OrganismManager) updateHealth(o *organism.Organism) {
-	o.ApplyHealthChange(c.HealthChangePerDecisionTreeNode() * float64(o.GetCurrentDecisionTreeLength()))
-	o.ApplyHealthChange(c.HealthChangePerCycle() * o.Size)
-	m.applyPhHealthEffects(o)
-}
-
-// Add a negative health change if organism is too far away from its ideal ph
-func (m *OrganismManager) applyPhHealthEffects(o *organism.Organism) {
+func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
+	decisionsEffect := c.HealthChangePerDecisionTreeNode() * float64(o.GetCurrentDecisionTreeLength())
+	phEffect := 0.0
+	// Subtract health if organism is too far away from its ideal ph
 	phDist := math.Abs(o.Traits().IdealPh - m.api.GetPhAtPoint(o.Location))
 	if phDist > o.Traits().PhTolerance {
-		effect := (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
-		o.ApplyHealthChange(effect * o.Size)
+		phEffect = (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
 	}
+
+	m.applyHealthChange(o, (decisionsEffect+phEffect)*o.Size)
 }
 
 // add a positive health change if organism attempts chemosynthesis in a
@@ -408,7 +405,7 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {
-	o.ApplyHealthChange(o.HealthCostToReproduce())
+	m.applyHealthChange(o, o.HealthCostToReproduce())
 	if success := m.SpawnChildOrganism(o); success {
 		o.Children++
 	}
@@ -479,7 +476,7 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 		"\nChildren: %10d   |      MinCyclesToSpawn: %4d"+
 		"\nAncestor: %10d   |  "+
 		"\n  Health: %10.2f   |   ChanceToMutateTree:  %4.2f"+
-		"\n    Size: %10.2f   |              MaxSize:  %4.2f"+
+		"\n    CalcAndUpdateSize: %10.2f   |              MaxSize:  %4.2f"+
 		"\n  Tree:\n%s",
 		o.ID, int(o.InitialHealth()),
 		o.Age, int(o.MinHealthToSpawn()),

@@ -52,7 +52,6 @@ func MaxPhTolerance() float64                  { return constants.MaxPhTolerance
 func MaxOrganismPhEffect() float64             { return constants.MaxOrganismPhEffect }
 func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64                 { return constants.PhDiffuseFactor }
-func HealthChangePerCycle() float64            { return constants.HealthChangePerCycle }
 func HealthChangeFromChemosynthesis() float64  { return constants.HealthChangeFromChemosynthesis }
 func HealthChangeFromTurning() float64         { return constants.HealthChangeFromTurning }
 func HealthChangeFromMoving() float64          { return constants.HealthChangeFromMoving }
@@ -112,7 +111,6 @@ type Globals struct {
 	PhDiffuseFactor               float64 `json:"ph_diffuse_factor"`
 
 	// Health parameters (percent of organism size)
-	HealthChangePerCycle            float64 `json:"health_change_per_cycle"`
 	HealthChangeFromChemosynthesis  float64 `json:"health_change_from_chemosynthesis"`
 	HealthChangeFromTurning         float64 `json:"health_change_from_turning"`
 	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`

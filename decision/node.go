@@ -11,12 +11,14 @@ type Node struct {
 	NodeType                      interface{}
 	InDecisionTree, UsedLastCycle bool
 	YesNode, NoNode               *Node
+	size                          int
 }
 
 // NodeFromAction creates a simple Node object from an Action type
 func NodeFromAction(action Action) *Node {
 	return &Node{
 		NodeType: action,
+		size:     1,
 	}
 }
 
@@ -35,6 +37,7 @@ func (n Node) CopyNode() *Node {
 	copy := &Node{
 		NodeType:      n.NodeType,
 		UsedLastCycle: n.UsedLastCycle,
+		size:          n.size,
 	}
 	if n.IsAction() {
 		return copy
@@ -85,7 +88,7 @@ func (n *Node) Serialize() string {
 
 // getNodes returns a list of all nodes in a tree starting with the given root
 func (n *Node) getNodes() (nodes []*Node) {
-	nodes = make([]*Node, 0, n.Size())
+	nodes = make([]*Node, 0, n.size)
 	nodes = append(nodes, n)
 	if n.IsAction() {
 		return

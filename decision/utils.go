@@ -4,6 +4,18 @@ import (
 	"math/rand"
 )
 
+// CalcAndUpdateSize returns the total number of nodes descending from this root node (including itself)
+// Update each node's size value to avoid calculating this multiple times
+func (n *Node) CalcAndUpdateSize() int {
+	if n.IsAction() {
+		n.size = 1
+		return 1
+	}
+
+	n.size = 1 + n.YesNode.CalcAndUpdateSize() + n.NoNode.CalcAndUpdateSize()
+	return n.size
+}
+
 // GetRandomCondition returns a random Condition from the Conditions array
 func GetRandomCondition() Condition {
 	return Conditions[rand.Intn(len(Conditions))]
