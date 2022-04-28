@@ -85,16 +85,26 @@ As printed, each conditional statement (eg. "If Can Move Ahead") is followed by 
 go get
 go run main.go
 ```
-
-# Config
-Simulation config values can be overridden by providing json config files at runtime.
-- Print the default settings as json:
-```
-go run main.go -dump-config
-```
-- Run with custom overrides:
+## Run Options
+```-config``` Use overriden simulation constants. Ex:
 ```
 go run main.go -config=settings/small.json
+go run main.go -config=settings/big.json
+```
+```-seed``` Set the random seed used by the simulation. Ex:
+```
+go run main.go -seed=2
+```
+```--debug``` Display memory usage and FPS
+```
+go run main.go -debug=true
+```
+
+# Config
+You can create your own .json config files to override simulation constants at runtime.
+To print the default settings as json (you can paste and edit this in a new configuration .json file)
+```
+go run main.go -dump-config
 ```
 
 # Run Headless
