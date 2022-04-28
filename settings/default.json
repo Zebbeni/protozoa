@@ -42,7 +42,7 @@
   "health_change_per_cycle": -0.000,
   "health_change_from_chemosynthesis": 0.01,
   "health_change_from_turning": -0.001,
-  "health_change_from_moving": -0.005,
+  "health_change_from_moving": -0.01,
   "health_change_from_eating_attempt": -0.001,
   "health_change_from_attacking": -0.05,
   "health_change_inflicted_by_attack": -1.0,
