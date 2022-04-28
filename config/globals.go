@@ -27,7 +27,6 @@ func ScreenHeight() int                        { return constants.ScreenHeight }
 func PopulationUpdateInterval() int            { return constants.PopulationUpdateInterval }
 func InitialOrganisms() int                    { return constants.InitialOrganisms }
 func InitialFood() int                         { return constants.InitialFood }
-func ChanceToAddOrganism() float64             { return constants.ChanceToAddOrganism }
 func ChanceToAddFoodItem() float64             { return constants.ChanceToAddFoodItem }
 func MaxFoodValue() int                        { return constants.MaxFoodValue }
 func MinFoodValue() int                        { return constants.MinFoodValue }
@@ -81,7 +80,6 @@ type Globals struct {
 	// Environment parameters
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`
-	ChanceToAddOrganism float64 `json:"chance_to_add_organism"`
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
 	MaxFoodValue        int     `json:"max_food_value"`
 	MinFoodValue        int     `json:"min_food_value"`

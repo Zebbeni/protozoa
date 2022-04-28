@@ -29,8 +29,9 @@ const (
 // use separate constant group to ensure orgsPhMode starts at 0
 const (
 	orgsPhMode mode = iota
-	orgsPhEffectsMode
 	organismsOnlyMode
+	phEffectsOnlyMode
+	phOnlyMode
 )
 
 const (
@@ -45,11 +46,12 @@ var (
 	selectColor        = colorful.HSLuv(0.0, 255.0, 1.0)
 	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
 	selectionInfoColor = colorful.HSLuv(0.0, 0, 1.0)
-	viewModes          = []mode{orgsPhMode, orgsPhEffectsMode, organismsOnlyMode}
+	viewModes          = []mode{orgsPhMode, organismsOnlyMode, phEffectsOnlyMode, phOnlyMode}
 	viewModeNames      = map[mode]string{
 		orgsPhMode:        "ORGANISMS & PH",
-		orgsPhEffectsMode: "ORGANISMS & PH EFFECTS",
 		organismsOnlyMode: "ORGANISMS ONLY",
+		phEffectsOnlyMode: "ORGANISM PH EFFECTS",
+		phOnlyMode:        "PH ONLY",
 	}
 )
 
@@ -103,12 +105,16 @@ func (g *Grid) Render() *ebiten.Image {
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
 
-	if g.viewMode != organismsOnlyMode {
+	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
 		gridImage.DrawImage(envImage, nil)
 	}
 
 	gridImage.DrawImage(foodImage, nil)
-	gridImage.DrawImage(orgsImage, nil)
+
+	if g.viewMode != phOnlyMode {
+		gridImage.DrawImage(orgsImage, nil)
+	}
+
 	gridImage.DrawImage(selImage, nil)
 
 	g.doRefresh = false
@@ -288,11 +294,11 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 
 	organismColor := info.Color
 
-	if g.viewMode == orgsPhEffectsMode {
-		maxEffect := config.MaxOrganismPhEffect()
-		spectrumValue := (maxEffect + info.PhEffect) / (2 * maxEffect)
+	if g.viewMode == phEffectsOnlyMode {
+		maxEffect := config.MaxOrganismPhEffect() * info.Size
+		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
 		hue := phMaxHue * spectrumValue
-		sat := 0.25 + math.Abs(spectrumValue-0.5)
+		sat := 0.5 + math.Abs(spectrumValue-0.5)
 		light := 0.25 + math.Abs(spectrumValue-0.5)
 		organismColor = colorful.HSLuv(hue, sat, light)
 	}

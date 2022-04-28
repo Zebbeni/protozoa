@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"math/rand"
 	"sort"
 	"time"
 
@@ -62,10 +61,6 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	// Periodically add new random organisms if population below a certain amount
-	if len(m.organisms) < c.MinOrganisms() && rand.Float64() < c.ChanceToAddOrganism() {
-		m.SpawnRandomOrganism()
-	}
 	// FUTURE: do this multi-threaded
 	start := time.Now()
 	for _, id := range m.organismUpdateOrder {
