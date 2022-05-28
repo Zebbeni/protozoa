@@ -10,7 +10,7 @@ Each simulation run begins by generating a number of organisms and food items at
 Each render cycle, organisms must choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms that survive long enough can spawn nearly identical offspring, thus propagating successful traits and behaviors.
 
 ### Environment
-The environment consists of a simple 2D wraparound grid where each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
+The environment consists of a 2D wraparound grid. Each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
 
 Each cycle, ph values diffuse between neighboring grid locations at a regular rate, such that the whole environment will gradually approach a single ph value in the absence of organism activity.
 
