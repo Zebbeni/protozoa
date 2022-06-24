@@ -6,8 +6,7 @@ Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
 
 
 ## Simulation Rules 
-Each simulation run begins by generating a number of organisms and food items at random on a 2D grid. 
-Each render cycle, organisms must choose an action (eat, move, turn, attack etc.) based on available information about their surroundings. Organisms that survive long enough can spawn nearly identical offspring, thus propagating successful traits and behaviors.
+Protozoa randomly generates a number of organisms and food items on a 2D grid. Per render cycle, each organism chooses a simple action (eat, move, turn, attack etc.) based on a randomly-generated decision tree with which it was initialized. Organisms that survive long enough can spawn offspring with very slight mutations, thus propagating successful traits and behaviors.
 
 ### Environment
 The environment consists of a 2D wraparound grid. Each location contains a ph value (0-10). These ph values play a large role in organism health, and are likewise affected by certain organism actions (ie. growth). 
