@@ -24,6 +24,7 @@ const (
 	sizeMedium
 	sizeLarge
 	sizeFill
+	sizeBox
 )
 
 // use separate constant group to ensure orgsPhMode starts at 0
@@ -39,9 +40,10 @@ const (
 )
 
 var (
-	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill *ebiten.Image
+	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill, squareImgBox *ebiten.Image
 
 	foodColor          = colorful.HSLuv(120, 0.2, 0.25)
+	wallColor          = colorful.HSLuv(60, 0.25, 0.1)
 	attackColor        = colorful.HSLuv(0.0, 255.0, 1.0)
 	selectColor        = colorful.HSLuv(0.0, 255.0, 1.0)
 	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
@@ -58,9 +60,10 @@ var (
 type Grid struct {
 	simulation *simulation.Simulation
 
-	previousEnvImage  *ebiten.Image
-	previousFoodImage *ebiten.Image
-	previousOrgsImage *ebiten.Image
+	previousEnvImage   *ebiten.Image
+	previousWallsImage *ebiten.Image
+	previousFoodImage  *ebiten.Image
+	previousOrgsImage  *ebiten.Image
 
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
@@ -70,12 +73,13 @@ type Grid struct {
 
 func NewGrid(simulation *simulation.Simulation) *Grid {
 	g := &Grid{
-		simulation:        simulation,
-		previousEnvImage:  newBlankLayer(),
-		previousFoodImage: newBlankLayer(),
-		previousOrgsImage: newBlankLayer(),
-		doRefresh:         true,
-		viewMode:          orgsPhMode,
+		simulation:         simulation,
+		previousWallsImage: newBlankLayer(),
+		previousEnvImage:   newBlankLayer(),
+		previousFoodImage:  newBlankLayer(),
+		previousOrgsImage:  newBlankLayer(),
+		doRefresh:          true,
+		viewMode:           orgsPhMode,
 	}
 	loadOrganismImages()
 	return g
@@ -86,21 +90,25 @@ func loadOrganismImages() {
 	squareImgMedium = resources.SquareMedium
 	squareImgLarge = resources.SquareLarge
 	squareImgFill = resources.SquareFill
+	squareImgBox = resources.SquareBox
 }
 
 // Render draws all organisms and food on the simulation grid
 func (g *Grid) Render() *ebiten.Image {
 	envImage := newBlankLayer()
+	wallsImage := newBlankLayer()
 	foodImage := newBlankLayer()
 	orgsImage := newBlankLayer()
 	selImage := newBlankLayer()
 	gridImage := newBlankLayer()
 
+	g.renderWalls(wallsImage, g.doRefresh)
 	g.renderEnvironment(envImage, g.doRefresh)
 	g.renderFood(foodImage, g.doRefresh)
 	g.renderOrganisms(orgsImage, g.doRefresh)
 	g.renderSelections(selImage)
 
+	g.previousWallsImage = wallsImage
 	g.previousEnvImage = envImage
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
@@ -108,6 +116,7 @@ func (g *Grid) Render() *ebiten.Image {
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
 		gridImage.DrawImage(envImage, nil)
 	}
+	gridImage.DrawImage(wallsImage, nil)
 
 	gridImage.DrawImage(foodImage, nil)
 
@@ -138,6 +147,17 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 			phVal := g.simulation.GetPhAtPoint(point)
 			g.renderPhValue(envImage, point.X, point.Y, phVal)
 		}
+	}
+}
+
+func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
+	if refresh {
+		wallPoints := g.simulation.GetWalls()
+		for _, wallPoint := range wallPoints {
+			g.renderWall(wallsImage, wallPoint)
+		}
+	} else {
+		wallsImage.DrawImage(g.previousWallsImage, nil)
 	}
 }
 
@@ -278,6 +298,14 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	g.drawSquare(img, x, y, foodSize, foodColor)
 }
 
+// renderWall draws a wall icon to the given image
+func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
+	x := float64(point.X) * float64(config.GridUnitSize())
+	y := float64(point.Y) * float64(config.GridUnitSize())
+
+	g.drawSquare(wallsImage, x, y, sizeBox, wallColor)
+}
+
 // renderOrganism draws an organism to the given image
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	point := info.Location.Times(config.GridUnitSize())
@@ -325,12 +353,14 @@ func (g *Grid) drawSquare(img *ebiten.Image, x, y float64, sz size, col colorful
 	case sizeFill:
 		squareImg = squareImgFill
 		break
+	case sizeBox:
+		squareImg = squareImgBox
+		break
 	}
 
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(x, y)
 	op.ColorM.Translate(col.R, col.G, col.B, 0)
-
 	img.DrawImage(squareImg, op)
 }
 

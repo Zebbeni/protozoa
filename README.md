@@ -2,8 +2,7 @@
 A simulation of organisms navigating their environment according to inherited traits and decision trees.
 Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
 
-![Screen Shot 2022-04-27 at 11 15 26 AM](https://user-images.githubusercontent.com/3377325/165582772-ddb19bd8-8610-48af-b735-26ffb8872434.png)
-
+![Screen Shot 2022-07-30 at 12 33 53 AM](https://user-images.githubusercontent.com/3377325/181996580-b8a51e8c-0310-43ba-bcb5-3f189a59486b.png)
 
 ## Simulation Rules 
 Protozoa randomly generates a number of organisms and food items on a 2D grid. Per render cycle, each organism chooses a simple action (eat, move, turn, attack etc.) based on a randomly-generated decision tree with which it was initialized. Organisms that survive long enough can spawn offspring with very slight mutations, thus propagating successful traits and behaviors.
@@ -16,6 +15,10 @@ Each cycle, ph values diffuse between neighboring grid locations at a regular ra
 Low ph (acidic) locations appear pink, high ph (alkaline) locations are green, and neutral locations (~5.0 ph) are black.
 
 <img src="https://user-images.githubusercontent.com/3377325/165464843-372bce5d-d150-4ffd-89ac-138aaa45787d.png" width="300">
+
+By default, the environment is separated by walls into 'pools' with small openings allowing diffusion and movement in between. This is meant to allow different families of organisms to develop in isolation longer than would otherwise be possible. (The existence and size of these pools can be set in the configuration json files.)
+
+![Screen Shot 2022-07-30 at 1 37 57 AM](https://user-images.githubusercontent.com/3377325/181996681-40dbc369-082a-44fb-ae3a-40e33e60227a.png)
 
 ### Food
 

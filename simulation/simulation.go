@@ -251,6 +251,11 @@ func (s *Simulation) GetPhMap() [][]float64 {
 	return s.environmentManager.GetPhMap()
 }
 
+// GetWalls returns all points in the environment that contain a wall
+func (s *Simulation) GetWalls() []utils.Point {
+	return s.environmentManager.GetWalls()
+}
+
 // GetPhAtPoint returns the current Ph of the environment at a given location
 func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
 	return s.environmentManager.GetPhAtPoint(point)

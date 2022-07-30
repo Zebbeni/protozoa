@@ -5,7 +5,6 @@ import (
 	"github.com/Zebbeni/protozoa/environment"
 	"github.com/Zebbeni/protozoa/utils"
 	"math"
-	"math/rand"
 )
 
 // EnvironmentManager contains an image
@@ -33,8 +32,10 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.phMap[0][x] = make([]float64, gridH)
 		m.phMap[1][x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
-			// initialize with random values
-			val := rand.Float64()*(c.MaxInitialPh()-c.MinInitialPh()) + c.MinInitialPh()
+			xFactor := (1.0 + math.Sin(float64(x)/(float64(c.GridUnitsWide())/(2*math.Pi)))) / 2.0
+			yFactor := (1.0 + math.Sin(float64(y)/(float64(c.GridUnitsHigh())/(2*math.Pi)))) / 2.0
+			factor := (xFactor + yFactor) / 2.0
+			val := factor*(c.MaxInitialPh()-c.MinInitialPh()) + c.MinInitialPh()
 			m.phMap[0][x][y] = val
 			m.phMap[1][x][y] = val
 		}
@@ -47,6 +48,23 @@ func (m *EnvironmentManager) Update() {
 
 func (m *EnvironmentManager) GetPhMap() [][]float64 {
 	return m.phMap[m.getCurrentIndex()]
+}
+
+func (m *EnvironmentManager) GetWalls() []utils.Point {
+	if c.UsePools() == false {
+		return []utils.Point{}
+	}
+	
+	max := (c.GridUnitsWide() / c.PoolWidth()) * (c.GridUnitsHigh() / c.PoolHeight())
+	points := make([]utils.Point, 0, max)
+	for x := 0; x < c.GridUnitsWide(); x++ {
+		for y := 0; y < c.GridUnitsHigh(); y++ {
+			if utils.IsWall(x, y) {
+				points = append(points, utils.Point{X: x, Y: y})
+			}
+		}
+	}
+	return points
 }
 
 func (m *EnvironmentManager) ClearPhMap() {
@@ -104,6 +122,48 @@ func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
 	prev := m.getPreviousIndex()
 	diffFactor := c.PhDiffuseFactor()
+
+	adjPh := func(x, y int) (float64, bool) {
+		return m.phMap[prev][x][y], !utils.IsWall(x, y)
+	}
+
+	// return average of all diffuse-able adjacent points
+	avgAdjPh := func(x, y int) float64 {
+		neighbors := 0
+		avgPh := 0.0
+		if ph, ok := adjPh(x, (y+1)%gridH); ok {
+			avgPh += ph
+			neighbors++
+		}
+		if ph, ok := adjPh(x, (y+gridH-1)%gridH); ok {
+			avgPh += ph
+			neighbors++
+		}
+		if ph, ok := adjPh((x+1)%gridW, y); ok {
+			avgPh += ph
+			neighbors++
+		}
+		if ph, ok := adjPh((x+gridW-1)%gridW, y); ok {
+			avgPh += ph
+			neighbors++
+		}
+		return avgPh / float64(neighbors)
+	}
+
+	// return average ph of all adjacent points (even if in walls)
+	avgAdjPhAll := func(x, y int) float64 {
+		avgPh := 0.0
+		ph, _ := adjPh(x, (y+1)%gridH)
+		avgPh += ph
+		ph, _ = adjPh(x, (y+gridH-1)%gridH)
+		avgPh += ph
+		ph, _ = adjPh((x+1)%gridW, y)
+		avgPh += ph
+		ph, _ = adjPh((x+gridW-1)%gridW, y)
+		avgPh += ph
+		return avgPh / 4.0
+	}
+
 	// set each value in the current phMap to its value in the previous phMap, plus
 	// the average difference between itself and its N,S,E,W neighbors (times the
 	// diffusion factor provided by the config)
@@ -111,12 +171,16 @@ func (m *EnvironmentManager) diffusePhLevels() {
 		for y := 0; y < gridH; y++ {
 			prevVal := m.phMap[prev][x][y]
 
-			nVal := m.phMap[prev][x][(y+1)%gridH]
-			sVal := m.phMap[prev][x][(y+gridH-1)%gridH]
-			eVal := m.phMap[prev][(x+1)%gridW][y]
-			wVal := m.phMap[prev][(x+gridW-1)%gridW][y]
-			change := (((nVal + sVal + eVal + wVal) / 4) - prevVal) * diffFactor
+			// Just set wall ph to the average of its neighbors
+			// (doesn't really affect anything but appearance, since we don't
+			// diffuse this value back to the rest of the environment
+			if utils.IsWall(x, y) {
+				m.setPhAtPoint(utils.Point{X: x, Y: y}, avgAdjPhAll(x, y))
+				continue
+			}
 
+			avgAdjacentPh := avgAdjPh(x, y)
+			change := (avgAdjacentPh - prevVal) * diffFactor
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
 		}
 	}

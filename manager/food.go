@@ -63,7 +63,7 @@ func (m *FoodManager) AddRandomFoodItem() {
 // AddFoodAtPoint adds a foodItem with a given value at a given location if not
 // occupied. Returns the value added
 func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) int {
-	if value <= 0 {
+	if value <= 0 || point.IsWall() {
 		return 0
 	}
 
@@ -90,7 +90,7 @@ func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) int {
 // If value is more than the current food value, remove foodItem from the map
 // Returns the actual amount of food removed.
 func (m *FoodManager) RemoveFoodAtPoint(point utils.Point, value int) int {
-	if value <= 0 {
+	if value <= 0 || point.IsWall() {
 		return 0
 	}
 

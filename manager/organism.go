@@ -240,7 +240,7 @@ func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (util
 }
 
 func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
-	return !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+	return !point.IsWall() && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
 }
 
 func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
