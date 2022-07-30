@@ -51,6 +51,10 @@ func (m *EnvironmentManager) GetPhMap() [][]float64 {
 }
 
 func (m *EnvironmentManager) GetWalls() []utils.Point {
+	if c.UsePools() == false {
+		return []utils.Point{}
+	}
+	
 	max := (c.GridUnitsWide() / c.PoolWidth()) * (c.GridUnitsHigh() / c.PoolHeight())
 	points := make([]utils.Point, 0, max)
 	for x := 0; x < c.GridUnitsWide(); x++ {

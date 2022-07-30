@@ -82,6 +82,10 @@ func (p *Point) IsWall() bool {
 // IsWall returns true if some given coordinates are on a pool border, making
 // sure to allow movement through 'gates' in the center of each wall.
 func IsWall(x, y int) bool {
+	if c.UsePools() == false {
+		return false
+	}
+
 	if x%c.PoolWidth() == 0 && (y+(c.PoolHeight()/2))%c.PoolHeight() != 0 {
 		return true
 	}
