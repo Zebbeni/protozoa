@@ -280,6 +280,10 @@ func (o *Organism) isOrganismAhead() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
+func (o *Organism) isWallAhead() bool {
+	return o.isWallAtPoint(o.Location.Add(o.Direction))
+}
+
 func (o *Organism) isBiggerOrganismAhead() bool {
 	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
 }
@@ -326,6 +330,10 @@ func (o *Organism) isOrganismAtPoint(p utils.Point) bool {
 	})
 }
 
+func (o *Organism) isWallAtPoint(p utils.Point) bool {
+	return p.IsWall()
+}
+
 func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool {
 	return o.lookupAPI.CheckOrganismAtPoint(p, checkFunc)
 }
@@ -336,6 +344,9 @@ func (o *Organism) isPhHealthyAtPoint(p utils.Point, ideal, tolerance float64) b
 }
 
 func (o *Organism) canMove() bool {
+	if o.isWallAhead() {
+		return false
+	}
 	if o.isOrganismAhead() {
 		return false
 	}

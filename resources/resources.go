@@ -42,6 +42,8 @@ var (
 	SquareLarge *ebiten.Image
 	// SquareFill is an image to render for totally filled grid spaces
 	SquareFill *ebiten.Image
+	// SquareBox is an image to render for walls
+	SquareBox *ebiten.Image
 )
 
 // Init loads all fonts and images to be used in the UI
@@ -82,6 +84,7 @@ func initImages() {
 	SquareMedium = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
 	SquareLarge = loadImage(fmt.Sprintf("resources/images/grid/%s/square_large.png", dir))
 	SquareFill = loadImage(fmt.Sprintf("resources/images/grid/%s/square_fill.png", dir))
+	SquareBox = loadImage(fmt.Sprintf("resources/images/grid/%s/square_box.png", dir))
 }
 
 func loadImage(path string) *ebiten.Image {

@@ -74,6 +74,23 @@ func (p Point) Wrap() Point {
 	}
 }
 
+// IsWall returns true if the given point is on a pool border
+func (p *Point) IsWall() bool {
+	return IsWall(p.X, p.Y)
+}
+
+// IsWall returns true if some given coordinates are on a pool border, making
+// sure to allow movement through 'gates' in the center of each wall.
+func IsWall(x, y int) bool {
+	if x%c.PoolWidth() == 0 && (y+(c.PoolHeight()/2))%c.PoolHeight() != 0 {
+		return true
+	}
+	if y%c.PoolHeight() == 0 && (x+(c.PoolWidth()/2))%c.PoolWidth() != 0 {
+		return true
+	}
+	return false
+}
+
 // ToString returns a Point's values as the string, "<x>, <y>"
 func (p *Point) ToString() string {
 	return fmt.Sprintf("%d,%d", p.X, p.Y)
