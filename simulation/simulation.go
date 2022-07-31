@@ -85,10 +85,14 @@ func (s *Simulation) updateOrganisms() {
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
-	if s.GetNumOrganisms() >= config.MaxOrganisms() {
-		fmt.Printf("\nSimulation ended with %d organisms alive.", config.MaxOrganisms())
+	if s.GetNumOrganisms() == 0 {
+		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, config.MaxOrganisms())
 		return true
 	}
+	//if s.GetNumOrganisms() >= config.MaxOrganisms() {
+	//	fmt.Printf("\nSimulation ended with %d organisms alive.", config.MaxOrganisms())
+	//	return true
+	//}
 	return false
 }
 
@@ -209,6 +213,10 @@ func (s *Simulation) CheckOrganismAtPoint(point utils.Point, checkFunc organism.
 // OrganismCount returns the current number of Organisms alive in the simulation
 func (s *Simulation) OrganismCount() int {
 	return s.organismManager.OrganismCount()
+}
+
+func (s *Simulation) AveragePh() float64 {
+	return s.environmentManager.GetAveragePh()
 }
 
 // GetFoodAtPoint returns the value of any food at a given point and whether

@@ -9,6 +9,6 @@
   "screen_width": 1400,
   "screen_height": 800,
 
-  "pool_width": 10,
-  "pool_height": 10
+  "pool_width": 25,
+  "pool_height": 25
 }

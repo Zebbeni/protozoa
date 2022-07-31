@@ -130,7 +130,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
 	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %2.2f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn)
-	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT:  %1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect)
+	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhEffect)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 

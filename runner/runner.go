@@ -50,8 +50,8 @@ func RunSimulation(opts *c.Options) {
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
-				if sim.Cycle()%100 == 0 {
-					fmt.Println("cycle:", sim.Cycle(), "organisms:", sim.OrganismCount())
+				if sim.Cycle()%1000 == 0 {
+					fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
 				}
 			}
 			sumAllCycles += sim.Cycle()

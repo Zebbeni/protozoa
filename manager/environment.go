@@ -12,6 +12,7 @@ type EnvironmentManager struct {
 	api           environment.API
 	phMap         [][][]float64
 	updatedPoints map[string]utils.Point
+	averagePh     float64
 }
 
 func NewEnvironmentManager(api environment.API) *EnvironmentManager {
@@ -54,7 +55,7 @@ func (m *EnvironmentManager) GetWalls() []utils.Point {
 	if c.UsePools() == false {
 		return []utils.Point{}
 	}
-	
+
 	max := (c.GridUnitsWide() / c.PoolWidth()) * (c.GridUnitsHigh() / c.PoolHeight())
 	points := make([]utils.Point, 0, max)
 	for x := 0; x < c.GridUnitsWide(); x++ {
@@ -78,6 +79,10 @@ func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
 
 func (m *EnvironmentManager) GetUpdatedPoints() map[string]utils.Point {
 	return m.updatedPoints
+}
+
+func (m *EnvironmentManager) GetAveragePh() float64 {
+	return m.averagePh
 }
 
 func (m *EnvironmentManager) ClearUpdatedPoints() {
@@ -117,7 +122,8 @@ func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
 }
 
 // simulate diffusion of ph across the environment by adjusting each
-// ph value toward its neighbors' values
+// ph value toward its neighbors' values.
+// Also, while iterating, calculates average ph in environment
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
 	prev := m.getPreviousIndex()
@@ -164,12 +170,15 @@ func (m *EnvironmentManager) diffusePhLevels() {
 		return avgPh / 4.0
 	}
 
+	totalPh := 0.0
+	pointCount := float64(gridW * gridH)
 	// set each value in the current phMap to its value in the previous phMap, plus
 	// the average difference between itself and its N,S,E,W neighbors (times the
 	// diffusion factor provided by the config)
 	for x := 0; x < gridW; x++ {
 		for y := 0; y < gridH; y++ {
 			prevVal := m.phMap[prev][x][y]
+			totalPh += prevVal
 
 			// Just set wall ph to the average of its neighbors
 			// (doesn't really affect anything but appearance, since we don't
@@ -184,4 +193,6 @@ func (m *EnvironmentManager) diffusePhLevels() {
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
 		}
 	}
+
+	m.averagePh = totalPh / pointCount
 }
