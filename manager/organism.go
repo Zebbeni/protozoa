@@ -22,6 +22,12 @@ type OrganismManager struct {
 	organismIDGrid        [][]int
 	totalOrganismsCreated int
 
+	// action maps to identify conflicts during the
+	// resolution phase, to support concurrency
+	orgPositionsMap map[string]int     // the number of times a location received a move or spawn request
+	foodEatenMap    map[string]float64 // the amount of food eaten at a given point
+	healthEffectMap map[string]float64 // the total damage + healing effects at a given location
+
 	organismUpdateOrder []int
 	newOrganismIDs      []int
 
@@ -61,8 +67,8 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	// FUTURE: do this multi-threaded
 	start := time.Now()
+	m.updateRequestMaps()
 	for _, id := range m.organismUpdateOrder {
 		m.updateOrganism(m.organisms[id])
 	}
@@ -96,6 +102,12 @@ func (m *OrganismManager) updateHistory() {
 	}
 
 	m.populationHistory[cycle] = populationMap
+}
+
+func (m *OrganismManager) updateRequestMaps() {
+	m.orgPositionsMap = make(map[string]int)
+	m.foodEatenMap = make(map[string]float64)
+	m.healthEffectMap = make(map[string]float64)
 }
 
 // GetHistory returns the full population history of all original ancestors as a
@@ -160,6 +172,7 @@ func (m *OrganismManager) updateEnvironmentPh(o *organism.Organism) {
 }
 
 func (m *OrganismManager) updateOrganism(o *organism.Organism) {
+	// if previous action was attack, allow the screen to render white
 	if o.Action() == d.ActAttack {
 		m.addUpdatedPoint(o.Location)
 	}

@@ -15,7 +15,6 @@ type Organism struct {
 	ID                   int
 	Age                  int
 	Health               float64
-	PrevHealth           float64
 	Size                 float64
 	Children             int
 	CyclesSinceLastSpawn int
@@ -42,7 +41,6 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 		ID:                   id,
 		Age:                  0,
 		Health:               traits.SpawnHealth,
-		PrevHealth:           traits.SpawnHealth,
 		Size:                 traits.SpawnHealth,
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
@@ -70,7 +68,6 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		ID:                   id,
 		Age:                  0,
 		Health:               o.InitialHealth(),
-		PrevHealth:           o.InitialHealth(),
 		Size:                 o.InitialHealth(),
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
@@ -108,16 +105,7 @@ func (o *Organism) Info() *Info {
 func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
-
-	healthChange := o.Health - o.PrevHealth
-	// compensate for health cost due to reproduction if applicable
-	// (don't penalize decision tree for a drop in health it didn't cause)
-	if o.CyclesSinceLastSpawn == 1 && o.Age > 1 {
-		healthChange -= o.Size * o.HealthCostToReproduce()
-	}
-
 	o.decisionTree.ResetUsedLastCycle()
-	o.PrevHealth = o.Health
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision
