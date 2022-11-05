@@ -39,10 +39,10 @@ type Traits struct {
 	// PhTolerance: the distance from IdealPh the organism can handle without
 	// suffering health effects due to ph
 	PhTolerance float64
-	// PhEffect: the effect organism has on the environment's ph level at its
+	// PhGrowthEffect: the effect organism has on the environment's ph level at its
 	// current location, a small positive or negative number which gets
 	// multiplied by the organism's current size
-	PhEffect float64
+	PhGrowthEffect float64
 }
 
 func newRandomTraits() Traits {
@@ -54,7 +54,7 @@ func newRandomTraits() Traits {
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
 	idealPh := rand.Float64()*(c.MaxIdealPh()-c.MinIdealPh()) + c.MinIdealPh()
 	phTolerance := rand.Float64() * c.MaxPhTolerance()
-	phEffect := rand.Float64()*(c.MaxOrganismPhEffect()*2.0) - c.MaxOrganismPhEffect()
+	phGrowthEffect := rand.Float64()*(c.MaxOrganismPhGrowthEffect()*2.0) - c.MaxOrganismPhGrowthEffect()
 	return Traits{
 		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,
@@ -64,7 +64,7 @@ func newRandomTraits() Traits {
 		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
 		IdealPh:                    idealPh,
 		PhTolerance:                phTolerance,
-		PhEffect:                   phEffect,
+		PhGrowthEffect:             phGrowthEffect,
 	}
 }
 
@@ -80,8 +80,8 @@ func (t Traits) copyMutated() Traits {
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.05, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
-	// phEffect = previous +- 0.001, bounded by MaxOrganismPhEffect (and -1 * MaxOrganismPhEffect)
-	phEffect := mutateFloat(t.PhEffect, .001, c.MaxOrganismPhEffect()*-1, c.MaxOrganismPhEffect())
+	// phEffect = previous +- 0.001, bounded by MaxOrganismPhGrowthEffect (and -1 * MaxOrganismPhGrowthEffect)
+	phEffect := mutateFloat(t.PhGrowthEffect, .001, c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
 	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
 	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance
@@ -95,7 +95,7 @@ func (t Traits) copyMutated() Traits {
 		ChanceToMutateDecisionTree: chanceToMutateDecisionTree,
 		IdealPh:                    idealPh,
 		PhTolerance:                phTolerance,
-		PhEffect:                   phEffect,
+		PhGrowthEffect:             phEffect,
 	}
 }
 

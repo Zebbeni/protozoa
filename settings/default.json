@@ -25,7 +25,7 @@
   "max_ideal_ph": 7.5,
   "min_ph_tolerance": 1.0,
   "max_ph_tolerance": 2.0,
-  "max_organism_ph_effect": 0.05,
+  "max_organism_ph_growth_effect": 0.05,
   "ph_diffuse_factor": 0.2,
   "ph_increment_to_display": 0.1,
 
@@ -34,8 +34,8 @@
   "pool_height": 10,
 
   "initial_organism_decision_tree_mutations": 10,
-  "min_chance_to_mutate_decision_tree": 0.05,
-  "max_chance_to_mutate_decision_tree": 1.00,
+  "min_chance_to_mutate_decision_tree": 0.01,
+  "max_chance_to_mutate_decision_tree": 0.10,
   "max_decision_tree_size": 32,
 
   "max_organisms": 20000,
@@ -43,13 +43,13 @@
   "growth_factor": 0.5,
   "maximum_max_size": 100,
   "minimum_max_size": 20,
-  "health_change_from_chemosynthesis": 0.05,
-  "health_change_from_turning": -0.001,
+  "health_change_from_chemosynthesis": 0.02,
+  "health_change_from_turning": -0.0005,
   "health_change_from_moving": -0.002,
   "health_change_from_eating_attempt": -0.001,
-  "health_change_from_attacking": -0.05,
+  "health_change_from_attacking": -0.005,
   "health_change_inflicted_by_attack": -0.5,
   "health_change_from_feeding": -0.01,
-  "health_change_per_decision_tree_node": -0.0005,
-  "health_change_per_unhealthy_ph": -0.01
+  "health_change_per_decision_tree_node": -0.001,
+  "health_change_per_unhealthy_ph": -0.05
 }

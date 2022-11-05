@@ -323,7 +323,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	organismColor := info.Color
 
 	if g.viewMode == phEffectsOnlyMode {
-		maxEffect := config.MaxOrganismPhEffect() * info.Size
+		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
 		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
 		hue := phMaxHue * spectrumValue
 		sat := 0.5 + math.Abs(spectrumValue-0.5)

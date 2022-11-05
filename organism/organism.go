@@ -21,6 +21,7 @@ type Organism struct {
 	Location             utils.Point
 	Direction            utils.Point
 	OriginalAncestorID   int
+	IsDead               bool
 
 	traits Traits
 
@@ -47,6 +48,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 		Location:             point,
 		Direction:            utils.GetRandomDirection(),
 		OriginalAncestorID:   id,
+		IsDead:               false,
 
 		traits:       traits,
 		decisionTree: decisionTree,
@@ -74,6 +76,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		Location:             point,
 		Direction:            utils.GetRandomDirection(),
 		OriginalAncestorID:   o.OriginalAncestorID,
+		IsDead:               false,
 
 		traits:       traits,
 		decisionTree: inheritedTree,
@@ -95,7 +98,7 @@ func (o *Organism) Info() *Info {
 		Color:      o.traits.OrganismColor,
 		Age:        o.Age,
 		Children:   o.Children,
-		PhEffect:   o.traits.PhEffect,
+		PhEffect:   o.traits.PhGrowthEffect,
 	}
 }
 
@@ -235,6 +238,9 @@ func (o *Organism) setDecisionTree(decisionTree *d.Tree) {
 // If new health is greater than the organism's Size, this is updated too.
 func (o *Organism) ApplyHealthChange(change float64) {
 	o.Health += change
+	if o.Health < 0 {
+		o.IsDead = true
+	}
 	if o.Health > o.Size {
 		// When health increase causes size to increase, increase slowly, not all at once.
 		difference := o.Health - o.Size
