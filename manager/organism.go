@@ -67,21 +67,31 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	start := time.Now()
 	m.clearRequestMaps()
+
+	m.updateOrganismActions()
+	m.resolveOrganismActions()
+
+	m.applyFoodRemovals()
+
+	m.updateOrganismOrder()
+	m.updateHistory()
+}
+
+func (m *OrganismManager) updateOrganismActions() {
+	start := time.Now()
 	for _, id := range m.organismUpdateOrder {
-		m.updateOrganism(m.organisms[id])
+		m.updateOrganismAction(m.organisms[id])
 	}
 	m.UpdateDuration = time.Since(start)
-	start = time.Now()
+}
+
+func (m *OrganismManager) resolveOrganismActions() {
+	start := time.Now()
 	for _, id := range m.organismUpdateOrder {
 		m.resolveOrganismAction(m.organisms[id])
 	}
-
-	m.applyFoodRemovals()
 	m.ResolveDuration = time.Since(start)
-	m.updateOrganismOrder()
-	m.updateHistory()
 }
 
 // updateHistory updates the population map for all living organisms
@@ -248,7 +258,7 @@ func (m *OrganismManager) applyOrganismPhGrowthEffect(o *organism.Organism) {
 	m.api.AddPhChangeAtPoint(o.Location, o.Traits().PhGrowthEffect*o.Size)
 }
 
-func (m *OrganismManager) updateOrganism(o *organism.Organism) {
+func (m *OrganismManager) updateOrganismAction(o *organism.Organism) {
 	// if previous action was attack, allow the screen to render white
 	if o.Action() == d.ActAttack {
 		m.addUpdatedPoint(o.Location)
