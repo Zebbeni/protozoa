@@ -116,8 +116,8 @@ func (o *Organism) UpdateAction() {
 		o.action = d.ActSpawn
 		return
 	}
-
 	o.action = o.chooseAction(o.decisionTree.Node)
+
 }
 
 func (o *Organism) shouldSpawn() bool {
@@ -193,9 +193,6 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 func (o *Organism) GetCurrentDecisionTreeLength() int {
 	return o.decisionTree.Size()
 }
-
-// GetAction returns the last-chosen Organism action
-func (o Organism) GetAction() d.Action { return o.action }
 
 // Traits returns an organism's traits
 func (o Organism) Traits() Traits { return o.traits }
