@@ -16,17 +16,12 @@ import (
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
-	api organism.API
+	api            organism.API
+	requestManager organism.RequestManager
 
 	organisms             map[int]*organism.Organism
 	organismIDGrid        [][]int
 	totalOrganismsCreated int
-
-	// action maps to identify conflicts during the
-	// resolution phase, to support concurrency
-	positionRequests map[string]int       // the number of times a location received a move or spawn request
-	eatRequests      map[string]food.Item // the amount of food eaten at a given point
-	healthEffects    map[string]float64   // the total damage + healing effects at a given location
 
 	organismUpdateOrder []int
 	newOrganismIDs      []int
@@ -46,6 +41,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
 		api:                    api,
+		requestManager:         organism.RequestManager{},
 		organismIDGrid:         grid,
 		organisms:              organisms,
 		organismUpdateOrder:    make([]int, 0, c.MaxOrganisms()),
@@ -67,29 +63,26 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	m.clearRequestMaps()
+	m.requestManager.ClearRequestMaps()
 
 	m.updateOrganismActions()
 	m.resolveOrganismActions()
 
-	m.applyFoodRemovals()
-
-	m.updateOrganismOrder()
 	m.updateHistory()
 }
 
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
-	for _, id := range m.organismUpdateOrder {
-		m.updateOrganismAction(m.organisms[id])
+	for _, o := range m.organisms {
+		m.updateOrganismAction(o)
 	}
 	m.UpdateDuration = time.Since(start)
 }
 
 func (m *OrganismManager) resolveOrganismActions() {
 	start := time.Now()
-	for _, id := range m.organismUpdateOrder {
-		m.resolveOrganismAction(m.organisms[id])
+	for _, o := range m.organisms {
+		m.resolveOrganismAction(o)
 	}
 	m.ResolveDuration = time.Since(start)
 }
@@ -116,16 +109,10 @@ func (m *OrganismManager) updateHistory() {
 	m.populationHistory[cycle] = populationMap
 }
 
-func (m *OrganismManager) clearRequestMaps() {
-	m.positionRequests = make(map[string]int)
-	m.eatRequests = make(map[string]food.Item)
-	m.healthEffects = make(map[string]float64)
-}
-
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
 	switch o.Action() {
 	case d.ActEat:
-		m.addEatRequest(o)
+		m.addFoodRequest(o)
 	case d.ActMove:
 		m.addMoveRequest(o)
 	case d.ActSpawn:
@@ -140,61 +127,40 @@ func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
 }
 
 func (m *OrganismManager) addAttackRequest(o *organism.Organism) {
-	target := o.Location.Add(o.Direction)
-	targetString := target.ToString()
-	if _, ok := m.healthEffects[targetString]; !ok {
-		m.healthEffects[targetString] = 0
-	}
 	effect := m.calculateAttackEffect(o)
-	m.healthEffects[targetString] += effect
+	target := o.Location.Add(o.Direction)
+	m.requestManager.AddHealthEffectRequest(target, effect)
 }
 
 func (m *OrganismManager) addFeedRequest(o *organism.Organism) {
-	target := o.Location.Add(o.Direction)
-	targetString := target.ToString()
-	if _, ok := m.healthEffects[targetString]; !ok {
-		m.healthEffects[targetString] = 0
-	}
 	// the feed effect constant is negative so multiply by -1 to
-	// get the health benefit to the beneficiary organism
-	m.healthEffects[targetString] += -1 * m.calculateFeedEffect(o)
+	// get a positive health benefit for the beneficiary organism
+	effect := -1 * m.calculateFeedEffect(o)
+	target := o.Location.Add(o.Direction)
+	m.requestManager.AddHealthEffectRequest(target, effect)
 }
 
 func (m *OrganismManager) addSpawnRequest(o *organism.Organism) {
-	target, ok := m.getChildSpawnLocation(o)
-	if !ok {
-		return
+	if target, ok := m.getChildSpawnLocation(o); ok {
+		m.requestManager.AddPositionRequest(target)
 	}
-	targetString := target.ToString()
-	if _, ok := m.positionRequests[targetString]; !ok {
-		m.positionRequests[targetString] = 0
-	}
-	m.positionRequests[targetString]++
 }
 
 // determine the new position required for a move action add 1 to the number of
 // requests for this position in positionRequests
 func (m *OrganismManager) addMoveRequest(o *organism.Organism) {
 	target := o.Direction.Add(o.Location)
-	targetString := target.ToString()
-	if _, ok := m.positionRequests[targetString]; !ok {
-		m.positionRequests[targetString] = 0
-	}
-	m.positionRequests[targetString]++
+	// We could check for a valid request here and avoid having to resolve it later
+	m.requestManager.AddPositionRequest(target)
 }
 
 // calculate the amount of food the given organism requests to eat at a target
 // location. Add this to the food item stored for this location representing
 // the total eat requests made here.
-func (m *OrganismManager) addEatRequest(o *organism.Organism) {
-	location := o.Location.Add(o.Direction)
-	locationString := location.ToString()
-	value := 0
-	if _, ok := m.eatRequests[locationString]; ok {
-		value = m.eatRequests[locationString].Value
-	}
-	value += int(math.Ceil(m.calculateValueToEat(o, location)))
-	m.eatRequests[locationString] = food.Item{Point: location, Value: value}
+func (m *OrganismManager) addFoodRequest(o *organism.Organism) {
+	target := o.Location.Add(o.Direction)
+	value := int(math.Ceil(m.calculateValueToEat(o, target)))
+	m.requestManager.AddFoodRequest(target, value)
 }
 
 // GetHistory returns the full population history of all original ancestors as a
@@ -211,35 +177,6 @@ func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (m *OrganismManager) GetAncestorsSorted() []int {
 	return m.originalAncestorsSorted
-}
-
-// updateOrganismOrder creates a new ordered list of all organismIDs that are
-// alive after the current cycle, appending any newly spawned organisms.
-// This means iterating the full list of organisms again, but this should be
-// faster than just deleting the dead IDs and shifting all others to the left
-func (m *OrganismManager) updateOrganismOrder() {
-	orderedIDs := append(m.organismUpdateOrder, m.newOrganismIDs...)
-	organismUpdateOrder := make([]int, 0, len(orderedIDs))
-	for _, id := range orderedIDs {
-		if _, ok := m.organisms[id]; ok {
-			organismUpdateOrder = append(organismUpdateOrder, id)
-		}
-	}
-	m.organismUpdateOrder = organismUpdateOrder
-	m.newOrganismIDs = make([]int, 0, 100)
-}
-
-func initializeGrid() [][]int {
-	grid := make([][]int, c.GridUnitsWide())
-	for r := 0; r < c.GridUnitsWide(); r++ {
-		grid[r] = make([]int, c.GridUnitsHigh())
-	}
-	for x := 0; x < c.GridUnitsWide(); x++ {
-		for y := 0; y < c.GridUnitsHigh(); y++ {
-			grid[x][y] = -1
-		}
-	}
-	return grid
 }
 
 func (m *OrganismManager) GetUpdatedPoints() map[string]utils.Point {
@@ -269,7 +206,7 @@ func (m *OrganismManager) updateOrganismAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
-	if o == nil {
+	if o == nil || o.Age == 0 {
 		return
 	}
 	m.applyCycleHealthChanges(o)
@@ -308,7 +245,7 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 
 // return true iff there is exactly one request to use a location (spawn or move)
 func (m *OrganismManager) isUnconflictedPositionRequest(p utils.Point) bool {
-	return m.positionRequests[p.ToString()] == 1
+	return m.requestManager.GetPositionRequestsAt(p) == 1
 }
 
 func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
@@ -346,6 +283,19 @@ func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (util
 		point = parent.Location.Add(direction)
 	}
 	return point, false
+}
+
+func initializeGrid() [][]int {
+	grid := make([][]int, c.GridUnitsWide())
+	for r := 0; r < c.GridUnitsWide(); r++ {
+		grid[r] = make([]int, c.GridUnitsHigh())
+	}
+	for x := 0; x < c.GridUnitsWide(); x++ {
+		for y := 0; y < c.GridUnitsHigh(); y++ {
+			grid[x][y] = -1
+		}
+	}
+	return grid
 }
 
 func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
@@ -466,11 +416,8 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 		phEffect = (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
 	}
 	// Add effects due to feeding and/or attack (not related to organism size)
-	otherEffects, found := m.healthEffects[o.Location.ToString()]
-	if found {
-		delete(m.healthEffects, o.Location.ToString())
-	}
-	m.applyHealthChange(o, o.Size*(decisionsEffect+phEffect)+otherEffects)
+	healthEffects := m.requestManager.GetHealthEffectRequestsAt(o.Location)
+	m.applyHealthChange(o, o.Size*(decisionsEffect+phEffect)+healthEffects)
 }
 
 // add a positive health change if organism attempts chemosynthesis in a
@@ -538,13 +485,8 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	// than exists at a given point, but this seems preferable right now to denying
 	// the eat request altogether or coming up with some perfect way to divvy it up.
 	amountToEat := m.calculateValueToEat(o, target)
+	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
 	m.applyHealthChange(o, amountToEat)
-}
-
-func (m *OrganismManager) applyFoodRemovals() {
-	for _, item := range m.eatRequests {
-		m.api.RemoveFoodAtPoint(item.Point, item.Value)
-	}
 }
 
 func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils.Point) float64 {

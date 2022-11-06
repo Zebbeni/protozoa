@@ -89,10 +89,6 @@ func (s *Simulation) IsDone() bool {
 		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, config.MaxOrganisms())
 		return true
 	}
-	//if s.GetNumOrganisms() >= config.MaxOrganisms() {
-	//	fmt.Printf("\nSimulation ended with %d organisms alive.", config.MaxOrganisms())
-	//	return true
-	//}
 	return false
 }
 
