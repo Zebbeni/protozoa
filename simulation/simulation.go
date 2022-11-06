@@ -25,6 +25,7 @@ type Simulation struct {
 	organismManager    *manager.OrganismManager
 	foodManager        *manager.FoodManager
 	environmentManager *manager.EnvironmentManager
+	updateManager      *manager.UpdateManager
 
 	// debug statistics
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
@@ -40,8 +41,9 @@ func NewSimulation(options *config.Options) *Simulation {
 		cycle:    -1,
 		isPaused: false,
 	}
+	sim.updateManager = manager.NewUpdateManager()
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
-	sim.foodManager = manager.NewFoodManager()
+	sim.foodManager = manager.NewFoodManager(sim)
 	sim.organismManager = manager.NewOrganismManager(sim)
 
 	return sim
@@ -112,29 +114,42 @@ func (s *Simulation) Pause(pause bool) {
 	s.isPaused = pause
 }
 
+// AddOrganismUpdate registers that the Organism at a point has changed in a noteworthy way
+func (s *Simulation) AddOrganismUpdate(point utils.Point) {
+	s.updateManager.AddOrganismUpdate(point)
+}
+
+// AddPhUpdate registers that a point's ph was changed by a noteworthy amount
+func (s *Simulation) AddPhUpdate(point utils.Point) {
+	s.updateManager.AddPhUpdate(point)
+}
+
+// AddFoodUpdate registers that a point's food value was changed by a noteworthy amount
+func (s *Simulation) AddFoodUpdate(point utils.Point) {
+	s.updateManager.AddFoodUpdate(point)
+}
+
 // GetUpdatedFoodPoints returns a map of all points recently updated by the
 // foodManager
 func (s *Simulation) GetUpdatedFoodPoints() map[string]utils.Point {
-	return s.foodManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedFoodPoints()
 }
 
 // GetUpdatedOrganismPoints returns a map of all points recently updated by the
 // organismManager
 func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
-	return s.organismManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedOrganismPoints()
 }
 
 // GetUpdatedPhPoints returns a map of all points recently updated by the
 // environmentManager
 func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
-	return s.environmentManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedPhPoints()
 }
 
-// clearUpdatedPoints clears all updated points for all content managers
+// ClearUpdatedPoints clears all updated points for all content managers
 func (s *Simulation) ClearUpdatedPoints() {
-	s.environmentManager.ClearUpdatedPoints()
-	s.foodManager.ClearUpdatedPoints()
-	s.organismManager.ClearUpdatedPoints()
+	s.updateManager.ClearMaps()
 }
 
 // GetAllOrganismInfo returns a map of Info on all living organisms

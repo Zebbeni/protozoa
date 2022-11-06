@@ -3,6 +3,7 @@ package manager
 import (
 	"math"
 	"math/rand"
+	"sync"
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
@@ -11,19 +12,18 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	initialized bool
-
-	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
-
-	Items map[string]*food.Item
+	api           food.API
+	Items         map[string]*food.Item
+	isInitialized bool
+	mutex         sync.Mutex
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager() *FoodManager {
+func NewFoodManager(api food.API) *FoodManager {
 	m := &FoodManager{
-		initialized:   false,
-		updatedPoints: make(map[string]utils.Point),
+		api:           api,
 		Items:         make(map[string]*food.Item),
+		isInitialized: false,
 	}
 	m.InitializeFood(config.InitialFood())
 	return m
@@ -127,14 +127,6 @@ func (m *FoodManager) GetFoodItems() map[string]*food.Item {
 	return m.Items
 }
 
-func (m *FoodManager) GetUpdatedPoints() map[string]utils.Point {
-	return m.updatedPoints
-}
-
-func (m *FoodManager) ClearUpdatedPoints() {
-	m.updatedPoints = make(map[string]utils.Point)
-}
-
 func (m *FoodManager) addUpdatedPoint(point utils.Point) {
-	m.updatedPoints[point.ToString()] = point
+	m.api.AddFoodUpdate(point)
 }

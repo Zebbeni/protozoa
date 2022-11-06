@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
@@ -29,6 +30,8 @@ type Organism struct {
 	action       d.Action
 
 	lookupAPI LookupAPI
+
+	mutex sync.Mutex
 }
 
 // NewRandom initializes organism at with random grid location and direction

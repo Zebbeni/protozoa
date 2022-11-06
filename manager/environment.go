@@ -9,16 +9,14 @@ import (
 
 // EnvironmentManager contains an image
 type EnvironmentManager struct {
-	api           environment.API
-	phMap         [][][]float64
-	updatedPoints map[string]utils.Point
-	averagePh     float64
+	api       environment.API
+	phMap     [][][]float64
+	averagePh float64
 }
 
 func NewEnvironmentManager(api environment.API) *EnvironmentManager {
 	manager := &EnvironmentManager{
-		api:           api,
-		updatedPoints: make(map[string]utils.Point),
+		api: api,
 	}
 
 	manager.initializePhMap()
@@ -68,25 +66,13 @@ func (m *EnvironmentManager) GetWalls() []utils.Point {
 	return points
 }
 
-func (m *EnvironmentManager) ClearPhMap() {
-	m.updatedPoints = make(map[string]utils.Point)
-}
-
 // GetPhAtPoint returns the current pH level of the environment at a given point
 func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
 	return m.phMap[m.getCurrentIndex()][point.X][point.Y]
 }
 
-func (m *EnvironmentManager) GetUpdatedPoints() map[string]utils.Point {
-	return m.updatedPoints
-}
-
 func (m *EnvironmentManager) GetAveragePh() float64 {
 	return m.averagePh
-}
-
-func (m *EnvironmentManager) ClearUpdatedPoints() {
-	m.updatedPoints = make(map[string]utils.Point)
 }
 
 // AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the
@@ -118,7 +104,7 @@ func (m *EnvironmentManager) getPreviousIndex() int {
 }
 
 func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
-	m.updatedPoints[point.ToString()] = point
+	m.api.AddPhUpdate(point)
 }
 
 // simulate diffusion of ph across the environment by adjusting each

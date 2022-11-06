@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
@@ -17,7 +18,7 @@ import (
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	api            organism.API
-	requestManager organism.RequestManager
+	requestManager RequestManager
 
 	organisms             map[int]*organism.Organism
 	organismIDGrid        [][]int
@@ -26,13 +27,13 @@ type OrganismManager struct {
 	organismUpdateOrder []int
 	newOrganismIDs      []int
 
-	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
-
 	originalAncestorsSorted []int
 	originalAncestorColors  map[int]color.Color   // all original ancestor IDs with at least one descendant
 	populationHistory       map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
 
 	UpdateDuration, ResolveDuration time.Duration
+
+	mutex sync.Mutex
 }
 
 // NewOrganismManager creates all Organisms and updates grid
@@ -41,12 +42,11 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
 		api:                    api,
-		requestManager:         organism.RequestManager{},
+		requestManager:         RequestManager{},
 		organismIDGrid:         grid,
 		organisms:              organisms,
 		organismUpdateOrder:    make([]int, 0, c.MaxOrganisms()),
 		newOrganismIDs:         make([]int, 0, 100),
-		updatedPoints:          make(map[string]utils.Point),
 		originalAncestorColors: make(map[int]color.Color),
 		populationHistory:      make(map[int]map[int]int16),
 	}
@@ -63,7 +63,7 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 // Update walks through decision tree of each organism and applies the
 // chosen action to the organism, the grid, and the environment
 func (m *OrganismManager) Update() {
-	m.requestManager.ClearRequestMaps()
+	m.requestManager.ClearMaps()
 
 	m.updateOrganismActions()
 	m.resolveOrganismActions()
@@ -73,9 +73,21 @@ func (m *OrganismManager) Update() {
 
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
+
+	//var wg sync.WaitGroup
+	//wg.Add(len(m.organisms))
+	//
+	//for _, org := range m.organisms {
+	//	go func(o *organism.Organism) {
+	//		defer wg.Done()
+	//		m.updateOrganismAction(o)
+	//	}(org)
+	//}
+
 	for _, o := range m.organisms {
 		m.updateOrganismAction(o)
 	}
+
 	m.UpdateDuration = time.Since(start)
 }
 
@@ -179,16 +191,8 @@ func (m *OrganismManager) GetAncestorsSorted() []int {
 	return m.originalAncestorsSorted
 }
 
-func (m *OrganismManager) GetUpdatedPoints() map[string]utils.Point {
-	return m.updatedPoints
-}
-
-func (m *OrganismManager) ClearUpdatedPoints() {
-	m.updatedPoints = make(map[string]utils.Point)
-}
-
 func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
-	m.updatedPoints[point.ToString()] = point
+	m.api.AddOrganismUpdate(point)
 }
 
 func (m *OrganismManager) applyOrganismPhGrowthEffect(o *organism.Organism) {
@@ -462,8 +466,8 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {
-	m.applyHealthChange(o, o.HealthCostToReproduce())
 	if success := m.SpawnChildOrganism(o); success {
+		m.applyHealthChange(o, o.HealthCostToReproduce())
 		o.Children++
 	}
 }

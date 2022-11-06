@@ -32,6 +32,9 @@ type ChangeAPI interface {
 	// AddPhChangeAtPoint adds a positive or negative value to the environment
 	// pH at a given point, bounded by the min / max pH allowed by the config
 	AddPhChangeAtPoint(point utils.Point, change float64)
+	// AddOrganismUpdate adds a point to the update map of noteworthy locations
+	// affected by organism activity
+	AddOrganismUpdate(point utils.Point)
 }
 
 // API provides functions needed to lookup and make changes to world objects

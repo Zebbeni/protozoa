@@ -1,4 +1,4 @@
-package organism
+package manager
 
 import (
 	"github.com/Zebbeni/protozoa/food"
@@ -16,7 +16,7 @@ type RequestManager struct {
 	mutex sync.Mutex
 }
 
-func (m *RequestManager) ClearRequestMaps() {
+func (m *RequestManager) ClearMaps() {
 	m.mutex.Lock()
 	m.positionRequests = make(map[string]int)
 	m.foodRequests = make(map[string]food.Item)
