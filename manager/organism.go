@@ -74,21 +74,31 @@ func (m *OrganismManager) Update() {
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
-	var wg sync.WaitGroup
-	wg.Add(len(m.organisms))
+	orgsToUpdate := make(chan int, len(m.organisms))
 
-	for _, org := range m.organisms {
-		go func(o *organism.Organism) {
-			defer wg.Done()
-			m.updateOrganismAction(o)
-		}(org)
+	numWorkers := 5
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for k := range orgsToUpdate {
+				m.mutex.Lock()
+				o := m.organisms[k]
+				m.mutex.Unlock()
+				m.updateOrganismAction(o)
+			}
+			wg.Done()
+		}()
 	}
 
-	wg.Wait()
+	for k := range m.organisms {
+		orgsToUpdate <- k
+	}
+	close(orgsToUpdate)
 
-	//for _, o := range m.organisms {
-	//	m.updateOrganismAction(o)
-	//}
+	// wait for all worker threads to call Done()
+	wg.Wait()
 
 	m.UpdateDuration = time.Since(start)
 }
