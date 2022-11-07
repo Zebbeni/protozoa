@@ -3,6 +3,7 @@ package decision
 import (
 	"bytes"
 	"fmt"
+	"sync"
 )
 
 // Node contains an Action or Condition NodeType and (if a Condition), child
@@ -12,6 +13,8 @@ type Node struct {
 	InDecisionTree, UsedLastCycle bool
 	YesNode, NoNode               *Node
 	size                          int
+
+	mutex sync.Mutex
 }
 
 // NodeFromAction creates a simple Node object from an Action type

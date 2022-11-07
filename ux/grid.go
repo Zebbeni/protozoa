@@ -185,7 +185,7 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
 			g.clearSquare(foodImage, float64(x), float64(y))
 
-			if item := g.simulation.GetFoodAtPoint(point); item != nil {
+			if item, exists := g.simulation.GetFoodAtPoint(point); exists {
 				g.renderFoodItem(item, foodImage)
 			}
 		}
@@ -222,7 +222,7 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 			infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
 			infoColor = info.Color
 		} else {
-			if foodItem := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); foodItem != nil {
+			if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
 				infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
 			}
 		}

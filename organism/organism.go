@@ -123,7 +123,6 @@ func (o *Organism) UpdateAction() {
 		return
 	}
 	o.action = o.chooseAction(o.decisionTree.Node)
-
 }
 
 func (o *Organism) shouldSpawn() bool {
@@ -265,8 +264,8 @@ func (o *Organism) isFoodRight() bool {
 }
 
 func (o *Organism) isFoodAtPoint(point utils.Point) bool {
-	return o.lookupAPI.CheckFoodAtPoint(point, func(f *food.Item) bool {
-		return f != nil
+	return o.lookupAPI.CheckFoodAtPoint(point, func(f *food.Item, exists bool) bool {
+		return exists
 	})
 }
 

@@ -200,17 +200,12 @@ func (s *Simulation) GetNumOrganisms() int {
 	return s.organismManager.OrganismCount()
 }
 
-// GetFoodCount returns the total number of all food items in the simulation.
-func (s *Simulation) GetFoodCount() int {
-	return len(s.foodManager.GetFoodItems())
-}
-
 // GetDeadCount returns the total number of organisms that have died in the simulation.
 func (s *Simulation) GetDeadCount() int {
 	return s.organismManager.DeadCount()
 }
 
-// GetFoodItems returns an array of all food items in grid
+// GetFoodItems returns a map of all food items in the grid
 func (s *Simulation) GetFoodItems() map[string]*food.Item {
 	return s.foodManager.GetFoodItems()
 }
@@ -232,27 +227,27 @@ func (s *Simulation) AveragePh() float64 {
 
 // GetFoodAtPoint returns the value of any food at a given point and whether
 // a food item actually exists there.
-func (s *Simulation) GetFoodAtPoint(point utils.Point) *food.Item {
+func (s *Simulation) GetFoodAtPoint(point utils.Point) (*food.Item, bool) {
 	return s.foodManager.GetFoodAtPoint(point)
 }
 
 // CheckFoodAtPoint returns the result of running a check against any food Item
 // object found at a given Point.
 func (s *Simulation) CheckFoodAtPoint(point utils.Point, checkFunc organism.FoodCheck) bool {
-	item := s.foodManager.GetFoodAtPoint(point)
-	return checkFunc(item)
+	item, found := s.foodManager.GetFoodAtPoint(point)
+	return checkFunc(item, found)
 }
 
 // AddFoodAtPoint attempts to add a food value to a given point and returns the actual
 // amount of food added.
-func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) int {
-	return s.foodManager.AddFoodAtPoint(point, value)
+func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) {
+	s.foodManager.AddFoodAtPoint(point, value)
 }
 
 // RemoveFoodAtPoint attempts to add a food value to a given point and returns the actual
 // amount of food added.
-func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
-	return s.foodManager.RemoveFoodAtPoint(point, value)
+func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) {
+	s.foodManager.RemoveFoodAtPoint(point, value)
 }
 
 // Select sets the currently selected organism ID. -1 if none selected

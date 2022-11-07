@@ -18,32 +18,37 @@ type RequestManager struct {
 
 func (m *RequestManager) ClearMaps() {
 	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	m.positionRequests = make(map[string]int)
 	m.foodRequests = make(map[string]food.Item)
 	m.healthEffectRequests = make(map[string]float64)
-	m.mutex.Unlock()
 }
 
 func (m *RequestManager) GetPositionRequestsAt(p utils.Point) int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	return m.positionRequests[p.ToString()]
 }
 
 func (m *RequestManager) GetFoodRequestsAt(p utils.Point) food.Item {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	return m.foodRequests[p.ToString()]
 }
 
 func (m *RequestManager) GetHealthEffectRequestsAt(p utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	return m.healthEffectRequests[p.ToString()]
 }
 
 func (m *RequestManager) AddPositionRequest(p utils.Point) {
 	pString := p.ToString()
+
 	m.mutex.Lock()
 	m.positionRequests[pString]++
 	m.mutex.Unlock()

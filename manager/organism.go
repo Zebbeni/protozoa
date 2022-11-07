@@ -74,19 +74,21 @@ func (m *OrganismManager) Update() {
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
-	//var wg sync.WaitGroup
-	//wg.Add(len(m.organisms))
-	//
-	//for _, org := range m.organisms {
-	//	go func(o *organism.Organism) {
-	//		defer wg.Done()
-	//		m.updateOrganismAction(o)
-	//	}(org)
-	//}
+	var wg sync.WaitGroup
+	wg.Add(len(m.organisms))
 
-	for _, o := range m.organisms {
-		m.updateOrganismAction(o)
+	for _, org := range m.organisms {
+		go func(o *organism.Organism) {
+			defer wg.Done()
+			m.updateOrganismAction(o)
+		}(org)
 	}
+
+	wg.Wait()
+
+	//for _, o := range m.organisms {
+	//	m.updateOrganismAction(o)
+	//}
 
 	m.UpdateDuration = time.Since(start)
 }
@@ -307,16 +309,22 @@ func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
 }
 
 func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
-	return m.api.CheckFoodAtPoint(point, func(item *food.Item) bool {
-		return item != nil
+	return m.api.CheckFoodAtPoint(point, func(_ *food.Item, exists bool) bool {
+		return exists
 	})
 }
 
 func (m *OrganismManager) isOrganismAtLocation(point utils.Point) bool {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	return m.organismIDGrid[point.X][point.Y] != -1
 }
 
 func (m *OrganismManager) getOrganismAt(point utils.Point) *organism.Organism {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if id, exists := m.getOrganismIDAt(point); exists {
 		index := id
 		return m.organisms[index]
@@ -340,6 +348,9 @@ func (m *OrganismManager) CheckOrganismAtPoint(point utils.Point, checkFunc orga
 
 // GetOrganismInfoAtPoint returns the Organism Info at the given point (nil if none)
 func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if id, found := m.getOrganismIDAt(point); found {
 		return m.organisms[id].Info()
 	}
@@ -349,6 +360,9 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
 // given organism (nil if no organism found)
 func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if o, ok := m.organisms[id]; ok {
 		return o.GetDecisionTreeCopy()
 	}
@@ -357,6 +371,9 @@ func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 
 // GetOrganismInfoByID returns the Organism Info for a given Organism ID. (nil if not found)
 func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	if o, found := m.organisms[id]; found {
 		return o.Info()
 	}
@@ -494,7 +511,7 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 }
 
 func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils.Point) float64 {
-	if item := m.api.GetFoodAtPoint(target); item != nil {
+	if item, found := m.api.GetFoodAtPoint(target); found {
 		maxCanEat := o.Size
 		return math.Min(float64(item.Value), maxCanEat)
 	}
