@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"sort"
 	"sync"
 	"time"
 
@@ -26,13 +25,13 @@ type OrganismManager struct {
 
 	organismIds []int
 
-	originalAncestorsSorted []int
-	originalAncestorColors  map[int]color.Color   // all original ancestor IDs with at least one descendant
-	populationHistory       map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
+	originalAncestors      []int
+	originalAncestorColors map[int]color.Color   // all original ancestor IDs with at least one descendant
+	populationHistory      map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
 
 	UpdateDuration, ResolveDuration time.Duration
 
-	ancestorMutex sync.Mutex
+	ancestorMutex sync.RWMutex
 	gridMutex     sync.Mutex
 	organismMutex sync.Mutex
 }
@@ -79,7 +78,7 @@ func (m *OrganismManager) updateOrganismActions() {
 	orgsToUpdate := make(chan int, len(m.organisms))
 	m.organismMutex.Unlock()
 
-	numWorkers := 16
+	numWorkers := 8
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
 
@@ -112,7 +111,7 @@ func (m *OrganismManager) resolveOrganismActions() {
 
 	orgsToResolve := make(chan *organism.Organism, len(m.organismIds))
 
-	numWorkers := 16
+	numWorkers := 8
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
 
@@ -196,7 +195,8 @@ func (m *OrganismManager) addFeedRequest(o *organism.Organism) {
 }
 
 func (m *OrganismManager) addSpawnRequest(o *organism.Organism) {
-	if target, ok := m.getChildSpawnLocation(o); ok {
+	target, ok := m.getChildSpawnLocation(o)
+	if ok {
 		m.requestManager.AddPositionRequest(target, o.ID)
 	}
 }
@@ -232,9 +232,9 @@ func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 	return m.originalAncestorColors
 }
 
-// GetAncestorsSorted returns a list of all original ancestor IDs in order
-func (m *OrganismManager) GetAncestorsSorted() []int {
-	return m.originalAncestorsSorted
+// GetAncestors returns a list of all original ancestor IDs
+func (m *OrganismManager) GetAncestors() []int {
+	return m.originalAncestors
 }
 
 func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
@@ -325,14 +325,17 @@ func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 }
 
 func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
-	m.ancestorMutex.Lock()
-	defer m.ancestorMutex.Unlock()
-	if _, ok := m.originalAncestorColors[o.ID]; ok {
+	m.ancestorMutex.RLock()
+	_, ok := m.originalAncestorColors[o.ID]
+	m.ancestorMutex.RUnlock()
+	if ok {
 		return
 	}
+
+	m.ancestorMutex.Lock()
 	m.originalAncestorColors[o.ID] = o.Color()
-	m.originalAncestorsSorted = append(m.originalAncestorsSorted, o.ID)
-	sort.Ints(m.originalAncestorsSorted)
+	m.originalAncestors = append(m.originalAncestors, o.ID)
+	m.ancestorMutex.Unlock()
 }
 
 // returns a random point and whether it is empty
@@ -342,14 +345,14 @@ func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
 }
 
 func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, bool) {
-	direction := parent.Direction.Left()
-	point := parent.Location.Add(parent.Direction)
+	var point utils.Point
+	direction := parent.Direction
 	for i := 0; i < 4; i++ {
+		direction = direction.Left()
+		point = parent.Location.Add(direction)
 		if m.isGridLocationEmpty(point) {
 			return point, true
 		}
-		direction = direction.Left()
-		point = parent.Location.Add(direction)
 	}
 	return point, false
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
+	"sort"
 	"time"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -192,7 +193,9 @@ func (s *Simulation) GetAncestorColors() map[int]color.Color {
 
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (s *Simulation) GetAncestorsSorted() []int {
-	return s.organismManager.GetAncestorsSorted()
+	ancestors := s.organismManager.GetAncestors()
+	sort.Ints(ancestors)
+	return ancestors
 }
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.

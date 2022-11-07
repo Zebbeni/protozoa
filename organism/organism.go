@@ -126,10 +126,16 @@ func (o *Organism) UpdateAction() {
 }
 
 func (o *Organism) shouldSpawn() bool {
-	cyclesRequirementMet := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
-	healthRequirementMet := o.Health > o.MinHealthToSpawn()
-	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms()
-	return populationRequirementMet && cyclesRequirementMet && healthRequirementMet
+	if o.CyclesSinceLastSpawn < o.MinCyclesBetweenSpawns() {
+		return false
+	}
+	if o.Health < o.MinHealthToSpawn() {
+		return false
+	}
+	if o.lookupAPI.OrganismCount() >= c.MaxOrganisms() {
+		return false
+	}
+	return true
 }
 
 // chooseAction walks through nodes of an organism's decision tree, eventually

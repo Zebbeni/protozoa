@@ -19,6 +19,7 @@ type LookupAPI interface {
 	GetPhAtPoint(point utils.Point) float64
 	OrganismCount() int
 	Cycle() int
+	GetSelected() int
 }
 
 // ChangeAPI provides callback functions to make changes to the simulation

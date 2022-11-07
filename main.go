@@ -1,14 +1,22 @@
 package main
 
 import (
+	"fmt"
+	"math/rand"
 	"os"
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/runner"
 )
 
+var opts *config.Options
+
 func main() {
-	opts := config.GetOptions()
+	runner.RunSimulation(opts)
+}
+
+func init() {
+	opts = config.GetOptions()
 
 	if opts.DumpConfig {
 		g := config.GetDefaultGlobals()
@@ -27,5 +35,6 @@ func main() {
 
 	config.SetGlobals(globals)
 
-	runner.RunSimulation(opts)
+	fmt.Println("Init Seed:", int64(opts.Seed))
+	rand.Seed(int64(opts.Seed))
 }
