@@ -89,16 +89,17 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 	pointString := point.ToString()
 
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	item, exists := m.Items[pointString]
+	m.mutex.Unlock()
 	if !exists {
 		return
 	}
 
 	item.Value -= value
 	if item.Value <= config.MinFoodValue() {
+		m.mutex.Lock()
 		delete(m.Items, pointString)
+		m.mutex.Unlock()
 	}
 
 	m.addUpdatedPoint(point)
@@ -124,9 +125,9 @@ func (m *FoodManager) addFood(point utils.Point, value int) {
 
 func (m *FoodManager) getFood(point utils.Point) (*food.Item, bool) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	item, found := m.Items[point.ToString()]
+	m.mutex.Unlock()
+
 	return item, found
 }
 

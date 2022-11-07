@@ -9,7 +9,7 @@ import (
 // RequestManager manages access maps that keep track of overlapping or
 // conflicting requests placed by organisms due to concurrent action updates
 type RequestManager struct {
-	positionRequests     map[string]int       // the number of times a location received a move or spawn request
+	positionRequests     map[string]int       // the lowest id of an organism requesting to move or spawn at a point
 	foodRequests         map[string]food.Item // the amount of food eaten at a given point
 	healthEffectRequests map[string]float64   // the total damage + healing effects at a given location
 
@@ -25,32 +25,34 @@ func (m *RequestManager) ClearMaps() {
 	m.healthEffectRequests = make(map[string]float64)
 }
 
-func (m *RequestManager) GetPositionRequestsAt(p utils.Point) int {
+func (m *RequestManager) GetPositionRequest(p utils.Point) int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	return m.positionRequests[p.ToString()]
 }
 
-func (m *RequestManager) GetFoodRequestsAt(p utils.Point) food.Item {
+func (m *RequestManager) GetFoodRequests(p utils.Point) food.Item {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	return m.foodRequests[p.ToString()]
 }
 
-func (m *RequestManager) GetHealthEffectRequestsAt(p utils.Point) float64 {
+func (m *RequestManager) GetHealthEffects(p utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	return m.healthEffectRequests[p.ToString()]
 }
 
-func (m *RequestManager) AddPositionRequest(p utils.Point) {
+func (m *RequestManager) AddPositionRequest(p utils.Point, id int) {
 	pString := p.ToString()
 
 	m.mutex.Lock()
-	m.positionRequests[pString]++
+	if id > m.positionRequests[pString] {
+		m.positionRequests[pString] = id
+	}
 	m.mutex.Unlock()
 }
 
