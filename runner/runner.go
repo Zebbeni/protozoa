@@ -3,7 +3,6 @@ package runner
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
@@ -41,7 +40,6 @@ func (r *Runner) Layout(_, _ int) (int, int) {
 
 func RunSimulation(opts *c.Options) {
 	resources.Init()
-	rand.Seed(int64(opts.Seed))
 
 	if opts.IsHeadless {
 		sumAllCycles := 0
@@ -50,7 +48,7 @@ func RunSimulation(opts *c.Options) {
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
-				if sim.Cycle()%1000 == 0 {
+				if sim.Cycle()%100 == 0 {
 					fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
 				}
 			}

@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
@@ -15,7 +16,6 @@ type Organism struct {
 	ID                   int
 	Age                  int
 	Health               float64
-	PrevHealth           float64
 	Size                 float64
 	Children             int
 	CyclesSinceLastSpawn int
@@ -29,6 +29,8 @@ type Organism struct {
 	action       d.Action
 
 	lookupAPI LookupAPI
+
+	mutex sync.Mutex
 }
 
 // NewRandom initializes organism at with random grid location and direction
@@ -42,7 +44,6 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 		ID:                   id,
 		Age:                  0,
 		Health:               traits.SpawnHealth,
-		PrevHealth:           traits.SpawnHealth,
 		Size:                 traits.SpawnHealth,
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
@@ -70,7 +71,6 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		ID:                   id,
 		Age:                  0,
 		Health:               o.InitialHealth(),
-		PrevHealth:           o.InitialHealth(),
 		Size:                 o.InitialHealth(),
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
@@ -98,7 +98,7 @@ func (o *Organism) Info() *Info {
 		Color:      o.traits.OrganismColor,
 		Age:        o.Age,
 		Children:   o.Children,
-		PhEffect:   o.traits.PhEffect,
+		PhEffect:   o.traits.PhGrowthEffect,
 	}
 }
 
@@ -108,16 +108,7 @@ func (o *Organism) Info() *Info {
 func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
-
-	healthChange := o.Health - o.PrevHealth
-	// compensate for health cost due to reproduction if applicable
-	// (don't penalize decision tree for a drop in health it didn't cause)
-	if o.CyclesSinceLastSpawn == 1 && o.Age > 1 {
-		healthChange -= o.Size * o.HealthCostToReproduce()
-	}
-
 	o.decisionTree.ResetUsedLastCycle()
-	o.PrevHealth = o.Health
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision
@@ -128,15 +119,20 @@ func (o *Organism) UpdateAction() {
 		o.action = d.ActSpawn
 		return
 	}
-
 	o.action = o.chooseAction(o.decisionTree.Node)
 }
 
 func (o *Organism) shouldSpawn() bool {
-	cyclesRequirementMet := o.CyclesSinceLastSpawn >= o.MinCyclesBetweenSpawns()
-	healthRequirementMet := o.Health > o.MinHealthToSpawn()
-	populationRequirementMet := o.lookupAPI.OrganismCount() < c.MaxOrganisms()
-	return populationRequirementMet && cyclesRequirementMet && healthRequirementMet
+	if o.CyclesSinceLastSpawn < o.MinCyclesBetweenSpawns() {
+		return false
+	}
+	if o.Health < o.MinHealthToSpawn() {
+		return false
+	}
+	if o.lookupAPI.OrganismCount() >= c.MaxOrganisms() {
+		return false
+	}
+	return true
 }
 
 // chooseAction walks through nodes of an organism's decision tree, eventually
@@ -179,8 +175,8 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isOrganismRight()
 	case d.IsRelatedOrganismRight:
 		return o.isRelatedOrganismRight()
-	case d.IsRandomFiftyPercent:
-		return rand.Float32() < 0.5
+	//case d.IsRandomFiftyPercent:
+	//	return rand.Float32() < 0.5
 	case d.IsHealthAboveFiftyPercent:
 		return o.Health > o.Size*0.5
 	case d.IsHealthyPhHere:
@@ -205,9 +201,6 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 func (o *Organism) GetCurrentDecisionTreeLength() int {
 	return o.decisionTree.Size()
 }
-
-// GetAction returns the last-chosen Organism action
-func (o Organism) GetAction() d.Action { return o.action }
 
 // Traits returns an organism's traits
 func (o Organism) Traits() Traits { return o.traits }
@@ -255,7 +248,7 @@ func (o *Organism) ApplyHealthChange(change float64) {
 		difference := o.Health - o.Size
 		o.Size = math.Min(o.Size+(difference*c.GrowthFactor()), o.traits.MaxSize)
 	}
-	o.Health = math.Min(math.Max(o.Health, 0.0), o.Size)
+	o.Health = math.Min(o.Health, o.Size)
 }
 
 func (o *Organism) isFoodAhead() bool {
@@ -271,8 +264,8 @@ func (o *Organism) isFoodRight() bool {
 }
 
 func (o *Organism) isFoodAtPoint(point utils.Point) bool {
-	return o.lookupAPI.CheckFoodAtPoint(point, func(f *food.Item) bool {
-		return f != nil
+	return o.lookupAPI.CheckFoodAtPoint(point, func(f *food.Item, exists bool) bool {
+		return exists
 	})
 }
 

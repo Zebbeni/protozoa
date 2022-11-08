@@ -3,6 +3,7 @@ package manager
 import (
 	"math"
 	"math/rand"
+	"sync"
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
@@ -11,19 +12,19 @@ import (
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
-	initialized bool
+	api           food.API
+	Items         map[string]*food.Item
+	isInitialized bool
 
-	updatedPoints map[string]utils.Point // a map of points updated since the previous cycle
-
-	Items map[string]*food.Item
+	mutex sync.RWMutex
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager() *FoodManager {
+func NewFoodManager(api food.API) *FoodManager {
 	m := &FoodManager{
-		initialized:   false,
-		updatedPoints: make(map[string]utils.Point),
+		api:           api,
 		Items:         make(map[string]*food.Item),
+		isInitialized: false,
 	}
 	m.InitializeFood(config.InitialFood())
 	return m
@@ -55,71 +56,24 @@ func (m *FoodManager) AddRandomFoodItem() {
 	y := rand.Intn(config.GridUnitsHigh())
 	value := rand.Intn(config.MaxFoodValue())
 	point := utils.Point{X: x, Y: y}
-	if added := m.AddFoodAtPoint(point, value); added > 0 {
-		m.addUpdatedPoint(point)
-	}
+	m.addFood(point, value)
 }
 
 // AddFoodAtPoint adds a foodItem with a given value at a given location if not
-// occupied. Returns the value added
-func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) int {
-	if value <= 0 || point.IsWall() {
-		return 0
-	}
-
-	m.addUpdatedPoint(point)
-
-	locationString := point.ToString()
-	item, exists := m.Items[locationString]
-	if !exists {
-		value = int(math.Min(math.Max(0.0, float64(value)), float64(config.MaxFoodValue())))
-		m.Items[locationString] = food.NewItem(point, value)
-		return value
-	}
-
-	originalValue := item.Value
-	item.Value += value
-	if item.Value > config.MaxFoodValue() {
-		item.Value = config.MaxFoodValue()
-		return config.MaxFoodValue() - originalValue
-	}
-	return value
+// occupied, or adds food to the existing food item there (up to maximum allowed)
+func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) {
+	m.addFood(point, value)
 }
 
 // RemoveFoodAtPoint subtracts a given value from the Item at a given point.
 // If value is more than the current food value, remove foodItem from the map
-// Returns the actual amount of food removed.
-func (m *FoodManager) RemoveFoodAtPoint(point utils.Point, value int) int {
-	if value <= 0 || point.IsWall() {
-		return 0
-	}
-
-	locationString := point.ToString()
-	item, exists := m.Items[locationString]
-	if !exists {
-		return 0
-	}
-
-	m.addUpdatedPoint(point)
-
-	originalValue := item.Value
-	item.Value -= value
-
-	if item.Value < config.MinFoodValue() {
-		delete(m.Items, locationString)
-	}
-
-	if originalValue >= value {
-		return value
-	}
-
-	return originalValue
+func (m *FoodManager) RemoveFoodAtPoint(point utils.Point, value int) {
+	m.removeFood(point, value)
 }
 
 // GetFoodAtPoint returns the FoodItem value at a given point (nil if none found)
-func (m *FoodManager) GetFoodAtPoint(point utils.Point) *food.Item {
-	foodItem, _ := m.Items[point.ToString()]
-	return foodItem
+func (m *FoodManager) GetFoodAtPoint(point utils.Point) (*food.Item, bool) {
+	return m.getFood(point)
 }
 
 // GetFoodItems returns the current list of food items
@@ -127,14 +81,58 @@ func (m *FoodManager) GetFoodItems() map[string]*food.Item {
 	return m.Items
 }
 
-func (m *FoodManager) GetUpdatedPoints() map[string]utils.Point {
-	return m.updatedPoints
+func (m *FoodManager) removeFood(point utils.Point, value int) {
+	if value <= 0 || point.IsWall() {
+		return
+	}
+
+	pointString := point.ToString()
+
+	m.mutex.RLock()
+	item, exists := m.Items[pointString]
+	m.mutex.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	item.Value -= value
+	if item.Value <= config.MinFoodValue() {
+		m.mutex.Lock()
+		delete(m.Items, pointString)
+		m.mutex.Unlock()
+	}
+
+	m.addUpdatedPoint(point)
 }
 
-func (m *FoodManager) ClearUpdatedPoints() {
-	m.updatedPoints = make(map[string]utils.Point)
+func (m *FoodManager) addFood(point utils.Point, value int) {
+	if value <= 0 || point.IsWall() {
+		return
+	}
+
+	pointString := point.ToString()
+
+	m.mutex.Lock()
+	item, exists := m.Items[pointString]
+	if exists {
+		value += item.Value
+	}
+	value = int(math.Min(math.Max(0.0, float64(value)), float64(config.MaxFoodValue())))
+	m.Items[pointString] = food.NewItem(point, value)
+	m.mutex.Unlock()
+
+	m.addUpdatedPoint(point)
+}
+
+func (m *FoodManager) getFood(point utils.Point) (*food.Item, bool) {
+	m.mutex.RLock()
+	item, found := m.Items[point.ToString()]
+	m.mutex.RUnlock()
+
+	return item, found
 }
 
 func (m *FoodManager) addUpdatedPoint(point utils.Point) {
-	m.updatedPoints[point.ToString()] = point
+	m.api.AddFoodUpdate(point)
 }

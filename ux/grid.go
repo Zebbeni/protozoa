@@ -185,7 +185,7 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
 			g.clearSquare(foodImage, float64(x), float64(y))
 
-			if item := g.simulation.GetFoodAtPoint(point); item != nil {
+			if item, exists := g.simulation.GetFoodAtPoint(point); exists {
 				g.renderFoodItem(item, foodImage)
 			}
 		}
@@ -222,10 +222,11 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 			infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
 			infoColor = info.Color
 		} else {
-			if foodItem := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); foodItem != nil {
+			if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
 				infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
 			}
 		}
+		infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
 
 		g.renderSelection(g.mouseHoverLocation, selectionsImage, infoColor)
 		g.renderSelectionText(g.mouseHoverLocation, selectionsImage, infoText, selectionInfoColor)
@@ -323,7 +324,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	organismColor := info.Color
 
 	if g.viewMode == phEffectsOnlyMode {
-		maxEffect := config.MaxOrganismPhEffect() * info.Size
+		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
 		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
 		hue := phMaxHue * spectrumValue
 		sat := 0.5 + math.Abs(spectrumValue-0.5)

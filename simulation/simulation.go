@@ -4,6 +4,7 @@ import (
 	"fmt"
 	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
+	"sort"
 	"time"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -25,6 +26,7 @@ type Simulation struct {
 	organismManager    *manager.OrganismManager
 	foodManager        *manager.FoodManager
 	environmentManager *manager.EnvironmentManager
+	updateManager      *manager.UpdateManager
 
 	// debug statistics
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
@@ -40,8 +42,9 @@ func NewSimulation(options *config.Options) *Simulation {
 		cycle:    -1,
 		isPaused: false,
 	}
+	sim.updateManager = manager.NewUpdateManager()
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
-	sim.foodManager = manager.NewFoodManager()
+	sim.foodManager = manager.NewFoodManager(sim)
 	sim.organismManager = manager.NewOrganismManager(sim)
 
 	return sim
@@ -89,10 +92,6 @@ func (s *Simulation) IsDone() bool {
 		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, config.MaxOrganisms())
 		return true
 	}
-	//if s.GetNumOrganisms() >= config.MaxOrganisms() {
-	//	fmt.Printf("\nSimulation ended with %d organisms alive.", config.MaxOrganisms())
-	//	return true
-	//}
 	return false
 }
 
@@ -116,29 +115,42 @@ func (s *Simulation) Pause(pause bool) {
 	s.isPaused = pause
 }
 
+// AddOrganismUpdate registers that the Organism at a point has changed in a noteworthy way
+func (s *Simulation) AddOrganismUpdate(point utils.Point) {
+	s.updateManager.AddOrganismUpdate(point)
+}
+
+// AddPhUpdate registers that a point's ph was changed by a noteworthy amount
+func (s *Simulation) AddPhUpdate(point utils.Point) {
+	s.updateManager.AddPhUpdate(point)
+}
+
+// AddFoodUpdate registers that a point's food value was changed by a noteworthy amount
+func (s *Simulation) AddFoodUpdate(point utils.Point) {
+	s.updateManager.AddFoodUpdate(point)
+}
+
 // GetUpdatedFoodPoints returns a map of all points recently updated by the
 // foodManager
 func (s *Simulation) GetUpdatedFoodPoints() map[string]utils.Point {
-	return s.foodManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedFoodPoints()
 }
 
 // GetUpdatedOrganismPoints returns a map of all points recently updated by the
 // organismManager
 func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
-	return s.organismManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedOrganismPoints()
 }
 
 // GetUpdatedPhPoints returns a map of all points recently updated by the
 // environmentManager
 func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
-	return s.environmentManager.GetUpdatedPoints()
+	return s.updateManager.GetUpdatedPhPoints()
 }
 
-// clearUpdatedPoints clears all updated points for all content managers
+// ClearUpdatedPoints clears all updated points for all content managers
 func (s *Simulation) ClearUpdatedPoints() {
-	s.environmentManager.ClearUpdatedPoints()
-	s.foodManager.ClearUpdatedPoints()
-	s.organismManager.ClearUpdatedPoints()
+	s.updateManager.ClearMaps()
 }
 
 // GetAllOrganismInfo returns a map of Info on all living organisms
@@ -181,7 +193,9 @@ func (s *Simulation) GetAncestorColors() map[int]color.Color {
 
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (s *Simulation) GetAncestorsSorted() []int {
-	return s.organismManager.GetAncestorsSorted()
+	ancestors := s.organismManager.GetAncestors()
+	sort.Ints(ancestors)
+	return ancestors
 }
 
 // GetNumOrganisms returns the total number of all living organisms in the simulation.
@@ -189,17 +203,12 @@ func (s *Simulation) GetNumOrganisms() int {
 	return s.organismManager.OrganismCount()
 }
 
-// GetFoodCount returns the total number of all food items in the simulation.
-func (s *Simulation) GetFoodCount() int {
-	return len(s.foodManager.GetFoodItems())
-}
-
 // GetDeadCount returns the total number of organisms that have died in the simulation.
 func (s *Simulation) GetDeadCount() int {
 	return s.organismManager.DeadCount()
 }
 
-// GetFoodItems returns an array of all food items in grid
+// GetFoodItems returns a map of all food items in the grid
 func (s *Simulation) GetFoodItems() map[string]*food.Item {
 	return s.foodManager.GetFoodItems()
 }
@@ -221,27 +230,27 @@ func (s *Simulation) AveragePh() float64 {
 
 // GetFoodAtPoint returns the value of any food at a given point and whether
 // a food item actually exists there.
-func (s *Simulation) GetFoodAtPoint(point utils.Point) *food.Item {
+func (s *Simulation) GetFoodAtPoint(point utils.Point) (*food.Item, bool) {
 	return s.foodManager.GetFoodAtPoint(point)
 }
 
 // CheckFoodAtPoint returns the result of running a check against any food Item
 // object found at a given Point.
 func (s *Simulation) CheckFoodAtPoint(point utils.Point, checkFunc organism.FoodCheck) bool {
-	item := s.foodManager.GetFoodAtPoint(point)
-	return checkFunc(item)
+	item, found := s.foodManager.GetFoodAtPoint(point)
+	return checkFunc(item, found)
 }
 
 // AddFoodAtPoint attempts to add a food value to a given point and returns the actual
 // amount of food added.
-func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) int {
-	return s.foodManager.AddFoodAtPoint(point, value)
+func (s *Simulation) AddFoodAtPoint(point utils.Point, value int) {
+	s.foodManager.AddFoodAtPoint(point, value)
 }
 
 // RemoveFoodAtPoint attempts to add a food value to a given point and returns the actual
 // amount of food added.
-func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) int {
-	return s.foodManager.RemoveFoodAtPoint(point, value)
+func (s *Simulation) RemoveFoodAtPoint(point utils.Point, value int) {
+	s.foodManager.RemoveFoodAtPoint(point, value)
 }
 
 // Select sets the currently selected organism ID. -1 if none selected

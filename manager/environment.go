@@ -5,20 +5,24 @@ import (
 	"github.com/Zebbeni/protozoa/environment"
 	"github.com/Zebbeni/protozoa/utils"
 	"math"
+	"sync"
 )
 
 // EnvironmentManager contains an image
 type EnvironmentManager struct {
-	api           environment.API
-	phMap         [][][]float64
-	updatedPoints map[string]utils.Point
-	averagePh     float64
+	api       environment.API
+	phMap     [][][]float64
+	averagePh float64
+
+	currentIndex  int
+	previousIndex int
+
+	mutex sync.Mutex
 }
 
 func NewEnvironmentManager(api environment.API) *EnvironmentManager {
 	manager := &EnvironmentManager{
-		api:           api,
-		updatedPoints: make(map[string]utils.Point),
+		api: api,
 	}
 
 	manager.initializePhMap()
@@ -44,11 +48,12 @@ func (m *EnvironmentManager) initializePhMap() {
 }
 
 func (m *EnvironmentManager) Update() {
+	m.updatePrevCurrentIndices()
 	m.diffusePhLevels()
 }
 
 func (m *EnvironmentManager) GetPhMap() [][]float64 {
-	return m.phMap[m.getCurrentIndex()]
+	return m.phMap[m.currentIndex]
 }
 
 func (m *EnvironmentManager) GetWalls() []utils.Point {
@@ -68,57 +73,66 @@ func (m *EnvironmentManager) GetWalls() []utils.Point {
 	return points
 }
 
-func (m *EnvironmentManager) ClearPhMap() {
-	m.updatedPoints = make(map[string]utils.Point)
-}
-
 // GetPhAtPoint returns the current pH level of the environment at a given point
 func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
-	return m.phMap[m.getCurrentIndex()][point.X][point.Y]
-}
-
-func (m *EnvironmentManager) GetUpdatedPoints() map[string]utils.Point {
-	return m.updatedPoints
+	return m.getCurrentPh(point)
 }
 
 func (m *EnvironmentManager) GetAveragePh() float64 {
 	return m.averagePh
 }
 
-func (m *EnvironmentManager) ClearUpdatedPoints() {
-	m.updatedPoints = make(map[string]utils.Point)
-}
-
 // AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the
 // minimum and maximum pH values provided by the config
 func (m *EnvironmentManager) AddPhChangeAtPoint(point utils.Point, change float64) {
-	m.setPhAtPoint(point, change+m.phMap[m.getCurrentIndex()][point.X][point.Y])
+	value := change + m.getCurrentPh(point)
+	m.setPhAtPoint(point, value)
 }
 
 func (m *EnvironmentManager) setPhAtPoint(point utils.Point, val float64) {
-	prevPh := m.phMap[m.getPreviousIndex()][point.X][point.Y]
+	prevPh := m.getPreviousPh(point)
 	newPh := math.Max(math.Min(val, c.MaxPh()), c.MinPh())
 
-	m.phMap[m.getCurrentIndex()][point.X][point.Y] = newPh
-
-	// only flag a worthwhile update if change is passed the difference threshhold
-	if int(prevPh/c.PhIncrementToDisplay()) != int(newPh/c.PhIncrementToDisplay()) {
+	// only flag a worthwhile update if change is passed the threshold to update
+	incrementToDisplay := c.PhIncrementToDisplay()
+	if int(prevPh/incrementToDisplay) != int(newPh/incrementToDisplay) {
 		m.addUpdatedPoint(point)
 	}
+
+	m.setCurrentPh(point, newPh)
 }
 
-// We update our phMap in place to allow diffusion between cycles without copying
-// our ph values into new slice
-func (m *EnvironmentManager) getCurrentIndex() int {
-	return m.api.Cycle() % 2
+// setCurrentPh sets the current pH level of the environment at a given point
+func (m *EnvironmentManager) setCurrentPh(point utils.Point, ph float64) {
+	m.mutex.Lock()
+	m.phMap[m.currentIndex][point.X][point.Y] = ph
+	m.mutex.Unlock()
 }
 
-func (m *EnvironmentManager) getPreviousIndex() int {
-	return 1 - (m.api.Cycle() % 2)
+// getCurrentPh returns the current pH level of the environment at a given point
+func (m *EnvironmentManager) getCurrentPh(point utils.Point) float64 {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	return m.phMap[m.currentIndex][point.X][point.Y]
+}
+
+// getPreviousPh returns the previous pH level of the environment at a given point
+func (m *EnvironmentManager) getPreviousPh(point utils.Point) float64 {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	return m.phMap[m.previousIndex][point.X][point.Y]
 }
 
 func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
-	m.updatedPoints[point.ToString()] = point
+	m.api.AddPhUpdate(point)
+}
+
+// We update our phMap in place to allow diffusion between cycles without copying
+// our ph values into new slice. Keep track of which map is which by switching
+// which index we're treating as 'current' and 'previous'
+func (m *EnvironmentManager) updatePrevCurrentIndices() {
+	m.previousIndex = 1 - (m.api.Cycle() % 2)
+	m.currentIndex = m.api.Cycle() % 2
 }
 
 // simulate diffusion of ph across the environment by adjusting each
@@ -126,7 +140,7 @@ func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
 // Also, while iterating, calculates average ph in environment
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
-	prev := m.getPreviousIndex()
+	prev := m.previousIndex
 	diffFactor := c.PhDiffuseFactor()
 
 	adjPh := func(x, y int) (float64, bool) {

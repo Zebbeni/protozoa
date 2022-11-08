@@ -49,7 +49,7 @@ func MinIdealPh() float64                      { return constants.MinIdealPh }
 func MaxIdealPh() float64                      { return constants.MaxIdealPh }
 func MinPhTolerance() float64                  { return constants.MinPhTolerance }
 func MaxPhTolerance() float64                  { return constants.MaxPhTolerance }
-func MaxOrganismPhEffect() float64             { return constants.MaxOrganismPhEffect }
+func MaxOrganismPhGrowthEffect() float64       { return constants.MaxOrganismPhGrowthEffect }
 func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64                 { return constants.PhDiffuseFactor }
 func UsePools() bool                           { return constants.UsePools }
@@ -107,7 +107,7 @@ type Globals struct {
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`
 	MinPhTolerance                float64 `json:"min_ph_tolerance"`
 	MaxPhTolerance                float64 `json:"max_ph_tolerance"`
-	MaxOrganismPhEffect           float64 `json:"max_organism_ph_effect"`
+	MaxOrganismPhGrowthEffect     float64 `json:"max_organism_ph_growth_effect"`
 	MinChangeToPh                 float64 `json:"min_change_to_ph"`
 	MaxChangeToPh                 float64 `json:"max_change_to_ph"`
 	PhIncrementToDisplay          float64 `json:"ph_increment_to_display"`

@@ -13,6 +13,10 @@ type Point struct {
 	X, Y int
 }
 
+func (p Point) String() string {
+	return fmt.Sprintf("(%d, %d)", p.X, p.Y)
+}
+
 var (
 	directionUp    = Point{X: 0, Y: -1}
 	directionRight = Point{X: +1, Y: 0}
@@ -34,18 +38,6 @@ func GetRandomPoint(width, height int) Point {
 		X: rand.Intn(width),
 		Y: rand.Intn(height),
 	}
-}
-
-// GetAllPointsNear returns all points that lie in a square within a given
-// distance from a single point
-func GetAllPointsNear(point Point, distance int) []Point {
-	points := make([]Point, 0, 9)
-	for x := -distance; x <= distance; x++ {
-		for y := -distance; y <= distance; y++ {
-			points = append(points, Point{X: point.X + x, Y: point.Y + y})
-		}
-	}
-	return points
 }
 
 // GetRandomDirection returns a point representing a random direction

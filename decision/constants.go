@@ -27,9 +27,9 @@ const (
 	IsRelatedOrganismLeft
 	IsOrganismRight
 	IsRelatedOrganismRight
-	IsRandomFiftyPercent
 	IsHealthAboveFiftyPercent
 	IsHealthyPhHere
+	//IsRandomFiftyPercent
 )
 
 // Define slices
@@ -56,9 +56,9 @@ var (
 		IsRelatedOrganismLeft,
 		IsOrganismRight,
 		IsRelatedOrganismRight,
-		IsRandomFiftyPercent,
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
+		//IsRandomFiftyPercent,
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",
@@ -80,8 +80,8 @@ var (
 		IsRelatedOrganismLeft:     "If Related Organism Left",
 		IsOrganismRight:           "If Organism Right",
 		IsRelatedOrganismRight:    "If Related Organism Right",
-		IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 		IsHealthyPhHere:           "IsHealthyPhHere",
+		//IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 	}
 )
