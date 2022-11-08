@@ -16,7 +16,7 @@ type FoodManager struct {
 	Items         map[string]*food.Item
 	isInitialized bool
 
-	mutex sync.Mutex
+	mutex sync.RWMutex
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
@@ -88,9 +88,10 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 
 	pointString := point.ToString()
 
-	m.mutex.Lock()
+	m.mutex.RLock()
 	item, exists := m.Items[pointString]
-	m.mutex.Unlock()
+	m.mutex.RUnlock()
+
 	if !exists {
 		return
 	}
@@ -110,23 +111,24 @@ func (m *FoodManager) addFood(point utils.Point, value int) {
 		return
 	}
 
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	pointString := point.ToString()
-	if item, exists := m.Items[pointString]; exists {
+
+	m.mutex.Lock()
+	item, exists := m.Items[pointString]
+	if exists {
 		value += item.Value
 	}
 	value = int(math.Min(math.Max(0.0, float64(value)), float64(config.MaxFoodValue())))
 	m.Items[pointString] = food.NewItem(point, value)
+	m.mutex.Unlock()
 
 	m.addUpdatedPoint(point)
 }
 
 func (m *FoodManager) getFood(point utils.Point) (*food.Item, bool) {
-	m.mutex.Lock()
+	m.mutex.RLock()
 	item, found := m.Items[point.ToString()]
-	m.mutex.Unlock()
+	m.mutex.RUnlock()
 
 	return item, found
 }

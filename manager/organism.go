@@ -32,8 +32,8 @@ type OrganismManager struct {
 	UpdateDuration, ResolveDuration time.Duration
 
 	ancestorMutex sync.RWMutex
-	gridMutex     sync.Mutex
-	organismMutex sync.Mutex
+	gridMutex     sync.RWMutex
+	organismMutex sync.RWMutex
 }
 
 // NewOrganismManager creates all Organisms and updates grid
@@ -74,9 +74,9 @@ func (m *OrganismManager) Update() {
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
-	m.organismMutex.Lock()
+	m.organismMutex.RLock()
 	orgsToUpdate := make(chan int, len(m.organisms))
-	m.organismMutex.Unlock()
+	m.organismMutex.RUnlock()
 
 	numWorkers := 8
 	var wg sync.WaitGroup
@@ -85,9 +85,9 @@ func (m *OrganismManager) updateOrganismActions() {
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for k := range orgsToUpdate {
-				m.organismMutex.Lock()
+				m.organismMutex.RLock()
 				o := m.organisms[k]
-				m.organismMutex.Unlock()
+				m.organismMutex.RUnlock()
 
 				m.updateOrganismAction(o)
 			}
@@ -125,9 +125,9 @@ func (m *OrganismManager) resolveOrganismActions() {
 	}
 
 	for _, id := range m.organismIds {
-		m.organismMutex.Lock()
+		m.organismMutex.RLock()
 		orgsToResolve <- m.organisms[id]
-		m.organismMutex.Unlock()
+		m.organismMutex.RUnlock()
 	}
 	close(orgsToResolve)
 	// wait for all worker threads to call Done()
@@ -145,7 +145,6 @@ func (m *OrganismManager) updateHistory() {
 
 	populationMap := make(map[int]int16)
 
-	m.organismMutex.Lock()
 	for _, o := range m.organisms {
 		if o.OriginalAncestorID == o.ID {
 			continue
@@ -156,11 +155,8 @@ func (m *OrganismManager) updateHistory() {
 		}
 		populationMap[o.OriginalAncestorID]++
 	}
-	m.organismMutex.Unlock()
 
-	m.gridMutex.Lock()
 	m.populationHistory[cycle] = populationMap
-	m.gridMutex.Unlock()
 }
 
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
@@ -204,10 +200,10 @@ func (m *OrganismManager) addSpawnRequest(o *organism.Organism) {
 // determine the new position required for a move action add 1 to the number of
 // requests for this position in positionRequests
 func (m *OrganismManager) addMoveRequest(o *organism.Organism) {
-	target := o.Direction.Add(o.Location)
+	target := o.Location.Add(o.Direction)
 
 	// Only make request if empty, to avoid complications resolving it later
-	if m.isGridLocationEmpty(target) {
+	if empty := m.isGridLocationEmpty(target); empty {
 		m.requestManager.AddPositionRequest(target, o.ID)
 	}
 }
@@ -257,9 +253,9 @@ func (m *OrganismManager) updateOrganismAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
-	m.gridMutex.Lock()
+	m.organismMutex.Lock()
 	m.organismIds = append(m.organismIds, o.ID)
-	m.gridMutex.Unlock()
+	m.organismMutex.Unlock()
 }
 
 func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
@@ -277,9 +273,9 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 // NewOrganism to initialize decision tree, other random attributes.
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
-		index := m.totalOrganismsCreated
-		o := organism.NewRandom(index, spawnPoint, m.api)
-		m.registerNewOrganism(o, index)
+		id := m.generateId()
+		o := organism.NewRandom(id, spawnPoint, m.api)
+		m.registerNewOrganism(o, id)
 	}
 }
 
@@ -296,9 +292,9 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	if m.isMatchingPositionRequest(spawnPoint, parent.ID) == false {
 		return false
 	}
-	index := m.totalOrganismsCreated
-	o := parent.NewChild(index, spawnPoint, m.api)
-	m.registerNewOrganism(o, index)
+	id := m.generateId()
+	o := parent.NewChild(id, spawnPoint, m.api)
+	m.registerNewOrganism(o, id)
 	m.addToOriginalAncestors(parent)
 	return true
 }
@@ -310,18 +306,25 @@ func (m *OrganismManager) isMatchingPositionRequest(p utils.Point, id int) bool 
 	return id == requestId
 }
 
+func (m *OrganismManager) generateId() int {
+	m.organismMutex.Lock()
+	defer m.organismMutex.Unlock()
+
+	m.totalOrganismsCreated++
+	return m.totalOrganismsCreated
+}
+
 func (m *OrganismManager) registerNewOrganism(o *organism.Organism, index int) {
 	m.addUpdatedPoint(o.Location)
 
-	m.organismMutex.Lock()
-	m.organisms[index] = o
-	m.organismMutex.Unlock()
-
 	m.gridMutex.Lock()
-	m.organismIDGrid[o.X()][o.Y()] = index
-	m.gridMutex.Unlock()
+	m.organismMutex.Lock()
 
-	m.totalOrganismsCreated++
+	m.organisms[index] = o
+	m.organismIDGrid[o.X()][o.Y()] = index
+
+	m.gridMutex.Unlock()
+	m.organismMutex.Unlock()
 }
 
 func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
@@ -341,7 +344,8 @@ func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
 // returns a random point and whether it is empty
 func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
 	point := utils.GetRandomPoint(c.GridUnitsWide(), c.GridUnitsHigh())
-	return point, m.isGridLocationEmpty(point)
+	isEmpty := m.isGridLocationEmpty(point)
+	return point, isEmpty
 }
 
 func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, bool) {
@@ -350,10 +354,13 @@ func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (util
 	for i := 0; i < 4; i++ {
 		direction = direction.Left()
 		point = parent.Location.Add(direction)
-		if m.isGridLocationEmpty(point) {
+
+		empty := m.isGridLocationEmpty(point)
+		if empty {
 			return point, true
 		}
 	}
+
 	return point, false
 }
 
@@ -381,18 +388,19 @@ func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
 }
 
 func (m *OrganismManager) isOrganismAtLocation(point utils.Point) bool {
-	m.gridMutex.Lock()
-	defer m.gridMutex.Unlock()
+	m.gridMutex.RLock()
+	id := m.organismIDGrid[point.X][point.Y]
+	m.gridMutex.RUnlock()
 
-	return m.organismIDGrid[point.X][point.Y] != -1
+	return id != -1
 }
 
 func (m *OrganismManager) getOrganismAt(point utils.Point) *organism.Organism {
 	if id, exists := m.getOrganismIDAt(point); exists {
 		index := id
 
-		m.organismMutex.Lock()
-		defer m.organismMutex.Unlock()
+		m.organismMutex.RLock()
+		defer m.organismMutex.RUnlock()
 
 		return m.organisms[index]
 	}
@@ -400,10 +408,10 @@ func (m *OrganismManager) getOrganismAt(point utils.Point) *organism.Organism {
 }
 
 func (m *OrganismManager) getOrganismIDAt(point utils.Point) (int, bool) {
-	m.gridMutex.Lock()
-	defer m.gridMutex.Unlock()
-
+	m.gridMutex.RLock()
 	id := m.organismIDGrid[point.X][point.Y]
+	m.gridMutex.RUnlock()
+
 	return id, id != -1
 }
 
@@ -416,8 +424,8 @@ func (m *OrganismManager) CheckOrganismAtPoint(point utils.Point, checkFunc orga
 // GetOrganismInfoAtPoint returns the Organism Info at the given point (nil if none)
 func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
 	if id, found := m.getOrganismIDAt(point); found {
-		m.organismMutex.Lock()
-		defer m.organismMutex.Unlock()
+		m.organismMutex.RLock()
+		defer m.organismMutex.RUnlock()
 
 		if o, ok := m.organisms[id]; ok {
 			return o.Info()
@@ -429,8 +437,8 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
 // given organism (nil if no organism found)
 func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
-	m.organismMutex.Lock()
-	defer m.organismMutex.Unlock()
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
 
 	if o, ok := m.organisms[id]; ok {
 		return o.GetDecisionTreeCopy()
@@ -440,8 +448,8 @@ func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 
 // GetOrganismInfoByID returns the Organism Info for a given Organism ID. (nil if not found)
 func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
-	m.organismMutex.Lock()
-	defer m.organismMutex.Unlock()
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
 
 	if o, found := m.organisms[id]; found {
 		return o.Info()
@@ -452,8 +460,8 @@ func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 // GetOrganismTraitsByID returns the Organism Traits for a given Organism ID and whether it was
 // successfully found
 func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) {
-	m.organismMutex.Lock()
-	defer m.organismMutex.Unlock()
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
 
 	if o, found := m.organisms[id]; found {
 		return o.Traits(), true
@@ -463,8 +471,8 @@ func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) 
 
 // OrganismCount returns the current number of organisms alive in the simulation
 func (m *OrganismManager) OrganismCount() int {
-	m.organismMutex.Lock()
-	defer m.organismMutex.Unlock()
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
 
 	return len(m.organisms)
 }
@@ -547,20 +555,21 @@ func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
 }
 
 func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
-	if o.Health > 0.0 && !o.IsDead {
+	if o.Health > 0.0 {
 		return false
 	}
-	m.addUpdatedPoint(o.Location)
 
 	m.gridMutex.Lock()
+	m.organismMutex.Lock()
+
 	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
+	delete(m.organisms, o.ID)
+
 	m.gridMutex.Unlock()
+	m.organismMutex.Unlock()
 
 	m.api.AddFoodAtPoint(o.Location, int(o.Size))
-
-	m.organismMutex.Lock()
-	delete(m.organisms, o.ID)
-	m.organismMutex.Unlock()
+	m.addUpdatedPoint(o.Location)
 
 	return true
 }
@@ -635,12 +644,12 @@ func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
 // GetAllOrganismInfo returns a map of all organisms' Info
 func (m *OrganismManager) GetAllOrganismInfo() map[int]*organism.Info {
 	infoMap := make(map[int]*organism.Info)
-	m.organismMutex.Lock()
+	m.organismMutex.RLock()
 	for id, o := range m.organisms {
 		info := o.Info()
 		infoMap[id] = info
 	}
-	m.organismMutex.Unlock()
+	m.organismMutex.RUnlock()
 	return infoMap
 }
 

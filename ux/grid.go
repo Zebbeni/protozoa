@@ -226,6 +226,7 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 				infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
 			}
 		}
+		infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
 
 		g.renderSelection(g.mouseHoverLocation, selectionsImage, infoColor)
 		g.renderSelectionText(g.mouseHoverLocation, selectionsImage, infoText, selectionInfoColor)

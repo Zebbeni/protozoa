@@ -35,6 +35,6 @@ func init() {
 
 	config.SetGlobals(globals)
 
-	fmt.Println("Init Seed:", int64(opts.Seed))
+	fmt.Println("Seed:", int64(opts.Seed))
 	rand.Seed(int64(opts.Seed))
 }
