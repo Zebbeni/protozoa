@@ -63,6 +63,7 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **IsRelatedOrganismRight -** _true if an organism with a shared ancestor lies 90 degrees to the right_
   * **IfHealthAboveFiftyPercent -** _true if organism's health values more than half its current size_
   * **IsHealthyPhHere -** _true if the ph level at current location is within the organism's tolerance - having no harmful health effects and allowing for chemosynthesis_
+  * **IsHealthierPhAhead -** _true if the ph level directly ahead is closer to the organism's ideal ph than the ph at its current location tolerance_
 ##### Actions
   * **Chemosynthesis -** _generates a small amount of health, if performed at a location with healthy ph_
   * **Eat -** _consumes a small amount of health to consume any food that lies directly ahead_
