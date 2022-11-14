@@ -38,18 +38,18 @@
   "max_chance_to_mutate_decision_tree": 0.25,
   "max_decision_tree_size": 32,
 
-  "max_organisms": 20000,
+  "max_organisms": 40000,
   "min_organisms": 20,
   "growth_factor": 0.5,
   "maximum_max_size": 100,
   "minimum_max_size": 20,
   "health_change_from_chemosynthesis": 0.1,
   "health_change_from_turning": -0.005,
-  "health_change_from_eating_attempt": -0.005,
+  "health_change_from_eating_attempt": -0.01,
   "health_change_from_moving": -0.01,
-  "health_change_from_attacking": -0.05,
+  "health_change_from_attacking": -0.1,
   "health_change_inflicted_by_attack": -1.0,
-  "health_change_from_feeding": -0.01,
+  "health_change_from_feeding": -0.1,
   "health_change_per_decision_tree_node": -0.0001,
   "health_change_per_unhealthy_ph": -0.05
 }

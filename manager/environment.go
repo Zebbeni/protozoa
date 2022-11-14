@@ -10,12 +10,12 @@ import (
 
 // EnvironmentManager contains an image
 type EnvironmentManager struct {
-	api       environment.API
-	phMap     [][][]float64
-	averagePh float64
+	api environment.API
 
-	currentIndex  int
-	previousIndex int
+	currentPhMap  [][]float64
+	previousPhMap [][]float64
+
+	averagePh float64
 
 	mutex sync.Mutex
 }
@@ -32,28 +32,29 @@ func NewEnvironmentManager(api environment.API) *EnvironmentManager {
 
 func (m *EnvironmentManager) initializePhMap() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
-	m.phMap = [][][]float64{make([][]float64, gridW), make([][]float64, gridW)}
+	m.previousPhMap = make([][]float64, gridW)
+	m.currentPhMap = make([][]float64, gridW)
 	for x := 0; x < gridW; x++ {
-		m.phMap[0][x] = make([]float64, gridH)
-		m.phMap[1][x] = make([]float64, gridH)
+		m.previousPhMap[x] = make([]float64, gridH)
+		m.currentPhMap[x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
 			xFactor := (1.0 + math.Sin(float64(x)/(float64(c.GridUnitsWide())/(2*math.Pi)))) / 2.0
 			yFactor := (1.0 + math.Sin(float64(y)/(float64(c.GridUnitsHigh())/(2*math.Pi)))) / 2.0
 			factor := (xFactor + yFactor) / 2.0
 			val := factor*(c.MaxInitialPh()-c.MinInitialPh()) + c.MinInitialPh()
-			m.phMap[0][x][y] = val
-			m.phMap[1][x][y] = val
+			m.previousPhMap[x][y] = val
+			m.currentPhMap[x][y] = val
 		}
 	}
 }
 
 func (m *EnvironmentManager) Update() {
-	m.updatePrevCurrentIndices()
+	m.updatePrevCurrentPhMaps()
 	m.diffusePhLevels()
 }
 
 func (m *EnvironmentManager) GetPhMap() [][]float64 {
-	return m.phMap[m.currentIndex]
+	return m.currentPhMap
 }
 
 func (m *EnvironmentManager) GetWalls() []utils.Point {
@@ -105,7 +106,7 @@ func (m *EnvironmentManager) setPhAtPoint(point utils.Point, val float64) {
 // setCurrentPh sets the current pH level of the environment at a given point
 func (m *EnvironmentManager) setCurrentPh(point utils.Point, ph float64) {
 	m.mutex.Lock()
-	m.phMap[m.currentIndex][point.X][point.Y] = ph
+	m.currentPhMap[point.X][point.Y] = ph
 	m.mutex.Unlock()
 }
 
@@ -113,26 +114,26 @@ func (m *EnvironmentManager) setCurrentPh(point utils.Point, ph float64) {
 func (m *EnvironmentManager) getCurrentPh(point utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	return m.phMap[m.currentIndex][point.X][point.Y]
+	return m.currentPhMap[point.X][point.Y]
 }
 
 // getPreviousPh returns the previous pH level of the environment at a given point
 func (m *EnvironmentManager) getPreviousPh(point utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	return m.phMap[m.previousIndex][point.X][point.Y]
+	return m.previousPhMap[point.X][point.Y]
 }
 
 func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
 	m.api.AddPhUpdate(point)
 }
 
-// We update our phMap in place to allow diffusion between cycles without copying
-// our ph values into new slice. Keep track of which map is which by switching
-// which index we're treating as 'current' and 'previous'
-func (m *EnvironmentManager) updatePrevCurrentIndices() {
-	m.previousIndex = 1 - (m.api.Cycle() % 2)
-	m.currentIndex = m.api.Cycle() % 2
+// Between cycles, swap which phMap we're treating as the 'previous' ph values
+// and which 'current' ph map we will be updating
+func (m *EnvironmentManager) updatePrevCurrentPhMaps() {
+	prevPhMap := m.previousPhMap
+	m.previousPhMap = m.currentPhMap
+	m.currentPhMap = prevPhMap
 }
 
 // simulate diffusion of ph across the environment by adjusting each
@@ -140,11 +141,10 @@ func (m *EnvironmentManager) updatePrevCurrentIndices() {
 // Also, while iterating, calculates average ph in environment
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
-	prev := m.previousIndex
 	diffFactor := c.PhDiffuseFactor()
 
 	adjPh := func(x, y int) (float64, bool) {
-		return m.phMap[prev][x][y], !utils.IsWall(x, y)
+		return m.previousPhMap[x][y], !utils.IsWall(x, y)
 	}
 
 	// return average of all diffuse-able adjacent points
@@ -191,7 +191,7 @@ func (m *EnvironmentManager) diffusePhLevels() {
 	// diffusion factor provided by the config)
 	for x := 0; x < gridW; x++ {
 		for y := 0; y < gridH; y++ {
-			prevVal := m.phMap[prev][x][y]
+			prevVal := m.previousPhMap[x][y]
 			totalPh += prevVal
 
 			// Just set wall ph to the average of its neighbors
