@@ -29,6 +29,7 @@ const (
 	IsRelatedOrganismRight
 	IsHealthAboveFiftyPercent
 	IsHealthyPhHere
+	IsHealthierPhAhead
 	//IsRandomFiftyPercent
 )
 
@@ -58,6 +59,7 @@ var (
 		IsRelatedOrganismRight,
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
+		IsHealthierPhAhead,
 		//IsRandomFiftyPercent,
 	}
 	Map = map[interface{}]string{
@@ -82,6 +84,7 @@ var (
 		IsRelatedOrganismRight:    "If Related Organism Right",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 		IsHealthyPhHere:           "IsHealthyPhHere",
+		IsHealthierPhAhead:        "IsHealthierPhAhead",
 		//IsRandomFiftyPercent:      "IsRandomFiftyPercent",
 	}
 )

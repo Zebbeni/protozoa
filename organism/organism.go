@@ -181,6 +181,8 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.Health > o.Size*0.5
 	case d.IsHealthyPhHere:
 		return o.isHealthyPhHere()
+	case d.IsHealthierPhAhead:
+		return o.isHealthierPhAhead()
 	}
 	return false
 }
@@ -305,6 +307,10 @@ func (o *Organism) isHealthyPhHere() bool {
 	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, o.Traits().PhTolerance)
 }
 
+func (o *Organism) isHealthierPhAhead() bool {
+	return o.isPhHealthierAtPoint(o.Location, o.Location.Add(o.Direction), o.Traits().IdealPh)
+}
+
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
 		return x != nil && x.Size > o.Size
@@ -334,6 +340,12 @@ func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool 
 func (o *Organism) isPhHealthyAtPoint(p utils.Point, ideal, tolerance float64) bool {
 	ph := o.lookupAPI.GetPhAtPoint(p)
 	return math.Abs(ph-ideal) < tolerance
+}
+
+func (o *Organism) isPhHealthierAtPoint(control, test utils.Point, ideal float64) bool {
+	controlPh := o.lookupAPI.GetPhAtPoint(control)
+	testPh := o.lookupAPI.GetPhAtPoint(test)
+	return math.Abs(testPh-ideal) < math.Abs(controlPh-ideal)
 }
 
 func (o *Organism) canMove() bool {
