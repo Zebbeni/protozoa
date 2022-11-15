@@ -12,7 +12,7 @@ The environment consists of a 2D wraparound grid. Each location contains a ph va
 
 Each cycle, ph values diffuse between neighboring grid locations at a regular rate, such that the whole environment will gradually approach a single ph value in the absence of organism activity.
 
-Low ph (acidic) locations appear pink, high ph (alkaline) locations are green, and neutral locations (~5.0 ph) are black.
+Low ph (acidic) locations appear green, high ph (alkaline) locations are pink, and neutral locations (~5.0 ph) are black.
 
 <img src="https://user-images.githubusercontent.com/3377325/165464843-372bce5d-d150-4ffd-89ac-138aaa45787d.png" width="300">
 
