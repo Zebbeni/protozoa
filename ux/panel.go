@@ -80,7 +80,7 @@ func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
-	message := "[Space] to Pause\n[M] to Change Mode"
+	message := "[Space] to Pause\n[M] to Change Mode\n[O] to Auto Select"
 	if p.simulation.IsPaused() {
 		message = "[Space] to Resume\n[M] to Change Mode"
 	}
@@ -125,7 +125,6 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 		return
 	}
 	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
-
 	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %3.2f", info.ID, info.Health)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)

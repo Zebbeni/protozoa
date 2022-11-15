@@ -66,8 +66,26 @@ func (i *Interface) handleKeyboard() {
 		i.simulation.Pause(!i.simulation.IsPaused())
 	}
 	if inpututil.IsKeyJustReleased(ebiten.KeyM) {
-		i.grid.ChangeMode()
+		i.grid.ChangeViewMode()
 	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyO) {
+		i.grid.UpdateAutoSelect()
+	}
+}
+
+func (i *Interface) UpdateSelected() {
+	id := -1
+	switch i.grid.selectMode {
+	case selectOldest:
+		id = i.simulation.GetOldestId()
+	case selectMostChildren:
+		id = i.simulation.GetMostChildrenId()
+	case selectMostTraveled:
+		id = i.simulation.GetMostTraveledId()
+	default:
+		return
+	}
+	i.simulation.Select(id)
 }
 
 // eventually let's implement a more comprehensive event handler system
@@ -88,6 +106,7 @@ func (i *Interface) handleMouseHover() {
 
 func (i *Interface) handleLeftClick() {
 	if selectedPoint, onGrid := i.getMouseGridLocation(); onGrid {
+		i.grid.SetManualSelection()
 		if info := i.simulation.GetOrganismInfoAtPoint(selectedPoint); info != nil {
 			i.simulation.Select(info.ID)
 		} else {
