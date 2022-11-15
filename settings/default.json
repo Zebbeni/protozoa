@@ -45,11 +45,11 @@
   "minimum_max_size": 20,
   "health_change_from_chemosynthesis": 0.1,
   "health_change_from_turning": -0.005,
-  "health_change_from_eating_attempt": -0.01,
+  "health_change_from_eating_attempt": -0.005,
   "health_change_from_moving": -0.01,
-  "health_change_from_attacking": -0.1,
-  "health_change_inflicted_by_attack": -1.0,
+  "health_change_from_attacking": -0.05,
+  "health_change_inflicted_by_attack": -10.0,
   "health_change_from_feeding": -0.1,
-  "health_change_per_decision_tree_node": -0.0001,
-  "health_change_per_unhealthy_ph": -0.05
+  "health_change_per_decision_tree_node": -0.001,
+  "health_change_per_unhealthy_ph": -5.0
 }

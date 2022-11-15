@@ -125,15 +125,15 @@ func (m *OrganismManager) resetInterestingStats() {
 }
 
 func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
-	if o.Age > m.oldestAge {
+	if o.Age > m.oldestAge || (o.Age == m.oldestAge && o.ID < m.oldestId) {
 		m.oldestAge = o.Age
 		m.oldestId = o.ID
 	}
-	if o.Children > m.mostChildren {
+	if o.Children > m.mostChildren || (o.Children == m.mostChildren && o.ID < m.mostChildrenId) {
 		m.mostChildren = o.Children
 		m.mostChildrenId = o.ID
 	}
-	if o.TraveledDist > m.mostTraveledDist {
+	if o.TraveledDist > m.mostTraveledDist || o.TraveledDist == m.mostTraveledDist && o.ID < m.mostTraveledId {
 		m.mostTraveledDist = o.TraveledDist
 		m.mostTraveledId = o.ID
 	}

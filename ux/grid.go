@@ -95,6 +95,7 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 		previousOrgsImage:  newBlankLayer(),
 		doRefresh:          true,
 		viewMode:           orgsPhMode,
+		selectMode:         selectOldest,
 	}
 	loadOrganismImages()
 	return g
@@ -178,7 +179,7 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
 	x := float64(gridX) * float64(config.GridUnitSize())
 	y := float64(gridY) * float64(config.GridUnitSize())
-	hue := (phVal / config.MaxPh()) * phMaxHue
+	hue := phMaxHue - (phMaxHue * phVal / config.MaxPh())
 	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
 	light := 0.5 + (0.5 * math.Sin(math.Pi*(sat-0.5)))
 	col := colorful.HSLuv(hue, sat, light)
