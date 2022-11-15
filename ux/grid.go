@@ -36,6 +36,13 @@ const (
 )
 
 const (
+	selectOldest mode = iota
+	selectMostChildren
+	selectMostTraveled
+	selectManual
+)
+
+const (
 	phMaxHue = 120.0
 )
 
@@ -49,11 +56,18 @@ var (
 	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
 	selectionInfoColor = colorful.HSLuv(0.0, 0, 1.0)
 	viewModes          = []mode{orgsPhMode, organismsOnlyMode, phEffectsOnlyMode, phOnlyMode}
+	selectModes        = []mode{selectOldest, selectMostChildren, selectMostTraveled, selectManual}
 	viewModeNames      = map[mode]string{
 		orgsPhMode:        "ORGANISMS & PH",
 		organismsOnlyMode: "ORGANISMS ONLY",
 		phEffectsOnlyMode: "ORGANISM PH EFFECTS",
 		phOnlyMode:        "PH ONLY",
+	}
+	selectModeNames = map[mode]string{
+		selectOldest:       "OLDEST",
+		selectMostChildren: "MOST CHILDREN",
+		selectMostTraveled: "MOST TRAVELED",
+		selectManual:       "MANUAL SELECT",
 	}
 )
 
@@ -69,6 +83,7 @@ type Grid struct {
 	mouseOnGrid        bool
 	doRefresh          bool
 	viewMode           mode
+	selectMode         mode
 }
 
 func NewGrid(simulation *simulation.Simulation) *Grid {
@@ -117,7 +132,6 @@ func (g *Grid) Render() *ebiten.Image {
 		gridImage.DrawImage(envImage, nil)
 	}
 	gridImage.DrawImage(wallsImage, nil)
-
 	gridImage.DrawImage(foodImage, nil)
 
 	if g.viewMode != phOnlyMode {
@@ -242,10 +256,22 @@ func newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(config.GridWidth(), config.GridHeight())
 }
 
-// ChangeMode switches to the next mode listed in viewModes
-func (g *Grid) ChangeMode() {
+// ChangeViewMode switches to the next mode listed in viewModes
+func (g *Grid) ChangeViewMode() {
 	g.viewMode = viewModes[(int(g.viewMode)+1)%len(viewModes)]
 	g.doRefresh = true
+}
+
+// UpdateAutoSelect switches to the next auto select mode listed in selectModes
+func (g *Grid) UpdateAutoSelect() {
+	// cycle among all but the last selectMode, which is manual.
+	// Manual selection his is switched to by clicking an organism
+	g.selectMode = selectModes[(int(g.selectMode)+1)%(len(selectModes)-1)]
+	g.doRefresh = true
+}
+
+func (g *Grid) SetManualSelection() {
+	g.selectMode = selectManual
 }
 
 func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
@@ -278,7 +304,8 @@ func (g *Grid) renderViewModeName(img *ebiten.Image) {
 	yPadding := 20
 	x := xPadding
 	y := yPadding
-	text.Draw(img, viewModeNames[g.viewMode], resources.FontSourceCodePro10, x, y, selectionInfoColor)
+	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
+	text.Draw(img, info, resources.FontSourceCodePro10, x, y, selectionInfoColor)
 }
 
 // renderFoodItem draws a food item to the given image

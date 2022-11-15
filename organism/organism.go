@@ -18,6 +18,7 @@ type Organism struct {
 	Health               float64
 	Size                 float64
 	Children             int
+	TraveledDist         int
 	CyclesSinceLastSpawn int
 	Location             utils.Point
 	Direction            utils.Point

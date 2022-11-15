@@ -168,9 +168,24 @@ func (s *Simulation) GetOrganismInfoByID(id int) *organism.Info {
 	return s.organismManager.GetOrganismInfoByID(id)
 }
 
-// GetOrganismTraitsByID returns the Organism Traits for a given ID and whether
+// GetOrganismTraitsByID returns the Organism Traits for a given ID
 func (s *Simulation) GetOrganismTraitsByID(id int) (organism.Traits, bool) {
 	return s.organismManager.GetOrganismTraitsByID(id)
+}
+
+// GetOldestId returns the id of the oldest living organism
+func (s *Simulation) GetOldestId() int {
+	return s.organismManager.GetOldestId()
+}
+
+// GetMostChildrenId returns the id of the most traveled organism
+func (s *Simulation) GetMostChildrenId() int {
+	return s.organismManager.GetMostChildrenId()
+}
+
+// GetMostTraveledId returns the id of the most traveled organism
+func (s *Simulation) GetMostTraveledId() int {
+	return s.organismManager.GetMostTraveledId()
 }
 
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the

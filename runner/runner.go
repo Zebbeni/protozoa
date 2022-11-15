@@ -22,11 +22,16 @@ type Runner struct {
 func (r *Runner) Update() error {
 	r.handleUserInput()
 	r.sim.Update()
+	r.updateSelected()
 	return nil
 }
 
 func (r *Runner) handleUserInput() {
 	r.ui.HandleUserInput()
+}
+
+func (r *Runner) updateSelected() {
+	r.ui.UpdateSelected()
 }
 
 func (r *Runner) Draw(screen *ebiten.Image) {

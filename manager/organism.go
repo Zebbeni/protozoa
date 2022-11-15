@@ -25,6 +25,13 @@ type OrganismManager struct {
 
 	organismIds []int
 
+	oldestId         int
+	oldestAge        int
+	mostChildrenId   int
+	mostChildren     int
+	mostTraveledId   int
+	mostTraveledDist int
+
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color   // all original ancestor IDs with at least one descendant
 	populationHistory      map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
@@ -65,6 +72,8 @@ func (m *OrganismManager) Update() {
 	m.requestManager.ClearMaps()
 	m.organismIds = make([]int, 0, c.MaxOrganisms())
 
+	m.resetInterestingStats()
+
 	m.updateOrganismActions()
 	m.resolveOrganismActions()
 
@@ -104,6 +113,30 @@ func (m *OrganismManager) updateOrganismActions() {
 	wg.Wait()
 
 	m.UpdateDuration = time.Since(start)
+}
+
+func (m *OrganismManager) resetInterestingStats() {
+	m.oldestId = -1
+	m.oldestAge = -1
+	m.mostChildrenId = -1
+	m.mostChildren = -1
+	m.mostTraveledId = -1
+	m.mostTraveledDist = -1
+}
+
+func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
+	if o.Age > m.oldestAge {
+		m.oldestAge = o.Age
+		m.oldestId = o.ID
+	}
+	if o.Children > m.mostChildren {
+		m.mostChildren = o.Children
+		m.mostChildrenId = o.ID
+	}
+	if o.TraveledDist > m.mostTraveledDist {
+		m.mostTraveledDist = o.TraveledDist
+		m.mostTraveledId = o.ID
+	}
 }
 
 func (m *OrganismManager) resolveOrganismActions() {
@@ -265,6 +298,7 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 	m.applyCycleHealthChanges(o)
 	m.applyAction(o)
 	m.removeIfDead(o)
+	m.updateInterestingStats(o)
 }
 
 // SpawnRandomOrganism creates an Organism with random position.
@@ -469,6 +503,21 @@ func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) 
 	return organism.Traits{}, false
 }
 
+// GetOldestId returns the id of the oldest living organism
+func (m *OrganismManager) GetOldestId() int {
+	return m.oldestId
+}
+
+// GetMostChildrenId returns the id of the most traveled organism
+func (m *OrganismManager) GetMostChildrenId() int {
+	return m.mostChildrenId
+}
+
+// GetMostTraveledId returns the id of the most traveled organism
+func (m *OrganismManager) GetMostTraveledId() int {
+	return m.mostTraveledId
+}
+
 // OrganismCount returns the current number of organisms alive in the simulation
 func (m *OrganismManager) OrganismCount() int {
 	m.organismMutex.RLock()
@@ -620,6 +669,8 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 
 	m.addUpdatedPoint(o.Location)
 	m.addUpdatedPoint(targetPoint)
+
+	o.TraveledDist++
 
 	m.gridMutex.Lock()
 	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
