@@ -52,7 +52,7 @@ func newRandomTraits() Traits {
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
 	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns())
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
-	idealPh := rand.Float64()*(c.MaxIdealPh()-c.MinIdealPh()) + c.MinIdealPh()
+	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
 	phTolerance := rand.Float64() * c.MaxPhTolerance()
 	phGrowthEffect := rand.Float64()*(c.MaxOrganismPhGrowthEffect()*2.0) - c.MaxOrganismPhGrowthEffect()
 	return Traits{
@@ -82,8 +82,8 @@ func (t Traits) copyMutated() Traits {
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
 	// phEffect = previous +- 0.001, bounded by MaxOrganismPhGrowthEffect (and -1 * MaxOrganismPhGrowthEffect)
 	phEffect := mutateFloat(t.PhGrowthEffect, .001, c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
-	// ideaLPh = previous += 0.01, bounded by MinIdealPh and MaxIdealPh
-	idealPh := mutateFloat(t.IdealPh, 0.01, c.MinIdealPh(), c.MaxIdealPh())
+	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
+	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance
 	phTolerance := mutateFloat(t.PhTolerance, 0.1, c.MinPhTolerance(), c.MaxPhTolerance())
 	return Traits{
