@@ -38,10 +38,8 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.previousPhMap[x] = make([]float64, gridH)
 		m.currentPhMap[x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
-			xFactor := (1.0 + math.Sin(float64(x)/(float64(c.GridUnitsWide())/(2*math.Pi)))) / 2.0
-			yFactor := (1.0 + math.Sin(float64(y)/(float64(c.GridUnitsHigh())/(2*math.Pi)))) / 2.0
-			factor := (xFactor + yFactor) / 2.0
-			val := factor*(c.MaxInitialPh()-c.MinInitialPh()) + c.MinInitialPh()
+			// Start all locations at neutral ph
+			val := (c.MaxInitialPh() + c.MinInitialPh()) / 2.0
 			m.previousPhMap[x][y] = val
 			m.currentPhMap[x][y] = val
 		}
