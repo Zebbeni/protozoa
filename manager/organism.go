@@ -179,10 +179,6 @@ func (m *OrganismManager) updateHistory() {
 	populationMap := make(map[int]int32)
 
 	for _, o := range m.organisms {
-		if o.OriginalAncestorID == o.ID {
-			continue
-		}
-
 		if _, ok := populationMap[o.OriginalAncestorID]; !ok {
 			populationMap[o.OriginalAncestorID] = 0
 		}
