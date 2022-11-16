@@ -35,7 +35,7 @@ Organisms are represented by colored squares of different sizes, and they perfor
 An organism's health is limited by its current size, so an organism of size 50 will have a max health of 50. When an organism gains more health than its size allows, it 'grows' in size by some fraction of the excess health gain.
 
 #### Traits
-Initial organisms are generated with random values for several 'genetic' traits that define its size limitations, its ph tolerance, the time it waits betweeen spawning, etc. When spawning a new organism, the traits of the parent are adjusted at by small random amounts and passed down to the new child.
+Initial organisms are generated with random values for several 'genetic' traits that define its size limitations, its ph tolerance, the time it waits betweeen spawning, etc. When spawning a new organism, the traits of the parent are adjusted by small random amounts and passed down to the new child.
   * **Color -** _generated from random hue, saturation, and brightness_
   * **MaxSize -** _the maximum size an organism can grow_
   * **SpawnHealth -** _the initial health given to a spawned child, which is also subtracted from the parent's health_
