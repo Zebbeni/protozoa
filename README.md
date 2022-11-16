@@ -1,6 +1,6 @@
 # Protozoa
 A simulation of organisms navigating their environment according to inherited traits and decision trees.
-Rendered with [ebiten](https://github.com/hajimehoshi/ebiten)
+Rendered with [ebitengine](https://github.com/hajimehoshi/ebiten)
 
 ![Screen Shot 2022-07-30 at 12 33 53 AM](https://user-images.githubusercontent.com/3377325/181996580-b8a51e8c-0310-43ba-bcb5-3f189a59486b.png)
 
@@ -35,7 +35,7 @@ Organisms are represented by colored squares of different sizes, and they perfor
 An organism's health is limited by its current size, so an organism of size 50 will have a max health of 50. When an organism gains more health than its size allows, it 'grows' in size by some fraction of the excess health gain.
 
 #### Traits
-Initial organisms are generated with random values for several 'genetic' traits, which are inherited by any spawned children:
+Initial organisms are generated with random values for several 'genetic' traits that define its size limitations, its ph tolerance, the time it waits betweeen spawning, etc. When spawning a new organism, the traits of the parent are adjusted at by small random amounts and passed down to the new child.
   * **Color -** _generated from random hue, saturation, and brightness_
   * **MaxSize -** _the maximum size an organism can grow_
   * **SpawnHealth -** _the initial health given to a spawned child, which is also subtracted from the parent's health_
