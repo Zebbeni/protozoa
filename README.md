@@ -16,13 +16,13 @@ Low ph (acidic) locations appear green, high ph (alkaline) locations are pink, a
 
 <img src="https://user-images.githubusercontent.com/3377325/165464843-372bce5d-d150-4ffd-89ac-138aaa45787d.png" width="300">
 
-By default, the environment is separated by walls into 'pools' with small openings allowing diffusion and movement in between. This is meant to allow different families of organisms to develop in isolation longer than would otherwise be possible. (The existence and size of these pools can be set in the configuration json files.)
+Additionally, the environment can be separated by walls into 'pools' with small openings allowing diffusion and movement in between. This is meant to allow different families of organisms to develop in isolation longer than would otherwise be possible. (The existence and size of these pools can be set in the configuration json files in `settings/`)
 
 ![Screen Shot 2022-07-30 at 1 37 57 AM](https://user-images.githubusercontent.com/3377325/181996681-40dbc369-082a-44fb-ae3a-40e33e60227a.png)
 
 ### Food
 
-Food items are generated at a regular rate throughout the simulation run and will appear randomly where there is room to place them. Each food item is represented by a dark gray square and contains a value between 0 and 100, representing how much the food item contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health. If a food item's value is reduced to 0, it disappears from the grid. Conversely, when an organism's health is reduced to 0 it 'dies' and is immediately replaced with a food item, whose value is set equal to the organism's size at death.
+'Food' items are generated when organisms die. Each food item is represented by a dark gray square and contains a value between 0 and 100, representing how much the food item contains. When an organism sees a food item directly ahead, it can choose to 'eat' it, subtracting some value from the food and adding it to its own health. If a food item's value is reduced to 0, it disappears from the grid. Conversely, when an organism's health is reduced to 0 it 'dies' and is immediately replaced with a food item, whose value is set equal to the organism's size at death.
 
 Apart from feeding organisms, food items also prevent movement. Organisms and food items cannot occupy the same location, and an organism facing a food item directly ahead cannot move through it.
 
