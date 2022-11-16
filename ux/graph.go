@@ -185,8 +185,8 @@ func createVertex(x, y float32) ebiten.Vertex {
 	}
 }
 
-func getTotalPopulation(populationMap map[int]int16) int {
-	total := int16(0)
+func getTotalPopulation(populationMap map[int]int32) int {
+	total := int32(0)
 	for _, population := range populationMap {
 		total += population
 	}
@@ -194,7 +194,7 @@ func getTotalPopulation(populationMap map[int]int16) int {
 }
 
 func (g *Graph) getMaxPopulation() int {
-	maxTotal := int16(0)
+	maxTotal := int32(0)
 	for cycle := 0; cycle <= g.simulation.Cycle(); cycle += c.PopulationUpdateInterval() {
 		total := g.getPopulationByCycle(cycle)
 		if total > maxTotal {
@@ -204,14 +204,14 @@ func (g *Graph) getMaxPopulation() int {
 	return int(maxTotal)
 }
 
-func (g *Graph) getPopulationByCycle(cycle int) int16 {
+func (g *Graph) getPopulationByCycle(cycle int) int32 {
 	populationMap := g.simulation.GetHistory()
 	populationAtCycle, ok := populationMap[cycle]
 	if !ok {
 		return 0
 	}
 
-	total := int16(0)
+	total := int32(0)
 	for _, familyPopulation := range populationAtCycle {
 		total += familyPopulation
 	}

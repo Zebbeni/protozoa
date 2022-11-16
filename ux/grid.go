@@ -132,10 +132,11 @@ func (g *Grid) Render() *ebiten.Image {
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
 		gridImage.DrawImage(envImage, nil)
 	}
+
 	gridImage.DrawImage(wallsImage, nil)
-	gridImage.DrawImage(foodImage, nil)
 
 	if g.viewMode != phOnlyMode {
+		gridImage.DrawImage(foodImage, nil)
 		gridImage.DrawImage(orgsImage, nil)
 	}
 
@@ -355,7 +356,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
 		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
 		hue := phMaxHue * spectrumValue
-		sat := 0.5 + math.Abs(spectrumValue-0.5)
+		sat := 1.0 + math.Abs(spectrumValue-0.5)
 		light := 0.25 + math.Abs(spectrumValue-0.5)
 		organismColor = colorful.HSLuv(hue, sat, light)
 	}

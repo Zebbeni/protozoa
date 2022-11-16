@@ -34,7 +34,7 @@ type OrganismManager struct {
 
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color   // all original ancestor IDs with at least one descendant
-	populationHistory      map[int]map[int]int16 // cycle : ancestorId : livingDescendantsCount
+	populationHistory      map[int]map[int]int32 // cycle : ancestorId : livingDescendantsCount
 
 	UpdateDuration, ResolveDuration time.Duration
 
@@ -54,7 +54,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		organisms:              organisms,
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
-		populationHistory:      make(map[int]map[int]int16),
+		populationHistory:      make(map[int]map[int]int32),
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -176,7 +176,7 @@ func (m *OrganismManager) updateHistory() {
 		return
 	}
 
-	populationMap := make(map[int]int16)
+	populationMap := make(map[int]int32)
 
 	for _, o := range m.organisms {
 		if o.OriginalAncestorID == o.ID {
@@ -252,7 +252,7 @@ func (m *OrganismManager) addFoodRequest(o *organism.Organism) {
 
 // GetHistory returns the full population history of all original ancestors as a
 // map of cycles to maps of ancestorIDs to the living descendants at that time
-func (m *OrganismManager) GetHistory() map[int]map[int]int16 {
+func (m *OrganismManager) GetHistory() map[int]map[int]int32 {
 	return m.populationHistory
 }
 

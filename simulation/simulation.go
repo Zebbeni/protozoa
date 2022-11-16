@@ -196,7 +196,7 @@ func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {
 
 // GetHistory returns the full population history of all original ancestors as a
 // map of cycles to maps of ancestorIDs to the living descendants at that time
-func (s *Simulation) GetHistory() map[int]map[int]int16 {
+func (s *Simulation) GetHistory() map[int]map[int]int32 {
 	return s.organismManager.GetHistory()
 }
 
