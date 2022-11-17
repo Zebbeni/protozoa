@@ -355,7 +355,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	if g.viewMode == phEffectsOnlyMode {
 		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
 		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
-		hue := phMaxHue * spectrumValue
+		hue := phMaxHue - (phMaxHue * spectrumValue)
 		sat := 1.0 + math.Abs(spectrumValue-0.5)
 		light := 0.25 + math.Abs(spectrumValue-0.5)
 		organismColor = colorful.HSLuv(hue, sat, light)

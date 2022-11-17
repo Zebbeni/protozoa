@@ -71,6 +71,9 @@ func (i *Interface) handleKeyboard() {
 	if inpututil.IsKeyJustReleased(ebiten.KeyO) {
 		i.grid.UpdateAutoSelect()
 	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyD) {
+		i.simulation.ToggleDebug()
+	}
 }
 
 func (i *Interface) UpdateSelected() {

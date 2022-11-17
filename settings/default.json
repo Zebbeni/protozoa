@@ -8,7 +8,7 @@
   "grid_units_high": 160,
   "screen_width": 1400,
   "screen_height": 800,
-  "population_update_interval": 100,
+  "population_update_interval": 20,
   "chance_to_add_food_item": 0.0,
   "max_food_value": 100,
   "min_food_value": 5,
@@ -21,8 +21,8 @@
   "max_ph": 10.0,
   "min_initial_ph": 1.5,
   "max_initial_ph": 8.5,
-  "min_ideal_ph": 2.0,
-  "max_ideal_ph": 8.0,
+  "min_ideal_ph": 1.5,
+  "max_ideal_ph": 8.5,
   "min_ph_tolerance": 0.5,
   "max_ph_tolerance": 1.0,
   "max_organism_ph_growth_effect": 0.05,
@@ -38,12 +38,12 @@
   "max_chance_to_mutate_decision_tree": 0.25,
   "max_decision_tree_size": 32,
 
-  "max_organisms": 40000,
+  "max_organisms": 50000,
   "min_organisms": 20,
   "growth_factor": 0.5,
   "maximum_max_size": 100,
   "minimum_max_size": 20,
-  "health_change_from_chemosynthesis": 0.01,
+  "health_change_from_chemosynthesis": 0.02,
   "health_change_from_turning": -0.01,
   "health_change_from_eating_attempt": -0.01,
   "health_change_from_moving": -0.02,
@@ -51,5 +51,5 @@
   "health_change_inflicted_by_attack": -1.0,
   "health_change_from_feeding": -0.1,
   "health_change_per_decision_tree_node": -0.001,
-  "health_change_per_unhealthy_ph": -1.0
+  "health_change_per_unhealthy_ph": -0.5
 }

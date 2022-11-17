@@ -100,6 +100,11 @@ func (s *Simulation) IsDebug() bool {
 	return s.options.IsDebugging
 }
 
+// ToggleDebug returns true if debug flag set on run
+func (s *Simulation) ToggleDebug() {
+	s.options.IsDebugging = s.options.IsDebugging == false
+}
+
 // Cycle returns the current simulation cycle number
 func (s *Simulation) Cycle() int {
 	return s.cycle
