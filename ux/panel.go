@@ -2,10 +2,11 @@ package ux
 
 import (
 	"fmt"
+	"image/color"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
-	"image/color"
 
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -125,10 +126,10 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 		return
 	}
 	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
-	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %3.2f", info.ID, info.Health)
+	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
-	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %2.2f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn)
+	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %[4]*.[3]*[2]f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn, 2, 5)
 	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
 	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
