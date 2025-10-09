@@ -1,6 +1,7 @@
 package ux
 
 import (
+	"fmt"
 	"image"
 	"math"
 
@@ -57,6 +58,9 @@ func (g *Graph) renderAll() *ebiten.Image {
 	// add 1 to make sure cycle 0 gives us a bar count of 1
 	barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
 	barWidth := realGraphWidth / float64(barCount)
+	if barWidth < 1 {
+		barWidth = 1
+	}
 	g.maxTotalPopulation = g.getMaxPopulation()
 	img := ebiten.NewImage(realGraphWidth, realGraphHeight)
 
@@ -78,6 +82,9 @@ func (g *Graph) renderAll() *ebiten.Image {
 func (g *Graph) renderNewBar() *ebiten.Image {
 	barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
 	barWidth := realGraphWidth / float64(barCount)
+	if barWidth < 1 {
+		barWidth = 1
+	}
 	barImage, graphBarPopulation := g.renderGraphBar(g.simulation.Cycle())
 
 	img := ebiten.NewImage(realGraphWidth, realGraphHeight)
@@ -86,6 +93,7 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 	xScaleOriginal := (float64(barCount) - 1) / float64(barCount)
 	yScaleOriginal := 1.0
 	if graphBarPopulation > g.maxTotalPopulation {
+		fmt.Printf("\nnew Population > maxTotal. scale: %f", float64(g.maxTotalPopulation)/float64(graphBarPopulation))
 		yScaleOriginal = float64(g.maxTotalPopulation) / float64(graphBarPopulation)
 		g.maxTotalPopulation = graphBarPopulation
 	}
@@ -116,6 +124,9 @@ func (g *Graph) renderNewBar() *ebiten.Image {
 func (g *Graph) renderGraphBar(cycle int) (*ebiten.Image, int) {
 	barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
 	realBarWidth := realGraphWidth / barCount
+	if realBarWidth < 1 {
+		realBarWidth = 1
+	}
 
 	populationMap := g.simulation.GetHistory()
 	ancestorColorMap := g.simulation.GetAncestorColors()

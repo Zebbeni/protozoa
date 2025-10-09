@@ -30,7 +30,8 @@ const (
 	IsHealthAboveFiftyPercent
 	IsHealthyPhHere
 	IsHealthierPhAhead
-	//IsRandomFiftyPercent
+	IsAgeMultipleOfTwo
+	IsAgeMultipleOfTen
 )
 
 // Define slices
@@ -60,7 +61,8 @@ var (
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
 		IsHealthierPhAhead,
-		//IsRandomFiftyPercent,
+		IsAgeMultipleOfTwo,
+		IsAgeMultipleOfTen,
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",
@@ -85,6 +87,7 @@ var (
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 		IsHealthyPhHere:           "IsHealthyPhHere",
 		IsHealthierPhAhead:        "IsHealthierPhAhead",
-		//IsRandomFiftyPercent:      "IsRandomFiftyPercent",
+		IsAgeMultipleOfTwo:        "IsAgeMultipleOfTwo",
+		IsAgeMultipleOfTen:        "IsAgeMultipleOfTen",
 	}
 )

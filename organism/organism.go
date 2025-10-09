@@ -37,7 +37,7 @@ type Organism struct {
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits()
-	decisionTree := d.TreeFromAction(d.GetRandomAction())
+	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
 		decisionTree = d.MutateTree(decisionTree)
 	}
@@ -184,6 +184,10 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isHealthyPhHere()
 	case d.IsHealthierPhAhead:
 		return o.isHealthierPhAhead()
+	case d.IsAgeMultipleOfTwo:
+		return o.isAgeMultipleOfTwo()
+	case d.IsAgeMultipleOfTen:
+		return o.isAgeMultipleOfTen()
 	}
 	return false
 }
@@ -212,7 +216,9 @@ func (o Organism) Traits() Traits { return o.traits }
 func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }
 
 // HealthCostToReproduce returns the health to lose upon spawning a child
-func (o Organism) HealthCostToReproduce() float64 { return o.traits.SpawnHealth * -1.0 }
+func (o Organism) HealthCostToReproduce() float64 {
+	return o.traits.SpawnHealth*-1.0 + (o.Size * c.HealthChangeFromSpawning())
+}
 
 // MinHealthToSpawn returns the minimum health required for an organism to spawn a child
 func (o Organism) MinHealthToSpawn() float64 { return o.traits.MinHealthToSpawn }
@@ -310,6 +316,14 @@ func (o *Organism) isHealthyPhHere() bool {
 
 func (o *Organism) isHealthierPhAhead() bool {
 	return o.isPhHealthierAtPoint(o.Location, o.Location.Add(o.Direction), o.Traits().IdealPh)
+}
+
+func (o *Organism) isAgeMultipleOfTwo() bool {
+	return o.Age%2 == 0
+}
+
+func (o *Organism) isAgeMultipleOfTen() bool {
+	return o.Age%10 == 0
 }
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {

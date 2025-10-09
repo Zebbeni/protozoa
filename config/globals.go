@@ -60,6 +60,7 @@ func HealthChangeFromTurning() float64         { return constants.HealthChangeFr
 func HealthChangeFromMoving() float64          { return constants.HealthChangeFromMoving }
 func HealthChangeFromEatingAttempt() float64   { return constants.HealthChangeFromEatingAttempt }
 func HealthChangeFromAttacking() float64       { return constants.HealthChangeFromAttacking }
+func HealthChangeFromSpawning() float64        { return constants.HealthChangeFromSpawning }
 func HealthChangeInflictedByAttack() float64   { return constants.HealthChangeInflictedByAttack }
 func HealthChangeFromFeeding() float64         { return constants.HealthChangeFromFeeding }
 func HealthChangePerDecisionTreeNode() float64 { return constants.HealthChangePerDecisionTreeNode }
@@ -122,6 +123,7 @@ type Globals struct {
 	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`
 	HealthChangeFromEatingAttempt   float64 `json:"health_change_from_eating_attempt"`
 	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`
+	HealthChangeFromSpawning        float64 `json:"health_change_from_spawning"`
 	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
 	HealthChangeFromFeeding         float64 `json:"health_change_from_feeding"`
 	HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
