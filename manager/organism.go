@@ -306,6 +306,7 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 		id := m.generateId()
 		o := organism.NewRandom(id, spawnPoint, m.api)
 		m.registerNewOrganism(o, id)
+		m.addToOriginalAncestors(o)
 	}
 }
 
@@ -325,7 +326,6 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	id := m.generateId()
 	o := parent.NewChild(id, spawnPoint, m.api)
 	m.registerNewOrganism(o, id)
-	m.addToOriginalAncestors(parent)
 	return true
 }
 
