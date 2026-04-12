@@ -1,19 +1,21 @@
 module github.com/Zebbeni/protozoa
 
-go 1.19
+go 1.22.0
+
+toolchain go1.23.2
 
 require (
-	github.com/hajimehoshi/ebiten/v2 v2.2.7
-	github.com/lucasb-eyer/go-colorful v1.2.0
-	golang.org/x/image v0.5.0
+	github.com/hajimehoshi/ebiten/v2 v2.8.9
+	github.com/lucasb-eyer/go-colorful v1.4.0
+	golang.org/x/image v0.21.0
 )
 
 require (
-	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20210727001814-0db043d8d5be // indirect
-	github.com/jezek/xgb v0.0.0-20210312150743-0e0f116e1240 // indirect
-	golang.org/x/exp v0.0.0-20190731235908-ec7cb31e5a56 // indirect
-	golang.org/x/mobile v0.0.0-20210902104108-5d9a33257ab5 // indirect
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
-	golang.org/x/text v0.7.0 // indirect
+	github.com/ebitengine/gomobile v0.0.0-20241016022004-957bd3215dd8 // indirect
+	github.com/ebitengine/hideconsole v1.0.0 // indirect
+	github.com/ebitengine/purego v0.8.0 // indirect
+	github.com/jezek/xgb v1.1.1 // indirect
+	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sys v0.26.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 )
