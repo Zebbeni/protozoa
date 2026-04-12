@@ -1,6 +1,6 @@
 {
   "initial_food": 0,
-  "initial_organisms": 1000,
+  "initial_organisms": 100,
   "grid_unit_size": 4,
   "grid_width": 1000,
   "grid_height": 800,
@@ -9,6 +9,8 @@
   "screen_width": 1400,
   "screen_height": 800,
 
-  "pool_width": 25,
-  "pool_height": 25
+  "use_pools": true,
+  "pool_width": 50,
+  "pool_height": 50
 }
+
