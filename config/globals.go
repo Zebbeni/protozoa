@@ -45,11 +45,15 @@ func MaxOrganisms() int                        { return constants.MaxOrganisms }
 func GrowthFactor() float64                    { return constants.GrowthFactor }
 func MaximumMaxSize() float64                  { return constants.MaximumMaxSize }
 func MinimumMaxSize() float64                  { return constants.MinimumMaxSize }
+func MaximumInitialSize() float64              { return constants.MaximumInitialSize }
+func MaximumInitialSpawnHealth() float64       { return constants.MaximumInitialSpawnHealth }
+func MaxInitialCyclesBetweenSpawns() int       { return constants.MaxInitialCyclesBetweenSpawns }
 func MinIdealPh() float64                      { return constants.MinIdealPh }
 func MaxIdealPh() float64                      { return constants.MaxIdealPh }
 func MinPhTolerance() float64                  { return constants.MinPhTolerance }
 func MaxPhTolerance() float64                  { return constants.MaxPhTolerance }
 func MaxOrganismPhGrowthEffect() float64       { return constants.MaxOrganismPhGrowthEffect }
+func MaxPhEffectChange() float64               { return constants.MaxPhEffectChange }
 func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64                 { return constants.PhDiffuseFactor }
 func UsePools() bool                           { return constants.UsePools }
@@ -62,7 +66,7 @@ func HealthChangeFromEatingAttempt() float64   { return constants.HealthChangeFr
 func HealthChangeFromAttacking() float64       { return constants.HealthChangeFromAttacking }
 func HealthChangeFromSpawning() float64        { return constants.HealthChangeFromSpawning }
 func HealthChangeInflictedByAttack() float64   { return constants.HealthChangeInflictedByAttack }
-func HealthChangeFromFeeding() float64         { return constants.HealthChangeFromFeeding }
+
 func HealthChangePerDecisionTreeNode() float64 { return constants.HealthChangePerDecisionTreeNode }
 func HealthChangePerUnhealthyPh() float64      { return constants.HealthChangePerCycleUnhealthyPh }
 func MaxDecisionTreeSize() int                 { return constants.MaxDecisionTreeSize }
@@ -100,6 +104,9 @@ type Globals struct {
 	GrowthFactor                  float64 `json:"growth_factor"`
 	MaximumMaxSize                float64 `json:"maximum_max_size"`
 	MinimumMaxSize                float64 `json:"minimum_max_size"`
+	MaximumInitialSize            float64 `json:"maximum_initial_size"`
+	MaximumInitialSpawnHealth     float64 `json:"maximum_initial_spawn_health"`
+	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
 	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
 	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
 	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
@@ -109,6 +116,7 @@ type Globals struct {
 	MinPhTolerance                float64 `json:"min_ph_tolerance"`
 	MaxPhTolerance                float64 `json:"max_ph_tolerance"`
 	MaxOrganismPhGrowthEffect     float64 `json:"max_organism_ph_growth_effect"`
+	MaxPhEffectChange             float64 `json:"max_ph_effect_change"`
 	MinChangeToPh                 float64 `json:"min_change_to_ph"`
 	MaxChangeToPh                 float64 `json:"max_change_to_ph"`
 	PhIncrementToDisplay          float64 `json:"ph_increment_to_display"`
@@ -125,8 +133,7 @@ type Globals struct {
 	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`
 	HealthChangeFromSpawning        float64 `json:"health_change_from_spawning"`
 	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
-	HealthChangeFromFeeding         float64 `json:"health_change_from_feeding"`
-	HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
+HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
 	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
 }
 

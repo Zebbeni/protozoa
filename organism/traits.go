@@ -47,10 +47,10 @@ type Traits struct {
 
 func newRandomTraits() Traits {
 	organismColor := getRandomColor()
-	maxSize := rand.Float64() * c.MaximumMaxSize()
-	spawnHealth := rand.Float64() * maxSize * c.MaxSpawnHealthPercent()
+	maxSize := rand.Float64() * c.MaximumInitialSize()
+	spawnHealth := rand.Float64() * math.Min(maxSize*c.MaxSpawnHealthPercent(), c.MaximumInitialSpawnHealth())
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
-	minCyclesBetweenSpawns := rand.Intn(c.MaxCyclesBetweenSpawns())
+	minCyclesBetweenSpawns := rand.Intn(c.MaxInitialCyclesBetweenSpawns() + 1)
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
 	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
 	phTolerance := rand.Float64() * c.MaxPhTolerance()
@@ -80,8 +80,8 @@ func (t Traits) copyMutated() Traits {
 	minHealthToSpawn := mutateFloat(t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	// chanceToMutateDecisionTree = previous +- <0.05, bounded by MinChanceToMutateDecisionTree and MaxChanceToMutateDecisionTree
 	chanceToMutateDecisionTree := mutateFloat(t.ChanceToMutateDecisionTree, 0.05, c.MinChanceToMutateDecisionTree(), c.MaxChanceToMutateDecisionTree())
-	// phEffect = previous +- 0.05, bounded by MaxOrganismPhGrowthEffect (and -1 * MaxOrganismPhGrowthEffect)
-	phEffect := mutateFloat(t.PhGrowthEffect, .05, c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
+	// phEffect = previous +- MaxPhEffectChange, bounded by MaxOrganismPhGrowthEffect (and -1 * MaxOrganismPhGrowthEffect)
+	phEffect := mutateFloat(t.PhGrowthEffect, c.MaxPhEffectChange(), c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
 	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
 	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance

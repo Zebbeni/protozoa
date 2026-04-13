@@ -33,8 +33,9 @@ type OrganismManager struct {
 	mostTraveledDist int
 
 	originalAncestors      []int
-	originalAncestorColors map[int]color.Color   // all original ancestor IDs with at least one descendant
-	populationHistory      map[int]map[int]int32 // cycle : ancestorId : livingDescendantsCount
+	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
+	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
+	populationHistory      map[int]map[int]int32            // cycle : ancestorId : livingDescendantsCount
 
 	phEffectHistory       map[int]map[int]int32 // cycle : effectBucket : organismCount
 	phDistributionHistory map[int]map[int]int32 // cycle : phBucket(0-19) : gridCellCount
@@ -42,6 +43,7 @@ type OrganismManager struct {
 	UpdateDuration, ResolveDuration time.Duration
 
 	ancestorMutex sync.RWMutex
+	historyMutex  sync.RWMutex
 	gridMutex     sync.RWMutex
 	organismMutex sync.RWMutex
 }
@@ -57,6 +59,7 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		organisms:              organisms,
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
+		descendantTrees:        make(map[int]*organism.DescendantNode),
 		populationHistory:      make(map[int]map[int]int32),
 		phEffectHistory:        make(map[int]map[int]int32),
 		phDistributionHistory:  make(map[int]map[int]int32),
@@ -202,8 +205,10 @@ func (m *OrganismManager) updateHistory() {
 		phEffectDist[bucket]++
 	}
 
+	m.historyMutex.Lock()
 	m.populationHistory[cycle] = populationMap
 	m.phEffectHistory[cycle] = phEffectDist
+	m.historyMutex.Unlock()
 
 	// compute pH distribution and average across grid cells using 0.5 pH-wide buckets
 	phMap := m.api.GetPhMap()
@@ -221,7 +226,9 @@ func (m *OrganismManager) updateHistory() {
 			phDist[bucket]++
 		}
 	}
+	m.historyMutex.Lock()
 	m.phDistributionHistory[cycle] = phDist
+	m.historyMutex.Unlock()
 }
 
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
@@ -234,8 +241,6 @@ func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
 		m.addSpawnRequest(o)
 	case d.ActAttack:
 		m.addAttackRequest(o)
-	case d.ActFeed:
-		m.addFeedRequest(o)
 	default:
 		return
 	}
@@ -243,14 +248,6 @@ func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
 
 func (m *OrganismManager) addAttackRequest(o *organism.Organism) {
 	effect := m.calculateAttackEffect(o)
-	target := o.Location.Add(o.Direction)
-	m.requestManager.AddHealthEffectRequest(target, effect)
-}
-
-func (m *OrganismManager) addFeedRequest(o *organism.Organism) {
-	// the feed effect constant is negative so multiply by -1 to
-	// get a positive health benefit for the beneficiary organism
-	effect := -1 * m.calculateFeedEffect(o)
 	target := o.Location.Add(o.Direction)
 	m.requestManager.AddHealthEffectRequest(target, effect)
 }
@@ -283,7 +280,8 @@ func (m *OrganismManager) addFoodRequest(o *organism.Organism) {
 }
 
 // GetHistory returns the full population history of all original ancestors as a
-// map of cycles to maps of ancestorIDs to the living descendants at that time
+// map of cycles to maps of ancestorIDs to the living descendants at that time.
+// Caller must hold history read lock.
 func (m *OrganismManager) GetHistory() map[int]map[int]int32 {
 	return m.populationHistory
 }
@@ -293,14 +291,31 @@ func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 	return m.originalAncestorColors
 }
 
-// GetPhEffectHistory returns per-cycle phEffect bucket counts
+// GetPhEffectHistory returns per-cycle phEffect bucket counts.
+// Caller must hold history read lock.
 func (m *OrganismManager) GetPhEffectHistory() map[int]map[int]int32 {
 	return m.phEffectHistory
 }
 
-// GetPhDistributionHistory returns per-cycle pH bucket counts
+// GetPhDistributionHistory returns per-cycle pH bucket counts.
+// Caller must hold history read lock.
 func (m *OrganismManager) GetPhDistributionHistory() map[int]map[int]int32 {
 	return m.phDistributionHistory
+}
+
+// LockHistoryForReading acquires a read lock on the history maps.
+func (m *OrganismManager) LockHistoryForReading() {
+	m.historyMutex.RLock()
+}
+
+// UnlockHistoryForReading releases the read lock on the history maps.
+func (m *OrganismManager) UnlockHistoryForReading() {
+	m.historyMutex.RUnlock()
+}
+
+// GetDescendantTrees returns the root node of each ancestor's family tree
+func (m *OrganismManager) GetDescendantTrees() map[int]*organism.DescendantNode {
+	return m.descendantTrees
 }
 
 // GetAncestors returns a list of all original ancestor IDs
@@ -351,6 +366,18 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		id := m.generateId()
 		o := organism.NewRandom(id, spawnPoint, m.api)
+
+		traits := o.Traits()
+		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
+		node := &organism.DescendantNode{
+			ID:            id,
+			Color:         o.Color(),
+			PhEffectColor: organism.ComputePhEffectColor(sv),
+			StartCycle:    m.api.Cycle(),
+		}
+		o.TreeNode = node
+		m.descendantTrees[id] = node
+
 		m.registerNewOrganism(o, id)
 		m.addToOriginalAncestors(o)
 	}
@@ -371,6 +398,20 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	}
 	id := m.generateId()
 	o := parent.NewChild(id, spawnPoint, m.api)
+
+	traits := o.Traits()
+	sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
+	node := &organism.DescendantNode{
+		ID:            id,
+		Color:         o.Color(),
+		PhEffectColor: organism.ComputePhEffectColor(sv),
+		StartCycle:    m.api.Cycle(),
+	}
+	o.TreeNode = node
+	if parent.TreeNode != nil {
+		parent.TreeNode.AddChild(node)
+	}
+
 	m.registerNewOrganism(o, id)
 	return true
 }
@@ -581,9 +622,6 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 	case d.ActAttack:
 		m.applyAttack(o)
 		break
-	case d.ActFeed:
-		m.applyFeed(o)
-		break
 	case d.ActEat:
 		m.applyEat(o)
 		break
@@ -610,7 +648,7 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	if phDist > o.Traits().PhTolerance {
 		phEffect = (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
 	}
-	// Add effects due to feeding and/or attack (not related to organism size)
+	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
 	m.applyHealthChange(o, o.Size*(decisionsEffect+phEffect)+healthEffects)
 }
@@ -650,6 +688,10 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 		return false
 	}
 
+	if o.TreeNode != nil {
+		o.TreeNode.EndCycle = m.api.Cycle()
+	}
+
 	m.gridMutex.Lock()
 	m.organismMutex.Lock()
 
@@ -670,14 +712,6 @@ func (m *OrganismManager) applySpawn(o *organism.Organism) {
 		m.applyHealthChange(o, o.HealthCostToReproduce())
 		o.Children++
 	}
-}
-
-func (m *OrganismManager) applyFeed(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromFeeding()*o.Size)
-}
-
-func (m *OrganismManager) calculateFeedEffect(o *organism.Organism) float64 {
-	return c.HealthChangeFromFeeding() * o.Size
 }
 
 func (m *OrganismManager) applyEat(o *organism.Organism) {

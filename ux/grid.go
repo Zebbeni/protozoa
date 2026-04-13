@@ -2,6 +2,13 @@ package ux
 
 import (
 	"fmt"
+	"math"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/lucasb-eyer/go-colorful"
+
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
@@ -9,11 +16,6 @@ import (
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/text"
-	"github.com/lucasb-eyer/go-colorful"
-	"math"
 )
 
 type size int
@@ -41,7 +43,6 @@ const (
 	selectMostTraveled
 	selectManual
 )
-
 
 var (
 	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill, squareImgBox *ebiten.Image
@@ -91,7 +92,7 @@ func NewGrid(simulation *simulation.Simulation) *Grid {
 		previousFoodImage:  newBlankLayer(),
 		previousOrgsImage:  newBlankLayer(),
 		doRefresh:          true,
-		viewMode:           orgsPhMode,
+		viewMode:           organismsOnlyMode,
 		selectMode:         selectOldest,
 	}
 	loadOrganismImages()
@@ -355,9 +356,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	organismColor := info.Color
 
 	if g.viewMode == phEffectsOnlyMode {
-		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
-		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
-		organismColor = PhEffectColor(spectrumValue)
+		organismColor = PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, config.MaxOrganismPhGrowthEffect()))
 	}
 
 	if info.Action == decision.ActAttack {

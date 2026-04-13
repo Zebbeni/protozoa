@@ -23,6 +23,7 @@ type Organism struct {
 	Location             utils.Point
 	Direction            utils.Point
 	OriginalAncestorID   int
+	TreeNode             *DescendantNode
 
 	traits Traits
 

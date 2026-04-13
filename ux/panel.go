@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 
+	"github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
 )
@@ -104,20 +105,26 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	var graphMode GraphMode
 	var label string
 	switch p.grid.ViewMode() {
+	case organismsOnlyMode:
+		graphMode = GraphModePopulation
+		label = "POPULATION HISTORY"
 	case phEffectsOnlyMode:
-		graphMode = GraphModePhEffect
-		label = "PH EFFECT HISTORY"
+		graphMode = GraphModePopulationPhEffect
+		label = "PH EFFECT POPULATION"
 	case phOnlyMode:
 		graphMode = GraphModePh
 		label = "PH DISTRIBUTION"
 	default:
-		graphMode = GraphModePopulation
-		label = "POPULATION HISTORY"
+		graphMode = GraphModePhEffect
+		label = "PH EFFECT HISTORY"
 	}
 	p.graph.SetMode(graphMode)
 
 	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
 	graphImage := p.graph.Render()
+	if graphImage == nil {
+		return
+	}
 	graphOptions := &ebiten.DrawImageOptions{}
 	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())
 	scaleY := float64(graphHeight) / float64(graphImage.Bounds().Dy())
@@ -125,6 +132,24 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+10)
 
 	panelImage.DrawImage(graphImage, graphOptions)
+
+	// Draw avg pH label on the pH graph at panel resolution
+	if graphMode == GraphModePh {
+		avgPh := p.graph.LastAvgPh()
+		if avgPh >= 0 {
+			phLabel := fmt.Sprintf("avg: %.1f", avgPh)
+			// Map pH to Y within the graph area: MaxPh=top, MinPh=bottom
+			phRange := config.MaxPh() - config.MinPh()
+			lineY := float64(graphYOffset+10) + float64(graphHeight)*(1.0-(avgPh-config.MinPh())/phRange)
+			bounds := text.BoundString(r.FontSourceCodePro8, phLabel)
+			textX := graphXOffset + graphWidth - bounds.Dx() - 2
+			textY := int(lineY) - 2
+			if textY < graphYOffset+10+bounds.Dy() {
+				textY = graphYOffset + 10 + bounds.Dy()
+			}
+			text.Draw(panelImage, phLabel, r.FontSourceCodePro8, textX, textY, color.White)
+		}
+	}
 
 	// draw border around graph
 	left, top, right, bottom := float64(graphXOffset), float64(graphYOffset+10), float64(graphXOffset+graphWidth), float64(graphYOffset+graphHeight+10)

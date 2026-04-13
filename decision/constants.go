@@ -9,7 +9,6 @@ type Condition int
 // Define all possible actions for Organism
 const (
 	ActAttack Action = iota
-	ActFeed
 	ActEat
 	ActChemosynthesis
 	ActMove
@@ -38,7 +37,6 @@ const (
 var (
 	Actions = [...]Action{
 		ActAttack,
-		ActFeed,
 		ActEat,
 		ActChemosynthesis,
 		ActMove,
@@ -66,7 +64,6 @@ var (
 	}
 	Map = map[interface{}]string{
 		ActAttack:                 "Attack",
-		ActFeed:                   "Feed",
 		ActEat:                    "Eat",
 		ActChemosynthesis:         "Chemosynthesis",
 		ActMove:                   "Move Ahead",

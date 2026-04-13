@@ -27,7 +27,6 @@
   "health_change_from_eating_attempt": -0.01,
   "health_change_from_attacking": -0.05,
   "health_change_inflicted_by_attack": -0.5,
-  "health_change_from_feeding": -0.05,
   "max_decision_tree_size": 16,
   "max_decision_trees": 5
 }

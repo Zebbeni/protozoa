@@ -2,4 +2,5 @@ compiled
 .gitignore
 *.idea
 *.iml
+.claude
 protozoa

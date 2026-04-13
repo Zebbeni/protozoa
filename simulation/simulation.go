@@ -221,6 +221,17 @@ func (s *Simulation) GetPhDistributionHistory() map[int]map[int]int32 {
 	return s.organismManager.GetPhDistributionHistory()
 }
 
+// LockHistoryForReading acquires a read lock on the history data.
+func (s *Simulation) LockHistoryForReading() { s.organismManager.LockHistoryForReading() }
+
+// UnlockHistoryForReading releases the read lock on the history data.
+func (s *Simulation) UnlockHistoryForReading() { s.organismManager.UnlockHistoryForReading() }
+
+// GetDescendantTrees returns the root node of each ancestor's family tree
+func (s *Simulation) GetDescendantTrees() map[int]*organism.DescendantNode {
+	return s.organismManager.GetDescendantTrees()
+}
+
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (s *Simulation) GetAncestorsSorted() []int {
 	ancestors := s.organismManager.GetAncestors()
