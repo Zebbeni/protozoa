@@ -42,9 +42,6 @@ const (
 	selectManual
 )
 
-const (
-	phMaxHue = 120.0
-)
 
 var (
 	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill, squareImgBox *ebiten.Image
@@ -258,6 +255,11 @@ func newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(config.GridWidth(), config.GridHeight())
 }
 
+// ViewMode returns the current grid view mode
+func (g *Grid) ViewMode() mode {
+	return g.viewMode
+}
+
 // ChangeViewMode switches to the next mode listed in viewModes
 func (g *Grid) ChangeViewMode() {
 	g.viewMode = viewModes[(int(g.viewMode)+1)%len(viewModes)]
@@ -355,10 +357,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	if g.viewMode == phEffectsOnlyMode {
 		maxEffect := config.MaxOrganismPhGrowthEffect() * info.Size
 		spectrumValue := (info.Size*info.PhEffect + maxEffect) / (2 * maxEffect)
-		hue := phMaxHue - (phMaxHue * spectrumValue)
-		sat := 1.0 + math.Abs(spectrumValue-0.5)
-		light := 0.25 + math.Abs(spectrumValue-0.5)
-		organismColor = colorful.HSLuv(hue, sat, light)
+		organismColor = PhEffectColor(spectrumValue)
 	}
 
 	if info.Action == decision.ActAttack {

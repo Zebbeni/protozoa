@@ -36,6 +36,9 @@ type OrganismManager struct {
 	originalAncestorColors map[int]color.Color   // all original ancestor IDs with at least one descendant
 	populationHistory      map[int]map[int]int32 // cycle : ancestorId : livingDescendantsCount
 
+	phEffectHistory       map[int]map[int]int32 // cycle : effectBucket : organismCount
+	phDistributionHistory map[int]map[int]int32 // cycle : phBucket(0-19) : gridCellCount
+
 	UpdateDuration, ResolveDuration time.Duration
 
 	ancestorMutex sync.RWMutex
@@ -55,6 +58,8 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
 		populationHistory:      make(map[int]map[int]int32),
+		phEffectHistory:        make(map[int]map[int]int32),
+		phDistributionHistory:  make(map[int]map[int]int32),
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -169,7 +174,8 @@ func (m *OrganismManager) resolveOrganismActions() {
 	m.ResolveDuration = time.Since(start)
 }
 
-// updateHistory updates the population map for all living organisms
+// updateHistory updates the population map, average phEffect per ancestor,
+// and pH distribution for all living organisms and the environment
 func (m *OrganismManager) updateHistory() {
 	cycle := m.api.Cycle()
 	if cycle%c.PopulationUpdateInterval() != 0 {
@@ -177,15 +183,45 @@ func (m *OrganismManager) updateHistory() {
 	}
 
 	populationMap := make(map[int]int32)
+	phEffectDist := make(map[int]int32)
+	maxEffect := c.MaxOrganismPhGrowthEffect()
+	numBuckets := 10
 
 	for _, o := range m.organisms {
-		if _, ok := populationMap[o.OriginalAncestorID]; !ok {
-			populationMap[o.OriginalAncestorID] = 0
-		}
 		populationMap[o.OriginalAncestorID]++
+
+		// bucket phEffect from [-maxEffect, +maxEffect] into numBuckets bands
+		effect := o.Traits().PhGrowthEffect
+		normalized := (effect + maxEffect) / (2 * maxEffect) // [0, 1]
+		bucket := int(normalized * float64(numBuckets))
+		if bucket < 0 {
+			bucket = 0
+		} else if bucket >= numBuckets {
+			bucket = numBuckets - 1
+		}
+		phEffectDist[bucket]++
 	}
 
 	m.populationHistory[cycle] = populationMap
+	m.phEffectHistory[cycle] = phEffectDist
+
+	// compute pH distribution and average across grid cells using 0.5 pH-wide buckets
+	phMap := m.api.GetPhMap()
+	phDist := make(map[int]int32)
+	phBucketWidth := 0.5
+	numPhBuckets := int(c.MaxPh() / phBucketWidth)
+	for x := range phMap {
+		for _, ph := range phMap[x] {
+			bucket := int(ph / phBucketWidth)
+			if bucket < 0 {
+				bucket = 0
+			} else if bucket >= numPhBuckets {
+				bucket = numPhBuckets - 1
+			}
+			phDist[bucket]++
+		}
+	}
+	m.phDistributionHistory[cycle] = phDist
 }
 
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
@@ -255,6 +291,16 @@ func (m *OrganismManager) GetHistory() map[int]map[int]int32 {
 // GetAncestorColors returns a map all original ancestor IDs to their color
 func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 	return m.originalAncestorColors
+}
+
+// GetPhEffectHistory returns per-cycle phEffect bucket counts
+func (m *OrganismManager) GetPhEffectHistory() map[int]map[int]int32 {
+	return m.phEffectHistory
+}
+
+// GetPhDistributionHistory returns per-cycle pH bucket counts
+func (m *OrganismManager) GetPhDistributionHistory() map[int]map[int]int32 {
+	return m.phDistributionHistory
 }
 
 // GetAncestors returns a list of all original ancestor IDs

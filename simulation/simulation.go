@@ -211,6 +211,16 @@ func (s *Simulation) GetAncestorColors() map[int]color.Color {
 	return s.organismManager.GetAncestorColors()
 }
 
+// GetPhEffectHistory returns per-cycle phEffect bucket counts
+func (s *Simulation) GetPhEffectHistory() map[int]map[int]int32 {
+	return s.organismManager.GetPhEffectHistory()
+}
+
+// GetPhDistributionHistory returns per-cycle pH bucket counts
+func (s *Simulation) GetPhDistributionHistory() map[int]map[int]int32 {
+	return s.organismManager.GetPhDistributionHistory()
+}
+
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (s *Simulation) GetAncestorsSorted() []int {
 	ancestors := s.organismManager.GetAncestors()

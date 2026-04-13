@@ -9,7 +9,7 @@
   "screen_width": 1400,
   "screen_height": 800,
 
-  "use_pools": true,
+  "use_pools": false,
   "pool_width": 50,
   "pool_height": 50
 }

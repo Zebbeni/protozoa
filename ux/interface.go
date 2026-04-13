@@ -26,10 +26,11 @@ type Interface struct {
 }
 
 func NewInterface(sim *simulation.Simulation) *Interface {
+	grid := NewGrid(sim)
 	i := &Interface{
 		simulation:   sim,
-		grid:         NewGrid(sim),
-		panel:        NewPanel(sim),
+		grid:         grid,
+		panel:        NewPanel(sim, grid),
 		gridOptions:  &ebiten.DrawImageOptions{},
 		panelOptions: &ebiten.DrawImageOptions{},
 	}

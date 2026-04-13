@@ -36,13 +36,15 @@ const (
 
 type Panel struct {
 	simulation         *s.Simulation
+	grid               *Grid
 	previousPanelImage *ebiten.Image
 	graph              *Graph
 }
 
-func NewPanel(sim *s.Simulation) *Panel {
+func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
 	return &Panel{
 		simulation: sim,
+		grid:       grid,
 		graph:      NewGraph(sim),
 	}
 }
@@ -98,7 +100,23 @@ func (p *Panel) renderStats(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderGraph(panelImage *ebiten.Image) {
-	text.Draw(panelImage, "HISTORY", r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
+	// Sync graph mode with grid view mode
+	var graphMode GraphMode
+	var label string
+	switch p.grid.ViewMode() {
+	case phEffectsOnlyMode:
+		graphMode = GraphModePhEffect
+		label = "PH EFFECT HISTORY"
+	case phOnlyMode:
+		graphMode = GraphModePh
+		label = "PH DISTRIBUTION"
+	default:
+		graphMode = GraphModePopulation
+		label = "POPULATION HISTORY"
+	}
+	p.graph.SetMode(graphMode)
+
+	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
 	graphImage := p.graph.Render()
 	graphOptions := &ebiten.DrawImageOptions{}
 	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())

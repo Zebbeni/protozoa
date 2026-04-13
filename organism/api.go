@@ -17,6 +17,7 @@ type LookupAPI interface {
 	CheckOrganismAtPoint(point utils.Point, checkFunc OrgCheck) bool
 	GetFoodAtPoint(point utils.Point) (*food.Item, bool)
 	GetPhAtPoint(point utils.Point) float64
+	GetPhMap() [][]float64
 	OrganismCount() int
 	Cycle() int
 	GetSelected() int
