@@ -15,8 +15,19 @@ type DescendantNode struct {
 	PhEffectColor color.Color
 	StartCycle    int
 	EndCycle      int // 0 means still alive
+	Parent        *DescendantNode
 	Children      []*DescendantNode
 	childMu       sync.Mutex
+}
+
+// AncestorAtGeneration walks up the tree n generations and returns that ancestor.
+// Returns the root if fewer than n generations exist above this node.
+func (n *DescendantNode) AncestorAtGeneration(generations int) *DescendantNode {
+	node := n
+	for i := 0; i < generations && node.Parent != nil; i++ {
+		node = node.Parent
+	}
+	return node
 }
 
 // PhEffectSpectrumValue computes a normalized [0,1] spectrum value for an
@@ -46,8 +57,9 @@ func ComputePhEffectColor(spectrumValue float64) colorful.Color {
 	return colorful.HSLuv(hue, sat, light)
 }
 
-// AddChild safely appends a child node.
+// AddChild safely appends a child node and sets its parent pointer.
 func (n *DescendantNode) AddChild(child *DescendantNode) {
+	child.Parent = n
 	n.childMu.Lock()
 	n.Children = append(n.Children, child)
 	n.childMu.Unlock()

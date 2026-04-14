@@ -144,6 +144,7 @@ func (o *Organism) shouldSpawn() bool {
 // the organism to attribute success or failure to the previously-chosen path
 func (o *Organism) chooseAction(node *d.Node) d.Action {
 	node.UsedLastCycle = true
+	node.WasTravelled = true
 	if node.IsAction() {
 		return node.NodeType.(d.Action)
 	}

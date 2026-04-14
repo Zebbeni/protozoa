@@ -11,10 +11,17 @@ import (
 type Node struct {
 	NodeType                      interface{}
 	InDecisionTree, UsedLastCycle bool
+	WasTravelled                  bool
 	YesNode, NoNode               *Node
 	size                          int
 
 	mutex sync.Mutex
+}
+
+// PrintLine represents a single line of decision tree output with metadata.
+type PrintLine struct {
+	Text         string
+	WasTravelled bool
 }
 
 // NodeFromAction creates a simple Node object from an Action type
@@ -40,6 +47,7 @@ func (n Node) CopyNode() *Node {
 	copy := &Node{
 		NodeType:      n.NodeType,
 		UsedLastCycle: n.UsedLastCycle,
+		WasTravelled:  n.WasTravelled,
 		size:          n.size,
 	}
 	if n.IsAction() {
@@ -100,6 +108,30 @@ func (n *Node) getNodes() (nodes []*Node) {
 	nodes = append(nodes, n.YesNode.getNodes()...)
 	nodes = append(nodes, n.NoNode.getNodes()...)
 	return
+}
+
+func (n *Node) printLines(indent string, first, last bool) []PrintLine {
+	prefix := indent
+	newIndent := indent
+	if first {
+		// root node, no prefix
+	} else if last {
+		prefix = fmt.Sprintf("%s└─", prefix)
+		newIndent = fmt.Sprintf("%s  ", newIndent)
+	} else {
+		prefix = fmt.Sprintf("%s├─", prefix)
+		newIndent = fmt.Sprintf("%s│ ", newIndent)
+	}
+	lineText := prefix + Map[n.NodeType]
+	if n.UsedLastCycle {
+		lineText += " ◀◀"
+	}
+	lines := []PrintLine{{Text: lineText, WasTravelled: n.WasTravelled}}
+	if n.IsCondition() {
+		lines = append(lines, n.YesNode.printLines(newIndent, false, false)...)
+		lines = append(lines, n.NoNode.printLines(newIndent, false, true)...)
+	}
+	return lines
 }
 
 func (n *Node) print(indent string, first, last bool) string {

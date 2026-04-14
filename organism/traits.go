@@ -53,7 +53,7 @@ func newRandomTraits() Traits {
 	minCyclesBetweenSpawns := rand.Intn(c.MaxInitialCyclesBetweenSpawns() + 1)
 	chanceToMutateDecisionTree := math.Max(c.MinChanceToMutateDecisionTree(), rand.Float64()*c.MaxChanceToMutateDecisionTree())
 	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
-	phTolerance := rand.Float64() * c.MaxPhTolerance()
+	phTolerance := rand.Float64() * c.MaxPhToleranceRange()
 	phGrowthEffect := rand.Float64()*(c.MaxOrganismPhGrowthEffect()*2.0) - c.MaxOrganismPhGrowthEffect()
 	return Traits{
 		OrganismColor:              organismColor,
@@ -84,8 +84,8 @@ func (t Traits) copyMutated() Traits {
 	phEffect := mutateFloat(t.PhGrowthEffect, c.MaxPhEffectChange(), c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
 	// ideaLPh = previous += 0.1, bounded by MinIdealPh and MaxIdealPh
 	idealPh := mutateFloat(t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
-	// phTolerance = previous +- 0.1, bounded by MinPhTolerance and MaxPhTolerance
-	phTolerance := mutateFloat(t.PhTolerance, 0.1, c.MinPhTolerance(), c.MaxPhTolerance())
+	// phTolerance = previous +- 0.1, bounded by MinPhToleranceRange and MaxPhToleranceRange
+	phTolerance := mutateFloat(t.PhTolerance, 0.1, c.MinPhToleranceRange(), c.MaxPhToleranceRange())
 	return Traits{
 		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,

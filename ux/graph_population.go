@@ -18,36 +18,74 @@ type nodeColorFunc func(node *organism.DescendantNode) color.Color
 func traitColor(node *organism.DescendantNode) color.Color       { return node.Color }
 func phEffectNodeColor(node *organism.DescendantNode) color.Color { return node.PhEffectColor }
 
-// renderPopulation draws the population graph colored by organism trait color.
+// renderPopulation draws the full population graph colored by organism trait color.
 func (g *Graph) renderPopulation(oldBarCount, newBarCount int) *ebiten.Image {
-	return g.renderPopGraph(
+	trees := g.simulation.GetDescendantTrees()
+	ids := g.simulation.GetAncestorsSorted()
+	return renderPopGraph(
 		&g.popBaseImage, &g.popBaseWidth, &g.popMaxAlive,
-		oldBarCount, newBarCount, traitColor,
+		0, oldBarCount, newBarCount, traitColor, trees, ids,
 	)
 }
 
-// renderPopulationPhEffect draws the population graph colored by phEffect.
+// renderPopulationPhEffect draws the full population graph colored by phEffect.
 func (g *Graph) renderPopulationPhEffect(oldBarCount, newBarCount int) *ebiten.Image {
-	return g.renderPopGraph(
+	trees := g.simulation.GetDescendantTrees()
+	ids := g.simulation.GetAncestorsSorted()
+	return renderPopGraph(
 		&g.popPhEffectBaseImage, &g.popPhEffectBaseWidth, &g.popPhEffectMaxAlive,
-		oldBarCount, newBarCount, phEffectNodeColor,
+		0, oldBarCount, newBarCount, phEffectNodeColor, trees, ids,
+	)
+}
+
+// renderSelectedPopulation draws the sub-tree population graph colored by trait color.
+func (g *Graph) renderSelectedPopulation(oldBarCount, newBarCount int) *ebiten.Image {
+	if g.selectedSubTreeRoot == nil {
+		return nil
+	}
+	startBar := g.selStartCycle / c.PopulationUpdateInterval()
+	trees := map[int]*organism.DescendantNode{0: g.selectedSubTreeRoot}
+	ids := []int{0}
+	return renderPopGraph(
+		&g.selPopBaseImage, &g.selPopBaseWidth, &g.selPopMaxAlive,
+		startBar, oldBarCount, newBarCount, traitColor, trees, ids,
+	)
+}
+
+// renderSelectedPopulationPhEffect draws the sub-tree population graph colored by phEffect.
+func (g *Graph) renderSelectedPopulationPhEffect(oldBarCount, newBarCount int) *ebiten.Image {
+	if g.selectedSubTreeRoot == nil {
+		return nil
+	}
+	startBar := g.selStartCycle / c.PopulationUpdateInterval()
+	trees := map[int]*organism.DescendantNode{0: g.selectedSubTreeRoot}
+	ids := []int{0}
+	return renderPopGraph(
+		&g.selPopPhEffBaseImage, &g.selPopPhEffBaseWidth, &g.selPopPhEffMaxAlive,
+		startBar, oldBarCount, newBarCount, phEffectNodeColor, trees, ids,
 	)
 }
 
 // renderPopGraph is the shared implementation for population-style bar graphs.
-func (g *Graph) renderPopGraph(
+// startBar is the first bar index to include (0 for full graphs, later for sub-trees).
+// oldBarCount/newBarCount are absolute bar indices.
+func renderPopGraph(
 	baseImage **ebiten.Image, baseWidth, maxAlive *int,
-	oldBarCount, newBarCount int, colorFn nodeColorFunc,
+	startBar, oldBarCount, newBarCount int, colorFn nodeColorFunc,
+	trees map[int]*organism.DescendantNode, ancestorIDs []int,
 ) *ebiten.Image {
-	trees := g.simulation.GetDescendantTrees()
-	sortedAncestorIDs := g.simulation.GetAncestorsSorted()
+	// Number of columns in the base image
+	numCols := newBarCount - startBar
+	if numCols < 1 {
+		return ebiten.NewImage(int(realGraphWidth), int(realGraphHeight))
+	}
 
 	if *baseImage == nil {
 		// Full refresh
 		max := 0
-		for barIdx := 0; barIdx < newBarCount; barIdx++ {
+		for barIdx := startBar; barIdx < newBarCount; barIdx++ {
 			cycle := barIdx * c.PopulationUpdateInterval()
-			count := countAliveInTrees(trees, sortedAncestorIDs, cycle)
+			count := countAliveInTrees(trees, ancestorIDs, cycle)
 			if count > max {
 				max = count
 			}
@@ -56,22 +94,24 @@ func (g *Graph) renderPopGraph(
 			max = 1
 		}
 		*maxAlive = max
-		*baseWidth = newBarCount * 2
+		*baseWidth = numCols * 2
 		if *baseWidth < 4 {
 			*baseWidth = 4
 		}
 		img := ebiten.NewImage(*baseWidth, popBaseHeight)
-		for barIdx := 0; barIdx < newBarCount; barIdx++ {
+
+		for barIdx := startBar; barIdx < newBarCount; barIdx++ {
 			cycle := barIdx * c.PopulationUpdateInterval()
-			drawPopColumn(img, *maxAlive, trees, sortedAncestorIDs, cycle, barIdx, colorFn)
+			drawPopColumn(img, *maxAlive, trees, ancestorIDs, cycle, barIdx-startBar, colorFn)
 		}
+
 		*baseImage = img
 	} else {
 		// Check if any new bar's alive count exceeds our current max
 		needsRefresh := false
 		for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
 			cycle := barIdx * c.PopulationUpdateInterval()
-			count := countAliveInTrees(trees, sortedAncestorIDs, cycle)
+			count := countAliveInTrees(trees, ancestorIDs, cycle)
 			if count > *maxAlive {
 				fmt.Printf("\nrenderPopGraph full refresh (maxAlive %d -> %d)", *maxAlive, count)
 				needsRefresh = true
@@ -79,14 +119,13 @@ func (g *Graph) renderPopGraph(
 			}
 		}
 		if needsRefresh {
-			// Redo as full refresh (recurse with nil base)
 			*baseImage = nil
-			return g.renderPopGraph(baseImage, baseWidth, maxAlive, oldBarCount, newBarCount, colorFn)
+			return renderPopGraph(baseImage, baseWidth, maxAlive, startBar, oldBarCount, newBarCount, colorFn, trees, ancestorIDs)
 		}
 
 		// Extend width if needed
-		if newBarCount > *baseWidth {
-			newWidth := newBarCount * 2
+		if numCols > *baseWidth {
+			newWidth := numCols * 2
 			newBase := ebiten.NewImage(newWidth, popBaseHeight)
 			newBase.DrawImage(*baseImage, nil)
 			*baseImage = newBase
@@ -96,18 +135,18 @@ func (g *Graph) renderPopGraph(
 		// Draw new bars
 		for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
 			cycle := barIdx * c.PopulationUpdateInterval()
-			drawPopColumn(*baseImage, *maxAlive, trees, sortedAncestorIDs, cycle, barIdx, colorFn)
+			drawPopColumn(*baseImage, *maxAlive, trees, ancestorIDs, cycle, barIdx-startBar, colorFn)
 		}
 	}
 
 	// Scale to display
-	if *baseImage == nil || newBarCount == 0 {
+	if *baseImage == nil || numCols == 0 {
 		return ebiten.NewImage(int(realGraphWidth), int(realGraphHeight))
 	}
 	img := ebiten.NewImage(int(realGraphWidth), int(realGraphHeight))
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(
-		realGraphWidth/float64(newBarCount),
+		realGraphWidth/float64(numCols),
 		realGraphHeight/float64(popBaseHeight),
 	)
 	img.DrawImage(*baseImage, opts)

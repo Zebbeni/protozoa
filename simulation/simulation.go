@@ -227,6 +227,11 @@ func (s *Simulation) LockHistoryForReading() { s.organismManager.LockHistoryForR
 // UnlockHistoryForReading releases the read lock on the history data.
 func (s *Simulation) UnlockHistoryForReading() { s.organismManager.UnlockHistoryForReading() }
 
+// GetOrganismTreeNode returns the descendant tree node for the given organism ID.
+func (s *Simulation) GetOrganismTreeNode(id int) *organism.DescendantNode {
+	return s.organismManager.GetOrganismTreeNode(id)
+}
+
 // GetDescendantTrees returns the root node of each ancestor's family tree
 func (s *Simulation) GetDescendantTrees() map[int]*organism.DescendantNode {
 	return s.organismManager.GetDescendantTrees()

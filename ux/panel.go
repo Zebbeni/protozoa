@@ -79,7 +79,7 @@ func (p *Panel) renderDividingLine(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
-	bounds := text.BoundString(r.FontInversionz40, "protozoa")
+	bounds := boundString(r.FontInversionz40, "protozoa")
 	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
 }
 
@@ -89,7 +89,7 @@ func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
 		message = "[Space] to Resume\n[M] to Change Mode"
 	}
 
-	bounds := text.BoundString(r.FontSourceCodePro10, message)
+	bounds := boundString(r.FontSourceCodePro10, message)
 	xOffset := panelWidth - playXOffset - bounds.Dx()
 	text.Draw(panelImage, message, r.FontSourceCodePro10, xOffset, playYOffset+bounds.Dy(), color.White)
 }
@@ -141,13 +141,22 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 			// Map pH to Y within the graph area: MaxPh=top, MinPh=bottom
 			phRange := config.MaxPh() - config.MinPh()
 			lineY := float64(graphYOffset+10) + float64(graphHeight)*(1.0-(avgPh-config.MinPh())/phRange)
-			bounds := text.BoundString(r.FontSourceCodePro8, phLabel)
+			bounds := boundString(r.FontSourceCodePro8, phLabel)
 			textX := graphXOffset + graphWidth - bounds.Dx() - 2
 			textY := int(lineY) - 2
 			if textY < graphYOffset+10+bounds.Dy() {
 				textY = graphYOffset + 10 + bounds.Dy()
 			}
 			text.Draw(panelImage, phLabel, r.FontSourceCodePro8, textX, textY, color.White)
+		}
+	}
+
+	// Draw start cycle label for selected sub-tree graphs
+	if p.graph.HasSelection() && (graphMode == GraphModePopulation || graphMode == GraphModePopulationPhEffect) {
+		startCycle := p.graph.SelectedStartCycle()
+		if startCycle >= 0 {
+			cycleLabel := fmt.Sprintf("cycle %d", startCycle)
+			text.Draw(panelImage, cycleLabel, r.FontSourceCodePro8, graphXOffset+2, graphYOffset+10+8, color.White)
 		}
 	}
 
@@ -168,15 +177,27 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	if info == nil || decisionTree == nil || found == false {
 		return
 	}
-	decisionTreeString := fmt.Sprintf("DECISION TREE:\n%s", decisionTree.Print())
 	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
 	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %[4]*.[3]*[2]f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn, 2, 5)
 	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
-	bounds := text.BoundString(r.FontSourceCodePro12, infoString)
+	bounds := boundString(r.FontSourceCodePro12, infoString)
 	offsetY := selectedYOffset + bounds.Dy() + padding
 
 	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, selectedYOffset, color.White)
-	text.Draw(panelImage, decisionTreeString, r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)
+
+	// Render decision tree with dim color for untravelled nodes
+	text.Draw(panelImage, "DECISION TREE:", r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)
+	lineHeight := boundString(r.FontSourceCodePro10, "X\nX").Dy() - boundString(r.FontSourceCodePro10, "X").Dy()
+	offsetY += lineHeight
+	dimColor := color.RGBA{R: 80, G: 80, B: 80, A: 255}
+	for _, line := range decisionTree.PrintLines() {
+		clr := dimColor
+		if line.WasTravelled {
+			clr = color.RGBA{R: 255, G: 255, B: 255, A: 255}
+		}
+		text.Draw(panelImage, line.Text, r.FontSourceCodePro10, selectedXOffset, offsetY, clr)
+		offsetY += lineHeight
+	}
 }

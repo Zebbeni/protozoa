@@ -87,3 +87,8 @@ func (t *Tree) Size() int {
 func (t *Tree) Print() string {
 	return t.print("", true, false)
 }
+
+// PrintLines returns structured line data for rendering with per-line styling.
+func (t *Tree) PrintLines() []PrintLine {
+	return t.printLines("", true, false)
+}

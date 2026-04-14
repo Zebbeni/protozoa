@@ -295,7 +295,7 @@ func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col colorfu
 
 func (g *Grid) renderSelectionText(point utils.Point, img *ebiten.Image, message string, col colorful.Color) {
 	xPadding := 10
-	bounds := text.BoundString(resources.FontSourceCodePro10, message)
+	bounds := boundString(resources.FontSourceCodePro10, message)
 	x := xPadding + config.GridUnitSize() + (point.X * config.GridUnitSize())
 	y := point.Y * config.GridUnitSize()
 	if x+bounds.Dx() > config.GridWidth() {

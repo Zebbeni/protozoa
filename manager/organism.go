@@ -538,6 +538,16 @@ func (m *OrganismManager) CheckOrganismAtPoint(point utils.Point, checkFunc orga
 	return checkFunc(m.getOrganismAt(point))
 }
 
+// GetOrganismTreeNode returns the tree node for the given organism ID, or nil.
+func (m *OrganismManager) GetOrganismTreeNode(id int) *organism.DescendantNode {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	if o, ok := m.organisms[id]; ok {
+		return o.TreeNode
+	}
+	return nil
+}
+
 // GetOrganismInfoAtPoint returns the Organism Info at the given point (nil if none)
 func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
 	if id, found := m.getOrganismIDAt(point); found {

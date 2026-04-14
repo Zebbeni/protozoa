@@ -50,8 +50,8 @@ func MaximumInitialSpawnHealth() float64       { return constants.MaximumInitial
 func MaxInitialCyclesBetweenSpawns() int       { return constants.MaxInitialCyclesBetweenSpawns }
 func MinIdealPh() float64                      { return constants.MinIdealPh }
 func MaxIdealPh() float64                      { return constants.MaxIdealPh }
-func MinPhTolerance() float64                  { return constants.MinPhTolerance }
-func MaxPhTolerance() float64                  { return constants.MaxPhTolerance }
+func MinPhToleranceRange() float64             { return constants.MinPhToleranceRange }
+func MaxPhToleranceRange() float64             { return constants.MaxPhToleranceRange }
 func MaxOrganismPhGrowthEffect() float64       { return constants.MaxOrganismPhGrowthEffect }
 func MaxPhEffectChange() float64               { return constants.MaxPhEffectChange }
 func PhIncrementToDisplay() float64            { return constants.PhIncrementToDisplay }
@@ -113,8 +113,8 @@ type Globals struct {
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`
-	MinPhTolerance                float64 `json:"min_ph_tolerance"`
-	MaxPhTolerance                float64 `json:"max_ph_tolerance"`
+	MinPhToleranceRange           float64 `json:"min_ph_tolerance_range"`
+	MaxPhToleranceRange           float64 `json:"max_ph_tolerance_range"`
 	MaxOrganismPhGrowthEffect     float64 `json:"max_organism_ph_growth_effect"`
 	MaxPhEffectChange             float64 `json:"max_ph_effect_change"`
 	MinChangeToPh                 float64 `json:"min_change_to_ph"`
