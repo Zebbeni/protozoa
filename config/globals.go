@@ -14,6 +14,11 @@ func SetGlobals(g *Globals) {
 	constants = g
 }
 
+// GetCurrentGlobals returns a pointer to the current globals for modification.
+func GetCurrentGlobals() *Globals {
+	return constants
+}
+
 func GridUnitsWide() int                       { return constants.GridUnitsWide }
 func GridUnitsHigh() int                       { return constants.GridUnitsHigh }
 func ScreenWidth() int                         { return constants.ScreenWidth }

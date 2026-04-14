@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
@@ -56,6 +57,16 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	return i
 }
 
+// OnResize updates viewport dimensions when the window is resized.
+func (i *Interface) OnResize() {
+	viewportW := config.ScreenWidth() - panelWidth
+	viewportH := config.ScreenHeight()
+	i.grid.Camera.ViewportW = viewportW
+	i.grid.Camera.ViewportH = viewportH
+	i.grid.Camera.ClampPosition()
+	i.grid.doRefresh = true
+}
+
 func (i *Interface) Render(screen *ebiten.Image) {
 	screen.Clear()
 
@@ -74,6 +85,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 
 func (i *Interface) HandleUserInput() {
 	i.handleKeyboard()
+	i.panel.HandleScroll()
 	i.handleMouse()
 	i.minimap.Update()
 }
@@ -118,15 +130,17 @@ func (i *Interface) handleKeyboard() {
 }
 
 func (i *Interface) handleMouse() {
-	// Zoom via mouse wheel
+	// Zoom via mouse wheel (only when cursor is over the grid area)
 	_, wy := ebiten.Wheel()
 	if wy != 0 {
 		mx, my := ebiten.CursorPosition()
-		pivotX, pivotY := mx-panelWidth, my
-		if wy > 0 {
-			i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
-		} else {
-			i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
+		if mx >= panelWidth {
+			pivotX, pivotY := mx-panelWidth, my
+			if wy > 0 {
+				i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
+			} else {
+				i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
+			}
 		}
 	}
 

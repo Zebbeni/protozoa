@@ -2,6 +2,7 @@ package ux
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -102,7 +103,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 
 func (g *Grid) initLayerImages() {
 	g.previousWallsImage = g.newBlankLayer()
-	g.previousEnvImage = g.newBlankLayer()
+	g.previousEnvImage = g.newEnvLayer()
 	g.previousFoodImage = g.newBlankLayer()
 	g.previousOrgsImage = g.newBlankLayer()
 }
@@ -113,6 +114,11 @@ func (g *Grid) loadOrganismImages() {
 
 func (g *Grid) newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(g.Camera.WorldPixelWidth(), g.Camera.WorldPixelHeight())
+}
+
+// newEnvLayer creates a 1-pixel-per-grid-cell image for the environment layer.
+func (g *Grid) newEnvLayer() *ebiten.Image {
+	return ebiten.NewImage(config.GridUnitsWide(), config.GridUnitsHigh())
 }
 
 func (g *Grid) unitSize() int {
@@ -132,7 +138,7 @@ func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 
 // Render draws all layers and returns a viewport-sized image.
 func (g *Grid) Render() *ebiten.Image {
-	envImage := g.newBlankLayer()
+	envImage := g.newEnvLayer()
 	wallsImage := g.newBlankLayer()
 	foodImage := g.newBlankLayer()
 	orgsImage := g.newBlankLayer()
@@ -142,21 +148,39 @@ func (g *Grid) Render() *ebiten.Image {
 	g.renderEnvironment(envImage, g.doRefresh)
 	g.renderFood(foodImage, g.doRefresh)
 	g.renderOrganisms(orgsImage, g.doRefresh)
-	g.renderSelections(selImage)
+	g.renderSelectionBoxes(selImage)
 
 	g.previousWallsImage = wallsImage
 	g.previousEnvImage = envImage
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
 
-	// Compose visible portion into viewport-sized image
+	// Compose visible portion into viewport-sized image.
+	// When zoomed out fully, scale the world to fit the viewport and center it.
 	viewportImage := ebiten.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
+	fitScale, offsetX, offsetY := g.Camera.FitScaleAndOffset()
+
 	visRect := g.Camera.VisibleRect()
 	drawOp := &ebiten.DrawImageOptions{}
 	drawOp.GeoM.Translate(float64(-visRect.Min.X), float64(-visRect.Min.Y))
+	if fitScale != 1.0 {
+		drawOp.GeoM.Scale(fitScale, fitScale)
+		drawOp.Filter = ebiten.FilterLinear // smooth scaling when fitting world to viewport
+	}
+	drawOp.GeoM.Translate(float64(offsetX), float64(offsetY))
 
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		viewportImage.DrawImage(envImage, drawOp)
+		// Environment is 1px-per-cell; scale up to world-pixel size with linear filtering
+		envOp := &ebiten.DrawImageOptions{}
+		us := float64(g.unitSize())
+		envOp.GeoM.Scale(us, us)
+		envOp.GeoM.Translate(float64(-visRect.Min.X), float64(-visRect.Min.Y))
+		if fitScale != 1.0 {
+			envOp.GeoM.Scale(fitScale, fitScale)
+		}
+		envOp.GeoM.Translate(float64(offsetX), float64(offsetY))
+		envOp.Filter = ebiten.FilterLinear
+		viewportImage.DrawImage(envImage, envOp)
 	}
 	viewportImage.DrawImage(wallsImage, drawOp)
 	if g.viewMode != phOnlyMode {
@@ -164,6 +188,9 @@ func (g *Grid) Render() *ebiten.Image {
 		viewportImage.DrawImage(orgsImage, drawOp)
 	}
 	viewportImage.DrawImage(selImage, drawOp)
+
+	// Draw text overlays at screen resolution (after scaling)
+	g.renderOverlayText(viewportImage)
 
 	g.doRefresh = false
 	return viewportImage
@@ -199,14 +226,15 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 }
 
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
-	us := g.unitSize()
-	x := float64(gridX) * float64(us)
-	y := float64(gridY) * float64(us)
+	// Environment image is 1px per cell — set the pixel directly
 	hue := phMaxHue - (phMaxHue * phVal / config.MaxPh())
 	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
 	light := 0.5 + (0.5 * math.Sin(math.Pi*(sat-0.5)))
 	col := colorful.HSLuv(hue, sat, light)
-	g.drawSquare(envImage, x, y, sizeFill, col)
+	r, g2, b, _ := col.RGBA()
+	envImage.Set(gridX, gridY, color.RGBA{
+		R: uint8(r >> 8), G: uint8(g2 >> 8), B: uint8(b >> 8), A: 255,
+	})
 }
 
 func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
@@ -249,10 +277,30 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 	}
 }
 
-func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
+// renderSelectionBoxes draws selection box outlines in world-space (gets scaled with the world).
+func (g *Grid) renderSelectionBoxes(selectionsImage *ebiten.Image) {
 	if g.mouseOnGrid {
-		infoColor := hoverColor
+		g.renderSelectionBox(g.mouseHoverLocation, selectionsImage, hoverColor)
+	}
+	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
+		g.renderSelectionBox(info.Location, selectionsImage, selectColor)
+	}
+}
+
+// renderOverlayText draws text overlays at screen resolution on the viewport image.
+func (g *Grid) renderOverlayText(viewportImage *ebiten.Image) {
+	// View mode name at top-left
+	if g.mouseOnGrid {
+		xPadding := 10
+		yPadding := 20
+		info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
+		text.Draw(viewportImage, info, resources.FontSourceCodePro10, xPadding, yPadding, selectionInfoColor)
+	}
+
+	// Hover info text near the cursor
+	if g.mouseOnGrid {
 		infoText := fmt.Sprintf("PH: %2.1f", g.simulation.GetPhAtPoint(g.mouseHoverLocation))
+		infoColor := hoverColor
 		if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
 			infoText += fmt.Sprintf("\nORG: %d", info.ID)
 			infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
@@ -264,13 +312,16 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 		}
 		infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
 
-		g.renderSelection(g.mouseHoverLocation, selectionsImage, infoColor)
-		g.renderSelectionText(g.mouseHoverLocation, selectionsImage, infoText, selectionInfoColor)
-		g.renderViewModeName(selectionsImage)
-	}
-
-	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
-		g.renderSelection(info.Location, selectionsImage, selectColor)
+		// Position text near the hovered grid cell in screen coordinates
+		mx, my := ebiten.CursorPosition()
+		screenX := mx - panelWidth + 15
+		screenY := my - 10
+		bounds := boundString(resources.FontSourceCodePro10, infoText)
+		if screenX+bounds.Dx() > g.Camera.ViewportW {
+			screenX = mx - panelWidth - bounds.Dx() - 15
+		}
+		_ = infoColor
+		text.Draw(viewportImage, infoText, resources.FontSourceCodePro10, screenX, screenY, selectionInfoColor)
 	}
 }
 
@@ -300,37 +351,13 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 	g.mouseOnGrid = onGrid
 }
 
-func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col colorful.Color) {
+func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col colorful.Color) {
 	us := float64(g.unitSize())
 	x, y := float64(point.X)*us, float64(point.Y)*us
 	ebitenutil.DrawLine(img, x-2, y-2, x+us+3, y-2, col)
 	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+us+3, col)
 	ebitenutil.DrawLine(img, x-2, y+us+3, x+us+3, y+us+3, col)
 	ebitenutil.DrawLine(img, x+us+3, y-2, x+us+3, y+us+3, col)
-}
-
-func (g *Grid) renderSelectionText(point utils.Point, img *ebiten.Image, message string, col colorful.Color) {
-	us := g.unitSize()
-	xPadding := 10
-	bounds := boundString(resources.FontSourceCodePro10, message)
-	x := xPadding + us + (point.X * us)
-	y := point.Y * us
-	worldW := g.Camera.WorldPixelWidth()
-	if x+bounds.Dx() > worldW {
-		x = (point.X * us) - xPadding - bounds.Dx()
-	}
-	text.Draw(img, message, resources.FontSourceCodePro10, x, y, col)
-}
-
-func (g *Grid) renderViewModeName(img *ebiten.Image) {
-	// Draw in viewport-relative coordinates by offsetting by camera position
-	us := g.unitSize()
-	xPadding := 10
-	yPadding := 20
-	x := int(g.Camera.X)*us + xPadding
-	y := int(g.Camera.Y)*us + yPadding
-	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
-	text.Draw(img, info, resources.FontSourceCodePro10, x, y, selectionInfoColor)
 }
 
 func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {

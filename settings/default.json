@@ -23,7 +23,7 @@
   "min_ph_tolerance_range": 0.5,
   "max_ph_tolerance_range": 1.0,
   "max_organism_ph_growth_effect": 0.05,
-  "max_ph_effect_change": 0.005,
+  "max_ph_effect_change": 0.0025,
   "ph_diffuse_factor": 0.2,
   "ph_increment_to_display": 0.1,
 

@@ -57,8 +57,17 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (r *Runner) Layout(_, _ int) (int, int) {
-	return c.ScreenWidth(), c.ScreenHeight()
+func (r *Runner) Layout(outsideWidth, outsideHeight int) (int, int) {
+	if outsideWidth != c.ScreenWidth() || outsideHeight != c.ScreenHeight() {
+		globals := c.GetCurrentGlobals()
+		globals.ScreenWidth = outsideWidth
+		globals.ScreenHeight = outsideHeight
+		c.SetGlobals(globals)
+		if r.ui != nil {
+			r.ui.OnResize()
+		}
+	}
+	return outsideWidth, outsideHeight
 }
 
 func (r *Runner) startSimulation() {

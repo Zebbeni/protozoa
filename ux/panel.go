@@ -17,7 +17,7 @@ import (
 const (
 	padding     = 15
 	panelWidth  = 400
-	panelHeight = 1000
+	panelInnerH = 2000 // tall enough for all content
 
 	titleXOffset = padding
 	titleYOffset = padding
@@ -41,6 +41,8 @@ type Panel struct {
 	grid               *Grid
 	previousPanelImage *ebiten.Image
 	graph              *Graph
+	scrollY            float64
+	contentHeight      int // actual height of rendered content
 }
 
 func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
@@ -51,32 +53,81 @@ func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
 	}
 }
 
+// HandleScroll processes mouse wheel input when the cursor is over the panel.
+func (p *Panel) HandleScroll() {
+	mx, _ := ebiten.CursorPosition()
+	if mx >= 0 && mx < panelWidth {
+		_, wy := ebiten.Wheel()
+		p.scrollY -= wy * 20
+		p.clampScroll()
+	}
+}
+
+func (p *Panel) clampScroll() {
+	screenH := config.ScreenHeight()
+	maxScroll := float64(p.contentHeight - screenH)
+	p.scrollY = max(0, min(p.scrollY, maxScroll))
+}
+
 func (p *Panel) Render() *ebiten.Image {
-	panelImage := ebiten.NewImage(panelWidth, panelHeight)
+	screenH := config.ScreenHeight()
 
-	if p.shouldRefresh() {
-		p.renderDividingLine(panelImage)
-		p.renderTitle(panelImage)
-		p.renderKeyBindingText(panelImage)
-		p.renderStats(panelImage)
-		p.renderGraph(panelImage)
-		p.renderSelected(panelImage)
+	// Render all content onto a tall inner image
+	innerImage := ebiten.NewImage(panelWidth, panelInnerH)
 
-		p.previousPanelImage = ebiten.NewImage(panelWidth, panelHeight)
-		p.previousPanelImage.DrawImage(panelImage, nil)
-	} else {
-		panelImage.DrawImage(p.previousPanelImage, nil)
+	p.renderDividingLine(innerImage, screenH)
+	p.renderTitle(innerImage)
+	p.renderKeyBindingText(innerImage)
+	p.renderStats(innerImage)
+	p.renderGraph(innerImage)
+	contentBottom := p.renderSelected(innerImage)
+	p.contentHeight = contentBottom + padding
+
+	// Extract visible portion based on scroll
+	p.clampScroll()
+	panelImage := ebiten.NewImage(panelWidth, screenH)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(0, -p.scrollY)
+	panelImage.DrawImage(innerImage, op)
+
+	// Draw dividing line on the output (not scrolled)
+	ebitenutil.DrawRect(panelImage, float64(panelWidth)-1, 0, 1, float64(screenH), color.White)
+
+	// Draw scrollbar if content overflows
+	if p.contentHeight > screenH {
+		p.drawScrollbar(panelImage, screenH)
 	}
 
 	return panelImage
 }
 
-func (p *Panel) shouldRefresh() bool {
-	return true
+func (p *Panel) drawScrollbar(panelImage *ebiten.Image, screenH int) {
+	scrollbarWidth := 4.0
+	scrollbarX := float64(panelWidth) - scrollbarWidth - 3
+	trackH := float64(screenH)
+
+	// Thumb size proportional to visible fraction
+	visibleFraction := float64(screenH) / float64(p.contentHeight)
+	thumbH := max(20, trackH*visibleFraction)
+
+	// Thumb position proportional to scroll position
+	maxScroll := float64(p.contentHeight - screenH)
+	scrollFraction := 0.0
+	if maxScroll > 0 {
+		scrollFraction = p.scrollY / maxScroll
+	}
+	thumbY := scrollFraction * (trackH - thumbH)
+
+	// Track
+	ebitenutil.DrawRect(panelImage, scrollbarX, 0, scrollbarWidth, trackH,
+		color.RGBA{R: 40, G: 40, B: 40, A: 150})
+	// Thumb
+	ebitenutil.DrawRect(panelImage, scrollbarX, thumbY, scrollbarWidth, thumbH,
+		color.RGBA{R: 120, G: 120, B: 120, A: 200})
 }
 
-func (p *Panel) renderDividingLine(panelImage *ebiten.Image) {
-	ebitenutil.DrawRect(panelImage, float64(panelWidth)-1, 0, float64(panelWidth), float64(panelHeight), color.White)
+func (p *Panel) renderDividingLine(panelImage *ebiten.Image, screenH int) {
+	// Drawn on the final output instead, see Render()
 }
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
@@ -128,6 +179,11 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	}
 	p.graph.SetMode(graphMode)
 
+	// Append selected organism ID to population graph titles
+	if p.graph.HasSelection() && (graphMode == GraphModePopulation || graphMode == GraphModePopulationPhEffect) {
+		label = fmt.Sprintf("%s (ORG ID: %d)", label, p.simulation.GetSelected())
+	}
+
 	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
 	graphImage := p.graph.Render()
 	if graphImage == nil {
@@ -176,14 +232,16 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	ebitenutil.DrawLine(panelImage, left, top, left, bottom, color.White)
 }
 
-func (p *Panel) renderSelected(panelImage *ebiten.Image) {
+// renderSelected draws the selected organism info and decision tree.
+// Returns the Y position after the last line of content.
+func (p *Panel) renderSelected(panelImage *ebiten.Image) int {
 	id := p.simulation.GetSelected()
 	info := p.simulation.GetOrganismInfoByID(id)
 	traits, found := p.simulation.GetOrganismTraitsByID(id)
 
 	decisionTree := p.simulation.GetOrganismDecisionTreeByID(id)
 	if info == nil || decisionTree == nil || found == false {
-		return
+		return selectedYOffset
 	}
 	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
@@ -209,4 +267,5 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 		text.Draw(panelImage, line.Text, r.FontSourceCodePro10, selectedXOffset, offsetY, clr)
 		offsetY += lineHeight
 	}
+	return offsetY
 }
