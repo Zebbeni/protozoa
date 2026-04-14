@@ -32,10 +32,8 @@ func (r *Runner) Update() error {
 	switch r.state {
 	case stateConfigScreen:
 		if r.configScreen.Update() {
-			// User accepted — apply derived values and start simulation
+			// User accepted — apply config and start simulation
 			globals := r.configScreen.Globals()
-			globals.GridWidth = globals.GridUnitsWide * globals.GridUnitSize
-			globals.GridHeight = globals.GridUnitsHigh * globals.GridUnitSize
 			c.SetGlobals(globals)
 			resources.Init()
 			ebiten.SetScreenClearedEveryFrame(false)

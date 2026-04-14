@@ -475,7 +475,6 @@ func (cs *ConfigScreen) buildSections() {
 
 	cs.sections = []configSection{
 		{title: "— DISPLAY —", fields: []configField{
-			field("Grid Unit Size", "grid_unit_size"),
 			field("Grid Units Wide", "grid_units_wide"),
 			field("Grid Units High", "grid_units_high"),
 			field("Screen Width", "screen_width"),

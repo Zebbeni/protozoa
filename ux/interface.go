@@ -1,28 +1,41 @@
 package ux
 
 import (
+	"image"
+	"math"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
-	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
+)
+
+const (
+	dragThreshold = 3 // pixels before a click becomes a drag
+	panSpeed      = 2 // grid units per frame for arrow key pan
 )
 
 type Interface struct {
 	simulation *simulation.Simulation
 	selection  *organism.Info
 
-	grid  *Grid
-	panel *Panel
-	debug *Debug
+	grid    *Grid
+	panel   *Panel
+	minimap *Minimap
+	debug   *Debug
 
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
 	debugOptions *ebiten.DrawImageOptions
+
+	// Drag detection
+	mouseDownPos image.Point
+	mouseDown    bool
+	isDragging   bool
+	lastDragPos  image.Point
 }
 
 func NewInterface(sim *simulation.Simulation) *Interface {
@@ -31,6 +44,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 		simulation:   sim,
 		grid:         grid,
 		panel:        NewPanel(sim, grid),
+		minimap:      NewMinimap(sim, grid.Camera),
 		gridOptions:  &ebiten.DrawImageOptions{},
 		panelOptions: &ebiten.DrawImageOptions{},
 	}
@@ -48,6 +62,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	start := time.Now()
 
 	i.renderGrid(screen)
+	i.minimap.Draw(screen)
 	i.renderPanel(screen)
 
 	i.debug.renderTime = time.Since(start)
@@ -60,6 +75,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 func (i *Interface) HandleUserInput() {
 	i.handleKeyboard()
 	i.handleMouse()
+	i.minimap.Update()
 }
 
 func (i *Interface) handleKeyboard() {
@@ -75,6 +91,87 @@ func (i *Interface) handleKeyboard() {
 	if inpututil.IsKeyJustReleased(ebiten.KeyD) {
 		i.simulation.ToggleDebug()
 	}
+
+	// Zoom via keyboard
+	mx, my := ebiten.CursorPosition()
+	pivotX, pivotY := mx-panelWidth, my
+	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) { // + key
+		i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
+		i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
+	}
+
+	// Pan via arrow keys (continuous while held)
+	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+		i.grid.Camera.Pan(-panSpeed, 0)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+		i.grid.Camera.Pan(panSpeed, 0)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
+		i.grid.Camera.Pan(0, -panSpeed)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
+		i.grid.Camera.Pan(0, panSpeed)
+	}
+}
+
+func (i *Interface) handleMouse() {
+	// Zoom via mouse wheel
+	_, wy := ebiten.Wheel()
+	if wy != 0 {
+		mx, my := ebiten.CursorPosition()
+		pivotX, pivotY := mx-panelWidth, my
+		if wy > 0 {
+			i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
+		} else {
+			i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
+		}
+	}
+
+	// Drag / click handling
+	mx, my := ebiten.CursorPosition()
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		// Check minimap click first
+		if i.minimap.HandleClick(mx, my) {
+			return
+		}
+		i.mouseDownPos = image.Pt(mx, my)
+		i.lastDragPos = i.mouseDownPos
+		i.mouseDown = true
+		i.isDragging = false
+	}
+
+	if i.mouseDown && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		dx := mx - i.mouseDownPos.X
+		dy := my - i.mouseDownPos.Y
+		dist := math.Sqrt(float64(dx*dx + dy*dy))
+
+		if !i.isDragging && dist > dragThreshold {
+			i.isDragging = true
+		}
+
+		if i.isDragging {
+			// Pan by the delta since last frame
+			frameDX := float64(mx-i.lastDragPos.X) / float64(i.grid.Camera.GridUnitSize())
+			frameDY := float64(my-i.lastDragPos.Y) / float64(i.grid.Camera.GridUnitSize())
+			i.grid.Camera.Pan(-frameDX, -frameDY)
+			i.lastDragPos = image.Pt(mx, my)
+		}
+	}
+
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		if i.mouseDown && !i.isDragging {
+			i.handleLeftClick()
+		}
+		i.mouseDown = false
+		i.isDragging = false
+	}
+
+	// Hover (always, for tooltip)
+	i.handleMouseHover()
 }
 
 func (i *Interface) UpdateSelected() {
@@ -90,17 +187,6 @@ func (i *Interface) UpdateSelected() {
 		return
 	}
 	i.simulation.Select(id)
-}
-
-// eventually let's implement a more comprehensive event handler system
-// but for right now, when the grid is the only thing we're using with mouse
-// events, I think this is fine.
-func (i *Interface) handleMouse() {
-	i.handleMouseHover()
-
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		i.handleLeftClick()
-	}
 }
 
 func (i *Interface) handleMouseHover() {
@@ -133,16 +219,12 @@ func (i *Interface) renderPanel(screen *ebiten.Image) {
 	i.debug.panelRenderTime = time.Since(start)
 }
 
-// getMouseGridLocation returns the mouse's point on the grid along with a
-// boolean telling us if the point is within the grid bounds
+// getMouseGridLocation converts the cursor position to world grid coordinates
+// using the camera's offset and zoom level.
 func (i *Interface) getMouseGridLocation() (utils.Point, bool) {
 	mouseX, mouseY := ebiten.CursorPosition()
-	relativeGridX := mouseX - panelWidth
-	relativeGridY := mouseY
-	gridX := relativeGridX / config.GridUnitSize()
-	gridY := relativeGridY / config.GridUnitSize()
-	gridW := config.GridUnitsWide()
-	gridH := config.GridUnitsHigh()
-	onGrid := gridX >= 0 && gridY >= 0 && gridX < gridW && gridY < gridH
+	screenX := mouseX - panelWidth
+	screenY := mouseY
+	gridX, gridY, onGrid := i.grid.Camera.ScreenToGrid(screenX, screenY)
 	return utils.Point{X: gridX, Y: gridY}, onGrid
 }

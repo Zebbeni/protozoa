@@ -14,9 +14,6 @@ func SetGlobals(g *Globals) {
 	constants = g
 }
 
-func GridUnitSize() int                        { return constants.GridUnitSize }
-func GridWidth() int                           { return constants.GridWidth }
-func GridHeight() int                          { return constants.GridHeight }
 func GridUnitsWide() int                       { return constants.GridUnitsWide }
 func GridUnitsHigh() int                       { return constants.GridUnitsHigh }
 func ScreenWidth() int                         { return constants.ScreenWidth }
@@ -70,9 +67,6 @@ func MaxDecisionTreeSize() int                 { return constants.MaxDecisionTre
 
 type Globals struct {
 	// Drawing parameters
-	GridUnitSize  int `json:"grid_unit_size"`
-	GridWidth     int `json:"grid_width"`
-	GridHeight    int `json:"grid_height"`
 	GridUnitsWide int `json:"grid_units_wide"`
 	GridUnitsHigh int `json:"grid_units_high"`
 	ScreenWidth   int `json:"screen_width"`

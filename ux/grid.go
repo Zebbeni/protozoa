@@ -45,8 +45,6 @@ const (
 )
 
 var (
-	squareImgSmall, squareImgMedium, squareImgLarge, squareImgFill, squareImgBox *ebiten.Image
-
 	foodColor          = colorful.HSLuv(120, 0.2, 0.25)
 	wallColor          = colorful.HSLuv(60, 0.25, 0.1)
 	attackColor        = colorful.HSLuv(0.0, 255.0, 1.0)
@@ -71,6 +69,7 @@ var (
 
 type Grid struct {
 	simulation *simulation.Simulation
+	Camera     *Camera
 
 	previousEnvImage   *ebiten.Image
 	previousWallsImage *ebiten.Image
@@ -84,37 +83,60 @@ type Grid struct {
 	selectMode         mode
 }
 
-func NewGrid(simulation *simulation.Simulation) *Grid {
+func NewGrid(sim *simulation.Simulation) *Grid {
+	viewportW := config.ScreenWidth() - panelWidth
+	viewportH := config.ScreenHeight()
+	cam := NewCamera(viewportW, viewportH)
+
 	g := &Grid{
-		simulation:         simulation,
-		previousWallsImage: newBlankLayer(),
-		previousEnvImage:   newBlankLayer(),
-		previousFoodImage:  newBlankLayer(),
-		previousOrgsImage:  newBlankLayer(),
-		doRefresh:          true,
-		viewMode:           organismsOnlyMode,
-		selectMode:         selectOldest,
+		simulation: sim,
+		Camera:     cam,
+		doRefresh:  true,
+		viewMode:   organismsOnlyMode,
+		selectMode: selectOldest,
 	}
-	loadOrganismImages()
+	g.initLayerImages()
+	g.loadOrganismImages()
 	return g
 }
 
-func loadOrganismImages() {
-	squareImgSmall = resources.SquareSmall
-	squareImgMedium = resources.SquareMedium
-	squareImgLarge = resources.SquareLarge
-	squareImgFill = resources.SquareFill
-	squareImgBox = resources.SquareBox
+func (g *Grid) initLayerImages() {
+	g.previousWallsImage = g.newBlankLayer()
+	g.previousEnvImage = g.newBlankLayer()
+	g.previousFoodImage = g.newBlankLayer()
+	g.previousOrgsImage = g.newBlankLayer()
 }
 
-// Render draws all organisms and food on the simulation grid
+func (g *Grid) loadOrganismImages() {
+	resources.SelectZoom(int(g.Camera.Zoom))
+}
+
+func (g *Grid) newBlankLayer() *ebiten.Image {
+	return ebiten.NewImage(g.Camera.WorldPixelWidth(), g.Camera.WorldPixelHeight())
+}
+
+func (g *Grid) unitSize() int {
+	return g.Camera.GridUnitSize()
+}
+
+// SetZoom changes zoom level, recreates layer caches, and forces a full refresh.
+func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
+	if level == g.Camera.Zoom {
+		return
+	}
+	g.Camera.SetZoom(level, pivotScreenX, pivotScreenY)
+	g.loadOrganismImages()
+	g.initLayerImages()
+	g.doRefresh = true
+}
+
+// Render draws all layers and returns a viewport-sized image.
 func (g *Grid) Render() *ebiten.Image {
-	envImage := newBlankLayer()
-	wallsImage := newBlankLayer()
-	foodImage := newBlankLayer()
-	orgsImage := newBlankLayer()
-	selImage := newBlankLayer()
-	gridImage := newBlankLayer()
+	envImage := g.newBlankLayer()
+	wallsImage := g.newBlankLayer()
+	foodImage := g.newBlankLayer()
+	orgsImage := g.newBlankLayer()
+	selImage := g.newBlankLayer()
 
 	g.renderWalls(wallsImage, g.doRefresh)
 	g.renderEnvironment(envImage, g.doRefresh)
@@ -127,22 +149,24 @@ func (g *Grid) Render() *ebiten.Image {
 	g.previousFoodImage = foodImage
 	g.previousOrgsImage = orgsImage
 
+	// Compose visible portion into viewport-sized image
+	viewportImage := ebiten.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
+	visRect := g.Camera.VisibleRect()
+	drawOp := &ebiten.DrawImageOptions{}
+	drawOp.GeoM.Translate(float64(-visRect.Min.X), float64(-visRect.Min.Y))
+
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		gridImage.DrawImage(envImage, nil)
+		viewportImage.DrawImage(envImage, drawOp)
 	}
-
-	gridImage.DrawImage(wallsImage, nil)
-
+	viewportImage.DrawImage(wallsImage, drawOp)
 	if g.viewMode != phOnlyMode {
-		gridImage.DrawImage(foodImage, nil)
-		gridImage.DrawImage(orgsImage, nil)
+		viewportImage.DrawImage(foodImage, drawOp)
+		viewportImage.DrawImage(orgsImage, drawOp)
 	}
-
-	gridImage.DrawImage(selImage, nil)
+	viewportImage.DrawImage(selImage, drawOp)
 
 	g.doRefresh = false
-
-	return gridImage
+	return viewportImage
 }
 
 func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
@@ -157,7 +181,6 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 		envImage.DrawImage(g.previousEnvImage, nil)
 		updatedPoints := g.simulation.GetUpdatedPhPoints()
 		for _, point := range updatedPoints {
-			// clear square to be updated
 			phVal := g.simulation.GetPhAtPoint(point)
 			g.renderPhValue(envImage, point.X, point.Y, phVal)
 		}
@@ -176,8 +199,9 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 }
 
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
-	x := float64(gridX) * float64(config.GridUnitSize())
-	y := float64(gridY) * float64(config.GridUnitSize())
+	us := g.unitSize()
+	x := float64(gridX) * float64(us)
+	y := float64(gridY) * float64(us)
 	hue := phMaxHue - (phMaxHue * phVal / config.MaxPh())
 	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
 	light := 0.5 + (0.5 * math.Sin(math.Pi*(sat-0.5)))
@@ -195,10 +219,9 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 		foodImage.DrawImage(g.previousFoodImage, nil)
 		updatedPoints := g.simulation.GetUpdatedFoodPoints()
 		for _, point := range updatedPoints {
-			// clear square to be updated
-			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
+			us := g.unitSize()
+			x, y := point.X*us, point.Y*us
 			g.clearSquare(foodImage, float64(x), float64(y))
-
 			if item, exists := g.simulation.GetFoodAtPoint(point); exists {
 				g.renderFoodItem(item, foodImage)
 			}
@@ -216,10 +239,9 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 		organismsImage.DrawImage(g.previousOrgsImage, nil)
 		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
 		for _, point := range updatedPoints {
-			// clear square to be updated
-			x, y := point.X*config.GridUnitSize(), point.Y*config.GridUnitSize()
+			us := g.unitSize()
+			x, y := point.X*us, point.Y*us
 			g.clearSquare(organismsImage, float64(x), float64(y))
-
 			if info := g.simulation.GetOrganismInfoAtPoint(point); info != nil {
 				g.renderOrganism(info, organismsImage)
 			}
@@ -252,10 +274,6 @@ func (g *Grid) renderSelections(selectionsImage *ebiten.Image) {
 	}
 }
 
-func newBlankLayer() *ebiten.Image {
-	return ebiten.NewImage(config.GridWidth(), config.GridHeight())
-}
-
 // ViewMode returns the current grid view mode
 func (g *Grid) ViewMode() mode {
 	return g.viewMode
@@ -269,8 +287,6 @@ func (g *Grid) ChangeViewMode() {
 
 // UpdateAutoSelect switches to the next auto select mode listed in selectModes
 func (g *Grid) UpdateAutoSelect() {
-	// cycle among all but the last selectMode, which is manual.
-	// Manual selection his is switched to by clicking an organism
 	g.selectMode = selectModes[(int(g.selectMode)+1)%(len(selectModes)-1)]
 	g.doRefresh = true
 }
@@ -284,39 +300,43 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 	g.mouseOnGrid = onGrid
 }
 
-// renderSelection draws a square around a single item on the grid
 func (g *Grid) renderSelection(point utils.Point, img *ebiten.Image, col colorful.Color) {
-	x, y := float64(point.X*config.GridUnitSize()), float64(point.Y*config.GridUnitSize())
-	ebitenutil.DrawLine(img, x-2, y-2, x+float64(config.GridUnitSize())+3, y-2, col)                                                               // top
-	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+float64(config.GridUnitSize())+3, col)                                                               // left
-	ebitenutil.DrawLine(img, x-2, y+float64(config.GridUnitSize())+3, x+float64(config.GridUnitSize())+3, y+float64(config.GridUnitSize())+3, col) // bottom
-	ebitenutil.DrawLine(img, x+float64(config.GridUnitSize())+3, y-2, x+float64(config.GridUnitSize())+3, y+float64(config.GridUnitSize())+3, col) // right
+	us := float64(g.unitSize())
+	x, y := float64(point.X)*us, float64(point.Y)*us
+	ebitenutil.DrawLine(img, x-2, y-2, x+us+3, y-2, col)
+	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+us+3, col)
+	ebitenutil.DrawLine(img, x-2, y+us+3, x+us+3, y+us+3, col)
+	ebitenutil.DrawLine(img, x+us+3, y-2, x+us+3, y+us+3, col)
 }
 
 func (g *Grid) renderSelectionText(point utils.Point, img *ebiten.Image, message string, col colorful.Color) {
+	us := g.unitSize()
 	xPadding := 10
 	bounds := boundString(resources.FontSourceCodePro10, message)
-	x := xPadding + config.GridUnitSize() + (point.X * config.GridUnitSize())
-	y := point.Y * config.GridUnitSize()
-	if x+bounds.Dx() > config.GridWidth() {
-		x = (point.X * config.GridUnitSize()) - xPadding - bounds.Dx()
+	x := xPadding + us + (point.X * us)
+	y := point.Y * us
+	worldW := g.Camera.WorldPixelWidth()
+	if x+bounds.Dx() > worldW {
+		x = (point.X * us) - xPadding - bounds.Dx()
 	}
 	text.Draw(img, message, resources.FontSourceCodePro10, x, y, col)
 }
 
 func (g *Grid) renderViewModeName(img *ebiten.Image) {
+	// Draw in viewport-relative coordinates by offsetting by camera position
+	us := g.unitSize()
 	xPadding := 10
 	yPadding := 20
-	x := xPadding
-	y := yPadding
+	x := int(g.Camera.X)*us + xPadding
+	y := int(g.Camera.Y)*us + yPadding
 	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
 	text.Draw(img, info, resources.FontSourceCodePro10, x, y, selectionInfoColor)
 }
 
-// renderFoodItem draws a food item to the given image
 func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
-	x := float64(item.Point.X) * float64(config.GridUnitSize())
-	y := float64(item.Point.Y) * float64(config.GridUnitSize())
+	us := g.unitSize()
+	x := float64(item.Point.X) * float64(us)
+	y := float64(item.Point.Y) * float64(us)
 
 	value := float64(item.Value)
 	foodSize := sizeSmall
@@ -331,17 +351,16 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	g.drawSquare(img, x, y, foodSize, foodColor)
 }
 
-// renderWall draws a wall icon to the given image
 func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
-	x := float64(point.X) * float64(config.GridUnitSize())
-	y := float64(point.Y) * float64(config.GridUnitSize())
-
+	us := g.unitSize()
+	x := float64(point.X) * float64(us)
+	y := float64(point.Y) * float64(us)
 	g.drawSquare(wallsImage, x, y, sizeBox, wallColor)
 }
 
-// renderOrganism draws an organism to the given image
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
-	point := info.Location.Times(config.GridUnitSize())
+	us := g.unitSize()
+	point := info.Location.Times(us)
 	x, y := float64(point.X), float64(point.Y)
 
 	organismSize := sizeSmall
@@ -370,20 +389,15 @@ func (g *Grid) drawSquare(img *ebiten.Image, x, y float64, sz size, col colorful
 	var squareImg *ebiten.Image
 	switch sz {
 	case sizeSmall:
-		squareImg = squareImgSmall
-		break
+		squareImg = resources.SquareSmall
 	case sizeMedium:
-		squareImg = squareImgMedium
-		break
+		squareImg = resources.SquareMedium
 	case sizeLarge:
-		squareImg = squareImgLarge
-		break
+		squareImg = resources.SquareLarge
 	case sizeFill:
-		squareImg = squareImgFill
-		break
+		squareImg = resources.SquareFill
 	case sizeBox:
-		squareImg = squareImgBox
-		break
+		squareImg = resources.SquareBox
 	}
 
 	op := &ebiten.DrawImageOptions{}
@@ -393,11 +407,10 @@ func (g *Grid) drawSquare(img *ebiten.Image, x, y float64, sz size, col colorful
 }
 
 func (g *Grid) clearSquare(img *ebiten.Image, x, y float64) {
-	squareImg := squareImgFill
+	squareImg := resources.SquareFill
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(x, y)
 	op.ColorM.Translate(0, 0, 0, 1.0)
 	op.CompositeMode = ebiten.CompositeModeDestinationOut
-
 	img.DrawImage(squareImg, op)
 }
