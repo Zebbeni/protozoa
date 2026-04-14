@@ -85,14 +85,21 @@ func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
-	message := "[Space] to Pause\n[M] to Change Mode\n[O] to Auto Select"
+	var lines []string
 	if p.simulation.IsPaused() {
-		message = "[Space] to Resume\n[M] to Change Mode"
+		lines = []string{"[Space] to Resume", "[M] to Change Mode"}
+	} else {
+		lines = []string{"[Space] to Pause", "[M] to Change Mode", "[O] to Auto Select"}
 	}
 
-	bounds := boundString(r.FontSourceCodePro10, message)
-	xOffset := panelWidth - playXOffset - bounds.Dx()
-	text.Draw(panelImage, message, r.FontSourceCodePro10, xOffset, playYOffset+bounds.Dy(), color.White)
+	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
+	y := titleYOffset + lineHeight
+	for _, line := range lines {
+		bounds := boundString(r.FontSourceCodePro10, line)
+		x := panelWidth - playXOffset - bounds.Dx()
+		text.Draw(panelImage, line, r.FontSourceCodePro10, x, y, color.White)
+		y += lineHeight
+	}
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image) {
