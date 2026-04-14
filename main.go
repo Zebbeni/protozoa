@@ -24,16 +24,15 @@ func init() {
 		os.Exit(0)
 	}
 
-	var globals *config.Globals
 	if opts.ConfigFile != "" {
 		file := config.LoadFile(opts.ConfigFile)
-		globals = config.LoadGlobals(file)
+		globals := config.LoadGlobals(file)
+		config.SetGlobals(globals)
 	} else {
+		// No config file — defaults loaded; config screen will apply them
 		p := config.GetDefaultGlobals()
-		globals = &p
+		config.SetGlobals(&p)
 	}
-
-	config.SetGlobals(globals)
 
 	fmt.Println("Seed:", int64(opts.Seed))
 	rand.Seed(int64(opts.Seed))

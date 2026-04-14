@@ -9,11 +9,8 @@ import (
 var defaultFilePath = "settings/default.json"
 var constants *Globals
 
-// SetGlobals allows a one-time initialization of all globally-referenced constants
+// SetGlobals initializes all globally-referenced constants.
 func SetGlobals(g *Globals) {
-	if constants != nil {
-		return
-	}
 	constants = g
 }
 

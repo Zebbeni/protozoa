@@ -12,35 +12,61 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-type Runner struct {
-	sim *simulation.Simulation
-	ui  *ux.Interface
+type runnerState int
 
-	pressedKeys map[ebiten.Key]bool
+const (
+	stateConfigScreen runnerState = iota
+	stateRunning
+)
+
+type Runner struct {
+	opts         *c.Options
+	state        runnerState
+	configScreen *ux.ConfigScreen
+	sim          *simulation.Simulation
+	ui           *ux.Interface
+	pressedKeys  map[ebiten.Key]bool
 }
 
 func (r *Runner) Update() error {
-	r.handleUserInput()
-	r.sim.Update()
-	r.updateSelected()
+	switch r.state {
+	case stateConfigScreen:
+		if r.configScreen.Update() {
+			// User accepted — apply derived values and start simulation
+			globals := r.configScreen.Globals()
+			globals.GridWidth = globals.GridUnitsWide * globals.GridUnitSize
+			globals.GridHeight = globals.GridUnitsHigh * globals.GridUnitSize
+			c.SetGlobals(globals)
+			resources.Init()
+			ebiten.SetScreenClearedEveryFrame(false)
+			r.startSimulation()
+		}
+	case stateRunning:
+		r.ui.HandleUserInput()
+		r.sim.Update()
+		r.ui.UpdateSelected()
+	}
 	return nil
 }
 
-func (r *Runner) handleUserInput() {
-	r.ui.HandleUserInput()
-}
-
-func (r *Runner) updateSelected() {
-	r.ui.UpdateSelected()
-}
-
 func (r *Runner) Draw(screen *ebiten.Image) {
-	r.ui.Render(screen)
-	r.sim.ClearUpdatedPoints()
+	switch r.state {
+	case stateConfigScreen:
+		r.configScreen.Draw(screen)
+	case stateRunning:
+		r.ui.Render(screen)
+		r.sim.ClearUpdatedPoints()
+	}
 }
 
 func (r *Runner) Layout(_, _ int) (int, int) {
 	return c.ScreenWidth(), c.ScreenHeight()
+}
+
+func (r *Runner) startSimulation() {
+	r.sim = simulation.NewSimulation(r.opts)
+	r.ui = ux.NewInterface(r.sim)
+	r.state = stateRunning
 }
 
 func RunSimulation(opts *c.Options) {
@@ -64,19 +90,36 @@ func RunSimulation(opts *c.Options) {
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
 	} else {
-		sim := simulation.NewSimulation(opts)
+		// If a config file was specified, skip the config screen
+		if opts.ConfigFile != "" {
+			gameRunner := &Runner{
+				opts:        opts,
+				state:       stateRunning,
+				pressedKeys: map[ebiten.Key]bool{},
+			}
+			gameRunner.sim = simulation.NewSimulation(opts)
+			gameRunner.ui = ux.NewInterface(gameRunner.sim)
 
-		ui := ux.NewInterface(sim)
-		gameRunner := &Runner{
-			sim:         sim,
-			ui:          ui,
-			pressedKeys: map[ebiten.Key]bool{},
-		}
+			ebiten.SetWindowResizable(true)
+			ebiten.SetScreenClearedEveryFrame(false)
+			if err := ebiten.RunGame(gameRunner); err != nil {
+				log.Fatal(err)
+			}
+		} else {
+			// Show config screen first
+			globals := c.GetDefaultGlobals()
+			gameRunner := &Runner{
+				opts:         opts,
+				state:        stateConfigScreen,
+				configScreen: ux.NewConfigScreen(&globals),
+				pressedKeys:  map[ebiten.Key]bool{},
+			}
 
-		ebiten.SetWindowResizable(true)
-		ebiten.SetScreenClearedEveryFrame(false)
-		if err := ebiten.RunGame(gameRunner); err != nil {
-			log.Fatal(err)
+			ebiten.SetWindowResizable(true)
+			ebiten.SetScreenClearedEveryFrame(true)
+			if err := ebiten.RunGame(gameRunner); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 }

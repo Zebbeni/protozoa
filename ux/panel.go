@@ -3,6 +3,7 @@ package ux
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -182,14 +183,15 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) {
 	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
 	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %[4]*.[3]*[2]f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn, 2, 5)
 	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
-	bounds := boundString(r.FontSourceCodePro12, infoString)
-	offsetY := selectedYOffset + bounds.Dy() + padding
+	infoLineCount := strings.Count(infoString, "\n") + 1
+	infoHeight := infoLineCount * r.FontSourceCodePro12.Metrics().Height.Round()
+	offsetY := selectedYOffset + infoHeight + padding
 
 	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, selectedYOffset, color.White)
 
 	// Render decision tree with dim color for untravelled nodes
 	text.Draw(panelImage, "DECISION TREE:", r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)
-	lineHeight := boundString(r.FontSourceCodePro10, "X\nX").Dy() - boundString(r.FontSourceCodePro10, "X").Dy()
+	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
 	offsetY += lineHeight
 	dimColor := color.RGBA{R: 80, G: 80, B: 80, A: 255}
 	for _, line := range decisionTree.PrintLines() {
