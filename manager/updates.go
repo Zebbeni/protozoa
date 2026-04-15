@@ -6,12 +6,18 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-type UpdateManager struct {
-	organismUpdates map[string]utils.Point
-	phUpdates       map[string]utils.Point
-	foodUpdates     map[string]utils.Point
+// UpdateType identifies which layer needs re-rendering.
+type UpdateType int
 
-	mutex sync.Mutex
+const (
+	UpdateOrganism UpdateType = iota
+	UpdatePh
+	UpdateFood
+)
+
+type UpdateManager struct {
+	updates map[UpdateType]map[string]utils.Point
+	mutex   sync.Mutex
 }
 
 func NewUpdateManager() *UpdateManager {
@@ -22,44 +28,35 @@ func NewUpdateManager() *UpdateManager {
 
 func (m *UpdateManager) ClearMaps() {
 	m.mutex.Lock()
-	m.organismUpdates = make(map[string]utils.Point)
-	m.phUpdates = make(map[string]utils.Point)
-	m.foodUpdates = make(map[string]utils.Point)
+	m.updates = map[UpdateType]map[string]utils.Point{
+		UpdateOrganism: make(map[string]utils.Point),
+		UpdatePh:       make(map[string]utils.Point),
+		UpdateFood:     make(map[string]utils.Point),
+	}
 	m.mutex.Unlock()
 }
 
-func (m *UpdateManager) AddOrganismUpdate(p utils.Point) {
+func (m *UpdateManager) AddUpdate(t UpdateType, p utils.Point) {
 	m.mutex.Lock()
-	m.organismUpdates[p.ToString()] = p
+	m.updates[t][p.ToString()] = p
 	m.mutex.Unlock()
 }
 
-// GetUpdatedOrganismPoints returns the full updated organism point map
-// (We should do this in a way that avoids sharing the actual map)
+func (m *UpdateManager) GetUpdatedPoints(t UpdateType) map[string]utils.Point {
+	return m.updates[t]
+}
+
+// Convenience methods to preserve existing API interface contracts
+func (m *UpdateManager) AddOrganismUpdate(p utils.Point) { m.AddUpdate(UpdateOrganism, p) }
+func (m *UpdateManager) AddPhUpdate(p utils.Point)       { m.AddUpdate(UpdatePh, p) }
+func (m *UpdateManager) AddFoodUpdate(p utils.Point)     { m.AddUpdate(UpdateFood, p) }
+
 func (m *UpdateManager) GetUpdatedOrganismPoints() map[string]utils.Point {
-	return m.organismUpdates
+	return m.GetUpdatedPoints(UpdateOrganism)
 }
-
-func (m *UpdateManager) AddPhUpdate(p utils.Point) {
-	m.mutex.Lock()
-	m.phUpdates[p.ToString()] = p
-	m.mutex.Unlock()
-}
-
-// GetUpdatedPhPoints returns the full updated ph point map
-// (We should do this in a way that avoids sharing the actual map)
 func (m *UpdateManager) GetUpdatedPhPoints() map[string]utils.Point {
-	return m.phUpdates
+	return m.GetUpdatedPoints(UpdatePh)
 }
-
-func (m *UpdateManager) AddFoodUpdate(p utils.Point) {
-	m.mutex.Lock()
-	m.foodUpdates[p.ToString()] = p
-	m.mutex.Unlock()
-}
-
-// GetUpdatedFoodPoints returns the full updated food point map
-// (We should do this in a way that avoids sharing the actual map)
 func (m *UpdateManager) GetUpdatedFoodPoints() map[string]utils.Point {
-	return m.foodUpdates
+	return m.GetUpdatedPoints(UpdateFood)
 }

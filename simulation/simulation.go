@@ -199,26 +199,15 @@ func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	return s.organismManager.GetOrganismDecisionTreeByID(id)
 }
 
-// GetHistory returns the full population history of all original ancestors as a
-// map of cycles to maps of ancestorIDs to the living descendants at that time
-func (s *Simulation) GetHistory() map[int]map[int]int32 {
-	return s.organismManager.GetHistory()
+// GetHistory returns a history map by type. Caller must hold history read lock.
+func (s *Simulation) GetHistory(histType manager.HistoryType) map[int]map[int]int32 {
+	return s.organismManager.GetHistory(histType)
 }
 
 // GetAncestorColors returns a map of all ancestors with at least one descendant
 // and the ancestor's color
 func (s *Simulation) GetAncestorColors() map[int]color.Color {
 	return s.organismManager.GetAncestorColors()
-}
-
-// GetPhEffectHistory returns per-cycle phEffect bucket counts
-func (s *Simulation) GetPhEffectHistory() map[int]map[int]int32 {
-	return s.organismManager.GetPhEffectHistory()
-}
-
-// GetPhDistributionHistory returns per-cycle pH bucket counts
-func (s *Simulation) GetPhDistributionHistory() map[int]map[int]int32 {
-	return s.organismManager.GetPhDistributionHistory()
 }
 
 // LockHistoryForReading acquires a read lock on the history data.

@@ -4,6 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
@@ -18,7 +19,7 @@ func (r *Renderer) Reset() {}
 
 func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebiten.Image {
 	sim.LockHistoryForReading()
-	phEffectMap := sim.GetPhEffectHistory()
+	phEffectMap := sim.GetHistory(manager.HistoryPhEffect)
 
 	maxPop := getMaxFromBucketHistory(phEffectMap, newBarCount)
 	if maxPop < 1 {

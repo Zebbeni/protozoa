@@ -4,6 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/manager"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
@@ -33,7 +34,7 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	src := gh.WhiteSrc()
 
 	sim.LockHistoryForReading()
-	phDistMap := sim.GetPhDistributionHistory()
+	phDistMap := sim.GetHistory(manager.HistoryPhDistribution)
 
 	var vertices []ebiten.Vertex
 	var indices []uint16

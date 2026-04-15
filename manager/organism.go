@@ -14,6 +14,15 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
+// HistoryType identifies the type of per-cycle history data.
+type HistoryType int
+
+const (
+	HistoryPopulation      HistoryType = iota // cycle : ancestorId : livingDescendantsCount
+	HistoryPhEffect                           // cycle : effectBucket : organismCount
+	HistoryPhDistribution                     // cycle : phBucket : gridCellCount
+)
+
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	api            organism.API
@@ -35,10 +44,7 @@ type OrganismManager struct {
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
-	populationHistory      map[int]map[int]int32            // cycle : ancestorId : livingDescendantsCount
-
-	phEffectHistory       map[int]map[int]int32 // cycle : effectBucket : organismCount
-	phDistributionHistory map[int]map[int]int32 // cycle : phBucket(0-19) : gridCellCount
+	history map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
 
 	UpdateDuration, ResolveDuration time.Duration
 
@@ -60,9 +66,11 @@ func NewOrganismManager(api organism.API) *OrganismManager {
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
 		descendantTrees:        make(map[int]*organism.DescendantNode),
-		populationHistory:      make(map[int]map[int]int32),
-		phEffectHistory:        make(map[int]map[int]int32),
-		phDistributionHistory:  make(map[int]map[int]int32),
+		history: map[HistoryType]map[int]map[int]int32{
+			HistoryPopulation:     make(map[int]map[int]int32),
+			HistoryPhEffect:       make(map[int]map[int]int32),
+			HistoryPhDistribution: make(map[int]map[int]int32),
+		},
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -206,8 +214,8 @@ func (m *OrganismManager) updateHistory() {
 	}
 
 	m.historyMutex.Lock()
-	m.populationHistory[cycle] = populationMap
-	m.phEffectHistory[cycle] = phEffectDist
+	m.history[HistoryPopulation][cycle] = populationMap
+	m.history[HistoryPhEffect][cycle] = phEffectDist
 	m.historyMutex.Unlock()
 
 	// compute pH distribution and average across grid cells using 0.5 pH-wide buckets
@@ -227,7 +235,7 @@ func (m *OrganismManager) updateHistory() {
 		}
 	}
 	m.historyMutex.Lock()
-	m.phDistributionHistory[cycle] = phDist
+	m.history[HistoryPhDistribution][cycle] = phDist
 	m.historyMutex.Unlock()
 }
 
@@ -279,28 +287,14 @@ func (m *OrganismManager) addFoodRequest(o *organism.Organism) {
 	m.requestManager.AddFoodRequest(target, value)
 }
 
-// GetHistory returns the full population history of all original ancestors as a
-// map of cycles to maps of ancestorIDs to the living descendants at that time.
-// Caller must hold history read lock.
-func (m *OrganismManager) GetHistory() map[int]map[int]int32 {
-	return m.populationHistory
+// GetHistory returns a history map by type. Caller must hold history read lock.
+func (m *OrganismManager) GetHistory(histType HistoryType) map[int]map[int]int32 {
+	return m.history[histType]
 }
 
 // GetAncestorColors returns a map all original ancestor IDs to their color
 func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 	return m.originalAncestorColors
-}
-
-// GetPhEffectHistory returns per-cycle phEffect bucket counts.
-// Caller must hold history read lock.
-func (m *OrganismManager) GetPhEffectHistory() map[int]map[int]int32 {
-	return m.phEffectHistory
-}
-
-// GetPhDistributionHistory returns per-cycle pH bucket counts.
-// Caller must hold history read lock.
-func (m *OrganismManager) GetPhDistributionHistory() map[int]map[int]int32 {
-	return m.phDistributionHistory
 }
 
 // LockHistoryForReading acquires a read lock on the history maps.

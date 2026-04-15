@@ -18,56 +18,44 @@ const (
 	dpi = 72
 )
 
-var (
-	// FontInversionz40 is a size 50 Inversionz font face
-	FontInversionz40 font.Face
-	// FontSourceCodePro12 is a size 12 SourceCodePro (Regular) font face
-	FontSourceCodePro12 font.Face
-	// FontSourceCodePro10 is a size 10 SourceCodePro (Regular) font face
-	FontSourceCodePro10 font.Face
-	// FontSourceCodePro8 is a size 8 SourceCodePro (Regular) font face
-	FontSourceCodePro8 font.Face
+// ImageRole identifies the role of a sprite image.
+type ImageRole int
 
-	// PlayButton is a 30x30 image
-	PlayButton *ebiten.Image
-	// PauseButton is a 30x30 image
-	PauseButton *ebiten.Image
-
-	// SquareSmall, SquareMedium, etc. are the active set (set by SelectZoom)
-	SquareSmall  *ebiten.Image
-	SquareMedium *ebiten.Image
-	SquareLarge  *ebiten.Image
-	SquareFill   *ebiten.Image
-	SquareBox    *ebiten.Image
-	FoodImage    *ebiten.Image
+const (
+	RoleOrganismSmall ImageRole = iota
+	RoleOrganismMedium
+	RoleOrganismLarge
+	RoleFood
+	RoleBox // walls
 )
 
-// ZoomResources holds the square images for a single zoom level.
-type ZoomResources struct {
-	Small, Medium, Large, Fill, Box, Food *ebiten.Image
-}
+var (
+	FontInversionz40    font.Face
+	FontSourceCodePro12 font.Face
+	FontSourceCodePro10 font.Face
+	FontSourceCodePro8  font.Face
 
-// ZoomImages holds resources for all 3 zoom levels (indexed by ZoomLevel 0-2).
-var ZoomImages [3]ZoomResources
+	PlayButton  *ebiten.Image
+	PauseButton *ebiten.Image
 
-// Init loads all fonts and images to be used in the UI
+	// Images is the active sprite set, keyed by role (set by SelectZoom)
+	Images map[ImageRole]*ebiten.Image
+)
+
+// ZoomImages holds sprite sets for all 3 zoom levels (indexed by ZoomLevel 0-2).
+var ZoomImages [3]map[ImageRole]*ebiten.Image
+
 func Init() {
 	initFonts()
 	initImages()
 }
 
-// SelectZoom sets the active square images to the given zoom level (0-2).
+// SelectZoom sets the active image set to the given zoom level (0-2).
 func SelectZoom(level int) {
 	if level < 0 || level > 2 {
 		return
 	}
-	res := ZoomImages[level]
-	SquareSmall = res.Small
-	SquareMedium = res.Medium
-	SquareLarge = res.Large
-	SquareFill = res.Fill
-	SquareBox = res.Box
-	FoodImage = res.Food
+	Images = ZoomImages[level]
 }
 
 func initFonts() {
@@ -80,57 +68,42 @@ func initFonts() {
 }
 
 func initImages() {
-	// Panel Images
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	// Load all zoom levels
 	dirs := [3]string{"4x4", "8x8", "16x16"}
 	sizes := [3]int{4, 8, 16}
 
 	for i, dir := range dirs {
 		size := sizes[i]
+		path := "resources/images/grid/" + dir + "/"
+
+		box := generateBoxImage(size)
+		food := generateCircle(size, max(2, size*2/3))
+
 		if dirExists("resources/images/grid/" + dir) {
-			ZoomImages[i] = ZoomResources{
-				Small:  loadImage("resources/images/grid/" + dir + "/square_small.png"),
-				Medium: loadImage("resources/images/grid/" + dir + "/square_medium.png"),
-				Large:  loadImage("resources/images/grid/" + dir + "/square_large.png"),
-				Fill:   loadImage("resources/images/grid/" + dir + "/square_fill.png"),
-				Box:    loadImage("resources/images/grid/" + dir + "/square_box.png"),
-				Food:   loadImage("resources/images/grid/" + dir + "/food.png"),
+			ZoomImages[i] = map[ImageRole]*ebiten.Image{
+				RoleOrganismSmall:  loadImage(path + "square_small.png"),
+				RoleOrganismMedium: loadImage(path + "square_medium.png"),
+				RoleOrganismLarge:  loadImage(path + "square_large.png"),
+				RoleFood:           loadImage(path + "food.png"),
+				RoleBox:            box,
 			}
 		} else {
-			// Generate placeholder images for missing zoom levels
-			ZoomImages[i] = generateSquareImages(size)
+			ZoomImages[i] = map[ImageRole]*ebiten.Image{
+				RoleOrganismSmall:  generateFilledImage(size, max(1, size/3)),
+				RoleOrganismMedium: generateFilledImage(size, max(2, size*2/3)),
+				RoleOrganismLarge:  generateFilledImage(size, size),
+				RoleFood:           food,
+				RoleBox:            box,
+			}
 		}
 	}
 
-	// Default to medium zoom
 	SelectZoom(1)
 }
 
-// generateSquareImages creates simple white-mask square images at the given size.
-func generateSquareImages(size int) ZoomResources {
-	small := size / 3
-	if small < 1 {
-		small = 1
-	}
-	med := size * 2 / 3
-	if med < 2 {
-		med = 2
-	}
-
-	return ZoomResources{
-		Small:  generateFilledSquare(size, small),
-		Medium: generateFilledSquare(size, med),
-		Large:  generateFilledSquare(size, size),
-		Fill:   generateFilledSquare(size, size),
-		Box:    generateBoxSquare(size),
-	}
-}
-
-func generateFilledSquare(totalSize, innerSize int) *ebiten.Image {
-	// Use opaque black — ColorM.Translate adds RGB to produce the final color
+func generateFilledImage(totalSize, innerSize int) *ebiten.Image {
 	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
 	img := image.NewRGBA(image.Rect(0, 0, totalSize, totalSize))
 	offset := (totalSize - innerSize) / 2
@@ -142,7 +115,24 @@ func generateFilledSquare(totalSize, innerSize int) *ebiten.Image {
 	return ebiten.NewImageFromImage(img)
 }
 
-func generateBoxSquare(size int) *ebiten.Image {
+func generateCircle(totalSize, diameter int) *ebiten.Image {
+	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+	img := image.NewRGBA(image.Rect(0, 0, totalSize, totalSize))
+	cx, cy := float64(totalSize)/2.0, float64(totalSize)/2.0
+	r := float64(diameter) / 2.0
+	for y := 0; y < totalSize; y++ {
+		for x := 0; x < totalSize; x++ {
+			dx := float64(x) + 0.5 - cx
+			dy := float64(y) + 0.5 - cy
+			if dx*dx+dy*dy <= r*r {
+				img.Set(x, y, black)
+			}
+		}
+	}
+	return ebiten.NewImageFromImage(img)
+}
+
+func generateBoxImage(size int) *ebiten.Image {
 	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for i := 0; i < size; i++ {
@@ -176,8 +166,7 @@ func loadImage(path string) *ebiten.Image {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ebitenImg := ebiten.NewImageFromImage(img)
-	return ebitenImg
+	return ebiten.NewImageFromImage(img)
 }
 
 func loadFont(path string) *opentype.Font {
