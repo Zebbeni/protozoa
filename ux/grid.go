@@ -156,31 +156,21 @@ func (g *Grid) Render() *ebiten.Image {
 	g.layers[layerFood] = foodImage
 	g.layers[layerOrganisms] = orgsImage
 
-	// Compose visible portion into viewport-sized image.
-	// When zoomed out fully, scale the world to fit the viewport and center it.
+	// Compose visible portion into viewport-sized image, centered if world is smaller.
 	viewportImage := ebiten.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
-	fitScale, offsetX, offsetY := g.Camera.FitScaleAndOffset()
+	offsetX, offsetY := g.Camera.CenterOffset()
 
 	visRect := g.Camera.VisibleRect()
 	drawOp := &ebiten.DrawImageOptions{}
-	drawOp.GeoM.Translate(float64(-visRect.Min.X), float64(-visRect.Min.Y))
-	if fitScale != 1.0 {
-		drawOp.GeoM.Scale(fitScale, fitScale)
-		drawOp.Filter = ebiten.FilterLinear // smooth scaling when fitting world to viewport
-	}
-	drawOp.GeoM.Translate(float64(offsetX), float64(offsetY))
+	drawOp.GeoM.Translate(float64(-visRect.Min.X+offsetX), float64(-visRect.Min.Y+offsetY))
 
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		// Environment is 1px-per-cell; scale up to world-pixel size with linear filtering
+		// Environment is 1px-per-cell; scale up to world-pixel size
 		envOp := &ebiten.DrawImageOptions{}
 		us := float64(g.unitSize())
 		envOp.GeoM.Scale(us, us)
-		envOp.GeoM.Translate(float64(-visRect.Min.X), float64(-visRect.Min.Y))
-		if fitScale != 1.0 {
-			envOp.GeoM.Scale(fitScale, fitScale)
-		}
-		envOp.GeoM.Translate(float64(offsetX), float64(offsetY))
-		envOp.Filter = ebiten.FilterLinear
+		envOp.GeoM.Translate(float64(-visRect.Min.X+offsetX), float64(-visRect.Min.Y+offsetY))
+		envOp.Filter = ebiten.FilterNearest
 		viewportImage.DrawImage(envImage, envOp)
 	}
 	viewportImage.DrawImage(wallsImage, drawOp)

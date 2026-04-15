@@ -160,6 +160,7 @@ func (g *Graph) updateSelection() bool {
 
 			g.selRenderers[ModePopulation] = population.NewRenderer(population.TraitColor, root, startBar)
 			g.selRenderers[ModePopulationPhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
+			g.selRenderers[ModePhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
 		}
 	}
 	return true

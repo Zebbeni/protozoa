@@ -88,36 +88,21 @@ func (cam *Camera) VisibleGridBounds() (minX, minY, maxX, maxY int) {
 	return
 }
 
-// FitScaleAndOffset returns the scale factor and pixel offset used when the
-// world is smaller than the viewport (fit-to-view with centering).
-func (cam *Camera) FitScaleAndOffset() (scale float64, offsetX, offsetY int) {
-	worldPW := cam.WorldPixelWidth()
-	worldPH := cam.WorldPixelHeight()
-
-	scale = 1.0
-	if worldPW < cam.ViewportW || worldPH < cam.ViewportH {
-		sx := float64(cam.ViewportW) / float64(worldPW)
-		sy := float64(cam.ViewportH) / float64(worldPH)
-		scale = min(sx, sy)
-	}
-
-	scaledW := int(float64(worldPW) * scale)
-	scaledH := int(float64(worldPH) * scale)
-	offsetX = max(0, (cam.ViewportW-scaledW)/2)
-	offsetY = max(0, (cam.ViewportH-scaledH)/2)
+// CenterOffset returns the pixel offset to center the world in the viewport
+// when the world is smaller than the viewport at the current zoom level.
+func (cam *Camera) CenterOffset() (offsetX, offsetY int) {
+	offsetX = max(0, (cam.ViewportW-cam.WorldPixelWidth())/2)
+	offsetY = max(0, (cam.ViewportH-cam.WorldPixelHeight())/2)
 	return
 }
 
 // ScreenToGrid converts a screen pixel position (relative to the grid viewport area)
-// to world grid coordinates, accounting for fit scaling and centering.
+// to world grid coordinates, accounting for centering offset.
 func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid bool) {
-	scale, ox, oy := cam.FitScaleAndOffset()
+	ox, oy := cam.CenterOffset()
 	unitSize := cam.GridUnitSize()
-	// Reverse the offset and scale to get world pixel, then convert to grid
-	worldPxX := float64(screenX-ox) / scale
-	worldPxY := float64(screenY-oy) / scale
-	gridX = int(cam.X) + int(worldPxX)/unitSize
-	gridY = int(cam.Y) + int(worldPxY)/unitSize
+	gridX = int(cam.X) + (screenX-ox)/unitSize
+	gridY = int(cam.Y) + (screenY-oy)/unitSize
 	onGrid = gridX >= 0 && gridY >= 0 && gridX < c.GridUnitsWide() && gridY < c.GridUnitsHigh()
 	return
 }
