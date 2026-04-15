@@ -1,7 +1,7 @@
 package ux
 
 import (
-	"image"
+	"math"
 
 	c "github.com/Zebbeni/protozoa/config"
 )
@@ -10,16 +10,43 @@ import (
 type ZoomLevel int
 
 const (
-	ZoomFar    ZoomLevel = 0 // 4px per cell
-	ZoomMedium ZoomLevel = 1 // 8px per cell
-	ZoomClose  ZoomLevel = 2 // 16px per cell
+	Zoom4  ZoomLevel = 0
+	Zoom6  ZoomLevel = 1
+	Zoom8  ZoomLevel = 2
+	Zoom12 ZoomLevel = 3
+	Zoom16 ZoomLevel = 4
+	Zoom24 ZoomLevel = 5
+	Zoom32 ZoomLevel = 6
+	Zoom48 ZoomLevel = 7
+	Zoom64 ZoomLevel = 8
+
+	ZoomMin = Zoom4
+	ZoomMax = Zoom64
 )
 
-var zoomUnitSizes = [3]int{4, 8, 16}
+// zoomUnitSizes maps each zoom level to the display pixel size per cell.
+var zoomUnitSizes = [9]int{4, 6, 8, 12, 16, 24, 32, 48, 64}
+
+// zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=8x8, 2=16x16).
+// Intermediate levels use the largest sprite set that doesn't exceed the unit size.
+var zoomSpriteSet = [9]int{0, 0, 1, 1, 2, 2, 2, 2, 2}
+
+// zoomSpriteSizes is the native pixel size per sprite set.
+var zoomSpriteSizes = [3]int{4, 8, 16}
+
+// SpriteSet returns the sprite set index (0-2) for the current zoom level.
+func (cam *Camera) SpriteSet() int {
+	return zoomSpriteSet[cam.Zoom]
+}
+
+// SpriteScale returns the factor to scale sprites up to the display unit size.
+func (cam *Camera) SpriteScale() float64 {
+	return float64(cam.GridUnitSize()) / float64(zoomSpriteSizes[cam.SpriteSet()])
+}
 
 // Camera tracks viewport position and zoom level for the world view.
 type Camera struct {
-	X, Y      float64   // top-left corner of viewport in grid units
+	X, Y      float64   // top-left corner of viewport in grid units (can be any value; wraps)
 	Zoom      ZoomLevel // current zoom level
 	ViewportW int       // viewport pixel width (screen area for grid)
 	ViewportH int       // viewport pixel height
@@ -28,143 +55,134 @@ type Camera struct {
 // NewCamera creates a camera at medium zoom, centered on the world.
 func NewCamera(viewportW, viewportH int) *Camera {
 	cam := &Camera{
-		Zoom:      ZoomMedium,
+		Zoom:      Zoom8,
 		ViewportW: viewportW,
 		ViewportH: viewportH,
 	}
-	// Center on the world
 	cam.CenterOn(c.GridUnitsWide()/2, c.GridUnitsHigh()/2)
 	return cam
 }
 
-// GridUnitSize returns the pixel size per grid cell at the current zoom level.
-func (cam *Camera) GridUnitSize() int {
-	return zoomUnitSizes[cam.Zoom]
+func (cam *Camera) GridUnitSize() int       { return zoomUnitSizes[cam.Zoom] }
+func (cam *Camera) WorldPixelWidth() int    { return c.GridUnitsWide() * cam.GridUnitSize() }
+func (cam *Camera) WorldPixelHeight() int   { return c.GridUnitsHigh() * cam.GridUnitSize() }
+func (cam *Camera) WorldUnitsWide() float64 { return float64(c.GridUnitsWide()) }
+func (cam *Camera) WorldUnitsHigh() float64 { return float64(c.GridUnitsHigh()) }
+
+// WrapsX returns true if the world is wider than the viewport (panning wraps horizontally).
+func (cam *Camera) WrapsX() bool {
+	return cam.WorldPixelWidth() > cam.ViewportW
 }
 
-// WorldPixelWidth returns the full world width in pixels at current zoom.
-func (cam *Camera) WorldPixelWidth() int {
-	return c.GridUnitsWide() * cam.GridUnitSize()
+// WrapsY returns true if the world is taller than the viewport (panning wraps vertically).
+func (cam *Camera) WrapsY() bool {
+	return cam.WorldPixelHeight() > cam.ViewportH
 }
 
-// WorldPixelHeight returns the full world height in pixels at current zoom.
-func (cam *Camera) WorldPixelHeight() int {
-	return c.GridUnitsHigh() * cam.GridUnitSize()
+// NormalizedX returns the camera X wrapped into [0, WorldUnitsWide).
+func (cam *Camera) NormalizedX() float64 {
+	w := cam.WorldUnitsWide()
+	return math.Mod(math.Mod(cam.X, w)+w, w)
 }
 
-// VisibleRect returns the pixel rectangle to extract from the full-world image.
-func (cam *Camera) VisibleRect() image.Rectangle {
-	unitSize := cam.GridUnitSize()
-	x0 := int(cam.X) * unitSize
-	y0 := int(cam.Y) * unitSize
-	x1 := x0 + cam.ViewportW
-	y1 := y0 + cam.ViewportH
-
-	// Clamp to world bounds
-	ww := cam.WorldPixelWidth()
-	wh := cam.WorldPixelHeight()
-	if x1 > ww {
-		x1 = ww
-	}
-	if y1 > wh {
-		y1 = wh
-	}
-	return image.Rect(x0, y0, x1, y1)
-}
-
-// VisibleGridBounds returns the range of visible grid cells (inclusive min, exclusive max).
-func (cam *Camera) VisibleGridBounds() (minX, minY, maxX, maxY int) {
-	unitSize := cam.GridUnitSize()
-	minX = int(cam.X)
-	minY = int(cam.Y)
-	maxX = minX + (cam.ViewportW / unitSize) + 1
-	maxY = minY + (cam.ViewportH / unitSize) + 1
-	if maxX > c.GridUnitsWide() {
-		maxX = c.GridUnitsWide()
-	}
-	if maxY > c.GridUnitsHigh() {
-		maxY = c.GridUnitsHigh()
-	}
-	return
+// NormalizedY returns the camera Y wrapped into [0, WorldUnitsHigh).
+func (cam *Camera) NormalizedY() float64 {
+	h := cam.WorldUnitsHigh()
+	return math.Mod(math.Mod(cam.Y, h)+h, h)
 }
 
 // CenterOffset returns the pixel offset to center the world in the viewport
-// when the world is smaller than the viewport at the current zoom level.
+// when the world is smaller than the viewport on an axis.
 func (cam *Camera) CenterOffset() (offsetX, offsetY int) {
-	offsetX = max(0, (cam.ViewportW-cam.WorldPixelWidth())/2)
-	offsetY = max(0, (cam.ViewportH-cam.WorldPixelHeight())/2)
+	if !cam.WrapsX() {
+		offsetX = (cam.ViewportW - cam.WorldPixelWidth()) / 2
+	}
+	if !cam.WrapsY() {
+		offsetY = (cam.ViewportH - cam.WorldPixelHeight()) / 2
+	}
 	return
 }
 
 // ScreenToGrid converts a screen pixel position (relative to the grid viewport area)
-// to world grid coordinates, accounting for centering offset.
+// to world grid coordinates with wrapping.
 func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid bool) {
 	ox, oy := cam.CenterOffset()
-	unitSize := cam.GridUnitSize()
-	gridX = int(cam.X) + (screenX-ox)/unitSize
-	gridY = int(cam.Y) + (screenY-oy)/unitSize
-	onGrid = gridX >= 0 && gridY >= 0 && gridX < c.GridUnitsWide() && gridY < c.GridUnitsHigh()
+	us := float64(cam.GridUnitSize())
+	w := c.GridUnitsWide()
+	h := c.GridUnitsHigh()
+
+	if cam.WrapsX() {
+		// Screen pixel offset from camera origin, converted to fractional grid units
+		nx := cam.NormalizedX()
+		gridX = int(math.Floor(nx+float64(screenX-ox)/us)) % w
+		if gridX < 0 {
+			gridX += w
+		}
+	} else {
+		gridX = int(math.Floor(float64(screenX-ox) / us))
+	}
+
+	if cam.WrapsY() {
+		ny := cam.NormalizedY()
+		gridY = int(math.Floor(ny+float64(screenY-oy)/us)) % h
+		if gridY < 0 {
+			gridY += h
+		}
+	} else {
+		gridY = int(math.Floor(float64(screenY-oy) / us))
+	}
+
+	onGrid = gridX >= 0 && gridY >= 0 && gridX < w && gridY < h
 	return
 }
 
-// Pan adjusts the camera position by the given grid-unit deltas, clamped to world bounds.
+// Pan adjusts the camera position by the given grid-unit deltas.
+// Only wrapping axes allow free panning; non-wrapping axes are clamped.
 func (cam *Camera) Pan(dx, dy float64) {
 	cam.X += dx
 	cam.Y += dy
-	cam.ClampPosition()
+
+	// Clamp non-wrapping axes so the world stays visible
+	if !cam.WrapsX() {
+		cam.X = 0
+	}
+	if !cam.WrapsY() {
+		cam.Y = 0
+	}
 }
 
-// SetZoom changes the zoom level, keeping the point under (pivotScreenX, pivotScreenY)
-// stationary. pivotScreenX/Y are relative to the grid viewport area.
 func (cam *Camera) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
-	if level < ZoomFar {
-		level = ZoomFar
+	if level < ZoomMin {
+		level = ZoomMin
 	}
-	if level > ZoomClose {
-		level = ZoomClose
+	if level > ZoomMax {
+		level = ZoomMax
 	}
 	if level == cam.Zoom {
 		return
 	}
 
-	// Grid coordinate under the pivot point before zoom
 	oldUnitSize := cam.GridUnitSize()
 	pivotGridX := cam.X + float64(pivotScreenX)/float64(oldUnitSize)
 	pivotGridY := cam.Y + float64(pivotScreenY)/float64(oldUnitSize)
 
 	cam.Zoom = level
 
-	// Adjust position so the same grid coordinate stays under the pivot
 	newUnitSize := cam.GridUnitSize()
 	cam.X = pivotGridX - float64(pivotScreenX)/float64(newUnitSize)
 	cam.Y = pivotGridY - float64(pivotScreenY)/float64(newUnitSize)
-	cam.ClampPosition()
 }
 
-// ZoomIn zooms in one level, pivoting around the given screen point.
 func (cam *Camera) ZoomIn(pivotScreenX, pivotScreenY int) {
 	cam.SetZoom(cam.Zoom+1, pivotScreenX, pivotScreenY)
 }
 
-// ZoomOut zooms out one level, pivoting around the given screen point.
 func (cam *Camera) ZoomOut(pivotScreenX, pivotScreenY int) {
 	cam.SetZoom(cam.Zoom-1, pivotScreenX, pivotScreenY)
 }
 
-// CenterOn centers the viewport on the given grid coordinate.
 func (cam *Camera) CenterOn(gridX, gridY int) {
 	unitSize := cam.GridUnitSize()
 	cam.X = float64(gridX) - float64(cam.ViewportW)/float64(unitSize)/2.0
 	cam.Y = float64(gridY) - float64(cam.ViewportH)/float64(unitSize)/2.0
-	cam.ClampPosition()
-}
-
-// ClampPosition ensures the viewport stays within world bounds.
-func (cam *Camera) ClampPosition() {
-	unitSize := cam.GridUnitSize()
-	maxX := float64(c.GridUnitsWide()) - float64(cam.ViewportW)/float64(unitSize)
-	maxY := float64(c.GridUnitsHigh()) - float64(cam.ViewportH)/float64(unitSize)
-
-	cam.X = max(0, min(cam.X, maxX))
-	cam.Y = max(0, min(cam.Y, maxY))
 }

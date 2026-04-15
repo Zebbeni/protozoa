@@ -2,6 +2,7 @@ package ux
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -18,11 +19,10 @@ const (
 	minimapBorder  = 1
 )
 
-// Minimap renders a small overview of the full world with a viewport rectangle.
 type Minimap struct {
 	simulation *simulation.Simulation
 	camera     *Camera
-	width      int // actual pixel dimensions (proportional to world)
+	width      int
 	height     int
 
 	image         *ebiten.Image
@@ -31,19 +31,12 @@ type Minimap struct {
 	lastCycleUsed int
 }
 
-// NewMinimap creates a proportionally-sized minimap.
 func NewMinimap(sim *simulation.Simulation, cam *Camera) *Minimap {
 	worldW := config.GridUnitsWide()
 	worldH := config.GridUnitsHigh()
 	scale := min(float64(minimapMaxW)/float64(worldW), float64(minimapMaxH)/float64(worldH))
-	w := int(float64(worldW) * scale)
-	h := int(float64(worldH) * scale)
-	if w < 1 {
-		w = 1
-	}
-	if h < 1 {
-		h = 1
-	}
+	w := max(1, int(float64(worldW)*scale))
+	h := max(1, int(float64(worldH)*scale))
 
 	return &Minimap{
 		simulation:   sim,
@@ -54,9 +47,7 @@ func NewMinimap(sim *simulation.Simulation, cam *Camera) *Minimap {
 	}
 }
 
-// Update checks for async render results and triggers new renders periodically.
 func (m *Minimap) Update() {
-	// Check for completed render
 	select {
 	case img := <-m.pendingImage:
 		m.image = img
@@ -64,7 +55,6 @@ func (m *Minimap) Update() {
 	default:
 	}
 
-	// Trigger new render every 20 cycles
 	cycle := m.simulation.Cycle()
 	if !m.rendering && (m.image == nil || cycle-m.lastCycleUsed >= 20) {
 		m.rendering = true
@@ -73,13 +63,12 @@ func (m *Minimap) Update() {
 	}
 }
 
-// Draw composites the minimap onto the screen at the bottom-right of the grid area.
 func (m *Minimap) Draw(screen *ebiten.Image) {
 	if m.image == nil {
 		return
 	}
 
-	// Hide minimap if the viewport can see the entire world
+	// Hide minimap if both axes fit in the viewport
 	unitSize := m.camera.GridUnitSize()
 	if m.camera.ViewportW >= config.GridUnitsWide()*unitSize &&
 		m.camera.ViewportH >= config.GridUnitsHigh()*unitSize {
@@ -97,28 +86,40 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 		float64(m.width+minimapBorder*2), float64(m.height+minimapBorder*2),
 		color.RGBA{R: 60, G: 60, B: 60, A: 200})
 
-	// Draw minimap image
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(drawX), float64(drawY))
-	screen.DrawImage(m.image, op)
-
-	// Draw viewport rectangle
+	// Draw minimap with wrapping: the viewport rect stays centered, the world wraps around it.
 	worldW := float64(config.GridUnitsWide())
 	worldH := float64(config.GridUnitsHigh())
-
 	viewGridW := float64(m.camera.ViewportW) / float64(unitSize)
 	viewGridH := float64(m.camera.ViewportH) / float64(unitSize)
 
-	rx := float64(drawX) + m.camera.X/worldW*float64(m.width)
-	ry := float64(drawY) + m.camera.Y/worldH*float64(m.height)
-	rw := viewGridW / worldW * float64(m.width)
-	rh := viewGridH / worldH * float64(m.height)
+	// Compute shift so camera center maps to minimap center
+	camCenterX := m.camera.NormalizedX() + viewGridW/2
+	camCenterY := m.camera.NormalizedY() + viewGridH/2
+	camMiniX := camCenterX / worldW * float64(m.width)
+	camMiniY := camCenterY / worldH * float64(m.height)
+	shiftX := float64(m.width)/2 - camMiniX
+	shiftY := float64(m.height)/2 - camMiniY
 
-	// Clamp viewport rectangle to minimap bounds
-	rx = max(rx, float64(drawX))
-	ry = max(ry, float64(drawY))
-	rw = min(rw, float64(drawX+m.width)-rx)
-	rh = min(rh, float64(drawY+m.height)-ry)
+	// Render tiled minimap onto a clipped temporary image
+	clipped := ebiten.NewImage(m.width, m.height)
+	for dx := -1; dx <= 1; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(shiftX+float64(dx*m.width), shiftY+float64(dy*m.height))
+			clipped.DrawImage(m.image, op)
+		}
+	}
+
+	// Draw the clipped minimap onto the screen
+	clipOp := &ebiten.DrawImageOptions{}
+	clipOp.GeoM.Translate(float64(drawX), float64(drawY))
+	screen.DrawImage(clipped, clipOp)
+
+	// Viewport rectangle centered in the minimap
+	rw := min(viewGridW/worldW*float64(m.width), float64(m.width))
+	rh := min(viewGridH/worldH*float64(m.height), float64(m.height))
+	rx := float64(drawX) + (float64(m.width)-rw)/2
+	ry := float64(drawY) + (float64(m.height)-rh)/2
 
 	ebitenutil.DrawLine(screen, rx, ry, rx+rw, ry, color.White)
 	ebitenutil.DrawLine(screen, rx+rw, ry, rx+rw, ry+rh, color.White)
@@ -126,8 +127,6 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 	ebitenutil.DrawLine(screen, rx, ry, rx, ry+rh, color.White)
 }
 
-// HandleClick checks if a click is on the minimap and centers the camera there.
-// Returns true if the click was consumed.
 func (m *Minimap) HandleClick(screenX, screenY int) bool {
 	screenW := config.ScreenWidth()
 	screenH := config.ScreenHeight()
@@ -138,11 +137,26 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 		return false
 	}
 
-	// Convert minimap pixel to grid coordinate
-	relX := float64(screenX - drawX)
-	relY := float64(screenY - drawY)
-	gridX := int(relX / float64(m.width) * float64(config.GridUnitsWide()))
-	gridY := int(relY / float64(m.height) * float64(config.GridUnitsHigh()))
+	// Click position relative to minimap center
+	relX := float64(screenX-drawX) - float64(m.width)/2
+	relY := float64(screenY-drawY) - float64(m.height)/2
+
+	worldW := float64(config.GridUnitsWide())
+	worldH := float64(config.GridUnitsHigh())
+
+	// Convert offset from minimap center to grid units, relative to current camera center
+	us := m.camera.GridUnitSize()
+	viewGridW := float64(m.camera.ViewportW) / float64(us)
+	viewGridH := float64(m.camera.ViewportH) / float64(us)
+	curCenterX := m.camera.NormalizedX() + viewGridW/2
+	curCenterY := m.camera.NormalizedY() + viewGridH/2
+
+	gridX := int(curCenterX + relX/float64(m.width)*worldW)
+	gridY := int(curCenterY + relY/float64(m.height)*worldH)
+
+	// Wrap
+	gridX = int(math.Mod(math.Mod(float64(gridX), worldW)+worldW, worldW))
+	gridY = int(math.Mod(math.Mod(float64(gridY), worldH)+worldH, worldH))
 
 	m.camera.CenterOn(gridX, gridY)
 	return true
@@ -156,26 +170,17 @@ func (m *Minimap) renderInBackground() {
 
 	for py := 0; py < m.height; py++ {
 		for px := 0; px < m.width; px++ {
-			// Map minimap pixel to grid cell
-			gx := px * worldW / m.width
-			gy := py * worldH / m.height
-			if gx >= worldW {
-				gx = worldW - 1
-			}
-			if gy >= worldH {
-				gy = worldH - 1
-			}
+			gx := min(px*worldW/m.width, worldW-1)
+			gy := min(py*worldH/m.height, worldH-1)
 
 			point := utils.Point{X: gx, Y: gy}
 
 			var r, g, b byte
 
-			// Check for organism first (most visible)
 			if info := m.simulation.GetOrganismInfoAtPoint(point); info != nil {
 				cr, cg, cb, _ := info.Color.RGBA()
 				r, g, b = byte(cr>>8), byte(cg>>8), byte(cb>>8)
 			} else {
-				// Fall back to pH coloring
 				ph := m.simulation.GetPhAtPoint(point)
 				pr, pg, pb, _ := PhValueColor(ph)
 				r = byte(pr * 255)

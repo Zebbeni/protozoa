@@ -1,6 +1,6 @@
 {
   "initial_food": 0,
-  "initial_organisms": 100,
+  "initial_organisms": 1,
   "grid_units_wide": 250,
   "grid_units_high": 200,
   "screen_width": 1400,

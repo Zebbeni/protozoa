@@ -109,7 +109,7 @@ func (g *Grid) initLayerImages() {
 }
 
 func (g *Grid) loadOrganismImages() {
-	resources.SelectZoom(int(g.Camera.Zoom))
+	resources.SelectZoom(g.Camera.SpriteSet())
 }
 
 func (g *Grid) newBlankLayer() *ebiten.Image {
@@ -139,46 +139,71 @@ func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 
 // Render draws all layers and returns a viewport-sized image.
 func (g *Grid) Render() *ebiten.Image {
-	envImage := g.newEnvLayer()
-	wallsImage := g.newBlankLayer()
-	foodImage := g.newBlankLayer()
-	orgsImage := g.newBlankLayer()
-	selImage := g.newBlankLayer()
+	if g.doRefresh {
+		g.layers[layerEnv] = g.newEnvLayer()
+		g.layers[layerWalls] = g.newBlankLayer()
+		g.layers[layerFood] = g.newBlankLayer()
+		g.layers[layerOrganisms] = g.newBlankLayer()
+	}
 
-	g.renderWalls(wallsImage, g.doRefresh)
-	g.renderEnvironment(envImage, g.doRefresh)
-	g.renderFood(foodImage, g.doRefresh)
-	g.renderOrganisms(orgsImage, g.doRefresh)
-	g.renderSelectionBoxes(selImage)
+	g.renderWalls(g.layers[layerWalls], g.doRefresh)
+	g.renderEnvironment(g.layers[layerEnv], g.doRefresh)
+	g.renderFood(g.layers[layerFood], g.doRefresh)
+	g.renderOrganisms(g.layers[layerOrganisms], g.doRefresh)
 
-	g.layers[layerEnv] = envImage
-	g.layers[layerWalls] = wallsImage
-	g.layers[layerFood] = foodImage
-	g.layers[layerOrganisms] = orgsImage
-
-	// Compose visible portion into viewport-sized image, centered if world is smaller.
+	// Compose visible portion into viewport-sized image with wrapping support.
 	viewportImage := ebiten.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
-	offsetX, offsetY := g.Camera.CenterOffset()
+	centerOX, centerOY := g.Camera.CenterOffset()
 
-	visRect := g.Camera.VisibleRect()
-	drawOp := &ebiten.DrawImageOptions{}
-	drawOp.GeoM.Translate(float64(-visRect.Min.X+offsetX), float64(-visRect.Min.Y+offsetY))
+	us := g.unitSize()
+	wpw := float64(g.Camera.WorldPixelWidth())
+	wph := float64(g.Camera.WorldPixelHeight())
+
+	// Camera position in pixels, normalized to [0, worldPixelSize)
+	camPxX := g.Camera.NormalizedX() * float64(us)
+	camPxY := g.Camera.NormalizedY() * float64(us)
+
+	// Draw world layer at tiled offsets to cover the viewport when wrapping.
+	// On non-wrapping axes, just use the center offset.
+	// scaleX/scaleY scale the layer image up (e.g., env layer is 1px/cell, scaled by unitSize).
+	// Offsets are always in viewport pixel space.
+	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64) {
+		xOffsets := []float64{-camPxX}
+		if g.Camera.WrapsX() {
+			xOffsets = append(xOffsets, -camPxX+wpw)
+		} else {
+			xOffsets = []float64{float64(centerOX)}
+		}
+		yOffsets := []float64{-camPxY}
+		if g.Camera.WrapsY() {
+			yOffsets = append(yOffsets, -camPxY+wph)
+		} else {
+			yOffsets = []float64{float64(centerOY)}
+		}
+
+		for _, ox := range xOffsets {
+			for _, oy := range yOffsets {
+				op := &ebiten.DrawImageOptions{}
+				if scaleX != 1 || scaleY != 1 {
+					op.GeoM.Scale(scaleX, scaleY)
+				}
+				op.GeoM.Translate(ox, oy)
+				viewportImage.DrawImage(layer, op)
+			}
+		}
+	}
 
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		// Environment is 1px-per-cell; scale up to world-pixel size
-		envOp := &ebiten.DrawImageOptions{}
-		us := float64(g.unitSize())
-		envOp.GeoM.Scale(us, us)
-		envOp.GeoM.Translate(float64(-visRect.Min.X+offsetX), float64(-visRect.Min.Y+offsetY))
-		envOp.Filter = ebiten.FilterNearest
-		viewportImage.DrawImage(envImage, envOp)
+		drawLayer(g.layers[layerEnv], float64(us), float64(us))
 	}
-	viewportImage.DrawImage(wallsImage, drawOp)
+	drawLayer(g.layers[layerWalls], 1, 1)
 	if g.viewMode != phOnlyMode {
-		viewportImage.DrawImage(foodImage, drawOp)
-		viewportImage.DrawImage(orgsImage, drawOp)
+		drawLayer(g.layers[layerFood], 1, 1)
+		drawLayer(g.layers[layerOrganisms], 1, 1)
 	}
-	viewportImage.DrawImage(selImage, drawOp)
+
+	// Draw selection boxes directly on viewport in screen coordinates
+	g.renderSelectionBoxes(viewportImage)
 
 	// Draw text overlays at screen resolution (after scaling)
 	g.renderOverlayText(viewportImage)
@@ -196,7 +221,6 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 			}
 		}
 	} else {
-		envImage.DrawImage(g.layers[layerEnv], nil)
 		updatedPoints := g.simulation.GetUpdatedPhPoints()
 		for _, point := range updatedPoints {
 			phVal := g.simulation.GetPhAtPoint(point)
@@ -211,9 +235,8 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 		for _, wallPoint := range wallPoints {
 			g.renderWall(wallsImage, wallPoint)
 		}
-	} else {
-		wallsImage.DrawImage(g.layers[layerWalls], nil)
 	}
+	// Walls are static — nothing to do on incremental frames
 }
 
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
@@ -235,7 +258,6 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 			g.renderFoodItem(item, foodImage)
 		}
 	} else {
-		foodImage.DrawImage(g.layers[layerFood], nil)
 		updatedPoints := g.simulation.GetUpdatedFoodPoints()
 		for _, point := range updatedPoints {
 			us := g.unitSize()
@@ -255,7 +277,6 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 			g.renderOrganism(info, organismsImage)
 		}
 	} else {
-		organismsImage.DrawImage(g.layers[layerOrganisms], nil)
 		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
 		for _, point := range updatedPoints {
 			us := g.unitSize()
@@ -268,13 +289,13 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 	}
 }
 
-// renderSelectionBoxes draws selection box outlines in world-space (gets scaled with the world).
-func (g *Grid) renderSelectionBoxes(selectionsImage *ebiten.Image) {
+// renderSelectionBoxes draws selection box outlines in viewport coordinates.
+func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 	if g.mouseOnGrid {
-		g.renderSelectionBox(g.mouseHoverLocation, selectionsImage, hoverColor)
+		g.renderSelectionBox(g.mouseHoverLocation, viewportImage, hoverColor)
 	}
 	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
-		g.renderSelectionBox(info.Location, selectionsImage, selectColor)
+		g.renderSelectionBox(info.Location, viewportImage, selectColor)
 	}
 }
 
@@ -344,22 +365,43 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 
 func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col colorful.Color) {
 	us := float64(g.unitSize())
-	x, y := float64(point.X)*us, float64(point.Y)*us
-	ebitenutil.DrawLine(img, x-2, y-2, x+us+3, y-2, col)
-	ebitenutil.DrawLine(img, x-2, y-2, x-2, y+us+3, col)
-	ebitenutil.DrawLine(img, x-2, y+us+3, x+us+3, y+us+3, col)
-	ebitenutil.DrawLine(img, x+us+3, y-2, x+us+3, y+us+3, col)
+	centerOX, centerOY := g.Camera.CenterOffset()
+	wpw := float64(g.Camera.WorldPixelWidth())
+	wph := float64(g.Camera.WorldPixelHeight())
+	camPxX := g.Camera.NormalizedX() * us
+	camPxY := g.Camera.NormalizedY() * us
+
+	// Grid position in world pixels
+	worldX := float64(point.X) * us
+	worldY := float64(point.Y) * us
+
+	// Convert to viewport coordinates (handle wrapping)
+	var vx, vy float64
+	if g.Camera.WrapsX() {
+		vx = math.Mod(worldX-camPxX+wpw, wpw)
+	} else {
+		vx = worldX + float64(centerOX)
+	}
+	if g.Camera.WrapsY() {
+		vy = math.Mod(worldY-camPxY+wph, wph)
+	} else {
+		vy = worldY + float64(centerOY)
+	}
+
+	p := math.Round(us / 8.0)
+	x0, y0 := vx-p, vy-p
+	x1, y1 := vx+us+p, vy+us+p
+	ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
+	ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
+	ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
+	ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
 }
 
 func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	us := g.unitSize()
 	x := float64(item.Point.X) * float64(us)
 	y := float64(item.Point.Y) * float64(us)
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(x, y)
-	op.ColorM.Translate(foodColor.R, foodColor.G, foodColor.B, 0)
-	img.DrawImage(resources.Images[resources.RoleFood], op)
+	g.drawSprite(img, x, y, resources.RoleFood, foodColor)
 }
 
 func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
@@ -399,6 +441,9 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 func (g *Grid) drawSprite(img *ebiten.Image, x, y float64, role resources.ImageRole, col colorful.Color) {
 	spriteImg := resources.Images[role]
 	op := &ebiten.DrawImageOptions{}
+	if s := g.Camera.SpriteScale(); s != 1 {
+		op.GeoM.Scale(s, s)
+	}
 	op.GeoM.Translate(x, y)
 	op.ColorM.Translate(col.R, col.G, col.B, 0)
 	img.DrawImage(spriteImg, op)

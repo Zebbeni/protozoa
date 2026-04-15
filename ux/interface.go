@@ -63,7 +63,6 @@ func (i *Interface) OnResize() {
 	viewportH := config.ScreenHeight()
 	i.grid.Camera.ViewportW = viewportW
 	i.grid.Camera.ViewportH = viewportH
-	i.grid.Camera.ClampPosition()
 	i.grid.doRefresh = true
 }
 

@@ -1,7 +1,6 @@
 package population
 
 import (
-	"fmt"
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -17,7 +16,7 @@ const baseHeight = 4096
 // NodeColorFunc selects which color to use from a DescendantNode
 type NodeColorFunc func(node *organism.DescendantNode) color.Color
 
-func TraitColor(node *organism.DescendantNode) color.Color       { return node.Color }
+func TraitColor(node *organism.DescendantNode) color.Color        { return node.Color }
 func PhEffectNodeColor(node *organism.DescendantNode) color.Color { return node.PhEffectColor }
 
 // Renderer renders a population bar graph using a descendant tree walk.
@@ -94,7 +93,6 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 			cycle := barIdx * c.PopulationUpdateInterval()
 			count := countAliveInTrees(trees, ancestorIDs, cycle)
 			if count > r.maxAlive {
-				fmt.Printf("\nrenderPopGraph full refresh (maxAlive %d -> %d)", r.maxAlive, count)
 				needsRefresh = true
 				break
 			}
