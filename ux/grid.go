@@ -365,17 +365,10 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	x := float64(item.Point.X) * float64(us)
 	y := float64(item.Point.Y) * float64(us)
 
-	value := float64(item.Value)
-	foodSize := sizeSmall
-	if value < float64(config.MaxFoodValue())*0.4375 {
-		foodSize = sizeSmall
-	} else if value < float64(config.MaxFoodValue())*0.8125 {
-		foodSize = sizeMedium
-	} else {
-		foodSize = sizeLarge
-	}
-
-	g.drawSquare(img, x, y, foodSize, foodColor)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(x, y)
+	op.ColorM.Translate(foodColor.R, foodColor.G, foodColor.B, 0)
+	img.DrawImage(resources.FoodImage, op)
 }
 
 func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {

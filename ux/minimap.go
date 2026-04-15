@@ -177,7 +177,7 @@ func (m *Minimap) renderInBackground() {
 			} else {
 				// Fall back to pH coloring
 				ph := m.simulation.GetPhAtPoint(point)
-				pr, pg, pb, _ := phValueColor(ph)
+				pr, pg, pb, _ := PhValueColor(ph)
 				r = byte(pr * 255)
 				g = byte(pg * 255)
 				b = byte(pb * 255)

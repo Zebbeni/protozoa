@@ -12,6 +12,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/ux/graph"
 )
 
 const (
@@ -40,7 +41,7 @@ type Panel struct {
 	simulation         *s.Simulation
 	grid               *Grid
 	previousPanelImage *ebiten.Image
-	graph              *Graph
+	graph              *graph.Graph
 	scrollY            float64
 	contentHeight      int // actual height of rendered content
 }
@@ -49,7 +50,7 @@ func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
 	return &Panel{
 		simulation: sim,
 		grid:       grid,
-		graph:      NewGraph(sim),
+		graph:      graph.NewGraph(sim),
 	}
 }
 
@@ -161,26 +162,26 @@ func (p *Panel) renderStats(panelImage *ebiten.Image) {
 
 func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	// Sync graph mode with grid view mode
-	var graphMode GraphMode
+	var graphMode graph.Mode
 	var label string
 	switch p.grid.ViewMode() {
 	case organismsOnlyMode:
-		graphMode = GraphModePopulation
+		graphMode = graph.ModePopulation
 		label = "POPULATION HISTORY"
 	case phEffectsOnlyMode:
-		graphMode = GraphModePopulationPhEffect
+		graphMode = graph.ModePopulationPhEffect
 		label = "PH EFFECT POPULATION"
 	case phOnlyMode:
-		graphMode = GraphModePh
+		graphMode = graph.ModePh
 		label = "PH DISTRIBUTION"
 	default:
-		graphMode = GraphModePhEffect
+		graphMode = graph.ModePhEffect
 		label = "PH EFFECT HISTORY"
 	}
 	p.graph.SetMode(graphMode)
 
 	// Append selected organism ID to population graph titles
-	if p.graph.HasSelection() && (graphMode == GraphModePopulation || graphMode == GraphModePopulationPhEffect) {
+	if p.graph.HasSelection() && (graphMode == graph.ModePopulation || graphMode == graph.ModePopulationPhEffect) {
 		label = fmt.Sprintf("%s (ORG ID: %d)", label, p.simulation.GetSelected())
 	}
 
@@ -198,7 +199,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	panelImage.DrawImage(graphImage, graphOptions)
 
 	// Draw avg pH label on the pH graph at panel resolution
-	if graphMode == GraphModePh {
+	if graphMode == graph.ModePh {
 		avgPh := p.graph.LastAvgPh()
 		if avgPh >= 0 {
 			phLabel := fmt.Sprintf("avg: %.1f", avgPh)
@@ -216,7 +217,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	}
 
 	// Draw start cycle label for selected sub-tree graphs
-	if p.graph.HasSelection() && (graphMode == GraphModePopulation || graphMode == GraphModePopulationPhEffect) {
+	if p.graph.HasSelection() && (graphMode == graph.ModePopulation || graphMode == graph.ModePopulationPhEffect) {
 		startCycle := p.graph.SelectedStartCycle()
 		if startCycle >= 0 {
 			cycleLabel := fmt.Sprintf("cycle %d", startCycle)

@@ -7,9 +7,15 @@ import (
 	"golang.org/x/image/font"
 
 	"github.com/Zebbeni/protozoa/organism"
+	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
-const phMaxHue = 100.0
+const phMaxHue = gh.PhMaxHue
+
+// PhValueColor maps a pH value to RGBA floats using the grid's pH color spectrum.
+func PhValueColor(ph float64) (float32, float32, float32, float32) {
+	return gh.PhValueColor(ph)
+}
 
 // PhEffectColor maps a normalized spectrum value [0, 1] to a color.
 // 0 = most negative effect (green/acid), 0.5 = neutral, 1 = most positive (pink/base)

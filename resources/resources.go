@@ -39,11 +39,12 @@ var (
 	SquareLarge  *ebiten.Image
 	SquareFill   *ebiten.Image
 	SquareBox    *ebiten.Image
+	FoodImage    *ebiten.Image
 )
 
 // ZoomResources holds the square images for a single zoom level.
 type ZoomResources struct {
-	Small, Medium, Large, Fill, Box *ebiten.Image
+	Small, Medium, Large, Fill, Box, Food *ebiten.Image
 }
 
 // ZoomImages holds resources for all 3 zoom levels (indexed by ZoomLevel 0-2).
@@ -66,6 +67,7 @@ func SelectZoom(level int) {
 	SquareLarge = res.Large
 	SquareFill = res.Fill
 	SquareBox = res.Box
+	FoodImage = res.Food
 }
 
 func initFonts() {
@@ -91,10 +93,11 @@ func initImages() {
 		if dirExists("resources/images/grid/" + dir) {
 			ZoomImages[i] = ZoomResources{
 				Small:  loadImage("resources/images/grid/" + dir + "/square_small.png"),
-				Medium: loadImage("resources/images/grid/" + dir + "/square_large.png"),
+				Medium: loadImage("resources/images/grid/" + dir + "/square_medium.png"),
 				Large:  loadImage("resources/images/grid/" + dir + "/square_large.png"),
 				Fill:   loadImage("resources/images/grid/" + dir + "/square_fill.png"),
 				Box:    loadImage("resources/images/grid/" + dir + "/square_box.png"),
+				Food:   loadImage("resources/images/grid/" + dir + "/food.png"),
 			}
 		} else {
 			// Generate placeholder images for missing zoom levels
