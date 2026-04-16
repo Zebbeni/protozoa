@@ -7,16 +7,19 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
 	options *config.Options
+	rng     *simrand.RNG
 
 	cycle    int
 	isPaused bool
@@ -28,6 +31,9 @@ type Simulation struct {
 	environmentManager *manager.EnvironmentManager
 	updateManager      *manager.UpdateManager
 
+	// Checkpoint recording (nil if not recording)
+	recorder *checkpoint.Writer
+
 	// debug statistics
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 	OrganismUpdateLoopTime, OrganismResolveLoopTime                       time.Duration
@@ -37,15 +43,32 @@ type Simulation struct {
 // cycle increments at the beginning of Update() so start at -1 to ensure
 // first actions are attributed to cycle 0
 func NewSimulation(options *config.Options) *Simulation {
+	rng := simrand.New(uint64(options.Seed))
 	sim := &Simulation{
 		options:  options,
+		rng:      rng,
 		cycle:    -1,
 		isPaused: false,
 	}
 	sim.updateManager = manager.NewUpdateManager()
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
-	sim.foodManager = manager.NewFoodManager(sim)
-	sim.organismManager = manager.NewOrganismManager(sim)
+	sim.foodManager = manager.NewFoodManager(sim, rng)
+	sim.organismManager = manager.NewOrganismManager(sim, rng)
+
+	if options.CheckpointFile != "" {
+		header := checkpoint.FileHeader{
+			Seed:               uint64(options.Seed),
+			CheckpointInterval: options.CheckpointInterval,
+			GridUnitsWide:      config.GridUnitsWide(),
+			GridUnitsHigh:      config.GridUnitsHigh(),
+		}
+		w, err := checkpoint.NewWriter(options.CheckpointFile, header)
+		if err != nil {
+			fmt.Printf("\nWarning: failed to create checkpoint file: %v", err)
+		} else {
+			sim.recorder = w
+		}
+	}
 
 	return sim
 }
@@ -64,6 +87,47 @@ func (s *Simulation) Update() {
 	s.updateOrganisms()
 
 	s.UpdateTime = time.Since(start)
+
+	// Write checkpoint snapshot at configured intervals
+	if s.recorder != nil && s.cycle%s.options.CheckpointInterval == 0 {
+		s.writeSnapshot()
+	}
+}
+
+func (s *Simulation) writeSnapshot() {
+	rngState, err := s.rng.MarshalState()
+	if err != nil {
+		fmt.Printf("\nWarning: failed to marshal RNG state: %v", err)
+		return
+	}
+
+	currentPh, previousPh := s.environmentManager.CapturePhMaps()
+
+	snap := &checkpoint.SnapshotPayload{
+		Cycle:                 s.cycle,
+		RNGState:              rngState,
+		TotalOrganismsCreated: s.organismManager.TotalOrganismsCreated(),
+		Organisms:             s.organismManager.CaptureOrganismRecords(),
+		OrganismGrid:          s.organismManager.CaptureOrganismGrid(),
+		CurrentPhMap:          currentPh,
+		PreviousPhMap:         previousPh,
+		FoodItems:             s.foodManager.CaptureFoodRecords(),
+		Ancestors:             s.organismManager.CaptureAncestors(),
+	}
+
+	if err := s.recorder.WriteSnapshot(snap); err != nil {
+		fmt.Printf("\nWarning: failed to write snapshot at cycle %d: %v", s.cycle, err)
+	}
+}
+
+// CloseRecorder finalizes the checkpoint file. Call when the simulation ends.
+func (s *Simulation) CloseRecorder() {
+	if s.recorder != nil {
+		if err := s.recorder.Close(); err != nil {
+			fmt.Printf("\nWarning: failed to close checkpoint file: %v", err)
+		}
+		s.recorder = nil
+	}
 }
 
 func (s *Simulation) updateEnvironment() {
@@ -89,7 +153,7 @@ func (s *Simulation) updateOrganisms() {
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
 	if s.GetNumOrganisms() == 0 {
-		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, config.MaxOrganisms())
+		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, s.GetNumOrganisms())
 		return true
 	}
 	return false

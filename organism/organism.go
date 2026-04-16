@@ -3,12 +3,12 @@ package organism
 import (
 	"image/color"
 	"math"
-	"math/rand"
 	"sync"
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
@@ -36,11 +36,11 @@ type Organism struct {
 }
 
 // NewRandom initializes organism at with random grid location and direction
-func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := newRandomTraits()
+func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
+	traits := newRandomTraits(rng)
 	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
-		decisionTree = d.MutateTree(decisionTree)
+		decisionTree = d.MutateTree(rng, decisionTree)
 	}
 	traits.OrganismColor = d.TreeColor(decisionTree)
 	organism := Organism{
@@ -51,7 +51,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
-		Direction:            utils.GetRandomDirection(),
+		Direction:            utils.GetRandomDirection(rng),
 		OriginalAncestorID:   id,
 
 		traits:       traits,
@@ -64,11 +64,11 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 }
 
 // NewChild initializes and returns a new organism with a copied TreeLibrary from its parent
-func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := o.traits.copyMutated()
+func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
+	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
-	if rand.Float64() < o.ChanceToMutateDecisionTree() {
-		inheritedTree = d.MutateTree(inheritedTree)
+	if rng.Float64() < o.ChanceToMutateDecisionTree() {
+		inheritedTree = d.MutateTree(rng, inheritedTree)
 	}
 	traits.OrganismColor = d.TreeColor(inheritedTree)
 	organism := Organism{
@@ -79,7 +79,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
-		Direction:            utils.GetRandomDirection(),
+		Direction:            utils.GetRandomDirection(rng),
 		OriginalAncestorID:   o.OriginalAncestorID,
 
 		traits:       traits,
@@ -89,6 +89,28 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		lookupAPI: api,
 	}
 	return &organism
+}
+
+// Restore creates an organism from fully specified state (for checkpoint restore).
+func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
+	location, direction utils.Point, ancestorID int,
+	traits Traits, tree *d.Tree, action d.Action, api LookupAPI) *Organism {
+	return &Organism{
+		ID:                   id,
+		Age:                  age,
+		Health:               health,
+		Size:                 size,
+		Children:             children,
+		TraveledDist:         traveledDist,
+		CyclesSinceLastSpawn: cyclesSinceLastSpawn,
+		Location:             location,
+		Direction:            direction,
+		OriginalAncestorID:   ancestorID,
+		traits:               traits,
+		decisionTree:         tree,
+		action:               action,
+		lookupAPI:            api,
+	}
 }
 
 func (o *Organism) Info() *Info {

@@ -3,9 +3,12 @@ package runner
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux"
@@ -16,32 +19,41 @@ type runnerState int
 
 const (
 	stateConfigScreen runnerState = iota
-	stateRunning
+	stateSimulating   // headless sim running in goroutine, progress UI shown
+	stateStopped      // sim finished, Explore button shown
+	stateReplay       // full replay viewer
 )
 
 type Runner struct {
-	opts         *c.Options
-	state        runnerState
-	configScreen *ux.ConfigScreen
-	sim          *simulation.Simulation
-	ui           *ux.Interface
-	pressedKeys  map[ebiten.Key]bool
+	opts           *c.Options
+	state          runnerState
+	configScreen   *ux.ConfigScreen
+	progressScreen *ux.ProgressScreen
+	sim            *simulation.Simulation
+	ui             *ux.Interface
+	replayCtrl     *replay.Controller
+	checkpointPath string // path to the .pzr file being written
+	pressedKeys    map[ebiten.Key]bool
 }
 
 func (r *Runner) Update() error {
 	switch r.state {
 	case stateConfigScreen:
 		if r.configScreen.Update() {
-			// User accepted — apply config and start simulation
 			globals := r.configScreen.Globals()
 			c.SetGlobals(globals)
 			resources.Init()
-			ebiten.SetScreenClearedEveryFrame(false)
-			r.startSimulation()
+			r.startHeadlessSimulation()
 		}
-	case stateRunning:
+	case stateSimulating:
+		r.progressScreen.Update()
+	case stateStopped:
+		if r.progressScreen.Update() {
+			r.startReplayViewer()
+		}
+	case stateReplay:
 		r.ui.HandleUserInput()
-		r.sim.Update()
+		r.replayCtrl.Update()
 		r.ui.UpdateSelected()
 	}
 	return nil
@@ -51,9 +63,11 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 	switch r.state {
 	case stateConfigScreen:
 		r.configScreen.Draw(screen)
-	case stateRunning:
+	case stateSimulating, stateStopped:
+		r.progressScreen.Draw(screen)
+	case stateReplay:
 		r.ui.Render(screen)
-		r.sim.ClearUpdatedPoints()
+		r.replayCtrl.Simulation().ClearUpdatedPoints()
 	}
 }
 
@@ -70,19 +84,83 @@ func (r *Runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
 }
 
-func (r *Runner) startSimulation() {
-	r.sim = simulation.NewSimulation(r.opts)
+func (r *Runner) startHeadlessSimulation() {
+	// Always write to a checkpoint file
+	if r.opts.CheckpointFile == "" {
+		tmpDir := os.TempDir()
+		r.checkpointPath = filepath.Join(tmpDir, fmt.Sprintf("protozoa_%d.pzr", time.Now().UnixNano()))
+	} else {
+		r.checkpointPath = r.opts.CheckpointFile
+	}
+	r.opts.CheckpointFile = r.checkpointPath
+
+	if r.opts.CheckpointInterval <= 0 {
+		r.opts.CheckpointInterval = 1000
+	}
+
+	r.progressScreen = ux.NewProgressScreen()
+	r.state = stateSimulating
+
+	ebiten.SetScreenClearedEveryFrame(true)
+
+	// Run simulation in a background goroutine
+	go func() {
+		sim := simulation.NewSimulation(r.opts)
+		start := time.Now()
+
+		for !sim.IsDone() {
+			if r.progressScreen.IsStopRequested() {
+				break
+			}
+			sim.Update()
+			if sim.Cycle()%100 == 0 {
+				line := ux.FormatLogLine(sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
+				r.progressScreen.AddLog(line)
+			}
+		}
+
+		sim.CloseRecorder()
+		elapsed := time.Since(start)
+		r.progressScreen.AddLog(fmt.Sprintf(""))
+		r.progressScreen.AddLog(fmt.Sprintf("Simulation ended at cycle %d (%s)", sim.Cycle(), elapsed.Round(time.Millisecond)))
+		r.progressScreen.SetStopped()
+		r.state = stateStopped
+	}()
+}
+
+func (r *Runner) startReplayViewer() {
+	ctrl, err := replay.NewController(r.checkpointPath, r.opts)
+	if err != nil {
+		log.Printf("Failed to open replay: %v", err)
+		return
+	}
+
+	r.replayCtrl = ctrl
+	r.sim = ctrl.Simulation()
 	r.ui = ux.NewInterface(r.sim)
-	r.state = stateRunning
+	r.state = stateReplay
+
+	ebiten.SetScreenClearedEveryFrame(false)
 }
 
 func RunSimulation(opts *c.Options) {
 	resources.Init()
 
 	if opts.IsHeadless {
+		// Pure headless mode (no GUI)
 		sumAllCycles := 0
 		for count := 0; count < opts.TrialCount; count++ {
-			sim := simulation.NewSimulation(opts)
+			var sim *simulation.Simulation
+			if opts.RestoreFile != "" {
+				var err error
+				sim, err = simulation.RestoreFromCheckpoint(opts.RestoreFile, opts)
+				if err != nil {
+					log.Fatalf("Failed to restore: %v", err)
+				}
+				fmt.Printf("\nRestored from checkpoint at cycle %d", sim.Cycle())
+			} else {
+				sim = simulation.NewSimulation(opts)
+			}
 			start := time.Now()
 			for !sim.IsDone() {
 				sim.Update()
@@ -90,43 +168,60 @@ func RunSimulation(opts *c.Options) {
 					fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
 				}
 			}
+			sim.CloseRecorder()
 			sumAllCycles += sim.Cycle()
 			elapsed := time.Since(start)
 			fmt.Printf("\nTotal runtime for simulation %d: %s, cycles: %d\n", count, elapsed, sim.Cycle())
 		}
 		avgCycles := sumAllCycles / opts.TrialCount
-		fmt.Printf("\nAverage number of cycles to reach 5000: %d\n", avgCycles)
+		fmt.Printf("\nAverage number of cycles: %d\n", avgCycles)
+	} else if opts.ReplayFile != "" {
+		// Direct replay of existing .pzr file
+		ctrl, err := replay.NewController(opts.ReplayFile, opts)
+		if err != nil {
+			log.Fatalf("Failed to open replay: %v", err)
+		}
+		defer ctrl.Close()
+
+		gameRunner := &Runner{
+			opts:        opts,
+			state:       stateReplay,
+			replayCtrl:  ctrl,
+			pressedKeys: map[ebiten.Key]bool{},
+		}
+		gameRunner.sim = ctrl.Simulation()
+		gameRunner.ui = ux.NewInterface(gameRunner.sim)
+
+		ebiten.SetWindowResizable(true)
+		ebiten.SetScreenClearedEveryFrame(false)
+		if err := ebiten.RunGame(gameRunner); err != nil {
+			log.Fatal(err)
+		}
 	} else {
-		// If a config file was specified, skip the config screen
+		// GUI mode: config screen → headless sim → replay
+		gameRunner := &Runner{
+			opts:        opts,
+			pressedKeys: map[ebiten.Key]bool{},
+		}
+
 		if opts.ConfigFile != "" {
-			gameRunner := &Runner{
-				opts:        opts,
-				state:       stateRunning,
-				pressedKeys: map[ebiten.Key]bool{},
-			}
-			gameRunner.sim = simulation.NewSimulation(opts)
-			gameRunner.ui = ux.NewInterface(gameRunner.sim)
-
-			ebiten.SetWindowResizable(true)
-			ebiten.SetScreenClearedEveryFrame(false)
-			if err := ebiten.RunGame(gameRunner); err != nil {
-				log.Fatal(err)
-			}
+			// Skip config screen, go straight to headless sim
+			resources.Init()
+			gameRunner.progressScreen = ux.NewProgressScreen()
+			gameRunner.state = stateSimulating
+			// Need to start simulation after ebiten loop starts,
+			// so we do it on the first Update by using a flag
+			gameRunner.startHeadlessSimulation()
 		} else {
-			// Show config screen first
 			globals := c.GetDefaultGlobals()
-			gameRunner := &Runner{
-				opts:         opts,
-				state:        stateConfigScreen,
-				configScreen: ux.NewConfigScreen(&globals),
-				pressedKeys:  map[ebiten.Key]bool{},
-			}
+			gameRunner.configScreen = ux.NewConfigScreen(&globals)
+			gameRunner.state = stateConfigScreen
+		}
 
-			ebiten.SetWindowResizable(true)
-			ebiten.SetScreenClearedEveryFrame(true)
-			if err := ebiten.RunGame(gameRunner); err != nil {
-				log.Fatal(err)
-			}
+		ebiten.SetWindowResizable(true)
+		ebiten.SetScreenClearedEveryFrame(true)
+		if err := ebiten.RunGame(gameRunner); err != nil {
+			log.Fatal(err)
 		}
 	}
 }

@@ -2,17 +2,18 @@ package manager
 
 import (
 	"math"
-	"math/rand"
 	"sync"
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
 // FoodManager contains 2D array of all food values
 type FoodManager struct {
 	api           food.API
+	rng           *simrand.RNG
 	Items         map[string]*food.Item
 	isInitialized bool
 
@@ -20,9 +21,10 @@ type FoodManager struct {
 }
 
 // NewFoodManager initializes a new foodItem map of MinFood
-func NewFoodManager(api food.API) *FoodManager {
+func NewFoodManager(api food.API, rng *simrand.RNG) *FoodManager {
 	m := &FoodManager{
 		api:           api,
+		rng:           rng,
 		Items:         make(map[string]*food.Item),
 		isInitialized: false,
 	}
@@ -38,10 +40,9 @@ func (m *FoodManager) InitializeFood(count int) {
 
 // Update is called on every cycle and adds new FoodItems at a constant rate
 func (m *FoodManager) Update() {
-	if rand.Float64() < config.ChanceToAddFoodItem() {
+	if m.rng.Float64() < config.ChanceToAddFoodItem() {
 		m.AddRandomFoodItem()
 	}
-	return
 }
 
 // FoodCount returns a count of all food items in the FoodManager map
@@ -52,9 +53,9 @@ func (m *FoodManager) FoodCount() int {
 // AddRandomFoodItem attempts to add a FoodItem object to a random location
 // Gives up if first attempt to place food fails.
 func (m *FoodManager) AddRandomFoodItem() {
-	x := rand.Intn(config.GridUnitsWide())
-	y := rand.Intn(config.GridUnitsHigh())
-	value := rand.Intn(config.MaxFoodValue())
+	x := m.rng.Intn(config.GridUnitsWide())
+	y := m.rng.Intn(config.GridUnitsHigh())
+	value := m.rng.Intn(config.MaxFoodValue())
 	point := utils.Point{X: x, Y: y}
 	m.addFood(point, value)
 }

@@ -1,7 +1,7 @@
 package decision
 
 import (
-	"math/rand"
+	"github.com/Zebbeni/protozoa/simrand"
 )
 
 // CalcAndUpdateSize returns the total number of nodes descending from this root node (including itself)
@@ -17,13 +17,13 @@ func (n *Node) CalcAndUpdateSize() int {
 }
 
 // GetRandomCondition returns a random Condition from the Conditions array
-func GetRandomCondition() Condition {
-	return Conditions[rand.Intn(len(Conditions))]
+func GetRandomCondition(rng *simrand.RNG) Condition {
+	return Conditions[rng.Intn(len(Conditions))]
 }
 
 // GetRandomAction returns a random Action from the Actions array
-func GetRandomAction() Action {
-	return Actions[rand.Intn(len(Actions))]
+func GetRandomAction(rng *simrand.RNG) Action {
+	return Actions[rng.Intn(len(Actions))]
 }
 
 // isAction returns true if the object passed in is an Action

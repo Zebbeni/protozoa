@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
@@ -26,6 +28,7 @@ const (
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	api            organism.API
+	rng            *simrand.RNG
 	requestManager RequestManager
 
 	organisms             map[int]*organism.Organism
@@ -55,11 +58,12 @@ type OrganismManager struct {
 }
 
 // NewOrganismManager creates all Organisms and updates grid
-func NewOrganismManager(api organism.API) *OrganismManager {
+func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 	grid := initializeGrid()
 	organisms := make(map[int]*organism.Organism)
 	manager := &OrganismManager{
 		api:                    api,
+		rng:                    rng,
 		requestManager:         RequestManager{},
 		organismIDGrid:         grid,
 		organisms:              organisms,
@@ -99,34 +103,16 @@ func (m *OrganismManager) Update() {
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
-	m.organismMutex.RLock()
-	orgsToUpdate := make(chan int, len(m.organisms))
-	m.organismMutex.RUnlock()
-
-	numWorkers := 8
-	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-
-	for i := 0; i < numWorkers; i++ {
-		go func() {
-			for k := range orgsToUpdate {
-				m.organismMutex.RLock()
-				o := m.organisms[k]
-				m.organismMutex.RUnlock()
-
-				m.updateOrganismAction(o)
-			}
-			wg.Done()
-		}()
-	}
-
+	// Collect IDs in deterministic sorted order
+	ids := make([]int, 0, len(m.organisms))
 	for k := range m.organisms {
-		orgsToUpdate <- k
+		ids = append(ids, k)
 	}
-	close(orgsToUpdate)
+	sort.Ints(ids)
 
-	// wait for all worker threads to call Done()
-	wg.Wait()
+	for _, id := range ids {
+		m.updateOrganismAction(m.organisms[id])
+	}
 
 	m.UpdateDuration = time.Since(start)
 }
@@ -158,29 +144,11 @@ func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
 func (m *OrganismManager) resolveOrganismActions() {
 	start := time.Now()
 
-	orgsToResolve := make(chan *organism.Organism, len(m.organismIds))
-
-	numWorkers := 8
-	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-
-	for i := 0; i < numWorkers; i++ {
-		go func() {
-			for o := range orgsToResolve {
-				m.resolveOrganismAction(o)
-			}
-			wg.Done()
-		}()
-	}
-
 	for _, id := range m.organismIds {
-		m.organismMutex.RLock()
-		orgsToResolve <- m.organisms[id]
-		m.organismMutex.RUnlock()
+		if o, ok := m.organisms[id]; ok {
+			m.resolveOrganismAction(o)
+		}
 	}
-	close(orgsToResolve)
-	// wait for all worker threads to call Done()
-	wg.Wait()
 
 	m.ResolveDuration = time.Since(start)
 }
@@ -337,9 +305,7 @@ func (m *OrganismManager) updateOrganismAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
-	m.organismMutex.Lock()
 	m.organismIds = append(m.organismIds, o.ID)
-	m.organismMutex.Unlock()
 }
 
 func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
@@ -359,7 +325,7 @@ func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		id := m.generateId()
-		o := organism.NewRandom(id, spawnPoint, m.api)
+		o := organism.NewRandom(m.rng, id, spawnPoint, m.api)
 
 		traits := o.Traits()
 		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
@@ -391,7 +357,7 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 		return false
 	}
 	id := m.generateId()
-	o := parent.NewChild(id, spawnPoint, m.api)
+	o := parent.NewChild(m.rng, id, spawnPoint, m.api)
 
 	traits := o.Traits()
 	sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
@@ -454,7 +420,7 @@ func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
 
 // returns a random point and whether it is empty
 func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
-	point := utils.GetRandomPoint(c.GridUnitsWide(), c.GridUnitsHigh())
+	point := utils.GetRandomPoint(m.rng, c.GridUnitsWide(), c.GridUnitsHigh())
 	isEmpty := m.isGridLocationEmpty(point)
 	return point, isEmpty
 }

@@ -3,6 +3,7 @@ package decision
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"sync"
 )
 
@@ -174,4 +175,51 @@ func (n *Node) accumulateConditionWeights(weight float64, weights map[Condition]
 	weights[n.NodeType.(Condition)] += weight
 	n.YesNode.accumulateConditionWeights(weight/2, weights)
 	n.NoNode.accumulateConditionWeights(weight/2, weights)
+}
+
+// intToNodeType maps a serialized int code back to an Action or Condition.
+// Built once at init from the Actions and Conditions arrays.
+var codeToNodeType map[int]interface{}
+
+func init() {
+	codeToNodeType = make(map[int]interface{})
+	for _, a := range Actions {
+		codeToNodeType[int(a)] = a
+	}
+	for _, c := range Conditions {
+		codeToNodeType[int(c)] = c
+	}
+	// ActSpawn isn't in Actions array but can appear in serialized trees
+	codeToNodeType[int(ActSpawn)] = ActSpawn
+}
+
+// Deserialize parses a serialized tree string back into a Node tree.
+// Returns the node and the number of characters consumed from the string.
+func Deserialize(s string) (*Node, int) {
+	if len(s) < 2 {
+		return nil, 0
+	}
+	code, err := strconv.Atoi(s[0:2])
+	if err != nil {
+		return nil, 0
+	}
+	nodeType, ok := codeToNodeType[code]
+	if !ok {
+		return nil, 0
+	}
+
+	node := &Node{NodeType: nodeType, size: 1}
+	consumed := 2
+
+	if isCondition(nodeType) {
+		yes, yesConsumed := Deserialize(s[consumed:])
+		consumed += yesConsumed
+		no, noConsumed := Deserialize(s[consumed:])
+		consumed += noConsumed
+		node.YesNode = yes
+		node.NoNode = no
+		node.size = 1 + yes.size + no.size
+	}
+
+	return node, consumed
 }

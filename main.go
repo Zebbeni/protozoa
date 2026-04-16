@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -34,6 +33,5 @@ func init() {
 		config.SetGlobals(&p)
 	}
 
-	fmt.Println("Seed:", int64(opts.Seed))
-	rand.Seed(int64(opts.Seed))
+	fmt.Println("Seed:", opts.Seed)
 }
