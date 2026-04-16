@@ -158,14 +158,20 @@ func (n *Node) print(indent string, first, last bool) string {
 	return toPrint
 }
 
-// accumulateWeights recursively distributes weight across the tree.
-// At action nodes, the full weight is assigned to that action.
-// At condition nodes, weight is split 50/50 to yes/no branches.
-func (n *Node) accumulateWeights(weight float64, weights map[Action]float64) {
+func (n *Node) accumulateActionWeights(weight float64, weights map[Action]float64) {
 	if n.IsAction() {
 		weights[n.NodeType.(Action)] += weight
 		return
 	}
-	n.YesNode.accumulateWeights(weight/2, weights)
-	n.NoNode.accumulateWeights(weight/2, weights)
+	n.YesNode.accumulateActionWeights(weight/2, weights)
+	n.NoNode.accumulateActionWeights(weight/2, weights)
+}
+
+func (n *Node) accumulateConditionWeights(weight float64, weights map[Condition]float64) {
+	if n.IsAction() {
+		return
+	}
+	weights[n.NodeType.(Condition)] += weight
+	n.YesNode.accumulateConditionWeights(weight/2, weights)
+	n.NoNode.accumulateConditionWeights(weight/2, weights)
 }

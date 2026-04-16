@@ -106,6 +106,15 @@ func (t *Tree) PrintLines() []PrintLine {
 // The result maps each reachable action to its total weight (summing to 1.0).
 func (t *Tree) ActionWeights() map[Action]float64 {
 	weights := make(map[Action]float64)
-	t.Node.accumulateWeights(1.0, weights)
+	t.Node.accumulateActionWeights(1.0, weights)
+	return weights
+}
+
+// ConditionWeights returns the weighted distribution over conditions.
+// Each condition node receives the full weight flowing through it, and splits
+// 50/50 to its children. Conditions closer to the root have more weight.
+func (t *Tree) ConditionWeights() map[Condition]float64 {
+	weights := make(map[Condition]float64)
+	t.Node.accumulateConditionWeights(1.0, weights)
 	return weights
 }
