@@ -9,16 +9,6 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 )
 
-const (
-	maxHueMutation        = 5.0
-	maxSaturationMutation = 0.05
-	maxSaturation         = 1.0
-	minSaturation         = 0.5
-	maxLuminanceMutation  = 0.05
-	maxLuminance          = 0.8
-	minLuminance          = 0.4
-)
-
 // Traits contains organism-specific values that dictate how and when organisms
 // perform certain activities, which are passed down from parents to children.
 type Traits struct {
@@ -46,7 +36,6 @@ type Traits struct {
 }
 
 func newRandomTraits() Traits {
-	organismColor := getRandomColor()
 	maxSize := rand.Float64() * c.MaximumInitialSize()
 	spawnHealth := rand.Float64() * math.Min(maxSize*c.MaxSpawnHealthPercent(), c.MaximumInitialSpawnHealth())
 	minHealthToSpawn := spawnHealth + rand.Float64()*(maxSize-spawnHealth)
@@ -56,7 +45,6 @@ func newRandomTraits() Traits {
 	phTolerance := rand.Float64() * c.MaxPhToleranceRange()
 	phGrowthEffect := rand.Float64()*(c.MaxOrganismPhGrowthEffect()*2.0) - c.MaxOrganismPhGrowthEffect()
 	return Traits{
-		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,
 		SpawnHealth:                spawnHealth,
 		MinHealthToSpawn:           minHealthToSpawn,
@@ -69,7 +57,6 @@ func newRandomTraits() Traits {
 }
 
 func (t Traits) copyMutated() Traits {
-	organismColor := mutateColor(t.OrganismColor)
 	// maxSize = previous +- previous +- <5.0, bounded by MinimumMaxSize and MaximumMaxSize
 	maxSize := mutateFloat(t.MaxSize, 5.0, c.MinimumMaxSize(), c.MaximumMaxSize())
 	// minCyclesBetweenSpawns = previous +- <=5, bounded by 0 and MaxCyclesBetweenSpawns
@@ -87,7 +74,6 @@ func (t Traits) copyMutated() Traits {
 	// phTolerance = previous +- 0.1, bounded by MinPhToleranceRange and MaxPhToleranceRange
 	phTolerance := mutateFloat(t.PhTolerance, 0.1, c.MinPhToleranceRange(), c.MaxPhToleranceRange())
 	return Traits{
-		OrganismColor:              organismColor,
 		MaxSize:                    maxSize,
 		SpawnHealth:                spawnHealth,
 		MinHealthToSpawn:           minHealthToSpawn,
@@ -109,32 +95,3 @@ func mutateInt(value, maxChange, min, max int) int {
 	return int(math.Min(math.Max(mutated, float64(min)), float64(max)))
 }
 
-// MutateColor returns a slight variation on a given color
-func mutateColor(originalColor colorful.Color) colorful.Color {
-	h, s, l := originalColor.HSLuv()
-	h = mutateHue(h)
-	s = mutateSaturation(s)
-	l = mutateLuminance(l)
-	return colorful.HSLuv(h, s, l)
-}
-
-func mutateHue(h float64) float64 {
-	return math.Mod(h+360.0+(rand.Float64()*maxHueMutation*2.0)-maxHueMutation, 360)
-}
-
-func mutateSaturation(s float64) float64 {
-	s += rand.Float64()*maxSaturationMutation*2.0 - maxSaturationMutation
-	return math.Min(math.Max(s, minSaturation), maxSaturation)
-}
-
-func mutateLuminance(l float64) float64 {
-	l += rand.Float64()*maxLuminanceMutation*2.0 - maxLuminanceMutation
-	return math.Min(math.Max(l, minLuminance), maxLuminance)
-}
-
-func getRandomColor() colorful.Color {
-	h := rand.Float64() * 360.0
-	s := minSaturation + (rand.Float64() * (maxSaturation - minSaturation))
-	l := minLuminance + (rand.Float64() * (maxLuminance - minLuminance))
-	return colorful.HSLuv(h, s, l)
-}

@@ -42,6 +42,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
 		decisionTree = d.MutateTree(decisionTree)
 	}
+	traits.OrganismColor = d.TreeColor(decisionTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -69,6 +70,7 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 	if rand.Float64() < o.ChanceToMutateDecisionTree() {
 		inheritedTree = d.MutateTree(inheritedTree)
 	}
+	traits.OrganismColor = d.TreeColor(inheritedTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,

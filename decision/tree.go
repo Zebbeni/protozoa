@@ -43,12 +43,14 @@ func MutateTree(original *Tree) *Tree {
 func (t *Tree) mutate() {
 	// pick a random t anywhere in the decision tree
 	allSubNodes := t.getNodes()
-	node := allSubNodes[rand.Intn(len(allSubNodes))]
+	idx := rand.Intn(len(allSubNodes))
+	isRoot := idx == 0
+	node := allSubNodes[idx]
 
 	maxTreeSize := config.MaxDecisionTreeSize()
 
 	if node.IsAction() {
-		if rand.Intn(2) == 0 && t.size < maxTreeSize-1 {
+		if isRoot || (rand.Intn(2) == 0 && t.size <= maxTreeSize-2) {
 			// convert action to condition + 2 actions
 			originalAction := node.NodeType.(Action)
 			node.NodeType = GetRandomCondition()
@@ -64,14 +66,20 @@ func (t *Tree) mutate() {
 			node.NodeType = GetRandomAction()
 		}
 	} else {
-		if rand.Intn(2) == 0 {
-			// convert condition to action (simplify)
-			node.NodeType = GetRandomAction()
-			node.YesNode = nil
-			node.NoNode = nil
-		} else {
-			// change condition type
+		randInt := rand.Intn(3)
+		switch randInt {
+		case 0:
+			// option 1: replace condition with its yes node
+			node = node.YesNode
+			break
+		case 1:
+			// option 2: replace condition with its no node
+			node = node.NoNode
+			break
+		default:
+			// option 3: change condition type
 			node.NodeType = GetRandomCondition()
+			break
 		}
 	}
 
@@ -91,4 +99,13 @@ func (t *Tree) Print() string {
 // PrintLines returns structured line data for rendering with per-line styling.
 func (t *Tree) PrintLines() []PrintLine {
 	return t.printLines("", true, false)
+}
+
+// ActionWeights returns the weighted probability distribution over actions.
+// At each condition node, weight is split 50/50 to yes/no branches.
+// The result maps each reachable action to its total weight (summing to 1.0).
+func (t *Tree) ActionWeights() map[Action]float64 {
+	weights := make(map[Action]float64)
+	t.Node.accumulateWeights(1.0, weights)
+	return weights
 }
