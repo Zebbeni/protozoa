@@ -528,7 +528,6 @@ func (cs *ConfigScreen) buildSections() {
 			field("Attacking", "health_change_from_attacking"),
 			field("Spawning", "health_change_from_spawning"),
 			field("Inflicted by Attack", "health_change_inflicted_by_attack"),
-			field("Per Decision Tree Node", "health_change_per_decision_tree_node"),
 			field("Per Unhealthy pH Cycle", "health_change_per_unhealthy_ph"),
 		}},
 		{title: "— POOLS —", fields: []configField{

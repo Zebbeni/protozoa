@@ -16,7 +16,7 @@ const (
 )
 
 type UpdateManager struct {
-	updates map[UpdateType]map[string]utils.Point
+	updates map[UpdateType]map[utils.Point]bool
 	mutex   sync.Mutex
 }
 
@@ -28,21 +28,21 @@ func NewUpdateManager() *UpdateManager {
 
 func (m *UpdateManager) ClearMaps() {
 	m.mutex.Lock()
-	m.updates = map[UpdateType]map[string]utils.Point{
-		UpdateOrganism: make(map[string]utils.Point),
-		UpdatePh:       make(map[string]utils.Point),
-		UpdateFood:     make(map[string]utils.Point),
+	m.updates = map[UpdateType]map[utils.Point]bool{
+		UpdateOrganism: make(map[utils.Point]bool),
+		UpdatePh:       make(map[utils.Point]bool),
+		UpdateFood:     make(map[utils.Point]bool),
 	}
 	m.mutex.Unlock()
 }
 
 func (m *UpdateManager) AddUpdate(t UpdateType, p utils.Point) {
 	m.mutex.Lock()
-	m.updates[t][p.ToString()] = p
+	m.updates[t][p] = true
 	m.mutex.Unlock()
 }
 
-func (m *UpdateManager) GetUpdatedPoints(t UpdateType) map[string]utils.Point {
+func (m *UpdateManager) GetUpdatedPoints(t UpdateType) map[utils.Point]bool {
 	return m.updates[t]
 }
 
@@ -51,12 +51,12 @@ func (m *UpdateManager) AddOrganismUpdate(p utils.Point) { m.AddUpdate(UpdateOrg
 func (m *UpdateManager) AddPhUpdate(p utils.Point)       { m.AddUpdate(UpdatePh, p) }
 func (m *UpdateManager) AddFoodUpdate(p utils.Point)     { m.AddUpdate(UpdateFood, p) }
 
-func (m *UpdateManager) GetUpdatedOrganismPoints() map[string]utils.Point {
+func (m *UpdateManager) GetUpdatedOrganismPoints() map[utils.Point]bool {
 	return m.GetUpdatedPoints(UpdateOrganism)
 }
-func (m *UpdateManager) GetUpdatedPhPoints() map[string]utils.Point {
+func (m *UpdateManager) GetUpdatedPhPoints() map[utils.Point]bool {
 	return m.GetUpdatedPoints(UpdatePh)
 }
-func (m *UpdateManager) GetUpdatedFoodPoints() map[string]utils.Point {
+func (m *UpdateManager) GetUpdatedFoodPoints() map[utils.Point]bool {
 	return m.GetUpdatedPoints(UpdateFood)
 }

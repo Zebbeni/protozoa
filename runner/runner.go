@@ -105,6 +105,12 @@ func (r *Runner) startHeadlessSimulation() {
 				line := ux.FormatLogLine(sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
 				r.progressScreen.AddLog(line)
 			}
+			if sim.Cycle()%1000 == 0 {
+				if summary := sim.TimingSummary(); summary != "" {
+					r.progressScreen.AddLog("")
+					r.progressScreen.AddLog(summary)
+				}
+			}
 		}
 
 		sim.CloseRecorder()
@@ -166,6 +172,11 @@ func RunSimulation(opts *c.Options) {
 				sim.Update()
 				if sim.Cycle()%100 == 0 {
 					fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
+				}
+				if sim.Cycle()%1000 == 0 {
+					if summary := sim.TimingSummary(); summary != "" {
+						fmt.Printf("\n\n%s\n", summary)
+					}
 				}
 			}
 			sim.CloseRecorder()

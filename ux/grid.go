@@ -222,7 +222,7 @@ func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 		}
 	} else {
 		updatedPoints := g.simulation.GetUpdatedPhPoints()
-		for _, point := range updatedPoints {
+		for point := range updatedPoints {
 			phVal := g.simulation.GetPhAtPoint(point)
 			g.renderPhValue(envImage, point.X, point.Y, phVal)
 		}
@@ -259,7 +259,7 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 		}
 	} else {
 		updatedPoints := g.simulation.GetUpdatedFoodPoints()
-		for _, point := range updatedPoints {
+		for point := range updatedPoints {
 			us := g.unitSize()
 			x, y := point.X*us, point.Y*us
 			g.clearSquare(foodImage, float64(x), float64(y))
@@ -278,7 +278,7 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 		}
 	} else {
 		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
-		for _, point := range updatedPoints {
+		for point := range updatedPoints {
 			us := g.unitSize()
 			x, y := point.X*us, point.Y*us
 			g.clearSquare(organismsImage, float64(x), float64(y))

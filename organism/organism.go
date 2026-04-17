@@ -229,12 +229,6 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 	return o.decisionTree.CopyTree()
 }
 
-// GetCurrentDecisionTreeLength returns the number of nodes in the organism's currently-used
-// decision tree
-func (o *Organism) GetCurrentDecisionTreeLength() int {
-	return o.decisionTree.Size()
-}
-
 // Traits returns an organism's traits
 func (o Organism) Traits() Traits { return o.traits }
 

@@ -14,7 +14,7 @@ import (
 type FoodManager struct {
 	api           food.API
 	rng           *simrand.RNG
-	Items         map[string]*food.Item
+	Items         map[utils.Point]*food.Item
 	isInitialized bool
 
 	mutex sync.RWMutex
@@ -25,7 +25,7 @@ func NewFoodManager(api food.API, rng *simrand.RNG) *FoodManager {
 	m := &FoodManager{
 		api:           api,
 		rng:           rng,
-		Items:         make(map[string]*food.Item),
+		Items:         make(map[utils.Point]*food.Item),
 		isInitialized: false,
 	}
 	m.InitializeFood(config.InitialFood())
@@ -78,7 +78,7 @@ func (m *FoodManager) GetFoodAtPoint(point utils.Point) (*food.Item, bool) {
 }
 
 // GetFoodItems returns the current list of food items
-func (m *FoodManager) GetFoodItems() map[string]*food.Item {
+func (m *FoodManager) GetFoodItems() map[utils.Point]*food.Item {
 	return m.Items
 }
 
@@ -87,10 +87,8 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 		return
 	}
 
-	pointString := point.ToString()
-
 	m.mutex.RLock()
-	item, exists := m.Items[pointString]
+	item, exists := m.Items[point]
 	m.mutex.RUnlock()
 
 	if !exists {
@@ -100,7 +98,7 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 	item.Value -= value
 	if item.Value <= config.MinFoodValue() {
 		m.mutex.Lock()
-		delete(m.Items, pointString)
+		delete(m.Items, point)
 		m.mutex.Unlock()
 	}
 
@@ -112,15 +110,13 @@ func (m *FoodManager) addFood(point utils.Point, value int) {
 		return
 	}
 
-	pointString := point.ToString()
-
 	m.mutex.Lock()
-	item, exists := m.Items[pointString]
+	item, exists := m.Items[point]
 	if exists {
 		value += item.Value
 	}
 	value = int(math.Min(math.Max(0.0, float64(value)), float64(config.MaxFoodValue())))
-	m.Items[pointString] = food.NewItem(point, value)
+	m.Items[point] = food.NewItem(point, value)
 	m.mutex.Unlock()
 
 	m.addUpdatedPoint(point)
@@ -128,7 +124,7 @@ func (m *FoodManager) addFood(point utils.Point, value int) {
 
 func (m *FoodManager) getFood(point utils.Point) (*food.Item, bool) {
 	m.mutex.RLock()
-	item, found := m.Items[point.ToString()]
+	item, found := m.Items[point]
 	m.mutex.RUnlock()
 
 	return item, found

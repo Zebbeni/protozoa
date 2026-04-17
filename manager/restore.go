@@ -25,10 +25,10 @@ func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]fl
 
 // RestoreFoodManager creates a FoodManager with pre-populated food items.
 func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodRecord) *FoodManager {
-	foodItems := make(map[string]*food.Item)
+	foodItems := make(map[utils.Point]*food.Item)
 	for _, rec := range items {
 		p := utils.Point{X: rec.X, Y: rec.Y}
-		foodItems[p.ToString()] = food.NewItem(p, rec.Value)
+		foodItems[p] = food.NewItem(p, rec.Value)
 	}
 	return &FoodManager{
 		api:           api,

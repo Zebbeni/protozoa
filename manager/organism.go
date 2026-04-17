@@ -49,7 +49,14 @@ type OrganismManager struct {
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
 	history map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
 
-	UpdateDuration, ResolveDuration time.Duration
+	UpdateDuration, ResolveDuration, SortDuration, HistoryDuration time.Duration
+
+	// Sub-timings within Decide phase
+	DecideStatsDuration, DecideTreeDuration, DecideRequestDuration time.Duration
+	// Sub-timings within Resolve phase
+	ResolveHealthDuration, ResolveActionDuration, ResolveDeadDuration time.Duration
+	ResolveSpawnDuration                                              time.Duration
+	SpawnCount                                                        int
 
 	ancestorMutex sync.RWMutex
 	historyMutex  sync.RWMutex
@@ -109,10 +116,33 @@ func (m *OrganismManager) updateOrganismActions() {
 		ids = append(ids, k)
 	}
 	sort.Ints(ids)
+	m.SortDuration = time.Since(start)
 
+	var accStats, accTree, accRequest time.Duration
 	for _, id := range ids {
-		m.updateOrganismAction(m.organisms[id])
+		o := m.organisms[id]
+
+		// if previous action was attack, allow the screen to render white
+		if o.Action() == d.ActAttack {
+			m.addUpdatedPoint(o.Location)
+		}
+
+		t0 := time.Now()
+		o.UpdateStats()
+		t1 := time.Now()
+		o.UpdateAction()
+		t2 := time.Now()
+		m.updateRequestMap(o)
+		m.addToOrganismIds(o)
+		t3 := time.Now()
+
+		accStats += t1.Sub(t0)
+		accTree += t2.Sub(t1)
+		accRequest += t3.Sub(t2)
 	}
+	m.DecideStatsDuration = accStats
+	m.DecideTreeDuration = accTree
+	m.DecideRequestDuration = accRequest
 
 	m.UpdateDuration = time.Since(start)
 }
@@ -144,12 +174,42 @@ func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
 func (m *OrganismManager) resolveOrganismActions() {
 	start := time.Now()
 
+	var accHealth, accAction, accDead, accSpawn time.Duration
+	spawnCount := 0
+
 	for _, id := range m.organismIds {
-		if o, ok := m.organisms[id]; ok {
-			m.resolveOrganismAction(o)
+		o, ok := m.organisms[id]
+		if !ok || o == nil || o.Age == 0 {
+			continue
 		}
+
+		t0 := time.Now()
+		m.applyCycleHealthChanges(o)
+		t1 := time.Now()
+		if o.Action() == d.ActSpawn {
+			m.applySpawn(o)
+			t2 := time.Now()
+			accSpawn += t2.Sub(t1)
+			spawnCount++
+			t1 = t2
+		} else {
+			m.applyAction(o)
+		}
+		t2 := time.Now()
+		m.removeIfDead(o)
+		m.updateInterestingStats(o)
+		t3 := time.Now()
+
+		accHealth += t1.Sub(t0)
+		accAction += t2.Sub(t1)
+		accDead += t3.Sub(t2)
 	}
 
+	m.ResolveHealthDuration = accHealth
+	m.ResolveActionDuration = accAction
+	m.ResolveSpawnDuration = accSpawn
+	m.ResolveDeadDuration = accDead
+	m.SpawnCount = spawnCount
 	m.ResolveDuration = time.Since(start)
 }
 
@@ -158,8 +218,10 @@ func (m *OrganismManager) resolveOrganismActions() {
 func (m *OrganismManager) updateHistory() {
 	cycle := m.api.Cycle()
 	if cycle%c.PopulationUpdateInterval() != 0 {
+		m.HistoryDuration = 0
 		return
 	}
+	start := time.Now()
 
 	populationMap := make(map[int]int32)
 	phEffectDist := make(map[int]int32)
@@ -205,6 +267,7 @@ func (m *OrganismManager) updateHistory() {
 	m.historyMutex.Lock()
 	m.history[HistoryPhDistribution][cycle] = phDist
 	m.historyMutex.Unlock()
+	m.HistoryDuration = time.Since(start)
 }
 
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
@@ -293,29 +356,8 @@ func (m *OrganismManager) applyOrganismPhGrowthEffect(o *organism.Organism) {
 	m.api.AddPhChangeAtPoint(o.Location, o.Traits().PhGrowthEffect*o.Size)
 }
 
-func (m *OrganismManager) updateOrganismAction(o *organism.Organism) {
-	// if previous action was attack, allow the screen to render white
-	if o.Action() == d.ActAttack {
-		m.addUpdatedPoint(o.Location)
-	}
-	o.UpdateStats()
-	o.UpdateAction()
-	m.updateRequestMap(o)
-	m.addToOrganismIds(o)
-}
-
 func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
 	m.organismIds = append(m.organismIds, o.ID)
-}
-
-func (m *OrganismManager) resolveOrganismAction(o *organism.Organism) {
-	if o == nil || o.Age == 0 {
-		return
-	}
-	m.applyCycleHealthChanges(o)
-	m.applyAction(o)
-	m.removeIfDead(o)
-	m.updateInterestingStats(o)
 }
 
 // SpawnRandomOrganism creates an Organism with random position.
@@ -611,7 +653,6 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
-	decisionsEffect := c.HealthChangePerDecisionTreeNode() * float64(o.GetCurrentDecisionTreeLength())
 	phEffect := 0.0
 	// Subtract health if organism is too far away from its ideal ph
 	phDist := math.Abs(o.Traits().IdealPh - m.api.GetPhAtPoint(o.Location))
@@ -620,7 +661,7 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	}
 	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
-	m.applyHealthChange(o, o.Size*(decisionsEffect+phEffect)+healthEffects)
+	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
 }
 
 // add a positive health change if organism attempts chemosynthesis in a

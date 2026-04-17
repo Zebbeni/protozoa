@@ -34,9 +34,17 @@ type Simulation struct {
 	// Checkpoint recording (nil if not recording)
 	recorder *checkpoint.Writer
 
-	// debug statistics
+	// Per-cycle timing (latest)
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 	OrganismUpdateLoopTime, OrganismResolveLoopTime                       time.Duration
+
+	// Accumulated timing for periodic summaries
+	accEnv, accFood, accSort, accHistory, accCheckpoint time.Duration
+	accDecideStats, accDecideTree, accDecideRequest     time.Duration
+	accResolveHealth, accResolveAction, accResolveDead  time.Duration
+	accResolveSpawn                                     time.Duration
+	accTotal                                            time.Duration
+	accCycles, accSpawnCount                            int
 }
 
 // NewSimulation returns a simulation with generated world and organisms
@@ -87,9 +95,29 @@ func (s *Simulation) Update() {
 	s.UpdateTime = time.Since(start)
 
 	// Write checkpoint snapshot at configured intervals
+	checkpointStart := time.Now()
 	if s.recorder != nil && s.cycle%s.options.CheckpointInterval == 0 {
 		s.writeSnapshot()
 	}
+	checkpointTime := time.Since(checkpointStart)
+
+	// Accumulate timing for periodic summaries
+	om := s.organismManager
+	s.accEnv += s.EnvironmentUpdateTime
+	s.accFood += s.FoodUpdateTime
+	s.accSort += om.SortDuration
+	s.accDecideStats += om.DecideStatsDuration
+	s.accDecideTree += om.DecideTreeDuration
+	s.accDecideRequest += om.DecideRequestDuration
+	s.accResolveHealth += om.ResolveHealthDuration
+	s.accResolveAction += om.ResolveActionDuration
+	s.accResolveSpawn += om.ResolveSpawnDuration
+	s.accResolveDead += om.ResolveDeadDuration
+	s.accHistory += om.HistoryDuration
+	s.accCheckpoint += checkpointTime
+	s.accTotal += s.UpdateTime + checkpointTime
+	s.accSpawnCount += om.SpawnCount
+	s.accCycles++
 }
 
 func (s *Simulation) writeSnapshot() {
@@ -168,6 +196,69 @@ func (s *Simulation) updateOrganisms() {
 	s.OrganismResolveLoopTime = s.organismManager.ResolveDuration
 }
 
+// TimingSummary returns a formatted breakdown of average time per cycle
+// over the accumulated window, then resets the accumulators.
+func (s *Simulation) TimingSummary() string {
+	if s.accCycles == 0 {
+		return ""
+	}
+	n := s.accCycles
+	avg := func(d time.Duration) time.Duration { return d / time.Duration(n) }
+
+	accDecide := s.accSort + s.accDecideStats + s.accDecideTree + s.accDecideRequest
+	accResolve := s.accResolveHealth + s.accResolveAction + s.accResolveSpawn + s.accResolveDead
+	accounted := s.accEnv + s.accFood + accDecide + accResolve + s.accHistory + s.accCheckpoint
+	other := s.accTotal - accounted
+	if other < 0 {
+		other = 0
+	}
+
+	spawnsPerCycle := float64(s.accSpawnCount) / float64(n)
+	avgSpawn := time.Duration(0)
+	if s.accSpawnCount > 0 {
+		avgSpawn = s.accResolveSpawn / time.Duration(s.accSpawnCount)
+	}
+
+	summary := fmt.Sprintf(
+		"Avg/cycle over %d cycles (total %s), %d organisms:\n"+
+			"  Environment:     %8s\n"+
+			"  Decide phase:    %8s\n"+
+			"    Sort IDs:      %8s\n"+
+			"    UpdateStats:   %8s\n"+
+			"    Tree eval:     %8s\n"+
+			"    Request map:   %8s\n"+
+			"  Resolve phase:   %8s\n"+
+			"    Health calc:   %8s\n"+
+			"    Actions:       %8s\n"+
+			"    Spawn:         %8s  (%.1f/cycle, %s each)\n"+
+			"    Dead removal:  %8s\n"+
+			"  History:         %8s\n"+
+			"  Checkpoint:      %8s\n"+
+			"  Other:           %8s\n"+
+			"  TOTAL:           %8s",
+		n, s.accTotal.Round(time.Millisecond), s.GetNumOrganisms(),
+		avg(s.accEnv),
+		avg(accDecide),
+		avg(s.accSort), avg(s.accDecideStats),
+		avg(s.accDecideTree), avg(s.accDecideRequest),
+		avg(accResolve),
+		avg(s.accResolveHealth), avg(s.accResolveAction),
+		avg(s.accResolveSpawn), spawnsPerCycle, avgSpawn,
+		avg(s.accResolveDead),
+		avg(s.accHistory), avg(s.accCheckpoint),
+		avg(other), avg(s.accTotal))
+
+	// Reset accumulators
+	s.accEnv, s.accFood, s.accSort = 0, 0, 0
+	s.accDecideStats, s.accDecideTree, s.accDecideRequest = 0, 0, 0
+	s.accResolveHealth, s.accResolveAction, s.accResolveDead = 0, 0, 0
+	s.accResolveSpawn = 0
+	s.accHistory, s.accCheckpoint = 0, 0
+	s.accTotal, s.accCycles, s.accSpawnCount = 0, 0, 0
+
+	return summary
+}
+
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
 	if s.GetNumOrganisms() == 0 {
@@ -219,19 +310,19 @@ func (s *Simulation) AddFoodUpdate(point utils.Point) {
 
 // GetUpdatedFoodPoints returns a map of all points recently updated by the
 // foodManager
-func (s *Simulation) GetUpdatedFoodPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedFoodPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedFoodPoints()
 }
 
 // GetUpdatedOrganismPoints returns a map of all points recently updated by the
 // organismManager
-func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedOrganismPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedOrganismPoints()
 }
 
 // GetUpdatedPhPoints returns a map of all points recently updated by the
 // environmentManager
-func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedPhPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedPhPoints()
 }
 
@@ -326,7 +417,7 @@ func (s *Simulation) GetDeadCount() int {
 }
 
 // GetFoodItems returns a map of all food items in the grid
-func (s *Simulation) GetFoodItems() map[string]*food.Item {
+func (s *Simulation) GetFoodItems() map[utils.Point]*food.Item {
 	return s.foodManager.GetFoodItems()
 }
 

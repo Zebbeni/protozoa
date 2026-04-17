@@ -66,8 +66,7 @@ func HealthChangeFromAttacking() float64       { return constants.HealthChangeFr
 func HealthChangeFromSpawning() float64        { return constants.HealthChangeFromSpawning }
 func HealthChangeInflictedByAttack() float64   { return constants.HealthChangeInflictedByAttack }
 
-func HealthChangePerDecisionTreeNode() float64 { return constants.HealthChangePerDecisionTreeNode }
-func HealthChangePerUnhealthyPh() float64      { return constants.HealthChangePerCycleUnhealthyPh }
+func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
 func MaxDecisionTreeSize() int                 { return constants.MaxDecisionTreeSize }
 
 type Globals struct {
@@ -129,7 +128,6 @@ type Globals struct {
 	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`
 	HealthChangeFromSpawning        float64 `json:"health_change_from_spawning"`
 	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
-HealthChangePerDecisionTreeNode float64 `json:"health_change_per_decision_tree_node"`
 	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
 }
 
