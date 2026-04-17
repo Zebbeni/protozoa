@@ -76,7 +76,8 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 		if max < 1 {
 			max = 1
 		}
-		r.maxAlive = max
+		// Add 50% headroom so we don't trigger full refreshes on every growth tick
+		r.maxAlive = max + max/2
 		r.baseWidth = numCols * 2
 		if r.baseWidth < 4 {
 			r.baseWidth = 4
@@ -174,7 +175,15 @@ func (r *Renderer) drawColumn(trees map[int]*organism.DescendantNode, ancestorID
 }
 
 func collectAlive(node *organism.DescendantNode, cycle int, result *[]*organism.DescendantNode) {
-	if node.StartCycle <= cycle && (node.EndCycle == 0 || node.EndCycle > cycle) {
+	// Skip entire sub-tree if it hasn't been born yet
+	if node.StartCycle > cycle {
+		return
+	}
+	// Skip entire sub-tree if all branches died before this cycle
+	if node.AllBranchesDeadCycle != 0 && cycle >= node.AllBranchesDeadCycle {
+		return
+	}
+	if node.EndCycle == 0 || node.EndCycle > cycle {
 		*result = append(*result, node)
 	}
 	node.ForEachChild(func(child *organism.DescendantNode) {
@@ -193,8 +202,16 @@ func countAliveInTrees(trees map[int]*organism.DescendantNode, ancestorIDs []int
 }
 
 func countAlive(node *organism.DescendantNode, cycle int) int {
+	// Skip entire sub-tree if it hasn't been born yet
+	if node.StartCycle > cycle {
+		return 0
+	}
+	// Skip entire sub-tree if all branches died before this cycle
+	if node.AllBranchesDeadCycle != 0 && cycle >= node.AllBranchesDeadCycle {
+		return 0
+	}
 	count := 0
-	if node.StartCycle <= cycle && (node.EndCycle == 0 || node.EndCycle > cycle) {
+	if node.EndCycle == 0 || node.EndCycle > cycle {
 		count = 1
 	}
 	node.ForEachChild(func(child *organism.DescendantNode) {

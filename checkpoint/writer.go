@@ -62,6 +62,11 @@ func (w *Writer) WriteDelta(payload *DeltaPayload) error {
 	return w.writeSection(SectionDelta, payload.Cycle, payload)
 }
 
+// WriteDescendantTrees writes the full descendant trees as a final section.
+func (w *Writer) WriteDescendantTrees(payload *DescendantTreesPayload) error {
+	return w.writeSection(SectionDescendantTrees, 0, payload)
+}
+
 // Close writes the snapshot index and footer, then closes the file.
 func (w *Writer) Close() error {
 	// Record where the index starts

@@ -56,14 +56,19 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 
 	lastSnap := reader.SnapshotIndex[reader.SnapshotCount()-1]
 
-	return &Controller{
+	ctrl := &Controller{
 		reader:     reader,
 		sim:        sim,
 		options:    options,
 		snapshots:  reader.SnapshotIndex,
 		Speed:      1,
 		FinalCycle: lastSnap.Cycle,
-	}, nil
+	}
+
+	// Scan for the descendant trees section and load it
+	ctrl.loadDescendantTrees()
+
+	return ctrl, nil
 }
 
 // Simulation returns the current simulation state for rendering.
@@ -150,6 +155,33 @@ func (c *Controller) SnapshotCycles() []int {
 // Close closes the underlying reader.
 func (c *Controller) Close() error {
 	return c.reader.Close()
+}
+
+// loadDescendantTrees scans the file for the descendant trees section
+// (written at the end of the simulation) and restores it.
+func (c *Controller) loadDescendantTrees() {
+	// Open a fresh reader to scan for the trees section, since the original
+	// file handle's read position may be unreliable after gob decoder buffering.
+	treePath := c.reader.Path()
+	treeReader, err := checkpoint.OpenReader(treePath)
+	if err != nil {
+		return
+	}
+	defer treeReader.Close()
+
+	treeReader.SeekAfterHeader()
+	for {
+		sType, _, payload, err := treeReader.ReadNextSection()
+		if err != nil {
+			break
+		}
+		if sType == checkpoint.SectionDescendantTrees {
+			if trees, ok := payload.(*checkpoint.DescendantTreesPayload); ok {
+				c.sim.RestoreDescendantTrees(trees)
+			}
+			break
+		}
+	}
 }
 
 // ReadAllSections reads through the file to find the true final cycle

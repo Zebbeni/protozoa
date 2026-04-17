@@ -119,7 +119,9 @@ func (g *Graph) Render() *ebiten.Image {
 		if selectionChanged && !g.rendering {
 			g.rendering = true
 			barCount := g.currentBarCount
-			go g.renderSelectedInBackground(barCount)
+			selRenderers := g.selRenderers
+			hasSelection := g.selectedSubTreeRoot != nil
+			go g.renderSelectedOnly(selRenderers, hasSelection, barCount)
 		}
 		return g.currentImage()
 	}
@@ -129,7 +131,11 @@ func (g *Graph) Render() *ebiten.Image {
 		newBarCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
 		oldBarCount := g.currentBarCount
 		selOldBarCount := g.selBarCount
-		go g.renderAllInBackground(oldBarCount, newBarCount, selOldBarCount)
+		// Capture renderer references to avoid racing with selection changes
+		renderers := g.renderers
+		selRenderers := g.selRenderers
+		hasSelection := g.selectedSubTreeRoot != nil
+		go g.renderInBackground(renderers, selRenderers, hasSelection, oldBarCount, newBarCount, selOldBarCount)
 	}
 
 	return g.currentImage()
@@ -145,10 +151,8 @@ func (g *Graph) updateSelection() bool {
 	g.selStartCycle = 0
 	g.selBarCount = 0
 	g.selImages = make(map[Mode]*ebiten.Image)
-
-	for _, r := range g.selRenderers {
-		r.Reset()
-	}
+	// Don't Reset() old renderers — a goroutine may still be using them.
+	// Just drop the references and create new ones.
 	g.selRenderers = make(map[Mode]Renderer)
 
 	if selID >= 0 {
@@ -185,9 +189,12 @@ func (g *Graph) shouldUpdate() bool {
 	return 1+(g.simulation.Cycle()/c.PopulationUpdateInterval()) > g.currentBarCount
 }
 
-func (g *Graph) renderAllInBackground(oldBarCount, newBarCount, selOldBarCount int) {
+func (g *Graph) renderInBackground(
+	renderers map[Mode]Renderer, selRenderers map[Mode]Renderer, hasSelection bool,
+	oldBarCount, newBarCount, selOldBarCount int,
+) {
 	images := make(map[Mode]*ebiten.Image)
-	for mode, renderer := range g.renderers {
+	for mode, renderer := range renderers {
 		images[mode] = renderer.Render(g.simulation, oldBarCount, newBarCount)
 	}
 
@@ -196,9 +203,9 @@ func (g *Graph) renderAllInBackground(oldBarCount, newBarCount, selOldBarCount i
 		barCount: newBarCount,
 	}
 
-	if g.selectedSubTreeRoot != nil {
+	if hasSelection {
 		selImages := make(map[Mode]*ebiten.Image)
-		for mode, renderer := range g.selRenderers {
+		for mode, renderer := range selRenderers {
 			selImages[mode] = renderer.Render(g.simulation, selOldBarCount, newBarCount)
 		}
 		result.selImages = selImages
@@ -207,15 +214,15 @@ func (g *Graph) renderAllInBackground(oldBarCount, newBarCount, selOldBarCount i
 	g.pendingResult <- result
 }
 
-func (g *Graph) renderSelectedInBackground(barCount int) {
+func (g *Graph) renderSelectedOnly(selRenderers map[Mode]Renderer, hasSelection bool, barCount int) {
 	result := renderResult{
 		images:   g.images,
 		barCount: barCount,
 	}
 
-	if g.selectedSubTreeRoot != nil {
+	if hasSelection {
 		selImages := make(map[Mode]*ebiten.Image)
-		for mode, renderer := range g.selRenderers {
+		for mode, renderer := range selRenderers {
 			renderer.Reset()
 			selImages[mode] = renderer.Render(g.simulation, 0, barCount)
 		}

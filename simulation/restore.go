@@ -55,22 +55,6 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 	sim.foodManager = restoreFood(sim, rng, snap)
 	sim.organismManager = restoreOrganisms(sim, rng, snap)
 
-	// If checkpoint recording is configured, continue recording from the restored state
-	if options.CheckpointFile != "" {
-		header := checkpoint.FileHeader{
-			Seed:               uint64(options.Seed),
-			CheckpointInterval: options.CheckpointInterval,
-			GridUnitsWide:      config.GridUnitsWide(),
-			GridUnitsHigh:      config.GridUnitsHigh(),
-		}
-		w, err := checkpoint.NewWriter(options.CheckpointFile, header)
-		if err != nil {
-			fmt.Printf("\nWarning: failed to create checkpoint file: %v", err)
-		} else {
-			sim.recorder = w
-		}
-	}
-
 	return sim, nil
 }
 
@@ -95,7 +79,7 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 	ancestorColors := make(map[int]color.Color)
 	for _, a := range snap.Ancestors {
 		ancestorIDs = append(ancestorIDs, a.ID)
-		ancestorColors[a.ID] = colorful.LinearRgb(a.ColorR, a.ColorG, a.ColorB)
+		ancestorColors[a.ID] = colorful.Color{R: a.ColorR, G: a.ColorG, B: a.ColorB}
 	}
 
 	return manager.RestoreOrganismManager(sim, rng, organisms, snap.OrganismGrid,
@@ -104,7 +88,7 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 
 func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *organism.Organism {
 	traits := organism.Traits{
-		OrganismColor:              colorful.LinearRgb(rec.ColorR, rec.ColorG, rec.ColorB),
+		OrganismColor:              colorful.Color{R: rec.ColorR, G: rec.ColorG, B: rec.ColorB},
 		MaxSize:                    rec.MaxSize,
 		SpawnHealth:                rec.SpawnHealth,
 		MinHealthToSpawn:           rec.MinHealthToSpawn,

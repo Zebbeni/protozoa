@@ -98,3 +98,26 @@ type FoodChangeRecord struct {
 	X, Y  int
 	Value int
 }
+
+// DescendantTreesPayload contains the full descendant trees, serialized once
+// at the end of a simulation run.
+type DescendantTreesPayload struct {
+	Trees []DescendantTreeRecord
+}
+
+// DescendantTreeRecord is a single ancestor's tree root.
+type DescendantTreeRecord struct {
+	AncestorID int
+	Root       DescendantNodeRecord
+}
+
+// DescendantNodeRecord is the serializable form of a DescendantNode.
+type DescendantNodeRecord struct {
+	ID                   int
+	ColorR, ColorG, ColorB float64
+	PhEffectColorR, PhEffectColorG, PhEffectColorB float64
+	StartCycle           int
+	EndCycle             int
+	AllBranchesDeadCycle int
+	Children             []DescendantNodeRecord
+}

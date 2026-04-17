@@ -659,7 +659,7 @@ func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
 	}
 
 	if o.TreeNode != nil {
-		o.TreeNode.EndCycle = m.api.Cycle()
+		o.TreeNode.MarkDead(m.api.Cycle())
 	}
 
 	m.gridMutex.Lock()

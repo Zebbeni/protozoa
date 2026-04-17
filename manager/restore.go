@@ -1,10 +1,13 @@
 package manager
 
 import (
+	"fmt"
 	"image/color"
 
-	c "github.com/Zebbeni/protozoa/config"
+	"github.com/lucasb-eyer/go-colorful"
+
 	"github.com/Zebbeni/protozoa/checkpoint"
+	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/environment"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
@@ -34,6 +37,65 @@ func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodR
 		Items:         foodItems,
 		isInitialized: true,
 	}
+}
+
+// RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
+// and injects them into the OrganismManager. Also rebuilds the ancestor ID list
+// and color map from the tree roots so all ancestors are available for graphing.
+func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantTreesPayload) {
+	trees := make(map[int]*organism.DescendantNode)
+	ancestorIDs := make([]int, 0, len(payload.Trees))
+	ancestorColors := make(map[int]color.Color)
+	for _, treeRec := range payload.Trees {
+		root := recordToNode(treeRec.Root, nil)
+		trees[treeRec.AncestorID] = root
+		ancestorIDs = append(ancestorIDs, treeRec.AncestorID)
+		ancestorColors[treeRec.AncestorID] = root.Color
+	}
+
+	m.descendantTrees = trees
+	m.originalAncestors = ancestorIDs
+	m.originalAncestorColors = ancestorColors
+
+	// Link living organisms to their tree nodes
+	nodeIndex := make(map[int]*organism.DescendantNode)
+	for _, root := range trees {
+		indexTreeNodes(root, nodeIndex)
+	}
+	for _, o := range m.organisms {
+		if node, ok := nodeIndex[o.ID]; ok {
+			o.TreeNode = node
+			fmt.Printf("\n[restore] linked organism %d to tree node (startCycle=%d)", o.ID, node.StartCycle)
+		} else {
+			fmt.Printf("\n[restore] WARNING: organism %d not found in tree index", o.ID)
+		}
+	}
+	fmt.Printf("\n[restore] organisms=%d, nodeIndex=%d, trees=%d", len(m.organisms), len(nodeIndex), len(trees))
+}
+
+// indexTreeNodes recursively collects all tree nodes into a map keyed by ID.
+func indexTreeNodes(node *organism.DescendantNode, index map[int]*organism.DescendantNode) {
+	index[node.ID] = node
+	node.ForEachChild(func(child *organism.DescendantNode) {
+		indexTreeNodes(child, index)
+	})
+}
+
+func recordToNode(rec checkpoint.DescendantNodeRecord, parent *organism.DescendantNode) *organism.DescendantNode {
+	node := &organism.DescendantNode{
+		ID:                   rec.ID,
+		Color:                colorful.Color{R: rec.ColorR, G: rec.ColorG, B: rec.ColorB},
+		PhEffectColor:        colorful.Color{R: rec.PhEffectColorR, G: rec.PhEffectColorG, B: rec.PhEffectColorB},
+		StartCycle:           rec.StartCycle,
+		EndCycle:             rec.EndCycle,
+		AllBranchesDeadCycle: rec.AllBranchesDeadCycle,
+		Parent:               parent,
+	}
+	for _, childRec := range rec.Children {
+		child := recordToNode(childRec, node)
+		node.Children = append(node.Children, child)
+	}
+	return node
 }
 
 // RestoreOrganismManager creates an OrganismManager with pre-populated state.

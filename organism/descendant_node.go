@@ -18,6 +18,10 @@ type DescendantNode struct {
 	Parent        *DescendantNode
 	Children      []*DescendantNode
 	childMu       sync.Mutex
+
+	// Dead-branch pruning: skip entire sub-trees during tree walks
+	deadBranchesCount   int // how many direct children have all branches dead
+	AllBranchesDeadCycle int // cycle when this node AND all descendants are dead (0 = still has living)
 }
 
 // AncestorAtGeneration walks up the tree n generations and returns that ancestor.
@@ -55,6 +59,40 @@ func ComputePhEffectColor(spectrumValue float64) colorful.Color {
 	sat := 0.5 + math.Abs(spectrumValue-0.5)
 	light := math.Abs(spectrumValue - 0.5)
 	return colorful.HSLuv(hue, sat, light)
+}
+
+// MarkDead sets the EndCycle and propagates dead-branch counts up the tree.
+// Call this when an organism dies instead of setting EndCycle directly.
+func (n *DescendantNode) MarkDead(cycle int) {
+	n.EndCycle = cycle
+	// Check if all children are also fully dead
+	n.childMu.Lock()
+	allChildrenDead := n.deadBranchesCount == len(n.Children)
+	n.childMu.Unlock()
+
+	if allChildrenDead {
+		n.AllBranchesDeadCycle = cycle
+		n.propagateDeadToParent(cycle)
+	}
+}
+
+// propagateDeadToParent increments the parent's dead branch count and
+// recurses upward if the parent is also fully dead.
+func (n *DescendantNode) propagateDeadToParent(cycle int) {
+	parent := n.Parent
+	if parent == nil {
+		return
+	}
+
+	parent.childMu.Lock()
+	parent.deadBranchesCount++
+	allDead := parent.EndCycle != 0 && parent.deadBranchesCount == len(parent.Children)
+	parent.childMu.Unlock()
+
+	if allDead {
+		parent.AllBranchesDeadCycle = cycle
+		parent.propagateDeadToParent(cycle)
+	}
 }
 
 // AddChild safely appends a child node and sets its parent pointer.

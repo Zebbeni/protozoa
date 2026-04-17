@@ -13,6 +13,7 @@ import (
 // Reader reads checkpoint data from a .pzr file.
 type Reader struct {
 	file            *os.File
+	path            string
 	Header          FileHeader
 	SnapshotIndex   []SnapshotEntry
 	sectionsStart   int64 // file offset where sections begin (after header)
@@ -95,12 +96,17 @@ func OpenReader(path string) (*Reader, error) {
 
 	return &Reader{
 		file:          file,
+		path:          path,
 		Header:        header,
 		SnapshotIndex: index,
 		sectionsStart: sectionsStart,
 		indexOffset:    indexOffset,
 	}, nil
 }
+
+func (r *Reader) SectionsStart() int64 { return r.sectionsStart }
+func (r *Reader) IndexOffset() int64   { return r.indexOffset }
+func (r *Reader) Path() string         { return r.path }
 
 // SnapshotCount returns the number of snapshots in the file.
 func (r *Reader) SnapshotCount() int {
@@ -207,6 +213,12 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 			return
 		}
 		payload = &delta
+	case SectionDescendantTrees:
+		var trees DescendantTreesPayload
+		if err = gob.NewDecoder(bytes.NewReader(decompData)).Decode(&trees); err != nil {
+			return
+		}
+		payload = &trees
 	default:
 		err = fmt.Errorf("unknown section type: %d", sectionType)
 	}

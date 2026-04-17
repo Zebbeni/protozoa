@@ -85,19 +85,7 @@ func (r *Runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (r *Runner) startHeadlessSimulation() {
-	// Always write to a checkpoint file
-	if r.opts.CheckpointFile == "" {
-		tmpDir := os.TempDir()
-		r.checkpointPath = filepath.Join(tmpDir, fmt.Sprintf("protozoa_%d.pzr", time.Now().UnixNano()))
-	} else {
-		r.checkpointPath = r.opts.CheckpointFile
-	}
-	r.opts.CheckpointFile = r.checkpointPath
-
-	if r.opts.CheckpointInterval <= 0 {
-		r.opts.CheckpointInterval = 1000
-	}
-
+	r.checkpointPath = r.opts.CheckpointFile
 	r.progressScreen = ux.NewProgressScreen()
 	r.state = stateSimulating
 
@@ -143,8 +131,19 @@ func (r *Runner) startReplayViewer() {
 	ebiten.SetScreenClearedEveryFrame(false)
 }
 
+func ensureCheckpointPath(opts *c.Options) {
+	if opts.CheckpointFile == "" {
+		tmpDir := os.TempDir()
+		opts.CheckpointFile = filepath.Join(tmpDir, fmt.Sprintf("protozoa_%d.pzr", time.Now().UnixNano()))
+	}
+	if opts.CheckpointInterval <= 0 {
+		opts.CheckpointInterval = 1000
+	}
+}
+
 func RunSimulation(opts *c.Options) {
 	resources.Init()
+	ensureCheckpointPath(opts)
 
 	if opts.IsHeadless {
 		// Pure headless mode (no GUI)

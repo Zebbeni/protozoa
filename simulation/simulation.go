@@ -55,19 +55,17 @@ func NewSimulation(options *config.Options) *Simulation {
 	sim.foodManager = manager.NewFoodManager(sim, rng)
 	sim.organismManager = manager.NewOrganismManager(sim, rng)
 
-	if options.CheckpointFile != "" {
-		header := checkpoint.FileHeader{
-			Seed:               uint64(options.Seed),
-			CheckpointInterval: options.CheckpointInterval,
-			GridUnitsWide:      config.GridUnitsWide(),
-			GridUnitsHigh:      config.GridUnitsHigh(),
-		}
-		w, err := checkpoint.NewWriter(options.CheckpointFile, header)
-		if err != nil {
-			fmt.Printf("\nWarning: failed to create checkpoint file: %v", err)
-		} else {
-			sim.recorder = w
-		}
+	header := checkpoint.FileHeader{
+		Seed:               uint64(options.Seed),
+		CheckpointInterval: options.CheckpointInterval,
+		GridUnitsWide:      config.GridUnitsWide(),
+		GridUnitsHigh:      config.GridUnitsHigh(),
+	}
+	w, err := checkpoint.NewWriter(options.CheckpointFile, header)
+	if err != nil {
+		fmt.Printf("\nWarning: failed to create checkpoint file: %v", err)
+	} else {
+		sim.recorder = w
 	}
 
 	return sim
@@ -120,9 +118,19 @@ func (s *Simulation) writeSnapshot() {
 	}
 }
 
-// CloseRecorder finalizes the checkpoint file. Call when the simulation ends.
+// RestoreDescendantTrees injects pre-built descendant trees into the organism manager.
+func (s *Simulation) RestoreDescendantTrees(payload *checkpoint.DescendantTreesPayload) {
+	s.organismManager.RestoreDescendantTrees(payload)
+}
+
+// CloseRecorder writes the descendant trees and finalizes the checkpoint file.
 func (s *Simulation) CloseRecorder() {
 	if s.recorder != nil {
+		// Write the full descendant trees as a final section
+		treesPayload := s.organismManager.CaptureDescendantTrees()
+		if err := s.recorder.WriteDescendantTrees(treesPayload); err != nil {
+			fmt.Printf("\nWarning: failed to write descendant trees: %v", err)
+		}
 		if err := s.recorder.Close(); err != nil {
 			fmt.Printf("\nWarning: failed to close checkpoint file: %v", err)
 		}

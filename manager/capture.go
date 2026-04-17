@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"github.com/lucasb-eyer/go-colorful"
+
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/organism"
 )
@@ -33,13 +35,12 @@ func (m *OrganismManager) CaptureOrganismGrid() [][]int {
 func (m *OrganismManager) CaptureAncestors() []checkpoint.AncestorRecord {
 	records := make([]checkpoint.AncestorRecord, 0, len(m.originalAncestors))
 	for _, id := range m.originalAncestors {
-		col := m.originalAncestorColors[id]
-		r, g, b, _ := col.RGBA()
+		col, _ := m.originalAncestorColors[id].(colorful.Color)
 		records = append(records, checkpoint.AncestorRecord{
 			ID:     id,
-			ColorR: float64(r) / 65535.0,
-			ColorG: float64(g) / 65535.0,
-			ColorB: float64(b) / 65535.0,
+			ColorR: col.R,
+			ColorG: col.G,
+			ColorB: col.B,
 		})
 	}
 	return records
@@ -82,9 +83,48 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	return
 }
 
+// CaptureDescendantTrees serializes all descendant trees for the final checkpoint section.
+func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPayload {
+	trees := make([]checkpoint.DescendantTreeRecord, 0, len(m.originalAncestors))
+	for _, id := range m.originalAncestors {
+		root, ok := m.descendantTrees[id]
+		if !ok || root == nil {
+			continue
+		}
+		trees = append(trees, checkpoint.DescendantTreeRecord{
+			AncestorID: id,
+			Root:       nodeToRecord(root),
+		})
+	}
+	return &checkpoint.DescendantTreesPayload{Trees: trees}
+}
+
+func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
+	col, _ := n.Color.(colorful.Color)
+	phCol, _ := n.PhEffectColor.(colorful.Color)
+
+	rec := checkpoint.DescendantNodeRecord{
+		ID:                   n.ID,
+		ColorR:               col.R,
+		ColorG:               col.G,
+		ColorB:               col.B,
+		PhEffectColorR:       phCol.R,
+		PhEffectColorG:       phCol.G,
+		PhEffectColorB:       phCol.B,
+		StartCycle:           n.StartCycle,
+		EndCycle:             n.EndCycle,
+		AllBranchesDeadCycle: n.AllBranchesDeadCycle,
+	}
+
+	n.ForEachChild(func(child *organism.DescendantNode) {
+		rec.Children = append(rec.Children, nodeToRecord(child))
+	})
+
+	return rec
+}
+
 func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 	traits := o.Traits()
-	cr, cg, cb, _ := traits.OrganismColor.RGBA()
 	return checkpoint.OrganismRecord{
 		ID:                     o.ID,
 		Age:                    o.Age,
@@ -98,9 +138,9 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		DirectionX:             o.Direction.X,
 		DirectionY:             o.Direction.Y,
 		OriginalAncestorID:     o.OriginalAncestorID,
-		ColorR:                 float64(cr) / 65535.0,
-		ColorG:                 float64(cg) / 65535.0,
-		ColorB:                 float64(cb) / 65535.0,
+		ColorR:                 traits.OrganismColor.R,
+		ColorG:                 traits.OrganismColor.G,
+		ColorB:                 traits.OrganismColor.B,
 		MaxSize:                traits.MaxSize,
 		SpawnHealth:            traits.SpawnHealth,
 		MinHealthToSpawn:       traits.MinHealthToSpawn,
