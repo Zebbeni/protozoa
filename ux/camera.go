@@ -6,6 +6,13 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 )
 
+// GridDisplayScale is the universal scale applied to the composed grid image
+// when drawing it to the screen. Increase this to make every pixel of the grid
+// view (sprites, environment, walls) appear larger without changing zoom levels
+// or per-layer memory. All grid-area coordinate math (camera viewport, mouse
+// input) is divided by this factor so inputs and world state stay consistent.
+const GridDisplayScale = 2
+
 // ZoomLevel represents the discrete zoom levels
 type ZoomLevel int
 
@@ -27,14 +34,14 @@ const (
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
 var zoomUnitSizes = [9]int{4, 6, 8, 12, 16, 24, 32, 48, 64}
 
-// zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=8x8, 2=16x16).
-// Intermediate levels use the largest sprite set that doesn't exceed the unit size.
-var zoomSpriteSet = [9]int{0, 0, 1, 1, 2, 2, 2, 2, 2}
+// zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=16x16).
+// Each level uses the largest sprite set that doesn't exceed its unit size.
+var zoomSpriteSet = [9]int{0, 0, 0, 0, 1, 1, 1, 1, 1}
 
 // zoomSpriteSizes is the native pixel size per sprite set.
-var zoomSpriteSizes = [3]int{4, 8, 16}
+var zoomSpriteSizes = [2]int{4, 16}
 
-// SpriteSet returns the sprite set index (0-2) for the current zoom level.
+// SpriteSet returns the sprite set index (0-1) for the current zoom level.
 func (cam *Camera) SpriteSet() int {
 	return zoomSpriteSet[cam.Zoom]
 }

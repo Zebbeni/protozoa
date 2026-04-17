@@ -42,17 +42,17 @@ var (
 	Images map[ImageRole]*ebiten.Image
 )
 
-// ZoomImages holds sprite sets for all 3 zoom levels (indexed by ZoomLevel 0-2).
-var ZoomImages [3]map[ImageRole]*ebiten.Image
+// ZoomImages holds sprite sets for the 2 native sprite sizes (0=4x4, 1=16x16).
+var ZoomImages [2]map[ImageRole]*ebiten.Image
 
 func Init() {
 	initFonts()
 	initImages()
 }
 
-// SelectZoom sets the active image set to the given zoom level (0-2).
+// SelectZoom sets the active image set to the given sprite-set index (0-1).
 func SelectZoom(level int) {
-	if level < 0 || level > 2 {
+	if level < 0 || level > 1 {
 		return
 	}
 	Images = ZoomImages[level]
@@ -71,8 +71,8 @@ func initImages() {
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	dirs := [3]string{"4x4", "8x8", "16x16"}
-	sizes := [3]int{4, 8, 16}
+	dirs := [2]string{"4x4", "16x16"}
+	sizes := [2]int{4, 16}
 
 	for i, dir := range dirs {
 		size := sizes[i]
@@ -100,7 +100,7 @@ func initImages() {
 		}
 	}
 
-	SelectZoom(1)
+	SelectZoom(0)
 }
 
 func generateFilledImage(totalSize, innerSize int) *ebiten.Image {

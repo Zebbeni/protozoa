@@ -82,8 +82,8 @@ type Grid struct {
 }
 
 func NewGrid(sim *simulation.Simulation) *Grid {
-	viewportW := config.ScreenWidth() - panelWidth
-	viewportH := config.ScreenHeight()
+	viewportW := (config.ScreenWidth() - panelWidth) / GridDisplayScale
+	viewportH := config.ScreenHeight() / GridDisplayScale
 	cam := NewCamera(viewportW, viewportH)
 
 	g := &Grid{
@@ -324,13 +324,16 @@ func (g *Grid) renderOverlayText(viewportImage *ebiten.Image) {
 		}
 		infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
 
-		// Position text near the hovered grid cell in screen coordinates
+		// Position text near the hovered grid cell, in the virtual viewport
+		// coordinate space used by the grid image.
 		mx, my := ebiten.CursorPosition()
-		screenX := mx - panelWidth + 15
-		screenY := my - 10
+		vx := (mx - panelWidth) / GridDisplayScale
+		vy := my / GridDisplayScale
+		screenX := vx + 15
+		screenY := vy - 10
 		bounds := boundString(resources.FontSourceCodePro10, infoText)
 		if screenX+bounds.Dx() > g.Camera.ViewportW {
-			screenX = mx - panelWidth - bounds.Dx() - 15
+			screenX = vx - bounds.Dx() - 15
 		}
 		_ = infoColor
 		text.Draw(viewportImage, infoText, resources.FontSourceCodePro10, screenX, screenY, selectionInfoColor)

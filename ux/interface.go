@@ -50,6 +50,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 		gridOptions:  &ebiten.DrawImageOptions{},
 		panelOptions: &ebiten.DrawImageOptions{},
 	}
+	i.gridOptions.GeoM.Scale(GridDisplayScale, GridDisplayScale)
 	i.gridOptions.GeoM.Translate(panelWidth, 0)
 
 	i.debug = NewDebug(sim)
@@ -65,8 +66,8 @@ func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 
 // OnResize updates viewport dimensions when the window is resized.
 func (i *Interface) OnResize() {
-	viewportW := config.ScreenWidth() - panelWidth
-	viewportH := config.ScreenHeight()
+	viewportW := (config.ScreenWidth() - panelWidth) / GridDisplayScale
+	viewportH := config.ScreenHeight() / GridDisplayScale
 	i.grid.Camera.ViewportW = viewportW
 	i.grid.Camera.ViewportH = viewportH
 	i.grid.doRefresh = true
@@ -111,7 +112,7 @@ func (i *Interface) handleKeyboard() {
 
 	// Zoom via keyboard
 	mx, my := ebiten.CursorPosition()
-	pivotX, pivotY := mx-panelWidth, my
+	pivotX, pivotY := (mx-panelWidth)/GridDisplayScale, my/GridDisplayScale
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) { // + key
 		i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
 	}
@@ -140,7 +141,7 @@ func (i *Interface) handleMouse() {
 	if wy != 0 {
 		mx, my := ebiten.CursorPosition()
 		if mx >= panelWidth {
-			pivotX, pivotY := mx-panelWidth, my
+			pivotX, pivotY := (mx-panelWidth)/GridDisplayScale, my/GridDisplayScale
 			if wy > 0 {
 				i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
 			} else {
@@ -177,9 +178,11 @@ func (i *Interface) handleMouse() {
 		}
 
 		if i.isDragging {
-			// Pan by the delta since last frame
-			frameDX := float64(mx-i.lastDragPos.X) / float64(i.grid.Camera.GridUnitSize())
-			frameDY := float64(my-i.lastDragPos.Y) / float64(i.grid.Camera.GridUnitSize())
+			// Pan by the delta since last frame. Screen pixels cover GridDisplayScale×
+			// more area than the internal viewport, so factor that into the conversion.
+			unitPixels := float64(i.grid.Camera.GridUnitSize() * GridDisplayScale)
+			frameDX := float64(mx-i.lastDragPos.X) / unitPixels
+			frameDY := float64(my-i.lastDragPos.Y) / unitPixels
 			i.grid.Camera.Pan(-frameDX, -frameDY)
 			i.lastDragPos = image.Pt(mx, my)
 		}
@@ -246,8 +249,8 @@ func (i *Interface) renderPanel(screen *ebiten.Image) {
 // using the camera's offset and zoom level.
 func (i *Interface) getMouseGridLocation() (utils.Point, bool) {
 	mouseX, mouseY := ebiten.CursorPosition()
-	screenX := mouseX - panelWidth
-	screenY := mouseY
+	screenX := (mouseX - panelWidth) / GridDisplayScale
+	screenY := mouseY / GridDisplayScale
 	gridX, gridY, onGrid := i.grid.Camera.ScreenToGrid(screenX, screenY)
 	return utils.Point{X: gridX, Y: gridY}, onGrid
 }
