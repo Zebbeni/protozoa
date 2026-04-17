@@ -99,6 +99,13 @@ type FoodChangeRecord struct {
 	Value int
 }
 
+// HistoryPayload stores the complete pH distribution and pH effect history,
+// serialized once at the end of a simulation run.
+type HistoryPayload struct {
+	PhDistribution map[int]map[int]int32 // cycle -> bucket -> count
+	PhEffect       map[int]map[int]int32 // cycle -> bucket -> count
+}
+
 // DescendantTreesPayload contains the full descendant trees, serialized once
 // at the end of a simulation run.
 type DescendantTreesPayload struct {

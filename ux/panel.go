@@ -10,6 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/replay"
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux/graph"
@@ -18,12 +19,15 @@ import (
 const (
 	padding     = 15
 	panelWidth  = 400
-	panelInnerH = 2000 // tall enough for all content
+	panelInnerH = 2000
 
 	titleXOffset = padding
 	titleYOffset = padding
 	playXOffset  = padding
 	playYOffset  = 0
+
+	replayCtrlY      = 55  // Y offset for replay controls (below title)
+	replayCtrlHeight = 35  // height of the replay control bar
 
 	statsXOffset = padding
 	statsYOffset = 69
@@ -35,11 +39,18 @@ const (
 	graphYOffset = 130
 	graphWidth   = 370
 	graphHeight  = 120
+
+	// Scrubber dimensions
+	scrubberX      = padding
+	scrubberW      = panelWidth - padding*2
+	scrubberH      = 8
+	scrubberHandleW = 4
 )
 
 type Panel struct {
 	simulation         *s.Simulation
 	grid               *Grid
+	replayCtrl         *replay.Controller
 	previousPanelImage *ebiten.Image
 	graph              *graph.Graph
 	scrollY            float64
@@ -52,6 +63,11 @@ func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
 		grid:       grid,
 		graph:      graph.NewGraph(sim),
 	}
+}
+
+// SetReplayController enables replay controls in the panel.
+func (p *Panel) SetReplayController(ctrl *replay.Controller) {
+	p.replayCtrl = ctrl
 }
 
 // HandleScroll processes mouse wheel input when the cursor is over the panel.
@@ -70,6 +86,13 @@ func (p *Panel) clampScroll() {
 	p.scrollY = max(0, min(p.scrollY, maxScroll))
 }
 
+func (p *Panel) replayYOffset() int {
+	if p.replayCtrl != nil {
+		return replayCtrlHeight
+	}
+	return 0
+}
+
 func (p *Panel) Render() *ebiten.Image {
 	screenH := config.ScreenHeight()
 
@@ -79,9 +102,13 @@ func (p *Panel) Render() *ebiten.Image {
 	p.renderDividingLine(innerImage, screenH)
 	p.renderTitle(innerImage)
 	p.renderKeyBindingText(innerImage)
-	p.renderStats(innerImage)
-	p.renderGraph(innerImage)
-	contentBottom := p.renderSelected(innerImage)
+	if p.replayCtrl != nil {
+		p.renderReplayControls(innerImage)
+	}
+	yOff := p.replayYOffset()
+	p.renderStats(innerImage, yOff)
+	p.renderGraph(innerImage, yOff)
+	contentBottom := p.renderSelected(innerImage, yOff)
 	p.contentHeight = contentBottom + padding
 
 	// Extract visible portion based on scroll
@@ -131,6 +158,174 @@ func (p *Panel) renderDividingLine(panelImage *ebiten.Image, screenH int) {
 	// Drawn on the final output instead, see Render()
 }
 
+func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
+	ctrl := p.replayCtrl
+	cycle := ctrl.Cycle()
+	finalCycle := ctrl.FinalCycle
+	paused := p.simulation.IsPaused()
+
+	// Scrubber track
+	scrubY := replayCtrlY
+	ebitenutil.DrawRect(panelImage, float64(scrubberX), float64(scrubY), float64(scrubberW), float64(scrubberH),
+		color.RGBA{R: 50, G: 50, B: 60, A: 255})
+
+	// Scrubber fill (progress)
+	progress := 0.0
+	if finalCycle > 0 {
+		progress = float64(cycle) / float64(finalCycle)
+	}
+	fillW := progress * float64(scrubberW)
+	ebitenutil.DrawRect(panelImage, float64(scrubberX), float64(scrubY), fillW, float64(scrubberH),
+		color.RGBA{R: 80, G: 80, B: 120, A: 255})
+
+	// Scrubber handle
+	handleX := float64(scrubberX) + fillW - float64(scrubberHandleW)/2
+	ebitenutil.DrawRect(panelImage, handleX, float64(scrubY-2), float64(scrubberHandleW), float64(scrubberH+4),
+		color.RGBA{R: 180, G: 180, B: 220, A: 255})
+
+	// Snapshot markers on the scrubber
+	for _, snapCycle := range ctrl.SnapshotCycles() {
+		if finalCycle > 0 {
+			mx := float64(scrubberX) + float64(snapCycle)/float64(finalCycle)*float64(scrubberW)
+			ebitenutil.DrawRect(panelImage, mx, float64(scrubY), 1, float64(scrubberH),
+				color.RGBA{R: 150, G: 150, B: 150, A: 100})
+		}
+	}
+
+	// Buttons row below scrubber
+	btnY := scrubY + scrubberH + 6
+	btnH := 16
+	btnGap := 4
+	bx := scrubberX
+
+	// Prev cycle
+	p.drawButton(panelImage, bx, btnY, 24, btnH, "<<", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	bx += 24 + btnGap
+
+	// Play/Pause
+	if paused {
+		p.drawButton(panelImage, bx, btnY, 36, btnH, "PLAY", color.RGBA{R: 100, G: 200, B: 100, A: 255})
+	} else {
+		p.drawButton(panelImage, bx, btnY, 36, btnH, "STOP", color.RGBA{R: 200, G: 200, B: 100, A: 255})
+	}
+	bx += 36 + btnGap
+
+	// Next cycle
+	p.drawButton(panelImage, bx, btnY, 24, btnH, ">>", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	bx += 24 + btnGap + 8
+
+	// Speed down / up
+	p.drawButton(panelImage, bx, btnY, 16, btnH, "-", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	bx += 16 + btnGap
+
+	// Speed indicator
+	speedLabel := fmt.Sprintf("%dx", ctrl.Speed)
+	text.Draw(panelImage, speedLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, color.RGBA{R: 200, G: 200, B: 200, A: 255})
+	bx += 28
+
+	p.drawButton(panelImage, bx, btnY, 16, btnH, "+", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	bx += 16 + btnGap + 8
+
+	// Cycle counter
+	cycleLabel := fmt.Sprintf("Cycle %d / %d", cycle, finalCycle)
+	text.Draw(panelImage, cycleLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, color.RGBA{R: 150, G: 150, B: 150, A: 255})
+}
+
+func (p *Panel) drawButton(img *ebiten.Image, x, y, w, h int, label string, col color.RGBA) {
+	// Button background
+	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h),
+		color.RGBA{R: 40, G: 40, B: 50, A: 255})
+	// Border
+	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), 1, color.RGBA{R: 70, G: 70, B: 80, A: 255})
+	ebitenutil.DrawRect(img, float64(x), float64(y+h-1), float64(w), 1, color.RGBA{R: 30, G: 30, B: 35, A: 255})
+	// Label centered
+	bounds := boundString(r.FontSourceCodePro8, label)
+	tx := x + (w-bounds.Dx())/2
+	ty := y + (h+bounds.Dy())/2
+	text.Draw(img, label, r.FontSourceCodePro8, tx, ty, col)
+}
+
+// HandleReplayClick handles clicks on replay controls. Returns true if consumed.
+func (p *Panel) HandleReplayClick(mx, my int) bool {
+	if p.replayCtrl == nil {
+		return false
+	}
+
+	// Adjust for scroll
+	my += int(p.scrollY)
+
+	// Check scrubber click (with expanded hit area for easier clicking)
+	scrubY := replayCtrlY
+	scrubHitPad := 4
+	if my >= scrubY-scrubHitPad && my < scrubY+scrubberH+scrubHitPad && mx >= scrubberX && mx < scrubberX+scrubberW {
+		progress := float64(mx-scrubberX) / float64(scrubberW)
+		targetCycle := int(progress * float64(p.replayCtrl.FinalCycle))
+		p.replayCtrl.SeekToCycle(targetCycle)
+		p.grid.doRefresh = true
+		return true
+	}
+
+	// Check button clicks
+	btnY := scrubY + scrubberH + 6
+	btnH := 16
+	btnGap := 4
+	bx := scrubberX
+
+	// Prev cycle (width 24)
+	if p.clickInRect(mx, my, bx, btnY, 24, btnH) {
+		p.simulation.Pause(true)
+		target := p.replayCtrl.Cycle() - 1
+		if target >= 0 {
+			p.replayCtrl.SeekToCycle(target)
+			p.grid.doRefresh = true
+		}
+		return true
+	}
+	bx += 24 + btnGap
+
+	// Play/Pause (width 36)
+	if p.clickInRect(mx, my, bx, btnY, 36, btnH) {
+		p.simulation.Pause(!p.simulation.IsPaused())
+		return true
+	}
+	bx += 36 + btnGap
+
+	// Next cycle (width 24)
+	if p.clickInRect(mx, my, bx, btnY, 24, btnH) {
+		p.simulation.Pause(true)
+		p.replayCtrl.StepForward()
+		return true
+	}
+	bx += 24 + btnGap + 8
+
+	// Speed down (width 16)
+	if p.clickInRect(mx, my, bx, btnY, 16, btnH) {
+		speed := p.replayCtrl.Speed / 2
+		if speed < 1 {
+			speed = 1
+		}
+		p.replayCtrl.SetSpeed(speed)
+		return true
+	}
+	bx += 16 + btnGap + 28 // skip speed label
+
+	// Speed up (width 16)
+	if p.clickInRect(mx, my, bx, btnY, 16, btnH) {
+		speed := p.replayCtrl.Speed * 2
+		if speed > 64 {
+			speed = 64
+		}
+		p.replayCtrl.SetSpeed(speed)
+		return true
+	}
+
+	return false
+}
+
+func (p *Panel) clickInRect(mx, my, bx, by, w, h int) bool {
+	return mx >= bx && mx < bx+w && my >= by && my < by+h
+}
+
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	bounds := boundString(r.FontInversionz40, "protozoa")
 	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
@@ -154,13 +349,13 @@ func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
 	}
 }
 
-func (p *Panel) renderStats(panelImage *ebiten.Image) {
+func (p *Panel) renderStats(panelImage *ebiten.Image, yOff int) {
 	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nDEAD: %10d",
 		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetDeadCount())
-	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset, color.White)
+	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, color.White)
 }
 
-func (p *Panel) renderGraph(panelImage *ebiten.Image) {
+func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 	// Sync graph mode with grid view mode
 	var graphMode graph.Mode
 	var label string
@@ -185,7 +380,9 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 		label = fmt.Sprintf("%s (ORG ID: %d)", label, p.simulation.GetSelected())
 	}
 
-	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, graphYOffset, color.White)
+	gY := graphYOffset + yOff
+
+	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, gY, color.White)
 	graphImage := p.graph.Render()
 	if graphImage == nil {
 		return
@@ -194,7 +391,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 	scaleX := float64(graphWidth) / float64(graphImage.Bounds().Dx())
 	scaleY := float64(graphHeight) / float64(graphImage.Bounds().Dy())
 	graphOptions.GeoM.Scale(scaleX, scaleY)
-	graphOptions.GeoM.Translate(graphXOffset, graphYOffset+10)
+	graphOptions.GeoM.Translate(float64(graphXOffset), float64(gY+10))
 
 	panelImage.DrawImage(graphImage, graphOptions)
 
@@ -205,12 +402,12 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 			phLabel := fmt.Sprintf("avg: %.1f", avgPh)
 			// Map pH to Y within the graph area: MaxPh=top, MinPh=bottom
 			phRange := config.MaxPh() - config.MinPh()
-			lineY := float64(graphYOffset+10) + float64(graphHeight)*(1.0-(avgPh-config.MinPh())/phRange)
+			lineY := float64(gY+10) + float64(graphHeight)*(1.0-(avgPh-config.MinPh())/phRange)
 			bounds := boundString(r.FontSourceCodePro8, phLabel)
 			textX := graphXOffset + graphWidth - bounds.Dx() - 2
 			textY := int(lineY) - 2
-			if textY < graphYOffset+10+bounds.Dy() {
-				textY = graphYOffset + 10 + bounds.Dy()
+			if textY < gY+10+bounds.Dy() {
+				textY = gY + 10 + bounds.Dy()
 			}
 			text.Draw(panelImage, phLabel, r.FontSourceCodePro8, textX, textY, color.White)
 		}
@@ -221,12 +418,12 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 		startCycle := p.graph.SelectedStartCycle()
 		if startCycle >= 0 {
 			cycleLabel := fmt.Sprintf("cycle %d", startCycle)
-			text.Draw(panelImage, cycleLabel, r.FontSourceCodePro8, graphXOffset+2, graphYOffset+10+8, color.White)
+			text.Draw(panelImage, cycleLabel, r.FontSourceCodePro8, graphXOffset+2, gY+10+8, color.White)
 		}
 	}
 
 	// draw border around graph
-	left, top, right, bottom := float64(graphXOffset), float64(graphYOffset+10), float64(graphXOffset+graphWidth), float64(graphYOffset+graphHeight+10)
+	left, top, right, bottom := float64(graphXOffset), float64(gY+10), float64(graphXOffset+graphWidth), float64(gY+graphHeight+10)
 	ebitenutil.DrawLine(panelImage, left, top, right, top, color.White)
 	ebitenutil.DrawLine(panelImage, right, top, right, bottom, color.White)
 	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, color.White)
@@ -235,14 +432,15 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image) {
 
 // renderSelected draws the selected organism info and decision tree.
 // Returns the Y position after the last line of content.
-func (p *Panel) renderSelected(panelImage *ebiten.Image) int {
+func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
+	sY := selectedYOffset + yOff
 	id := p.simulation.GetSelected()
 	info := p.simulation.GetOrganismInfoByID(id)
 	traits, found := p.simulation.GetOrganismTraitsByID(id)
 
 	decisionTree := p.simulation.GetOrganismDecisionTreeByID(id)
 	if info == nil || decisionTree == nil || found == false {
-		return selectedYOffset
+		return sY
 	}
 	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
@@ -251,9 +449,9 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image) int {
 	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
 	infoLineCount := strings.Count(infoString, "\n") + 1
 	infoHeight := infoLineCount * r.FontSourceCodePro12.Metrics().Height.Round()
-	offsetY := selectedYOffset + infoHeight + padding
+	offsetY := sY + infoHeight + padding
 
-	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, selectedYOffset, color.White)
+	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, sY, color.White)
 
 	// Render decision tree with dim color for untravelled nodes
 	text.Draw(panelImage, "DECISION TREE:", r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)

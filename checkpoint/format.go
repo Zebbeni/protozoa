@@ -17,4 +17,5 @@ const (
 	SectionSnapshot        byte = 0x01
 	SectionDelta           byte = 0x02
 	SectionDescendantTrees byte = 0x03
+	SectionHistory         byte = 0x04
 )

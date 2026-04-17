@@ -10,6 +10,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -55,6 +56,11 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	i.debugOptions = &ebiten.DrawImageOptions{}
 	i.debugOptions.GeoM.Translate(panelWidth, 0)
 	return i
+}
+
+// SetReplayController enables replay controls in the panel.
+func (i *Interface) SetReplayController(ctrl *replay.Controller) {
+	i.panel.SetReplayController(ctrl)
 }
 
 // OnResize updates viewport dimensions when the window is resized.
@@ -147,7 +153,11 @@ func (i *Interface) handleMouse() {
 	mx, my := ebiten.CursorPosition()
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		// Check minimap click first
+		// Check replay controls first (panel area)
+		if mx < panelWidth && i.panel.HandleReplayClick(mx, my) {
+			return
+		}
+		// Check minimap click
 		if i.minimap.HandleClick(mx, my) {
 			return
 		}

@@ -18,6 +18,10 @@ type Controller struct {
 	options   *config.Options
 	snapshots []checkpoint.SnapshotEntry
 
+	// Pre-loaded data that survives seeks
+	treesPayload   *checkpoint.DescendantTreesPayload
+	historyPayload *checkpoint.HistoryPayload
+
 	// Playback state
 	Speed      int // cycles per frame (1 = normal, 2 = 2x, etc.)
 	FinalCycle int // last cycle in the file (from last snapshot)
@@ -65,8 +69,8 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 		FinalCycle: lastSnap.Cycle,
 	}
 
-	// Scan for the descendant trees section and load it
-	ctrl.loadDescendantTrees()
+	// Scan for descendant trees and history sections
+	ctrl.loadEndSections()
 
 	return ctrl, nil
 }
@@ -96,18 +100,25 @@ func (c *Controller) Update() {
 }
 
 // SeekToSnapshot restores from a specific snapshot index.
+// The existing simulation pointer is updated in-place so all UI references
+// remain valid.
 func (c *Controller) SeekToSnapshot(index int) error {
 	snap, err := c.reader.ReadSnapshot(index)
 	if err != nil {
 		return fmt.Errorf("failed to read snapshot %d: %w", index, err)
 	}
 
-	sim, err := simulation.RestoreFromSnapshot(snap, c.options)
-	if err != nil {
+	if err := c.sim.ResetFromSnapshot(snap); err != nil {
 		return fmt.Errorf("failed to restore snapshot %d: %w", index, err)
 	}
 
-	c.sim = sim
+	// Re-inject cached end-of-sim data into the new organism manager
+	if c.treesPayload != nil {
+		c.sim.RestoreDescendantTrees(c.treesPayload)
+	}
+	if c.historyPayload != nil {
+		c.sim.RestoreHistory(c.historyPayload)
+	}
 	return nil
 }
 
@@ -128,11 +139,25 @@ func (c *Controller) SeekToCycle(target int) error {
 		return err
 	}
 
-	// Simulate forward to the target cycle
+	// Temporarily unpause to simulate forward, since Update() checks isPaused
+	wasPaused := c.sim.IsPaused()
+	c.sim.Pause(false)
 	for c.sim.Cycle() < target {
 		c.sim.Update()
 	}
+	c.sim.Pause(wasPaused)
 	return nil
+}
+
+// StepForward advances the simulation by one cycle regardless of pause state.
+func (c *Controller) StepForward() {
+	if c.sim.Cycle() >= c.FinalCycle {
+		return
+	}
+	wasPaused := c.sim.IsPaused()
+	c.sim.Pause(false)
+	c.sim.Update()
+	c.sim.Pause(wasPaused)
 }
 
 // SetSpeed sets the playback speed (cycles per frame).
@@ -157,29 +182,34 @@ func (c *Controller) Close() error {
 	return c.reader.Close()
 }
 
-// loadDescendantTrees scans the file for the descendant trees section
-// (written at the end of the simulation) and restores it.
-func (c *Controller) loadDescendantTrees() {
-	// Open a fresh reader to scan for the trees section, since the original
-	// file handle's read position may be unreliable after gob decoder buffering.
-	treePath := c.reader.Path()
-	treeReader, err := checkpoint.OpenReader(treePath)
+// loadEndSections scans the file for the descendant trees and history sections
+// (written at the end of the simulation), caches them, and injects into the sim.
+func (c *Controller) loadEndSections() {
+	// Open a fresh reader to scan, since the original file handle's read
+	// position may be unreliable after gob decoder buffering.
+	freshReader, err := checkpoint.OpenReader(c.reader.Path())
 	if err != nil {
 		return
 	}
-	defer treeReader.Close()
+	defer freshReader.Close()
 
-	treeReader.SeekAfterHeader()
+	freshReader.SeekAfterHeader()
 	for {
-		sType, _, payload, err := treeReader.ReadNextSection()
+		sType, _, payload, err := freshReader.ReadNextSection()
 		if err != nil {
 			break
 		}
-		if sType == checkpoint.SectionDescendantTrees {
+		switch sType {
+		case checkpoint.SectionDescendantTrees:
 			if trees, ok := payload.(*checkpoint.DescendantTreesPayload); ok {
+				c.treesPayload = trees
 				c.sim.RestoreDescendantTrees(trees)
 			}
-			break
+		case checkpoint.SectionHistory:
+			if hist, ok := payload.(*checkpoint.HistoryPayload); ok {
+				c.historyPayload = hist
+				c.sim.RestoreHistory(hist)
+			}
 		}
 	}
 }

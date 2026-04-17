@@ -126,6 +126,7 @@ func (r *Runner) startReplayViewer() {
 	r.replayCtrl = ctrl
 	r.sim = ctrl.Simulation()
 	r.ui = ux.NewInterface(r.sim)
+	r.ui.SetReplayController(ctrl)
 	r.state = stateReplay
 
 	ebiten.SetScreenClearedEveryFrame(false)
@@ -190,6 +191,7 @@ func RunSimulation(opts *c.Options) {
 		}
 		gameRunner.sim = ctrl.Simulation()
 		gameRunner.ui = ux.NewInterface(gameRunner.sim)
+		gameRunner.ui.SetReplayController(ctrl)
 
 		ebiten.SetWindowResizable(true)
 		ebiten.SetScreenClearedEveryFrame(false)

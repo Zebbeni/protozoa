@@ -123,6 +123,11 @@ func (s *Simulation) RestoreDescendantTrees(payload *checkpoint.DescendantTreesP
 	s.organismManager.RestoreDescendantTrees(payload)
 }
 
+// RestoreHistory injects pre-built pH history into the organism manager.
+func (s *Simulation) RestoreHistory(payload *checkpoint.HistoryPayload) {
+	s.organismManager.RestoreHistory(payload)
+}
+
 // CloseRecorder writes the descendant trees and finalizes the checkpoint file.
 func (s *Simulation) CloseRecorder() {
 	if s.recorder != nil {
@@ -130,6 +135,11 @@ func (s *Simulation) CloseRecorder() {
 		treesPayload := s.organismManager.CaptureDescendantTrees()
 		if err := s.recorder.WriteDescendantTrees(treesPayload); err != nil {
 			fmt.Printf("\nWarning: failed to write descendant trees: %v", err)
+		}
+		// Write the full pH history as a final section
+		histPayload := s.organismManager.CaptureHistory()
+		if err := s.recorder.WriteHistory(histPayload); err != nil {
+			fmt.Printf("\nWarning: failed to write history: %v", err)
 		}
 		if err := s.recorder.Close(); err != nil {
 			fmt.Printf("\nWarning: failed to close checkpoint file: %v", err)

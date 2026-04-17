@@ -58,6 +58,24 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 	return sim, nil
 }
 
+// ResetFromSnapshot replaces this simulation's internal state from a snapshot
+// while preserving the pointer identity (so all UI references remain valid).
+func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
+	rng, err := simrand.RestoreFromState(snap.RNGState)
+	if err != nil {
+		return fmt.Errorf("failed to restore RNG state: %w", err)
+	}
+
+	s.rng = rng
+	s.cycle = snap.Cycle
+	s.updateManager = manager.NewUpdateManager()
+	s.environmentManager = restoreEnvironment(s, snap)
+	s.foodManager = restoreFood(s, rng, snap)
+	s.organismManager = restoreOrganisms(s, rng, snap)
+
+	return nil
+}
+
 func restoreEnvironment(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.EnvironmentManager {
 	return manager.RestoreEnvironmentManager(sim, snap.CurrentPhMap, snap.PreviousPhMap)
 }

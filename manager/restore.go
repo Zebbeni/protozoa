@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"fmt"
 	"image/color"
 
 	"github.com/lucasb-eyer/go-colorful"
@@ -39,6 +38,14 @@ func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodR
 	}
 }
 
+// RestoreHistory injects pre-built pH distribution and effect history into the OrganismManager.
+func (m *OrganismManager) RestoreHistory(payload *checkpoint.HistoryPayload) {
+	m.historyMutex.Lock()
+	defer m.historyMutex.Unlock()
+	m.history[HistoryPhDistribution] = payload.PhDistribution
+	m.history[HistoryPhEffect] = payload.PhEffect
+}
+
 // RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
 // and injects them into the OrganismManager. Also rebuilds the ancestor ID list
 // and color map from the tree roots so all ancestors are available for graphing.
@@ -65,12 +72,8 @@ func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantT
 	for _, o := range m.organisms {
 		if node, ok := nodeIndex[o.ID]; ok {
 			o.TreeNode = node
-			fmt.Printf("\n[restore] linked organism %d to tree node (startCycle=%d)", o.ID, node.StartCycle)
-		} else {
-			fmt.Printf("\n[restore] WARNING: organism %d not found in tree index", o.ID)
 		}
 	}
-	fmt.Printf("\n[restore] organisms=%d, nodeIndex=%d, trees=%d", len(m.organisms), len(nodeIndex), len(trees))
 }
 
 // indexTreeNodes recursively collects all tree nodes into a map keyed by ID.

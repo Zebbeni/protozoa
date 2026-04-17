@@ -83,6 +83,29 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	return
 }
 
+// CaptureHistory returns a deep copy of the pH distribution and effect history maps.
+func (m *OrganismManager) CaptureHistory() *checkpoint.HistoryPayload {
+	m.historyMutex.RLock()
+	defer m.historyMutex.RUnlock()
+
+	return &checkpoint.HistoryPayload{
+		PhDistribution: copyHistoryMap(m.history[HistoryPhDistribution]),
+		PhEffect:       copyHistoryMap(m.history[HistoryPhEffect]),
+	}
+}
+
+func copyHistoryMap(src map[int]map[int]int32) map[int]map[int]int32 {
+	dst := make(map[int]map[int]int32, len(src))
+	for cycle, buckets := range src {
+		dstBuckets := make(map[int]int32, len(buckets))
+		for k, v := range buckets {
+			dstBuckets[k] = v
+		}
+		dst[cycle] = dstBuckets
+	}
+	return dst
+}
+
 // CaptureDescendantTrees serializes all descendant trees for the final checkpoint section.
 func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPayload {
 	trees := make([]checkpoint.DescendantTreeRecord, 0, len(m.originalAncestors))

@@ -219,6 +219,12 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 			return
 		}
 		payload = &trees
+	case SectionHistory:
+		var hist HistoryPayload
+		if err = gob.NewDecoder(bytes.NewReader(decompData)).Decode(&hist); err != nil {
+			return
+		}
+		payload = &hist
 	default:
 		err = fmt.Errorf("unknown section type: %d", sectionType)
 	}
