@@ -107,8 +107,7 @@ func (r *Runner) startHeadlessSimulation() {
 			}
 			if sim.Cycle()%1000 == 0 {
 				if summary := sim.TimingSummary(); summary != "" {
-					r.progressScreen.AddLog("")
-					r.progressScreen.AddLog(summary)
+					r.progressScreen.SetTimingSummary(summary)
 				}
 			}
 		}

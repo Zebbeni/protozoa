@@ -224,9 +224,8 @@ func (s *Simulation) TimingSummary() string {
 			"  Environment:     %8s\n"+
 			"  Decide phase:    %8s\n"+
 			"    Sort IDs:      %8s\n"+
-			"    UpdateStats:   %8s\n"+
-			"    Tree eval:     %8s\n"+
-			"    Request map:   %8s\n"+
+			"    Parallel work: %8s\n"+
+			"    Merge:         %8s\n"+
 			"  Resolve phase:   %8s\n"+
 			"    Health calc:   %8s\n"+
 			"    Actions:       %8s\n"+
@@ -240,7 +239,7 @@ func (s *Simulation) TimingSummary() string {
 		avg(s.accEnv),
 		avg(accDecide),
 		avg(s.accSort), avg(s.accDecideStats),
-		avg(s.accDecideTree), avg(s.accDecideRequest),
+		avg(s.accDecideRequest),
 		avg(accResolve),
 		avg(s.accResolveHealth), avg(s.accResolveAction),
 		avg(s.accResolveSpawn), spawnsPerCycle, avgSpawn,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -118,32 +119,68 @@ func (m *OrganismManager) updateOrganismActions() {
 	sort.Ints(ids)
 	m.SortDuration = time.Since(start)
 
-	var accStats, accTree, accRequest time.Duration
-	for _, id := range ids {
-		o := m.organisms[id]
+	n := len(ids)
+	numWorkers := runtime.NumCPU()
+	if numWorkers > n {
+		numWorkers = max(1, n)
+	}
 
-		// if previous action was attack, allow the screen to render white
-		if o.Action() == d.ActAttack {
-			m.addUpdatedPoint(o.Location)
+	type workerResult struct {
+		requests     RequestManager
+		organismIds  []int
+		attackPoints []utils.Point
+	}
+
+	results := make([]workerResult, numWorkers)
+	chunkSize := (n + numWorkers - 1) / numWorkers
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		lo := w * chunkSize
+		hi := lo + chunkSize
+		if hi > n {
+			hi = n
+		}
+		if lo >= hi {
+			continue
 		}
 
-		t0 := time.Now()
-		o.UpdateStats()
-		t1 := time.Now()
-		o.UpdateAction()
-		t2 := time.Now()
-		m.updateRequestMap(o)
-		m.addToOrganismIds(o)
-		t3 := time.Now()
+		wg.Add(1)
+		go func(workerIdx int, chunk []int) {
+			defer wg.Done()
+			r := &results[workerIdx]
+			r.requests.ClearMaps()
+			r.organismIds = make([]int, 0, len(chunk))
 
-		accStats += t1.Sub(t0)
-		accTree += t2.Sub(t1)
-		accRequest += t3.Sub(t2)
+			for _, id := range chunk {
+				o := m.organisms[id]
+
+				if o.Action() == d.ActAttack {
+					r.attackPoints = append(r.attackPoints, o.Location)
+				}
+
+				o.UpdateStats()
+				o.UpdateAction()
+				m.updateRequestMapTo(o, &r.requests)
+				r.organismIds = append(r.organismIds, o.ID)
+			}
+		}(w, ids[lo:hi])
 	}
-	m.DecideStatsDuration = accStats
-	m.DecideTreeDuration = accTree
-	m.DecideRequestDuration = accRequest
+	wg.Wait()
+	m.DecideStatsDuration = time.Since(start) - m.SortDuration // parallel work wall-clock
 
+	// Merge results (sequential, deterministic — in chunk order)
+	mergeStart := time.Now()
+	for i := range results {
+		r := &results[i]
+		for _, p := range r.attackPoints {
+			m.addUpdatedPoint(p)
+		}
+		m.organismIds = append(m.organismIds, r.organismIds...)
+		m.requestManager.MergeFrom(&r.requests)
+	}
+	m.DecideTreeDuration = 0    // not measured separately in parallel mode
+	m.DecideRequestDuration = time.Since(mergeStart)
 	m.UpdateDuration = time.Since(start)
 }
 
@@ -271,17 +308,28 @@ func (m *OrganismManager) updateHistory() {
 }
 
 func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
+	m.updateRequestMapTo(o, &m.requestManager)
+}
+
+func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestManager) {
 	switch o.Action() {
 	case d.ActEat:
-		m.addFoodRequest(o)
+		target := o.Location.Add(o.Direction)
+		value := int(math.Ceil(m.calculateValueToEat(o, target)))
+		rm.AddFoodRequest(target, value)
 	case d.ActMove:
-		m.addMoveRequest(o)
+		target := o.Location.Add(o.Direction)
+		if m.isGridLocationEmpty(target) {
+			rm.AddPositionRequest(target, o.ID)
+		}
 	case d.ActSpawn:
-		m.addSpawnRequest(o)
+		if target, ok := m.getChildSpawnLocation(o); ok {
+			rm.AddPositionRequest(target, o.ID)
+		}
 	case d.ActAttack:
-		m.addAttackRequest(o)
-	default:
-		return
+		effect := m.calculateAttackEffect(o)
+		target := o.Location.Add(o.Direction)
+		rm.AddHealthEffectRequest(target, effect)
 	}
 }
 
