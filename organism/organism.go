@@ -230,7 +230,8 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 }
 
 // Traits returns an organism's traits
-func (o Organism) Traits() Traits { return o.traits }
+func (o Organism) Traits() Traits    { return o.traits }
+func (o *Organism) TraitsRef() *Traits { return &o.traits }
 
 // InitialHealth returns the health an organism and its children start life with
 func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }

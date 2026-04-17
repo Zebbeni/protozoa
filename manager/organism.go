@@ -232,7 +232,7 @@ func (m *OrganismManager) updateHistory() {
 		populationMap[o.OriginalAncestorID]++
 
 		// bucket phEffect from [-maxEffect, +maxEffect] into numBuckets bands
-		effect := o.Traits().PhGrowthEffect
+		effect := o.TraitsRef().PhGrowthEffect
 		normalized := (effect + maxEffect) / (2 * maxEffect) // [0, 1]
 		bucket := int(normalized * float64(numBuckets))
 		if bucket < 0 {
@@ -353,7 +353,7 @@ func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
 }
 
 func (m *OrganismManager) applyOrganismPhGrowthEffect(o *organism.Organism) {
-	m.api.AddPhChangeAtPoint(o.Location, o.Traits().PhGrowthEffect*o.Size)
+	m.api.AddPhChangeAtPoint(o.Location, o.TraitsRef().PhGrowthEffect*o.Size)
 }
 
 func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
@@ -653,11 +653,12 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
+	traits := o.TraitsRef()
 	phEffect := 0.0
 	// Subtract health if organism is too far away from its ideal ph
-	phDist := math.Abs(o.Traits().IdealPh - m.api.GetPhAtPoint(o.Location))
-	if phDist > o.Traits().PhTolerance {
-		phEffect = (phDist - o.Traits().PhTolerance) * c.HealthChangePerUnhealthyPh()
+	phDist := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
+	if phDist > traits.PhTolerance {
+		phEffect = (phDist - traits.PhTolerance) * c.HealthChangePerUnhealthyPh()
 	}
 	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
@@ -667,10 +668,9 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 // add a positive health change if organism attempts chemosynthesis in a
 // favorable ph environment
 func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
+	traits := o.TraitsRef()
 	ph := m.api.GetPhAtPoint(o.Location)
-	ideal := o.Traits().IdealPh
-	tolerance := o.Traits().PhTolerance
-	if math.Abs(ideal-ph) < tolerance {
+	if math.Abs(traits.IdealPh-ph) < traits.PhTolerance {
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
 	}
 }
