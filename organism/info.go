@@ -11,6 +11,7 @@ type Info struct {
 	ID         int
 	Health     float64
 	Location   utils.Point
+	Direction  utils.Point
 	Size       float64
 	Action     decision.Action
 	AncestorID int

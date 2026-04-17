@@ -59,9 +59,12 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	return i
 }
 
-// SetReplayController enables replay controls in the panel.
+// SetReplayController enables replay controls in the panel and hands the
+// grid the controller's animation state so sprite animation stays in sync
+// with cycle advancement.
 func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 	i.panel.SetReplayController(ctrl)
+	i.grid.SetAnimationState(ctrl.AnimState)
 }
 
 // OnResize updates viewport dimensions when the window is resized.
@@ -235,6 +238,9 @@ func (i *Interface) renderGrid(screen *ebiten.Image) {
 	start := time.Now()
 	gridImage := i.grid.Render()
 	screen.DrawImage(gridImage, i.gridOptions)
+	// Overlay text drawn after scaling so the font stays crisp at its
+	// authored size instead of being multiplied by GridDisplayScale.
+	i.grid.RenderOverlayText(screen)
 	i.debug.gridRenderTime = time.Since(start)
 }
 

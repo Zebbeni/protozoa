@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/simulation"
@@ -22,8 +23,17 @@ type Controller struct {
 	treesPayload   *checkpoint.DescendantTreesPayload
 	historyPayload *checkpoint.HistoryPayload
 
+	// Animation + timing state shared with the renderer. Owned here so the
+	// same clock drives both "when to advance the sim" and "how far through
+	// the current cycle's animation are we." See animation package docs.
+	AnimState *animation.State
+
+	// wasPaused tracks pause transitions so we can reset the animation clock
+	// on unpause and avoid a burst of catch-up cycles.
+	wasPaused bool
+
 	// Playback state
-	Speed      int // cycles per frame (1 = normal, 2 = 2x, etc.)
+	Speed      int // playback multiplier; see animation package for semantics
 	FinalCycle int // last cycle in the file (from last snapshot)
 }
 
@@ -65,6 +75,7 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 		sim:        sim,
 		options:    options,
 		snapshots:  reader.SnapshotIndex,
+		AnimState:  animation.NewState(),
 		Speed:      1,
 		FinalCycle: lastSnap.Cycle,
 	}
@@ -85,17 +96,38 @@ func (c *Controller) Cycle() int {
 	return c.sim.Cycle()
 }
 
-// Update advances the simulation if not paused. Called each frame.
+// Update is called each ebiten tick. It advances the simulation based on
+// wall-clock time rather than ebiten's tick rate, so playback speed is
+// decoupled from the render rate and the animation window stays constant.
+//
+// The loop keeps advancing cycles while the animation clock says the
+// current cycle's window has fully elapsed — at normal speeds that's at
+// most one cycle per tick; at very high speeds (Speed > BaseFramesPerCycle)
+// multiple cycles can collapse into a single tick.
 func (c *Controller) Update() {
-	if c.sim.IsPaused() {
+	paused := c.sim.IsPaused()
+	if paused {
+		c.wasPaused = true
 		return
 	}
-	for i := 0; i < c.Speed; i++ {
+	if c.wasPaused {
+		// Just unpaused: re-anchor the clock so we don't fast-forward
+		// through cycles based on how long the pause lasted.
+		c.AnimState.ResetClock()
+		c.wasPaused = false
+	}
+
+	// Keep animation state in sync with the caller-owned Speed knob.
+	c.AnimState.Speed = c.Speed
+
+	for c.AnimState.ShouldAdvance() {
 		if c.sim.Cycle() >= c.FinalCycle {
 			c.sim.Pause(true)
 			return
 		}
+		c.AnimState.BeforeUpdate(c.sim.GetAllOrganismInfo())
 		c.sim.Update()
+		c.AnimState.AfterUpdate(c.sim.GetAllOrganismInfo())
 	}
 }
 
@@ -119,6 +151,10 @@ func (c *Controller) SeekToSnapshot(index int) error {
 	if c.historyPayload != nil {
 		c.sim.RestoreHistory(c.historyPayload)
 	}
+	// Clear animation state: pre-seek frames no longer describe the current
+	// organism set, and the clock must start fresh at the new position.
+	c.AnimState.Frames = map[int]animation.Frame{}
+	c.AnimState.ResetClock()
 	return nil
 }
 
@@ -149,23 +185,28 @@ func (c *Controller) SeekToCycle(target int) error {
 	return nil
 }
 
-// StepForward advances the simulation by one cycle regardless of pause state.
+// StepForward advances the simulation by one cycle regardless of pause state,
+// capturing the animation batch so the renderer can animate the transition.
 func (c *Controller) StepForward() {
 	if c.sim.Cycle() >= c.FinalCycle {
 		return
 	}
 	wasPaused := c.sim.IsPaused()
 	c.sim.Pause(false)
+	c.AnimState.BeforeUpdate(c.sim.GetAllOrganismInfo())
 	c.sim.Update()
+	c.AnimState.AfterUpdate(c.sim.GetAllOrganismInfo())
 	c.sim.Pause(wasPaused)
 }
 
-// SetSpeed sets the playback speed (cycles per frame).
+// SetSpeed sets the playback speed multiplier. See the animation package
+// for what Speed values mean in terms of frames per cycle.
 func (c *Controller) SetSpeed(speed int) {
 	if speed < 1 {
 		speed = 1
 	}
 	c.Speed = speed
+	c.AnimState.Speed = speed
 }
 
 // SnapshotCycles returns the cycle numbers of all snapshots.

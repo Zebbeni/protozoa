@@ -115,6 +115,26 @@ func (g *Graph) Render() *ebiten.Image {
 	default:
 	}
 
+	// Backward seek: the sim is now at a cycle earlier than what our cached
+	// images and per-renderer caches depict. Neither the paused branch nor
+	// shouldUpdate() will catch this (both assume monotonic forward motion),
+	// so handle it explicitly here. At this point g.rendering is false, so
+	// calling Reset() on the renderers is safe.
+	targetBarCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
+	seekedBack := g.images[ModePopulation] != nil && targetBarCount < g.currentBarCount
+	if seekedBack && !g.rendering {
+		for _, r := range g.renderers {
+			r.Reset()
+		}
+		for _, r := range g.selRenderers {
+			r.Reset()
+		}
+		g.rendering = true
+		hasSelection := g.selectedSubTreeRoot != nil
+		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, targetBarCount, 0)
+		return g.currentImage()
+	}
+
 	if g.simulation.IsPaused() {
 		if selectionChanged && !g.rendering {
 			g.rendering = true

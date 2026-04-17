@@ -118,6 +118,7 @@ func (o *Organism) Info() *Info {
 		ID:         o.ID,
 		Health:     o.Health,
 		Location:   o.Location,
+		Direction:  o.Direction,
 		Size:       o.Size,
 		Action:     o.action,
 		AncestorID: o.OriginalAncestorID,

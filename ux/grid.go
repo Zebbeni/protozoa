@@ -10,6 +10,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
 
+	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
@@ -47,7 +48,6 @@ const (
 var (
 	foodColor          = colorful.HSLuv(120, 0.2, 0.25)
 	wallColor          = colorful.HSLuv(60, 0.25, 0.1)
-	attackColor        = colorful.HSLuv(0.0, 255.0, 1.0)
 	selectColor        = colorful.HSLuv(0.0, 255.0, 1.0)
 	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
 	selectionInfoColor = colorful.HSLuv(0.0, 0, 1.0)
@@ -70,6 +70,7 @@ var (
 type Grid struct {
 	simulation *simulation.Simulation
 	Camera     *Camera
+	animState  *animation.State
 
 	layers map[layerType]*ebiten.Image
 
@@ -123,6 +124,13 @@ func (g *Grid) newEnvLayer() *ebiten.Image {
 
 func (g *Grid) unitSize() int {
 	return g.Camera.GridUnitSize()
+}
+
+// SetAnimationState attaches the playback animation state the renderer
+// should read from. Without it the grid falls back to drawing organisms at
+// their current (non-interpolated) locations.
+func (g *Grid) SetAnimationState(s *animation.State) {
+	g.animState = s
 }
 
 // SetZoom changes zoom level, recreates layer caches, and forces a full refresh.
@@ -205,8 +213,8 @@ func (g *Grid) Render() *ebiten.Image {
 	// Draw selection boxes directly on viewport in screen coordinates
 	g.renderSelectionBoxes(viewportImage)
 
-	// Draw text overlays at screen resolution (after scaling)
-	g.renderOverlayText(viewportImage)
+	// Overlay text is drawn on the final screen by the caller (see
+	// RenderOverlayText) so it isn't multiplied by GridDisplayScale.
 
 	g.doRefresh = false
 	return viewportImage
@@ -270,22 +278,21 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 	}
 }
 
+// renderOrganisms fully clears and redraws the organism layer every call.
+//
+// Unlike the other layers (walls, food, env), organisms are animated: we
+// need a fresh draw every render tick so sprites at interpolated positions
+// don't leave trails and so the animation frame index can advance. Clearing
+// unconditionally also means "attack/move animations passing through a
+// neighbour cell" requires no special bookkeeping — both cells are empty
+// on the organism layer each frame, and food/walls below come from their
+// own layers.
 func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
-	if refresh {
-		organismInfo := g.simulation.GetAllOrganismInfo()
-		for _, info := range organismInfo {
-			g.renderOrganism(info, organismsImage)
-		}
-	} else {
-		updatedPoints := g.simulation.GetUpdatedOrganismPoints()
-		for point := range updatedPoints {
-			us := g.unitSize()
-			x, y := point.X*us, point.Y*us
-			g.clearSquare(organismsImage, float64(x), float64(y))
-			if info := g.simulation.GetOrganismInfoAtPoint(point); info != nil {
-				g.renderOrganism(info, organismsImage)
-			}
-		}
+	organismsImage.Clear()
+
+	organismInfo := g.simulation.GetAllOrganismInfo()
+	for _, info := range organismInfo {
+		g.renderOrganism(info, organismsImage)
 	}
 }
 
@@ -299,45 +306,43 @@ func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 	}
 }
 
-// renderOverlayText draws text overlays at screen resolution on the viewport image.
-func (g *Grid) renderOverlayText(viewportImage *ebiten.Image) {
-	// View mode name at top-left
-	if g.mouseOnGrid {
-		xPadding := 10
-		yPadding := 20
-		info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
-		text.Draw(viewportImage, info, resources.FontSourceCodePro10, xPadding, yPadding, selectionInfoColor)
+// RenderOverlayText draws the mode label and hover-info text directly onto
+// the final screen. Called by the Interface after compositing the scaled
+// grid, so the text isn't multiplied by GridDisplayScale.
+func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
+	if !g.mouseOnGrid {
+		return
 	}
 
-	// Hover info text near the cursor
-	if g.mouseOnGrid {
-		infoText := fmt.Sprintf("PH: %2.1f", g.simulation.GetPhAtPoint(g.mouseHoverLocation))
-		infoColor := hoverColor
-		if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
-			infoText += fmt.Sprintf("\nORG: %d", info.ID)
-			infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
-			infoColor = info.Color
-		} else {
-			if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
-				infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
-			}
-		}
-		infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
+	// View mode / selection label at top-left of the grid area.
+	xPadding := 10
+	yPadding := 20
+	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
+	text.Draw(screen, info, resources.FontSourceCodePro10, panelWidth+xPadding, yPadding, selectionInfoColor)
 
-		// Position text near the hovered grid cell, in the virtual viewport
-		// coordinate space used by the grid image.
-		mx, my := ebiten.CursorPosition()
-		vx := (mx - panelWidth) / GridDisplayScale
-		vy := my / GridDisplayScale
-		screenX := vx + 15
-		screenY := vy - 10
-		bounds := boundString(resources.FontSourceCodePro10, infoText)
-		if screenX+bounds.Dx() > g.Camera.ViewportW {
-			screenX = vx - bounds.Dx() - 15
+	// Hover info text near the cursor.
+	infoText := fmt.Sprintf("PH: %2.1f", g.simulation.GetPhAtPoint(g.mouseHoverLocation))
+	infoColor := hoverColor
+	if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
+		infoText += fmt.Sprintf("\nORG: %d", info.ID)
+		infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
+		infoColor = info.Color
+	} else {
+		if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
+			infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
 		}
-		_ = infoColor
-		text.Draw(viewportImage, infoText, resources.FontSourceCodePro10, screenX, screenY, selectionInfoColor)
 	}
+	infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
+
+	mx, my := ebiten.CursorPosition()
+	screenX := mx + 15
+	screenY := my - 10
+	bounds := boundString(resources.FontSourceCodePro10, infoText)
+	if screenX+bounds.Dx() > config.ScreenWidth() {
+		screenX = mx - bounds.Dx() - 15
+	}
+	_ = infoColor
+	text.Draw(screen, infoText, resources.FontSourceCodePro10, screenX, screenY, selectionInfoColor)
 }
 
 // ViewMode returns the current grid view mode
@@ -404,20 +409,27 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	us := g.unitSize()
 	x := float64(item.Point.X) * float64(us)
 	y := float64(item.Point.Y) * float64(us)
-	g.drawSprite(img, x, y, resources.RoleFood, foodColor)
+	sprite := resources.Sprite(resources.RoleFood, animation.AnimIdle, 0)
+	g.drawStaticSprite(img, x, y, sprite, foodColor)
 }
 
 func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
 	us := g.unitSize()
 	x := float64(point.X) * float64(us)
 	y := float64(point.Y) * float64(us)
-	g.drawSprite(wallsImage, x, y, resources.RoleBox, wallColor)
+	sprite := resources.Sprite(resources.RoleBox, animation.AnimIdle, 0)
+	g.drawStaticSprite(wallsImage, x, y, sprite, wallColor)
 }
 
+// renderOrganism draws an organism at its animation-interpolated position
+// using the action-specific sprite frame, rotated to face its direction.
+//
+// If we have an animation.Frame for this organism we use its FromLocation →
+// ToLocation pair plus the current Progress() to animate. Without one (newly
+// born organism, fresh seek, first frame before any cycle advance) we fall
+// back to the organism's static Location.
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
-	us := g.unitSize()
-	point := info.Location.Times(us)
-	x, y := float64(point.X), float64(point.Y)
+	us := float64(g.unitSize())
 
 	role := resources.RoleOrganismSmall
 	if info.Size < config.MaximumMaxSize()*0.4375 {
@@ -429,20 +441,88 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	}
 
 	organismColor := info.Color
-
 	if g.viewMode == phEffectsOnlyMode {
 		organismColor = PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, config.MaxOrganismPhGrowthEffect()))
 	}
 
-	if info.Action == decision.ActAttack {
-		organismColor = attackColor
+	// Defaults used when animation state is unavailable or the organism has
+	// no frame yet: render statically at the current location facing its
+	// current direction.
+	gridX := float64(info.Location.X)
+	gridY := float64(info.Location.Y)
+	direction := info.Direction
+	anim := animation.ForAction(info.Action)
+	frameIdx := 0
+
+	if g.animState != nil {
+		if frame, ok := g.animState.Frames[info.ID]; ok {
+			gridX, gridY = animatedCellPosition(frame, g.animState.Progress(), g.animState.AnimatesPosition())
+			direction = frame.Direction
+			// ForFrame, not ForAction, so a move whose position didn't
+			// change falls through to AnimBlocked instead of drawing the
+			// 2-cell travel sprite in place.
+			anim = animation.ForFrame(frame)
+		}
+		frameIdx = g.animState.FrameIndex()
 	}
 
-	g.drawSprite(img, x, y, role, organismColor)
+	// Desync chemo frames by organism ID so a field of chemosynthesising
+	// organisms wobbles out of phase rather than all moving in lockstep.
+	// The loop still reads correctly across consecutive chemo cycles
+	// because the offset is fixed per organism.
+	if anim == animation.AnimChemo {
+		frameIdx += info.ID % animation.BaseFramesPerCycle
+	}
+	sprite := resources.Sprite(role, anim, frameIdx)
+	g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
 }
 
-func (g *Grid) drawSprite(img *ebiten.Image, x, y float64, role resources.ImageRole, col colorful.Color) {
-	spriteImg := resources.Images[role]
+// animatedCellPosition returns the organism's grid-unit position for the
+// current render frame, given its animation Frame and the cycle progress.
+//
+// Move is pinned at FromLocation: the move spritesheet is 2 cells wide and
+// depicts the journey from origin to destination within its own pixels, so
+// interpolating the draw position on top of that would double the motion.
+// Attack interpolates as a bounce: sprite lunges into the cell it's facing
+// and returns, passing through (FromLocation + Direction) at progress 0.5.
+// Everything else lerps linearly from FromLocation to ToLocation.
+// animate==false collapses to the settled ToLocation (very high playback
+// speeds that outrun the animation window).
+func animatedCellPosition(f animation.Frame, progress float64, animate bool) (float64, float64) {
+	if !animate {
+		return float64(f.ToLocation.X), float64(f.ToLocation.Y)
+	}
+
+	if f.Action == decision.ActMove {
+		return float64(f.FromLocation.X), float64(f.FromLocation.Y)
+	}
+
+	if f.Action == decision.ActAttack {
+		// Lunge to (FromLocation + Direction) at the midpoint, return by end.
+		targetX := float64(f.FromLocation.X + f.Direction.X)
+		targetY := float64(f.FromLocation.Y + f.Direction.Y)
+		fromX := float64(f.FromLocation.X)
+		fromY := float64(f.FromLocation.Y)
+		if progress < 0.5 {
+			t := progress * 2
+			return lerp(fromX, targetX, t), lerp(fromY, targetY, t)
+		}
+		t := (progress - 0.5) * 2
+		return lerp(targetX, fromX, t), lerp(targetY, fromY, t)
+	}
+
+	return lerp(float64(f.FromLocation.X), float64(f.ToLocation.X), progress),
+		lerp(float64(f.FromLocation.Y), float64(f.ToLocation.Y), progress)
+}
+
+func lerp(a, b, t float64) float64 { return a + (b-a)*t }
+
+// drawStaticSprite draws a non-rotated sprite at cell (x, y). Used for
+// food, walls, and other layers that don't animate.
+func (g *Grid) drawStaticSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, col colorful.Color) {
+	if spriteImg == nil {
+		return
+	}
 	op := &ebiten.DrawImageOptions{}
 	if s := g.Camera.SpriteScale(); s != 1 {
 		op.GeoM.Scale(s, s)
@@ -450,6 +530,50 @@ func (g *Grid) drawSprite(img *ebiten.Image, x, y float64, role resources.ImageR
 	op.GeoM.Translate(x, y)
 	op.ColorM.Translate(col.R, col.G, col.B, 0)
 	img.DrawImage(spriteImg, op)
+}
+
+// drawOrganismSprite draws a sprite rotated to match `direction`, anchored
+// to the organism's base cell. Sprites are authored facing +X (right), with
+// the base cell occupying the left-most 16x16 (or generally cellSize x
+// cellSize) region of the sprite; multi-cell sprites like the 32x16 move
+// sheet extend rightward from there.
+//
+// Positive rotation turns clockwise in ebiten's coordinate system (Y grows
+// downward), so (0, +1) maps to +π/2, etc. We rotate around the base cell's
+// center — (cellSize/2, cellSize/2) in sprite-local coords — rather than the
+// geometric center of the sprite. That keeps the base cell pinned at (x, y)
+// through the rotation, and any extending cells swing to line up with the
+// organism's facing direction regardless of how wide the sprite is.
+func (g *Grid) drawOrganismSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color) {
+	if spriteImg == nil {
+		return
+	}
+	scale := g.Camera.SpriteScale()
+	cellSize := float64(zoomSpriteSizes[g.Camera.SpriteSet()])
+	anchorX := cellSize / 2
+	anchorY := cellSize / 2
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(-anchorX, -anchorY)
+	op.GeoM.Rotate(directionAngle(direction))
+	op.GeoM.Translate(anchorX, anchorY)
+	if scale != 1 {
+		op.GeoM.Scale(scale, scale)
+	}
+	op.GeoM.Translate(x, y)
+	op.ColorM.Translate(col.R, col.G, col.B, 0)
+	img.DrawImage(spriteImg, op)
+}
+
+// directionAngle converts a cardinal utils.Point direction into the
+// rotation angle to apply to a +X-facing sprite. Organisms only face
+// 4 cardinal directions in the current simulation; non-cardinal points
+// fall through atan2 and still produce a sensible angle.
+func directionAngle(d utils.Point) float64 {
+	if d.X == 0 && d.Y == 0 {
+		return 0
+	}
+	return math.Atan2(float64(d.Y), float64(d.X))
 }
 
 func (g *Grid) buildClearImg() {
