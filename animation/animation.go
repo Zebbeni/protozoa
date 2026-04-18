@@ -67,9 +67,8 @@ const (
 	baseCycleDuration = frameDuration * BaseFramesPerCycle
 )
 
-// Animation identifies which per-action sprite sheet to play. One sheet per
-// Animation; direction is expressed via rotation at draw time, not by having
-// per-direction sheets.
+// Animation identifies which per-action sprite sheet to play. One sheet
+// per Animation; direction is expressed via rotation at draw time.
 type Animation int
 
 const (
@@ -80,10 +79,11 @@ const (
 	AnimAttack
 	AnimEat
 	AnimChemo
+	AnimDie
 )
 
 // AllAnimations lists every Animation value, for resource preloading.
-var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurn, AnimAttack, AnimEat, AnimChemo}
+var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurn, AnimAttack, AnimEat, AnimChemo, AnimDie}
 
 // ForAction maps a resolved decision.Action to the Animation sheet that
 // should play during its cycle transition. This is the position-agnostic
@@ -101,17 +101,25 @@ func ForAction(a decision.Action) Animation {
 		return AnimTurn
 	case decision.ActChemosynthesis:
 		return AnimChemo
+	case decision.ActIdle:
+		return AnimIdle
 	default:
 		return AnimIdle
 	}
 }
 
 // ForFrame picks the Animation for a Frame, accounting for outcomes that
-// aren't visible from the action alone. A Move whose FromLocation equals
-// its ToLocation is a blocked move (the organism tried to advance but
-// couldn't) and gets its own animation so we don't play the 2-cell travel
-// sprite in place.
+// aren't visible from the action alone:
+//
+//   - Dying frames (the organism died this cycle) always play AnimDie,
+//     overriding whatever their last action was.
+//   - A Move whose FromLocation equals its ToLocation is a blocked move —
+//     the organism tried to advance but couldn't — and gets AnimBlocked
+//     so we don't play the 2-cell travel sprite in place.
 func ForFrame(f Frame) Animation {
+	if f.Dying {
+		return AnimDie
+	}
 	if f.Action == decision.ActMove && f.FromLocation == f.ToLocation {
 		return AnimBlocked
 	}
@@ -121,6 +129,12 @@ func ForFrame(f Frame) Animation {
 // Frame captures everything the renderer needs to animate one organism's
 // transition from its pre-cycle state to its current state. Populated by
 // State.AfterUpdate; consumed by the grid renderer.
+//
+// Dying is true for organisms that existed before the most recent cycle
+// but are gone afterwards. Their FromLocation / Direction / Size / Color
+// are the snapshot from just before death, and ForFrame forces AnimDie on
+// them regardless of their last action. These frames only live for one
+// cycle — the next AfterUpdate rebuilds Frames and drops them.
 type Frame struct {
 	FromLocation utils.Point
 	ToLocation   utils.Point
@@ -128,6 +142,8 @@ type Frame struct {
 	Action       decision.Action
 	Color        colorful.Color
 	Size         float64
+	PhEffect     float64
+	Dying        bool
 }
 
 // State holds the current animation batch and cycle timing. One instance per
@@ -141,9 +157,12 @@ type State struct {
 	// we consult it each call to CycleDuration.
 	Speed int
 
-	// preSnap holds pre-Update locations captured in BeforeUpdate. Consumed by
-	// the next AfterUpdate to build Frames.
-	preSnap map[int]utils.Point
+	// preSnap holds pre-Update organism snapshots captured in BeforeUpdate.
+	// Used by the next AfterUpdate both to pair each surviving organism
+	// with its prior location (move animations) and to detect organisms
+	// that died during the cycle (present in preSnap but not in the post
+	// infos) so we can emit Dying frames for them.
+	preSnap map[int]organism.Info
 
 	// cycleStart is when the current cycle's animation window began. The
 	// renderer's Progress() is computed relative to this.
@@ -155,7 +174,7 @@ func NewState() *State {
 	return &State{
 		Frames:     make(map[int]Frame),
 		Speed:      1,
-		preSnap:    make(map[int]utils.Point),
+		preSnap:    make(map[int]organism.Info),
 		cycleStart: time.Now(),
 	}
 }
@@ -177,33 +196,40 @@ func (s *State) ShouldAdvance() bool {
 	return time.Since(s.cycleStart) >= s.CycleDuration()
 }
 
-// BeforeUpdate snapshots current organism locations. Must be called
-// immediately before sim.Update so we know where each organism started
-// this cycle.
+// BeforeUpdate snapshots current organism Infos (value copies). Must be
+// called immediately before sim.Update so we know each organism's
+// location, direction, size, colour etc. at the start of the cycle — and
+// so we can detect which organisms were alive then but gone by AfterUpdate.
 func (s *State) BeforeUpdate(infos map[int]*organism.Info) {
-	snap := make(map[int]utils.Point, len(infos))
+	snap := make(map[int]organism.Info, len(infos))
 	for id, info := range infos {
-		snap[id] = info.Location
+		snap[id] = *info
 	}
 	s.preSnap = snap
 }
 
-// AfterUpdate builds the Frame batch from post-update infos, pairing each
-// organism with the location it came from. Must be called immediately after
-// sim.Update (before any further UpdateAction calls overwrite info.Action).
+// AfterUpdate builds the Frame batch from post-update infos. Must be called
+// immediately after sim.Update (before any further UpdateAction calls
+// overwrite info.Action).
 //
-// Advances the cycle clock by one CycleDuration rather than resetting it to
-// time.Now(), so if the caller is catching up on multiple cycles in one
-// ebiten tick, the accumulated time is consumed correctly instead of being
-// dropped on each iteration.
+// Produces two kinds of frames:
+//   - Live organisms (in post infos): paired with their pre-update
+//     location for movement interpolation.
+//   - Dying organisms (in preSnap but NOT in post infos): rendered at
+//     their last-known location with Dying = true. ForFrame routes them
+//     to AnimDie. The frame only persists until the next AfterUpdate,
+//     giving the death animation exactly one cycle to play.
+//
+// Advances the cycle clock by one CycleDuration rather than resetting it
+// to time.Now(), so if the caller is catching up on multiple cycles in
+// one ebiten tick the accumulated time is consumed correctly instead of
+// being dropped on each iteration.
 func (s *State) AfterUpdate(infos map[int]*organism.Info) {
-	frames := make(map[int]Frame, len(infos))
+	frames := make(map[int]Frame, len(infos)+len(s.preSnap))
 	for id, info := range infos {
-		from, ok := s.preSnap[id]
-		if !ok {
-			// Newly-born organism this cycle: no prior location, so
-			// animate in place.
-			from = info.Location
+		from := info.Location
+		if pre, ok := s.preSnap[id]; ok {
+			from = pre.Location
 		}
 		frames[id] = Frame{
 			FromLocation: from,
@@ -212,6 +238,22 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Action:       info.Action,
 			Color:        info.Color,
 			Size:         info.Size,
+			PhEffect:     info.PhEffect,
+		}
+	}
+	for id, pre := range s.preSnap {
+		if _, alive := infos[id]; alive {
+			continue
+		}
+		frames[id] = Frame{
+			FromLocation: pre.Location,
+			ToLocation:   pre.Location,
+			Direction:    pre.Direction,
+			Action:       pre.Action,
+			Color:        pre.Color,
+			Size:         pre.Size,
+			PhEffect:     pre.PhEffect,
+			Dying:        true,
 		}
 	}
 	s.Frames = frames
@@ -273,4 +315,24 @@ func (s *State) FrameIndex() int {
 // the full cycle (or more); the renderer should just show the final state.
 func (s *State) AnimatesPosition() bool {
 	return s.Speed <= BaseFramesPerCycle
+}
+
+// LoopProgress computes a looping (progress, frameIdx) pair from an elapsed
+// wall-clock duration, as if the animation had been playing at Speed 1 from
+// time zero. Intended for standalone demos / previews that want to loop the
+// same animation forever without a full sim-driven State.
+func LoopProgress(elapsed time.Duration) (progress float64, frameIdx int) {
+	if baseCycleDuration <= 0 {
+		return 0, 0
+	}
+	mod := elapsed % baseCycleDuration
+	if mod < 0 {
+		mod += baseCycleDuration
+	}
+	progress = float64(mod) / float64(baseCycleDuration)
+	frameIdx = int(progress * float64(BaseFramesPerCycle))
+	if frameIdx >= BaseFramesPerCycle {
+		frameIdx = BaseFramesPerCycle - 1
+	}
+	return
 }

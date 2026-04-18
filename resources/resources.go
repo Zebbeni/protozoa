@@ -26,11 +26,13 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimAttack:  "attack",
 	animation.AnimEat:     "eat",
 	animation.AnimChemo:   "chemo",
+	animation.AnimDie:     "die",
 }
 
 // organismRoleName maps each organism role to the filename stem used by the
 // per-action spritesheets (e.g. "small", "medium", "large").
 var organismRoleName = map[ImageRole]string{
+	RoleOrganismTiny:   "tiny",
 	RoleOrganismSmall:  "small",
 	RoleOrganismMedium: "medium",
 	RoleOrganismLarge:  "large",
@@ -41,6 +43,10 @@ const (
 )
 
 // ImageRole identifies the role of a sprite image.
+//
+// New roles are appended at the end so previously-serialized integer
+// values stay stable (not that we currently serialize roles — but it's a
+// good habit given how cheap it is).
 type ImageRole int
 
 const (
@@ -49,9 +55,10 @@ const (
 	RoleOrganismLarge
 	RoleFood
 	RoleBox // walls
+	RoleOrganismTiny
 )
 
-// FrameSet holds one slice of per-animation-frame sprites per Animation kind.
+// FrameSet holds one slice of per-frame sprites per Animation kind.
 //
 // For 4x4 sprites every slice is length 1 (we only show the final frame per
 // cycle at that zoom). For 16x16 sprites organism animations hold
@@ -88,9 +95,16 @@ func SelectZoom(level int) {
 	Images = ZoomImages[level]
 }
 
-// Sprite returns the sprite image for a given role/animation/frame, defaulting
-// to AnimIdle when the requested animation has no frames and cycling within
-// the available frames when frame >= len.
+// ReloadImages rebuilds every sprite FrameSet from disk. Used by the
+// animation-test hot-reload path so sprite-sheet edits show up without
+// restarting the app. Fonts aren't touched.
+func ReloadImages() {
+	initImages()
+}
+
+// Sprite returns the sprite image for a given role/animation/frame,
+// defaulting to AnimIdle when the requested animation has no frames and
+// cycling within the available frames when frame >= len.
 func Sprite(role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
 	set, ok := Images[role]
 	if !ok {
@@ -126,23 +140,19 @@ func initImages() {
 		size := sizes[i]
 		path := "resources/images/grid/" + dir + "/"
 
-		box := generateBoxImage(size)
-		food := generateCircle(size, max(2, size*2/3))
+		// Base single-frame sprites per organism role. Used as a fallback
+		// when a per-action sheet is missing, and as the entire sprite for
+		// the 4x4 zoom (where we don't animate per frame). Loaded from
+		// disk if the corresponding square_<role>.png exists; otherwise
+		// synthesised programmatically so the loader never crashes on a
+		// missing file.
+		baseTiny := loadOrGenerateFilled(path+"square_tiny.png", size, max(1, size/5))
+		baseSmall := loadOrGenerateFilled(path+"square_small.png", size, max(1, size/3))
+		baseMedium := loadOrGenerateFilled(path+"square_medium.png", size, max(2, size*2/3))
+		baseLarge := loadOrGenerateFilled(path+"square_large.png", size, size)
 
-		// Load or generate the base single-frame sprite per organism role.
-		// These are used both as a fallback when a per-action sheet is
-		// missing and to populate the 4x4 zoom's single-frame animations.
-		var baseSmall, baseMedium, baseLarge *ebiten.Image
-		if dirExists("resources/images/grid/" + dir) {
-			baseSmall = loadImage(path + "square_small.png")
-			baseMedium = loadImage(path + "square_medium.png")
-			baseLarge = loadImage(path + "square_large.png")
-			food = loadImage(path + "food.png")
-		} else {
-			baseSmall = generateFilledImage(size, max(1, size/3))
-			baseMedium = generateFilledImage(size, max(2, size*2/3))
-			baseLarge = generateFilledImage(size, size)
-		}
+		box := generateBoxImage(size)
+		food := loadOrGenerateCircle(path+"food.png", size, max(2, size*2/3))
 
 		// Number of frames per organism animation at this zoom. At 4x4 we
 		// show a single frame per cycle by design; at 16x16 we animate
@@ -153,6 +163,7 @@ func initImages() {
 		}
 
 		bases := map[ImageRole]*ebiten.Image{
+			RoleOrganismTiny:   baseTiny,
 			RoleOrganismSmall:  baseSmall,
 			RoleOrganismMedium: baseMedium,
 			RoleOrganismLarge:  baseLarge,
@@ -170,6 +181,26 @@ func initImages() {
 	SelectZoom(0)
 }
 
+// loadOrGenerateFilled returns loadImage(fullPath) if the file exists,
+// otherwise a programmatically-generated filled-square fallback. Used
+// per-file so a missing base PNG doesn't crash init — the loader falls
+// back gracefully for sizes the user hasn't drawn art for yet.
+func loadOrGenerateFilled(fullPath string, totalSize, innerSize int) *ebiten.Image {
+	if fileExists(fullPath) {
+		return loadImage(fullPath)
+	}
+	return generateFilledImage(totalSize, innerSize)
+}
+
+// loadOrGenerateCircle is the same pattern for circle-shaped fallbacks
+// (food).
+func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Image {
+	if fileExists(fullPath) {
+		return loadImage(fullPath)
+	}
+	return generateCircle(totalSize, diameter)
+}
+
 // loadOrganismFrames builds the FrameSet for one organism role at one zoom.
 // For each Animation it tries to load a per-action spritesheet at
 // "<path>/<role>_<action>.png" (e.g. "small_move.png"). If present it's
@@ -179,7 +210,7 @@ func initImages() {
 // If the sheet is missing it falls back to repeating the base single-frame
 // sprite.
 func loadOrganismFrames(path string, role ImageRole, base *ebiten.Image, frameSize, orgFrames int) FrameSet {
-	_ = frameSize // kept for API symmetry; per-frame width is inferred from the sheet
+	_ = frameSize // per-frame width is inferred from sheet dimensions
 	set := make(FrameSet, len(animation.AllAnimations))
 	roleName := organismRoleName[role]
 	for _, anim := range animation.AllAnimations {
@@ -196,9 +227,8 @@ func loadOrganismFrames(path string, role ImageRole, base *ebiten.Image, frameSi
 
 // loadSpriteSheet loads a horizontal spritesheet and returns per-frame
 // SubImage views. Frame width is inferred from the sheet's dimensions
-// (total width / frames), so a sheet can hold multi-cell frames (e.g. a
-// 2-cell-wide move sprite) without the caller specifying it. Shares pixels
-// with the source image so SubImage views are cheap.
+// (total width / frames), so a sheet can hold multi-cell frames without
+// the caller specifying the cell size.
 func loadSpriteSheet(path string, frames int) []*ebiten.Image {
 	if frames < 1 {
 		frames = 1
@@ -215,8 +245,9 @@ func loadSpriteSheet(path string, frames int) []*ebiten.Image {
 	return out
 }
 
-// repeatSprite returns a frames-long slice containing the same base sprite.
-// Used when a per-action spritesheet isn't present on disk.
+// repeatSprite returns a frames-long slice pointing at the same base
+// sprite. Used as a fallback when a per-action spritesheet isn't present
+// on disk.
 func repeatSprite(base *ebiten.Image, frames int) []*ebiten.Image {
 	if frames < 1 {
 		frames = 1
@@ -237,19 +268,19 @@ func staticFrames(img *ebiten.Image) FrameSet {
 }
 
 func generateFilledImage(totalSize, innerSize int) *ebiten.Image {
-	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	img := image.NewRGBA(image.Rect(0, 0, totalSize, totalSize))
 	offset := (totalSize - innerSize) / 2
 	for y := offset; y < offset+innerSize; y++ {
 		for x := offset; x < offset+innerSize; x++ {
-			img.Set(x, y, black)
+			img.Set(x, y, white)
 		}
 	}
 	return ebiten.NewImageFromImage(img)
 }
 
 func generateCircle(totalSize, diameter int) *ebiten.Image {
-	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	img := image.NewRGBA(image.Rect(0, 0, totalSize, totalSize))
 	cx, cy := float64(totalSize)/2.0, float64(totalSize)/2.0
 	r := float64(diameter) / 2.0
@@ -258,7 +289,7 @@ func generateCircle(totalSize, diameter int) *ebiten.Image {
 			dx := float64(x) + 0.5 - cx
 			dy := float64(y) + 0.5 - cy
 			if dx*dx+dy*dy <= r*r {
-				img.Set(x, y, black)
+				img.Set(x, y, white)
 			}
 		}
 	}
@@ -266,13 +297,13 @@ func generateCircle(totalSize, diameter int) *ebiten.Image {
 }
 
 func generateBoxImage(size int) *ebiten.Image {
-	black := color.RGBA{R: 0, G: 0, B: 0, A: 255}
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for i := 0; i < size; i++ {
-		img.Set(i, 0, black)
-		img.Set(i, size-1, black)
-		img.Set(0, i, black)
-		img.Set(size-1, i, black)
+		img.Set(i, 0, white)
+		img.Set(i, size-1, white)
+		img.Set(0, i, white)
+		img.Set(size-1, i, white)
 	}
 	return ebiten.NewImageFromImage(img)
 }

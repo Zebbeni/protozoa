@@ -697,6 +697,9 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 	case d.ActSpawn:
 		m.applySpawn(o)
 		break
+	case d.ActIdle:
+		m.applyIdle(o)
+		break
 	}
 }
 
@@ -711,6 +714,14 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
+}
+
+// applyIdle is the resolution for ActIdle: the organism holds its current
+// location and direction and pays only the configured idle health cost
+// (default 0). Per-cycle pH effects and any damage from attacks are still
+// applied separately by applyCycleHealthChanges.
+func (m *OrganismManager) applyIdle(o *organism.Organism) {
+	m.applyHealthChange(o, c.HealthChangeFromIdle()*o.Size)
 }
 
 // add a positive health change if organism attempts chemosynthesis in a

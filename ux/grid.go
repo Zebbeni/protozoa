@@ -294,6 +294,32 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 	for _, info := range organismInfo {
 		g.renderOrganism(info, organismsImage)
 	}
+
+	// Dying organisms are gone from GetAllOrganismInfo but their frames
+	// linger in animState.Frames for one cycle so we can play AnimDie.
+	// Synthesise an Info from the frame and feed it through the normal
+	// renderer so the sprite pipeline (role selection, rotation, colour
+	// tint) stays unified between live and dying organisms.
+	if g.animState != nil {
+		for id, frame := range g.animState.Frames {
+			if _, alive := organismInfo[id]; alive {
+				continue
+			}
+			if !frame.Dying {
+				continue
+			}
+			synth := &organism.Info{
+				ID:        id,
+				Location:  frame.FromLocation,
+				Direction: frame.Direction,
+				Size:      frame.Size,
+				Action:    frame.Action,
+				Color:     frame.Color,
+				PhEffect:  frame.PhEffect,
+			}
+			g.renderOrganism(synth, organismsImage)
+		}
+	}
 }
 
 // renderSelectionBoxes draws selection box outlines in viewport coordinates.
@@ -431,12 +457,21 @@ func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	us := float64(g.unitSize())
 
-	role := resources.RoleOrganismSmall
-	if info.Size < config.MaximumMaxSize()*0.4375 {
+	// Size-to-role mapping: quartiles of MaximumMaxSize.
+	//   tiny   — below 25%
+	//   small  — 25% to below 50%
+	//   medium — 50% to below 75%
+	//   large  — 75% and above
+	maxSize := config.MaximumMaxSize()
+	var role resources.ImageRole
+	switch {
+	case info.Size < maxSize*0.25:
+		role = resources.RoleOrganismTiny
+	case info.Size < maxSize*0.5:
 		role = resources.RoleOrganismSmall
-	} else if info.Size < config.MaximumMaxSize()*0.8125 {
+	case info.Size < maxSize*0.75:
 		role = resources.RoleOrganismMedium
-	} else {
+	default:
 		role = resources.RoleOrganismLarge
 	}
 
@@ -466,13 +501,6 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		frameIdx = g.animState.FrameIndex()
 	}
 
-	// Desync chemo frames by organism ID so a field of chemosynthesising
-	// organisms wobbles out of phase rather than all moving in lockstep.
-	// The loop still reads correctly across consecutive chemo cycles
-	// because the offset is fixed per organism.
-	if anim == animation.AnimChemo {
-		frameIdx += info.ID % animation.BaseFramesPerCycle
-	}
 	sprite := resources.Sprite(role, anim, frameIdx)
 	g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
 }
@@ -480,35 +508,19 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 // animatedCellPosition returns the organism's grid-unit position for the
 // current render frame, given its animation Frame and the cycle progress.
 //
-// Move is pinned at FromLocation: the move spritesheet is 2 cells wide and
-// depicts the journey from origin to destination within its own pixels, so
-// interpolating the draw position on top of that would double the motion.
-// Attack interpolates as a bounce: sprite lunges into the cell it's facing
-// and returns, passing through (FromLocation + Direction) at progress 0.5.
-// Everything else lerps linearly from FromLocation to ToLocation.
-// animate==false collapses to the settled ToLocation (very high playback
-// speeds that outrun the animation window).
+// Move and attack are pinned at FromLocation: both use 2-cell spritesheets
+// that paint the full journey (move: left→right travel; attack: lunge into
+// extending cell and return), so interpolating the draw position on top
+// would double the motion. Everything else lerps linearly from FromLocation
+// to ToLocation. animate==false collapses to the settled ToLocation (very
+// high playback speeds that outrun the animation window).
 func animatedCellPosition(f animation.Frame, progress float64, animate bool) (float64, float64) {
 	if !animate {
 		return float64(f.ToLocation.X), float64(f.ToLocation.Y)
 	}
 
-	if f.Action == decision.ActMove {
+	if f.Action == decision.ActMove || f.Action == decision.ActAttack {
 		return float64(f.FromLocation.X), float64(f.FromLocation.Y)
-	}
-
-	if f.Action == decision.ActAttack {
-		// Lunge to (FromLocation + Direction) at the midpoint, return by end.
-		targetX := float64(f.FromLocation.X + f.Direction.X)
-		targetY := float64(f.FromLocation.Y + f.Direction.Y)
-		fromX := float64(f.FromLocation.X)
-		fromY := float64(f.FromLocation.Y)
-		if progress < 0.5 {
-			t := progress * 2
-			return lerp(fromX, targetX, t), lerp(fromY, targetY, t)
-		}
-		t := (progress - 0.5) * 2
-		return lerp(targetX, fromX, t), lerp(targetY, fromY, t)
 	}
 
 	return lerp(float64(f.FromLocation.X), float64(f.ToLocation.X), progress),
@@ -519,6 +531,13 @@ func lerp(a, b, t float64) float64 { return a + (b-a)*t }
 
 // drawStaticSprite draws a non-rotated sprite at cell (x, y). Used for
 // food, walls, and other layers that don't animate.
+//
+// Colorization is multiplicative via ColorScale: sprite pixels are
+// authored white-on-transparent (optionally with grayscale shading), and
+// each channel gets scaled by the target colour. A white pixel becomes
+// the full target colour; a 50% grey pixel becomes a 50%-intensity
+// version of the same hue; black stays black. Preserves internal
+// brightness variation of the source art.
 func (g *Grid) drawStaticSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, col colorful.Color) {
 	if spriteImg == nil {
 		return
@@ -528,30 +547,60 @@ func (g *Grid) drawStaticSprite(img *ebiten.Image, x, y float64, spriteImg *ebit
 		op.GeoM.Scale(s, s)
 	}
 	op.GeoM.Translate(x, y)
-	op.ColorM.Translate(col.R, col.G, col.B, 0)
+	op.ColorScale.Scale(float32(col.R), float32(col.G), float32(col.B), 1)
 	img.DrawImage(spriteImg, op)
 }
 
 // drawOrganismSprite draws a sprite rotated to match `direction`, anchored
-// to the organism's base cell. Sprites are authored facing +X (right), with
-// the base cell occupying the left-most 16x16 (or generally cellSize x
-// cellSize) region of the sprite; multi-cell sprites like the 32x16 move
-// sheet extend rightward from there.
-//
-// Positive rotation turns clockwise in ebiten's coordinate system (Y grows
-// downward), so (0, +1) maps to +π/2, etc. We rotate around the base cell's
-// center — (cellSize/2, cellSize/2) in sprite-local coords — rather than the
-// geometric center of the sprite. That keeps the base cell pinned at (x, y)
-// through the rotation, and any extending cells swing to line up with the
-// organism's facing direction regardless of how wide the sprite is.
+// to the organism's base cell, using the grid's current camera zoom.
 func (g *Grid) drawOrganismSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color) {
+	cellSize := float64(zoomSpriteSizes[g.Camera.SpriteSet()])
+	drawAnimatedSprite(img, x, y, spriteImg, direction, col, cellSize, g.Camera.SpriteScale())
+}
+
+// drawAnimatedSprite draws a sprite rotated to face `direction`, anchored to
+// its base cell.
+//
+// Sprites are authored facing -Y (up) and white-on-transparent (optionally
+// with grayscale shading). Colorization is multiplicative via ColorScale:
+// each channel of each pixel is multiplied by the target colour. White
+// pixels become the full target colour; grey pixels become a dimmer
+// version of the same hue (brightness variation in the sheet is
+// preserved); black stays black.
+//
+// Single-cell sprites fill a cellSize x cellSize canvas. Multi-cell
+// sprites use a cellSize x (N*cellSize) canvas where the base cell is the
+// BOTTOM cellSize-tall region and the extending cell(s) sit above it — so
+// the organism travels from bottom to top within the sprite at its
+// default (up-facing) orientation.
+//
+// Positive rotation turns clockwise in ebiten's coordinate system. Up-
+// facing (0, -1) maps to 0 rotation; east (1, 0) to +π/2; south (0, 1) to
+// π; west (-1, 0) to -π/2. Rotation is centred on the base cell (whose
+// centre in sprite-local coords is (cellSize/2, spriteH - cellSize/2)), so
+// the base cell stays pinned at (x, y) and any extending cells swing to
+// align with the facing direction regardless of how tall the sprite is.
+//
+// Shared between the main grid renderer and the standalone animation-test
+// screen so they paint identically.
+func drawAnimatedSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color, cellSize, scale float64) {
 	if spriteImg == nil {
 		return
 	}
-	scale := g.Camera.SpriteScale()
-	cellSize := float64(zoomSpriteSizes[g.Camera.SpriteSet()])
+	b := spriteImg.Bounds()
+	spriteH := float64(b.Dy())
+
+	// Base cell sits at the BOTTOM cellSize x cellSize region for multi-
+	// cell (vertical-extending) sprites; for single-cell sprites it's the
+	// whole image. The formula below reduces to (cellSize/2, cellSize/2)
+	// in the single-cell case.
 	anchorX := cellSize / 2
-	anchorY := cellSize / 2
+	anchorY := spriteH - cellSize/2
+
+	// Compensate the final translate so the anchor (base-cell centre) lands
+	// at world (x + cellSize*scale/2, y + cellSize*scale/2) regardless of
+	// sprite height — keeping (x, y) = base-cell top-left.
+	compensateY := (cellSize/2 - anchorY) * scale
 
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(-anchorX, -anchorY)
@@ -560,21 +609,24 @@ func (g *Grid) drawOrganismSprite(img *ebiten.Image, x, y float64, spriteImg *eb
 	if scale != 1 {
 		op.GeoM.Scale(scale, scale)
 	}
-	op.GeoM.Translate(x, y)
-	op.ColorM.Translate(col.R, col.G, col.B, 0)
+	op.GeoM.Translate(x, y+compensateY)
+	op.ColorScale.Scale(float32(col.R), float32(col.G), float32(col.B), 1)
 	img.DrawImage(spriteImg, op)
 }
 
 // directionAngle converts a cardinal utils.Point direction into the
-// rotation angle to apply to a +X-facing sprite. Organisms only face
-// 4 cardinal directions in the current simulation; non-cardinal points
-// fall through atan2 and still produce a sensible angle.
+// rotation angle to apply to an up-facing (-Y) sprite.
+//
+// atan2(y, x) treats +X as 0; sprites are authored facing -Y, so we offset
+// by +π/2 to make (0, -1) = no rotation, (1, 0) = +π/2 CW, etc. Non-
+// cardinal points still produce a sensible angle through atan2.
 func directionAngle(d utils.Point) float64 {
 	if d.X == 0 && d.Y == 0 {
 		return 0
 	}
-	return math.Atan2(float64(d.Y), float64(d.X))
+	return math.Atan2(float64(d.Y), float64(d.X)) + math.Pi/2
 }
+
 
 func (g *Grid) buildClearImg() {
 	us := g.unitSize()

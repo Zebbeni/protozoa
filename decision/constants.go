@@ -6,7 +6,12 @@ type Action int
 // Condition is the custom type for all Organism conditions
 type Condition int
 
-// Define all possible actions for Organism
+// Define all possible actions for Organism.
+//
+// ActIdle is appended at the end of the const block so its numeric value
+// sits after every Condition — this keeps previously-serialized Action /
+// Condition integer values stable, so old .pzr checkpoint files still
+// decode correctly.
 const (
 	ActAttack Action = iota
 	ActEat
@@ -31,6 +36,7 @@ const (
 	IsHealthierPhAhead
 	IsAgeMultipleOfTwo
 	IsAgeMultipleOfTen
+	ActIdle Action = iota
 )
 
 // Define slices
@@ -42,6 +48,7 @@ var (
 		ActMove,
 		ActTurnLeft,
 		ActTurnRight,
+		ActIdle,
 		// ActSpawn <-- Leave this out since it's not something we want organisms to 'choose' to do
 	}
 	Conditions = [...]Condition{
@@ -70,6 +77,7 @@ var (
 		ActTurnLeft:               "Turn Left",
 		ActTurnRight:              "Turn Right",
 		ActSpawn:                  "Spawn",
+		ActIdle:                   "Idle",
 		CanMove:                   "If Can Move Ahead",
 		IsFoodAhead:               "If Food Ahead",
 		IsFoodLeft:                "If Food Left",

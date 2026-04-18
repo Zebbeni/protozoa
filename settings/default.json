@@ -50,6 +50,7 @@
   "health_change_from_moving": -0.1,
   "health_change_from_attacking": -0.1,
   "health_change_from_spawning": -0.2,
+  "health_change_from_idle": 0,
   "health_change_inflicted_by_attack": -10.0,
   "health_change_per_unhealthy_ph": -0.1
 }

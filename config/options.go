@@ -13,6 +13,7 @@ type Options struct {
 	CheckpointInterval int
 	RestoreFile        string
 	ReplayFile         string
+	AnimationTest      bool
 }
 
 func GetOptions() *Options {
@@ -28,6 +29,7 @@ func GetOptions() *Options {
 	flag.IntVar(&opts.CheckpointInterval, "checkpoint-interval", 1000, "Cycles between snapshots")
 	flag.StringVar(&opts.RestoreFile, "restore", "", "Path to .pzr file to restore from")
 	flag.StringVar(&opts.ReplayFile, "replay", "", "Path to .pzr file to replay with viewer")
+	flag.BoolVar(&opts.AnimationTest, "animation-test", false, "Launch standalone animation preview (no sim)")
 
 	flag.Parse()
 

@@ -151,6 +151,20 @@ func RunSimulation(opts *c.Options) {
 	resources.Init()
 	ensureCheckpointPath(opts)
 
+	if opts.AnimationTest {
+		// Standalone animation preview — no simulation runs, no config
+		// screen. Just loop every organism animation in a matrix.
+		// Window size is sized to fit the (4 dirs × 3 sizes) × 7 anims
+		// grid at the default zoom; user can resize freely.
+		ebiten.SetWindowResizable(true)
+		ebiten.SetWindowSize(900, 960)
+		ebiten.SetScreenClearedEveryFrame(true)
+		if err := ebiten.RunGame(ux.NewAnimationTest()); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	if opts.IsHeadless {
 		// Pure headless mode (no GUI)
 		sumAllCycles := 0

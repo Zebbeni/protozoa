@@ -15,6 +15,7 @@ var actionHues = map[Action]float64{
 	ActTurnLeft:       270, // purple
 	ActTurnRight:      300, // pink
 	ActSpawn:          160, // teal
+	ActIdle:           90,  // yellow-green (unused gap)
 }
 
 // Fixed hue assignments for conditions. Spread so that organisms checking
