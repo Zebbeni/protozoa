@@ -12,7 +12,6 @@ import (
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/resources"
@@ -45,12 +44,15 @@ const (
 	selectManual
 )
 
+// minOrganismAnimationUnitSize is the smallest per-cell unit size at which
+// organism sprite animations play. Below this (Zoom4), the renderer pins
+// to frame 0 of the sheet — at tiny sizes per-frame differences are too
+// small to read and the flicker adds more noise than animation.
+const minOrganismAnimationUnitSize = 8
+
 var (
-	foodColor          = colorful.HSLuv(120, 0.2, 0.25)
-	wallColor          = colorful.HSLuv(60, 0.25, 0.1)
-	selectColor        = colorful.HSLuv(0.0, 255.0, 1.0)
-	hoverColor         = colorful.HSLuv(0.0, 0, 0.7)
-	selectionInfoColor = colorful.HSLuv(0.0, 0, 1.0)
+	foodColor = colorful.HSLuv(120, 0.2, 0.25)
+	wallColor = colorful.HSLuv(60, 0.25, 0.1)
 	viewModes          = []mode{orgsPhMode, organismsOnlyMode, phEffectsOnlyMode, phOnlyMode}
 	selectModes        = []mode{selectOldest, selectMostChildren, selectMostTraveled, selectManual}
 	viewModeNames      = map[mode]string{
@@ -73,6 +75,10 @@ type Grid struct {
 	animState  *animation.State
 
 	layers map[layerType]*ebiten.Image
+	// envIntermediate holds the env layer linearly upscaled from 1 px/cell
+	// to sprite-native per cell. Rebuilt when the sprite set changes (zoom
+	// crossing the 4x4 ↔ 16x16 threshold).
+	envIntermediate *ebiten.Image
 
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
@@ -101,6 +107,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 }
 
 func (g *Grid) initLayerImages() {
+	g.envIntermediate = g.newEnvIntermediateLayer()
 	g.layers = map[layerType]*ebiten.Image{
 		layerEnv:       g.newEnvLayer(),
 		layerWalls:     g.newBlankLayer(),
@@ -117,9 +124,25 @@ func (g *Grid) newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(g.Camera.WorldPixelWidth(), g.Camera.WorldPixelHeight())
 }
 
-// newEnvLayer creates a 1-pixel-per-grid-cell image for the environment layer.
+// newEnvLayer creates a 1-pixel-per-grid-cell image for the environment
+// layer. Each cycle renderPhValue writes a single pixel per changed cell
+// into it. During composition this layer is linearly upscaled into an
+// intermediate at sprite-native resolution (see newEnvIntermediateLayer)
+// so adjacent cells blend smoothly before the final nearest-neighbour
+// pass to viewport.
 func (g *Grid) newEnvLayer() *ebiten.Image {
 	return ebiten.NewImage(config.GridUnitsWide(), config.GridUnitsHigh())
+}
+
+// newEnvIntermediateLayer creates the intermediate env image sized at
+// sprite-native resolution per grid cell (4 or 16 px/cell depending on
+// the active sprite set). The env layer is linearly upscaled into this
+// image, giving smooth cell-boundary transitions at the same pixel grid
+// as the sprites. A nearest-neighbour pass then scales this to the
+// viewport, preserving the pixel-art look for the final upscale.
+func (g *Grid) newEnvIntermediateLayer() *ebiten.Image {
+	cell := zoomSpriteSizes[g.Camera.SpriteSet()]
+	return ebiten.NewImage(config.GridUnitsWide()*cell, config.GridUnitsHigh()*cell)
 }
 
 func (g *Grid) unitSize() int {
@@ -173,9 +196,12 @@ func (g *Grid) Render() *ebiten.Image {
 
 	// Draw world layer at tiled offsets to cover the viewport when wrapping.
 	// On non-wrapping axes, just use the center offset.
-	// scaleX/scaleY scale the layer image up (e.g., env layer is 1px/cell, scaled by unitSize).
-	// Offsets are always in viewport pixel space.
-	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64) {
+	// scaleX/scaleY scale the layer image up (e.g., env layer is sized at
+	// sprite-native resolution per cell and scaled by the sprite scale).
+	// Offsets are always in viewport pixel space. filter picks the ebiten
+	// sampling mode — nearest for sprite layers (no blur), linear for the
+	// env layer (smooths cell-boundary transitions).
+	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64, filter ebiten.Filter) {
 		xOffsets := []float64{-camPxX}
 		if g.Camera.WrapsX() {
 			xOffsets = append(xOffsets, -camPxX+wpw)
@@ -192,6 +218,7 @@ func (g *Grid) Render() *ebiten.Image {
 		for _, ox := range xOffsets {
 			for _, oy := range yOffsets {
 				op := &ebiten.DrawImageOptions{}
+				op.Filter = filter
 				if scaleX != 1 || scaleY != 1 {
 					op.GeoM.Scale(scaleX, scaleY)
 				}
@@ -202,12 +229,27 @@ func (g *Grid) Render() *ebiten.Image {
 	}
 
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		drawLayer(g.layers[layerEnv], float64(us), float64(us))
+		// Two-step env compose:
+		//   1. env (1 px/cell) → envIntermediate (sprite-native per
+		//      cell) with FilterLinear, scale = sprite native size.
+		//      Produces smooth gradients at sprite-pixel resolution.
+		//   2. envIntermediate → viewport at sprite_scale with
+		//      FilterNearest. Keeps the pixel-art look on the final
+		//      upscale while preserving the linear blur baked into
+		//      step 1.
+		cell := zoomSpriteSizes[g.Camera.SpriteSet()]
+		g.envIntermediate.Clear()
+		envUpOp := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
+		envUpOp.GeoM.Scale(float64(cell), float64(cell))
+		g.envIntermediate.DrawImage(g.layers[layerEnv], envUpOp)
+
+		envScale := g.Camera.SpriteScale()
+		drawLayer(g.envIntermediate, envScale, envScale, ebiten.FilterNearest)
 	}
-	drawLayer(g.layers[layerWalls], 1, 1)
+	drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
 	if g.viewMode != phOnlyMode {
-		drawLayer(g.layers[layerFood], 1, 1)
-		drawLayer(g.layers[layerOrganisms], 1, 1)
+		drawLayer(g.layers[layerFood], 1, 1, ebiten.FilterNearest)
+		drawLayer(g.layers[layerOrganisms], 1, 1, ebiten.FilterNearest)
 	}
 
 	// Draw selection boxes directly on viewport in screen coordinates
@@ -248,14 +290,35 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 }
 
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
-	// Environment image is 1px per cell — set the pixel directly
-	hue := phMaxHue - (phMaxHue * phVal / config.MaxPh())
-	sat := math.Abs(phVal-((config.MaxPh()+config.MinPh())/2.0)) / (config.MaxPh() - config.MinPh())
-	light := 0.5 + (0.5 * math.Sin(math.Pi*(sat-0.5)))
-	col := colorful.HSLuv(hue, sat, light)
-	r, g2, b, _ := col.RGBA()
+	// Environment image is 1px per cell — set the pixel directly.
+	//
+	// Hue runs acid→base across the range. Saturation is proportional to
+	// distance from neutral (so mid-pH is grey, extremes are colourful).
+	// Lightness flips between themes so extremes stay high-contrast
+	// against the window fill, and the low-sat end is blended towards the
+	// active theme's background so neutral cells visually disappear into
+	// the grid fill (black under dark, white under light, light-blue
+	// under light_blue).
+	// Blend between the theme background (at neutral pH) and a fixed
+	// "extreme" colour — #A9C218 (yellow-green) on the acid side,
+	// #E74766 (red-pink) on the basic side. Linear weight: 0 at neutral,
+	// 1 at the min/max of the pH range.
+	neutral := (config.MaxPh() + config.MinPh()) / 2.0
+	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
+	weight := 0.0
+	if halfRange > 0 {
+		weight = math.Abs(phVal-neutral) / halfRange
+		if weight > 1 {
+			weight = 1
+		}
+	}
+	bgR, bgG, bgB := config.ThemeBackgroundRGB()
+	tgtR, tgtG, tgtB := config.PhTargetColorRGB(phVal)
+	bg := colorful.Color{R: bgR, G: bgG, B: bgB}
+	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
+	blended := bg.BlendRgb(target, weight).Clamped()
 	envImage.Set(gridX, gridY, color.RGBA{
-		R: uint8(r >> 8), G: uint8(g2 >> 8), B: uint8(b >> 8), A: 255,
+		R: uint8(blended.R * 255), G: uint8(blended.G * 255), B: uint8(blended.B * 255), A: 255,
 	})
 }
 
@@ -325,10 +388,10 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 // renderSelectionBoxes draws selection box outlines in viewport coordinates.
 func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 	if g.mouseOnGrid {
-		g.renderSelectionBox(g.mouseHoverLocation, viewportImage, hoverColor)
+		g.renderSelectionBox(g.mouseHoverLocation, viewportImage, themedForegroundDim())
 	}
 	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
-		g.renderSelectionBox(info.Location, viewportImage, selectColor)
+		g.renderSelectionBox(info.Location, viewportImage, themedForeground())
 	}
 }
 
@@ -340,19 +403,20 @@ func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
 		return
 	}
 
-	// View mode / selection label at top-left of the grid area.
+	// View mode / selection / zoom label at top-left of the grid area.
+	// Zoom label shows the on-screen unit size, e.g. "ZOOM: 16px", which
+	// is what the camera actually renders at (pre-GridDisplayScale).
 	xPadding := 10
 	yPadding := 20
-	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s", viewModeNames[g.viewMode], selectModeNames[g.selectMode])
-	text.Draw(screen, info, resources.FontSourceCodePro10, panelWidth+xPadding, yPadding, selectionInfoColor)
+	fg := themedForeground()
+	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s\nZOOM: %dpx", viewModeNames[g.viewMode], selectModeNames[g.selectMode], g.Camera.GridUnitSize())
+	text.Draw(screen, info, resources.FontSourceCodePro10, panelWidth+xPadding, yPadding, fg)
 
 	// Hover info text near the cursor.
 	infoText := fmt.Sprintf("PH: %2.1f", g.simulation.GetPhAtPoint(g.mouseHoverLocation))
-	infoColor := hoverColor
 	if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
 		infoText += fmt.Sprintf("\nORG: %d", info.ID)
 		infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
-		infoColor = info.Color
 	} else {
 		if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
 			infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
@@ -367,8 +431,7 @@ func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
 	if screenX+bounds.Dx() > config.ScreenWidth() {
 		screenX = mx - bounds.Dx() - 15
 	}
-	_ = infoColor
-	text.Draw(screen, infoText, resources.FontSourceCodePro10, screenX, screenY, selectionInfoColor)
+	text.Draw(screen, infoText, resources.FontSourceCodePro10, screenX, screenY, fg)
 }
 
 // ViewMode returns the current grid view mode
@@ -397,7 +460,7 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 	g.mouseOnGrid = onGrid
 }
 
-func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col colorful.Color) {
+func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col color.Color) {
 	us := float64(g.unitSize())
 	centerOX, centerOY := g.Camera.CenterOffset()
 	wpw := float64(g.Camera.WorldPixelWidth())
@@ -422,9 +485,11 @@ func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col colo
 		vy = worldY + float64(centerOY)
 	}
 
-	p := math.Round(us / 8.0)
-	x0, y0 := vx-p, vy-p
-	x1, y1 := vx+us+p, vy+us+p
+	// Box sits exactly on the selected cell's outer boundary. Previously
+	// an us/8 outset was added, which scaled with zoom and visibly spilled
+	// into adjacent cells at high zoom levels.
+	x0, y0 := vx, vy
+	x1, y1 := vx+us, vy+us
 	ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
 	ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
 	ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
@@ -435,8 +500,32 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	us := g.unitSize()
 	x := float64(item.Point.X) * float64(us)
 	y := float64(item.Point.Y) * float64(us)
-	sprite := resources.Sprite(resources.RoleFood, animation.AnimIdle, 0)
+	sprite := resources.Sprite(foodRoleForValue(item.Value), animation.AnimIdle, 0)
 	g.drawStaticSprite(img, x, y, sprite, foodColor)
+}
+
+// foodRoleForValue maps a food item's value to one of the three food
+// size-tier sprites. Thirds of MaxFoodValue, matching the organism
+// size-tier split:
+//
+//	value < MaxFoodValue/3     → small
+//	value < 2*MaxFoodValue/3   → medium
+//	else                       → large
+func foodRoleForValue(value int) resources.ImageRole {
+	maxVal := config.MaxFoodValue()
+	if maxVal <= 0 {
+		return resources.RoleFoodMedium
+	}
+	v := float64(value)
+	third := float64(maxVal) / 3.0
+	switch {
+	case v < third:
+		return resources.RoleFoodSmall
+	case v < 2*third:
+		return resources.RoleFoodMedium
+	default:
+		return resources.RoleFoodLarge
+	}
 }
 
 func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
@@ -457,19 +546,16 @@ func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	us := float64(g.unitSize())
 
-	// Size-to-role mapping: quartiles of MaximumMaxSize.
-	//   tiny   — below 25%
-	//   small  — 25% to below 50%
-	//   medium — 50% to below 75%
-	//   large  — 75% and above
+	// Size-to-role mapping: thirds of MaximumMaxSize.
+	//   small  — below 33%
+	//   medium — 33% to below 66%
+	//   large  — 66% and above
 	maxSize := config.MaximumMaxSize()
 	var role resources.ImageRole
 	switch {
-	case info.Size < maxSize*0.25:
-		role = resources.RoleOrganismTiny
-	case info.Size < maxSize*0.5:
+	case info.Size < maxSize*(1.0/3.0):
 		role = resources.RoleOrganismSmall
-	case info.Size < maxSize*0.75:
+	case info.Size < maxSize*(2.0/3.0):
 		role = resources.RoleOrganismMedium
 	default:
 		role = resources.RoleOrganismLarge
@@ -490,44 +576,67 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	frameIdx := 0
 
 	if g.animState != nil {
+		// Animation is entirely sprite-based — the spritesheet paints any
+		// motion between cells. We only gate sprite-frame advancement on
+		// playback speed (skip above 2x) and on-screen unit size (skip
+		// when sprites are too small to read per-frame differences). When
+		// either says "don't animate" we snap to a single frame instead
+		// of cycling.
+		animate := g.animState.AnimatesPosition() && g.unitSize() >= minOrganismAnimationUnitSize
 		if frame, ok := g.animState.Frames[info.ID]; ok {
-			gridX, gridY = animatedCellPosition(frame, g.animState.Progress(), g.animState.AnimatesPosition())
+			gridX, gridY = animatedCellPosition(frame)
 			direction = frame.Direction
 			// ForFrame, not ForAction, so a move whose position didn't
 			// change falls through to AnimBlocked instead of drawing the
 			// 2-cell travel sprite in place.
 			anim = animation.ForFrame(frame)
 		}
-		frameIdx = g.animState.FrameIndex()
+		if animate {
+			frameIdx = g.animState.SpriteFrameIndex(g.Camera.SpriteFrameCount())
+		} else if isMultiCellAnim(anim) {
+			// Multi-cell (_xl) sprites depict per-frame detail that
+			// matters for visual consistency at cycle boundaries —
+			// move/attack's travel path, eat's crumbs in the adjacent
+			// cell, etc. Without frame advancement we'd stay on frame 0
+			// for the whole cycle, which typically depicts a mid-action
+			// state and snaps backwards when the next cycle begins.
+			// Snap to the last frame instead — the authored end state.
+			frameIdx = g.Camera.SpriteFrameCount() - 1
+			if frameIdx < 0 {
+				frameIdx = 0
+			}
+		}
 	}
 
 	sprite := resources.Sprite(role, anim, frameIdx)
 	g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
 }
 
-// animatedCellPosition returns the organism's grid-unit position for the
-// current render frame, given its animation Frame and the cycle progress.
+// animatedCellPosition returns the organism's grid-unit anchor for the
+// current render frame. All motion is painted by the spritesheet itself,
+// so we just anchor at FromLocation — the sprite's base-cell origin.
 //
-// Move and attack are pinned at FromLocation: both use 2-cell spritesheets
-// that paint the full journey (move: left→right travel; attack: lunge into
-// extending cell and return), so interpolating the draw position on top
-// would double the motion. Everything else lerps linearly from FromLocation
-// to ToLocation. animate==false collapses to the settled ToLocation (very
-// high playback speeds that outrun the animation window).
-func animatedCellPosition(f animation.Frame, progress float64, animate bool) (float64, float64) {
-	if !animate {
-		return float64(f.ToLocation.X), float64(f.ToLocation.Y)
-	}
-
-	if f.Action == decision.ActMove || f.Action == decision.ActAttack {
-		return float64(f.FromLocation.X), float64(f.FromLocation.Y)
-	}
-
-	return lerp(float64(f.FromLocation.X), float64(f.ToLocation.X), progress),
-		lerp(float64(f.FromLocation.Y), float64(f.ToLocation.Y), progress)
+// For 2-cell actions (move, attack, eat) this puts the base cell at the
+// source and the extending cell in the direction the organism is
+// facing; single-cell actions have FromLocation == ToLocation so the
+// anchor choice doesn't matter.
+func animatedCellPosition(f animation.Frame) (float64, float64) {
+	return float64(f.FromLocation.X), float64(f.FromLocation.Y)
 }
 
-func lerp(a, b, t float64) float64 { return a + (b-a)*t }
+// isMultiCellAnim reports whether the animation uses a 2-cell (_xl)
+// spritesheet that extends into the cell ahead of the organism. Multi-
+// cell sprites need frame-index handling that differs from 1-cell
+// sprites: without frame advancement we snap to the last frame so the
+// authored end state (shape at top of the 2-cell canvas) is what shows
+// for the whole cycle, not the pre-action start state.
+func isMultiCellAnim(a animation.Animation) bool {
+	switch a {
+	case animation.AnimMove, animation.AnimAttack, animation.AnimEat:
+		return true
+	}
+	return false
+}
 
 // drawStaticSprite draws a non-rotated sprite at cell (x, y). Used for
 // food, walls, and other layers that don't animate.

@@ -29,6 +29,12 @@ type Organism struct {
 
 	decisionTree *d.Tree
 	action       d.Action
+	// ChemoFailed is set each cycle the organism performs
+	// chemosynthesis: true when the pH at its location fell outside
+	// its tolerance range (no health gained), false when it succeeded.
+	// Stale between non-chemo cycles; renderer only consults it when
+	// action == ActChemosynthesis.
+	ChemoFailed bool
 
 	lookupAPI LookupAPI
 
@@ -63,8 +69,12 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 	return &organism
 }
 
-// NewChild initializes and returns a new organism with a copied TreeLibrary from its parent
-func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
+// NewChild initializes and returns a new organism with a copied TreeLibrary
+// from its parent. direction is the unit vector from parent.Location to
+// point (i.e. "away from parent"): children are spawned facing outward
+// so the birth animation can render as a standard move from parent cell
+// into child cell (FromLocation = point.Sub(direction)).
+func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, direction utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
 	if rng.Float64() < o.ChanceToMutateDecisionTree() {
@@ -79,7 +89,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, api Loo
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
-		Direction:            utils.GetRandomDirection(rng),
+		Direction:            direction,
 		OriginalAncestorID:   o.OriginalAncestorID,
 
 		traits:       traits,
@@ -115,17 +125,18 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 
 func (o *Organism) Info() *Info {
 	return &Info{
-		ID:         o.ID,
-		Health:     o.Health,
-		Location:   o.Location,
-		Direction:  o.Direction,
-		Size:       o.Size,
-		Action:     o.action,
-		AncestorID: o.OriginalAncestorID,
-		Color:      o.traits.OrganismColor,
-		Age:        o.Age,
-		Children:   o.Children,
-		PhEffect:   o.traits.PhGrowthEffect,
+		ID:          o.ID,
+		Health:      o.Health,
+		Location:    o.Location,
+		Direction:   o.Direction,
+		Size:        o.Size,
+		Action:      o.action,
+		AncestorID:  o.OriginalAncestorID,
+		Color:       o.traits.OrganismColor,
+		Age:         o.Age,
+		Children:    o.Children,
+		PhEffect:    o.traits.PhGrowthEffect,
+		ChemoFailed: o.ChemoFailed,
 	}
 }
 
@@ -139,14 +150,22 @@ func (o *Organism) UpdateStats() {
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision
-// tree before running it to determine its next action
+// tree before running it to determine its next action.
+//
+// chooseAction is called every cycle even when the sim is about to
+// override the result with ActSpawn, so the tree's UsedLastCycle markers
+// stay populated for the panel's decision-tree display. Without this,
+// spawn cycles would leave every node at UsedLastCycle=false (cleared
+// by UpdateStats and never re-set) and the panel would show no ◀◀
+// arrows at all.
 func (o *Organism) UpdateAction() {
+	chosen := o.chooseAction(o.decisionTree.Node)
 	if o.shouldSpawn() {
 		o.CyclesSinceLastSpawn = 0
 		o.action = d.ActSpawn
 		return
 	}
-	o.action = o.chooseAction(o.decisionTree.Node)
+	o.action = chosen
 }
 
 func (o *Organism) shouldSpawn() bool {

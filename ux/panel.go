@@ -119,7 +119,7 @@ func (p *Panel) Render() *ebiten.Image {
 	panelImage.DrawImage(innerImage, op)
 
 	// Draw dividing line on the output (not scrolled)
-	ebitenutil.DrawRect(panelImage, float64(panelWidth)-1, 0, 1, float64(screenH), color.White)
+	ebitenutil.DrawRect(panelImage, float64(panelWidth)-1, 0, 1, float64(screenH), themedForeground())
 
 	// Draw scrollbar if content overflows
 	if p.contentHeight > screenH {
@@ -224,7 +224,17 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	bx += 28
 
 	p.drawButton(panelImage, bx, btnY, 16, btnH, "+", color.RGBA{R: 180, G: 180, B: 180, A: 255})
-	bx += 16 + btnGap + 8
+	bx += 16 + btnGap
+
+	// AUTO toggle — green label when on, dim grey when off. When on, the
+	// replay speed is driven by the camera's zoom; when off the speed
+	// responds only to the - / + buttons.
+	autoLabel := color.RGBA{R: 110, G: 110, B: 110, A: 255}
+	if ctrl.AutoSpeed {
+		autoLabel = color.RGBA{R: 110, G: 200, B: 120, A: 255}
+	}
+	p.drawButton(panelImage, bx, btnY, 32, btnH, "AUTO", autoLabel)
+	bx += 32 + btnGap + 8
 
 	// Cycle counter
 	cycleLabel := fmt.Sprintf("Cycle %d / %d", cycle, finalCycle)
@@ -318,6 +328,18 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 		p.replayCtrl.SetSpeed(speed)
 		return true
 	}
+	bx += 16 + btnGap
+
+	// AUTO toggle (width 32). Toggles auto-speed on/off; turning on
+	// immediately re-anchors speed to the camera's current zoom.
+	if p.clickInRect(mx, my, bx, btnY, 32, btnH) {
+		if p.replayCtrl.AutoSpeed {
+			p.replayCtrl.AutoSpeed = false
+		} else {
+			p.replayCtrl.EnableAutoSpeed(p.grid.Camera.GridUnitSize())
+		}
+		return true
+	}
 
 	return false
 }
@@ -328,7 +350,7 @@ func (p *Panel) clickInRect(mx, my, bx, by, w, h int) bool {
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	bounds := boundString(r.FontInversionz40, "protozoa")
-	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), color.White)
+	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), themedForeground())
 }
 
 func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
@@ -344,7 +366,7 @@ func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
 	for _, line := range lines {
 		bounds := boundString(r.FontSourceCodePro10, line)
 		x := panelWidth - playXOffset - bounds.Dx()
-		text.Draw(panelImage, line, r.FontSourceCodePro10, x, y, color.White)
+		text.Draw(panelImage, line, r.FontSourceCodePro10, x, y, themedForeground())
 		y += lineHeight
 	}
 }
@@ -352,7 +374,7 @@ func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
 func (p *Panel) renderStats(panelImage *ebiten.Image, yOff int) {
 	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nDEAD: %10d",
 		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetDeadCount())
-	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, color.White)
+	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, themedForeground())
 }
 
 func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
@@ -382,7 +404,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 
 	gY := graphYOffset + yOff
 
-	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, gY, color.White)
+	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, gY, themedForeground())
 	graphImage := p.graph.Render()
 	if graphImage == nil {
 		return
@@ -409,7 +431,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 			if textY < gY+10+bounds.Dy() {
 				textY = gY + 10 + bounds.Dy()
 			}
-			text.Draw(panelImage, phLabel, r.FontSourceCodePro8, textX, textY, color.White)
+			text.Draw(panelImage, phLabel, r.FontSourceCodePro8, textX, textY, themedForeground())
 		}
 	}
 
@@ -418,16 +440,16 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 		startCycle := p.graph.SelectedStartCycle()
 		if startCycle >= 0 {
 			cycleLabel := fmt.Sprintf("cycle %d", startCycle)
-			text.Draw(panelImage, cycleLabel, r.FontSourceCodePro8, graphXOffset+2, gY+10+8, color.White)
+			text.Draw(panelImage, cycleLabel, r.FontSourceCodePro8, graphXOffset+2, gY+10+8, themedForeground())
 		}
 	}
 
 	// draw border around graph
 	left, top, right, bottom := float64(graphXOffset), float64(gY+10), float64(graphXOffset+graphWidth), float64(gY+graphHeight+10)
-	ebitenutil.DrawLine(panelImage, left, top, right, top, color.White)
-	ebitenutil.DrawLine(panelImage, right, top, right, bottom, color.White)
-	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, color.White)
-	ebitenutil.DrawLine(panelImage, left, top, left, bottom, color.White)
+	ebitenutil.DrawLine(panelImage, left, top, right, top, themedForeground())
+	ebitenutil.DrawLine(panelImage, right, top, right, bottom, themedForeground())
+	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, themedForeground())
+	ebitenutil.DrawLine(panelImage, left, top, left, bottom, themedForeground())
 }
 
 // renderSelected draws the selected organism info and decision tree.
@@ -451,17 +473,24 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	infoHeight := infoLineCount * r.FontSourceCodePro12.Metrics().Height.Round()
 	offsetY := sY + infoHeight + padding
 
-	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, sY, color.White)
+	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
 
-	// Render decision tree with dim color for untravelled nodes
-	text.Draw(panelImage, "DECISION TREE:", r.FontSourceCodePro10, selectedXOffset, offsetY, color.White)
+	// Render decision tree with dim color for untravelled nodes. Active /
+	// dim pair flips with the theme so travelled lines stand out against
+	// the background in both modes:
+	//   dark mode  → active = white, dim = very dark grey
+	//   light mode → active = near-black, dim = light grey
+	var activeColor, dimColor color.Color = themedForeground(), color.RGBA{R: 80, G: 80, B: 80, A: 255}
+	if config.IsLightTheme() {
+		dimColor = color.RGBA{R: 170, G: 170, B: 180, A: 255}
+	}
+	text.Draw(panelImage, "DECISION TREE:", r.FontSourceCodePro10, selectedXOffset, offsetY, activeColor)
 	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
 	offsetY += lineHeight
-	dimColor := color.RGBA{R: 80, G: 80, B: 80, A: 255}
 	for _, line := range decisionTree.PrintLines() {
 		clr := dimColor
 		if line.WasTravelled {
-			clr = color.RGBA{R: 255, G: 255, B: 255, A: 255}
+			clr = activeColor
 		}
 		text.Draw(panelImage, line.Text, r.FontSourceCodePro10, selectedXOffset, offsetY, clr)
 		offsetY += lineHeight

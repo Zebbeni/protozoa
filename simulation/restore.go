@@ -115,6 +115,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		IdealPh:                    rec.IdealPh,
 		PhTolerance:                rec.PhTolerance,
 		PhGrowthEffect:             rec.PhGrowthEffect,
+		MaxLifespan:                rec.MaxLifespan,
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)

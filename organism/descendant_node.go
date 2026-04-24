@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/lucasb-eyer/go-colorful"
+
+	c "github.com/Zebbeni/protozoa/config"
 )
 
 // DescendantNode represents a single organism in the ancestor family tree.
@@ -53,12 +55,34 @@ func PhEffectSpectrumValue(phGrowthEffect, maxEffect float64) float64 {
 
 // ComputePhEffectColor returns a color for the given spectrum value [0,1]
 // using the same formula as ux.PhEffectColor.
+//
+// Neutral pH effect (spectrum value 0.5) blends into the active theme's
+// background so it visually disappears against the window fill. The
+// extremes stay high-contrast. Colours stored on DescendantNode at
+// organism birth are baked in at that moment — toggling themes mid-run
+// won't re-theme existing organisms, only those born afterwards — but the
+// dynamic pH-effect distribution graph recomputes each render and picks
+// up theme changes immediately.
 func ComputePhEffectColor(spectrumValue float64) colorful.Color {
 	const phMaxHue = 100.0
 	hue := phMaxHue - (phMaxHue * spectrumValue)
-	sat := 0.5 + math.Abs(spectrumValue-0.5)
-	light := math.Abs(spectrumValue - 0.5)
-	return colorful.HSLuv(hue, sat, light)
+	dist := math.Abs(spectrumValue - 0.5)
+	sat := 0.5 + dist
+	light := dist
+	if c.IsLightTheme() {
+		light = 1 - dist
+	}
+	col := colorful.HSLuv(hue, sat, light)
+	// Blend towards the theme background by distance from neutral, so
+	// dist=0 hands back the pure background colour and dist=0.5 hands
+	// back the pure HSLuv curve value.
+	bgR, bgG, bgB := c.ThemeBackgroundRGB()
+	weight := dist * 2 // [0, 1]
+	return colorful.Color{
+		R: weight*col.R + (1-weight)*bgR,
+		G: weight*col.G + (1-weight)*bgG,
+		B: weight*col.B + (1-weight)*bgB,
+	}
 }
 
 // MarkDead sets the EndCycle and propagates dead-branch counts up the tree.

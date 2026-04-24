@@ -120,6 +120,25 @@ go run main.go -headless
 go run main.go -headless -trials=10
 ```
 
+# Saving and Replaying Simulations
+Every run writes a `.pzr` replay file. By default it goes to a stable path in the system temp directory (`protozoa_last.pzr`) and gets overwritten the next time you start a new run. To keep a simulation around, save it to an explicit path instead:
+
+- Save a run to a chosen file:
+```
+go run main.go -checkpoint=runs/big_mutation.pzr
+```
+
+- Replay a saved file:
+```
+go run main.go -replay=runs/big_mutation.pzr
+```
+
+- Resume the last run still sitting in the temp directory (no need to remember the path — useful right after closing the window):
+```
+go run main.go -resume=true
+```
+If the temp file has been cleared or a new run has already overwritten it, `-resume` falls through to the normal startup path and prints a note. Explicit `-replay` wins over `-resume`, and `-resume` is ignored under `-headless` (no GUI to show the replay).
+
 # Test
 ```
 go test test/utils_test.go

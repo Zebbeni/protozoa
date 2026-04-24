@@ -17,13 +17,31 @@ const (
 	PhMaxHue        = 100.0
 )
 
-// PhValueColor maps a pH value to RGBA floats using the grid's pH color spectrum.
+// PhValueColor maps a pH value to RGBA floats using the grid's pH color
+// spectrum. Matches the env-layer colour logic in ux/grid.go: extremes
+// get high-contrast colours, neutral pH is blended towards the active
+// theme's background so it visually disappears into the window fill
+// (black under dark, white under light, light-blue under light_blue).
 func PhValueColor(ph float64) (float32, float32, float32, float32) {
-	hue := PhMaxHue - (PhMaxHue * ph / c.MaxPh())
-	sat := math.Abs(ph-((c.MaxPh()+c.MinPh())/2.0)) / (c.MaxPh() - c.MinPh())
-	light := 0.5 + (0.5 * math.Sin(math.Pi*(sat-0.5)))
-	col := colorful.HSLuv(hue, sat, light)
-	return ColorToFloat(col)
+	// Same colour scheme as the env-layer renderer in ux/grid.go: blend
+	// between theme background (at neutral) and the acid (#A9C218) or
+	// base (#E74766) extreme colour, weighted linearly by distance from
+	// neutral pH.
+	neutral := (c.MaxPh() + c.MinPh()) / 2.0
+	halfRange := (c.MaxPh() - c.MinPh()) / 2.0
+	weight := 0.0
+	if halfRange > 0 {
+		weight = math.Abs(ph-neutral) / halfRange
+		if weight > 1 {
+			weight = 1
+		}
+	}
+	bgR, bgG, bgB := c.ThemeBackgroundRGB()
+	tgtR, tgtG, tgtB := c.PhTargetColorRGB(ph)
+	bg := colorful.Color{R: bgR, G: bgG, B: bgB}
+	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
+	blended := bg.BlendRgb(target, weight).Clamped()
+	return float32(blended.R), float32(blended.G), float32(blended.B), 1
 }
 
 func WhiteSrc() *ebiten.Image {

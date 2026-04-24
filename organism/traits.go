@@ -22,6 +22,10 @@ type Traits struct {
 	IdealPh                    float64
 	PhTolerance                float64
 	PhGrowthEffect             float64
+	// MaxLifespan is the number of cycles the organism lives before dying
+	// automatically. Zero means "no lifespan limit" — the manager only
+	// enforces this trait when config.MaxMaxLifespan() > 0.
+	MaxLifespan int
 }
 
 func newRandomTraits(rng *simrand.RNG) Traits {
@@ -33,6 +37,7 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
 	phTolerance := rng.Float64() * c.MaxPhToleranceRange()
 	phGrowthEffect := rng.Float64()*(c.MaxOrganismPhGrowthEffect()*2.0) - c.MaxOrganismPhGrowthEffect()
+	maxLifespan := randomMaxLifespan(rng)
 	return Traits{
 		MaxSize:                    maxSize,
 		SpawnHealth:                spawnHealth,
@@ -42,6 +47,7 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 		IdealPh:                    idealPh,
 		PhTolerance:                phTolerance,
 		PhGrowthEffect:             phGrowthEffect,
+		MaxLifespan:                maxLifespan,
 	}
 }
 
@@ -54,6 +60,7 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 	phEffect := mutateFloat(rng, t.PhGrowthEffect, c.MaxPhEffectChange(), c.MaxOrganismPhGrowthEffect()*-1, c.MaxOrganismPhGrowthEffect())
 	idealPh := mutateFloat(rng, t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	phTolerance := mutateFloat(rng, t.PhTolerance, 0.1, c.MinPhToleranceRange(), c.MaxPhToleranceRange())
+	maxLifespan := mutateMaxLifespan(rng, t.MaxLifespan)
 	return Traits{
 		MaxSize:                    maxSize,
 		SpawnHealth:                spawnHealth,
@@ -63,7 +70,44 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 		IdealPh:                    idealPh,
 		PhTolerance:                phTolerance,
 		PhGrowthEffect:             phEffect,
+		MaxLifespan:                maxLifespan,
 	}
+}
+
+// randomMaxLifespan picks an initial MaxLifespan value in [MinMaxLifespan,
+// MaxMaxLifespan]. Returns 0 when lifespan enforcement is disabled
+// (MaxMaxLifespan <= 0).
+func randomMaxLifespan(rng *simrand.RNG) int {
+	max := c.MaxMaxLifespan()
+	if max <= 0 {
+		return 0
+	}
+	min := c.MinMaxLifespan()
+	if min < 0 {
+		min = 0
+	}
+	if min > max {
+		min = max
+	}
+	return min + rng.Intn(max-min+1)
+}
+
+// mutateMaxLifespan mutates a parent's lifespan by up to MaxMaxLifespanChange
+// cycles in either direction, clamped to [MinMaxLifespan, MaxMaxLifespan].
+// Returns 0 whenever lifespan enforcement is disabled.
+func mutateMaxLifespan(rng *simrand.RNG, parent int) int {
+	max := c.MaxMaxLifespan()
+	if max <= 0 {
+		return 0
+	}
+	min := c.MinMaxLifespan()
+	if min < 0 {
+		min = 0
+	}
+	if min > max {
+		min = max
+	}
+	return mutateInt(rng, parent, c.MaxMaxLifespanChange(), min, max)
 }
 
 func mutateFloat(rng *simrand.RNG, value, maxChange, min, max float64) float64 {

@@ -24,10 +24,11 @@ type Interface struct {
 	simulation *simulation.Simulation
 	selection  *organism.Info
 
-	grid    *Grid
-	panel   *Panel
-	minimap *Minimap
-	debug   *Debug
+	grid       *Grid
+	panel      *Panel
+	minimap    *Minimap
+	debug      *Debug
+	replayCtrl *replay.Controller
 
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
@@ -46,7 +47,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 		simulation:   sim,
 		grid:         grid,
 		panel:        NewPanel(sim, grid),
-		minimap:      NewMinimap(sim, grid.Camera),
+		minimap:      NewMinimap(sim, grid),
 		gridOptions:  &ebiten.DrawImageOptions{},
 		panelOptions: &ebiten.DrawImageOptions{},
 	}
@@ -63,8 +64,23 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 // grid the controller's animation state so sprite animation stays in sync
 // with cycle advancement.
 func (i *Interface) SetReplayController(ctrl *replay.Controller) {
+	i.replayCtrl = ctrl
 	i.panel.SetReplayController(ctrl)
 	i.grid.SetAnimationState(ctrl.AnimState)
+	i.minimap.SetReplayController(ctrl)
+	// Initial speed sync — if AutoSpeed is on (default), anchor Speed to
+	// whatever zoom the camera is at.
+	i.syncReplaySpeedToZoom()
+}
+
+// syncReplaySpeedToZoom pushes the current camera unit size through the
+// replay controller's auto-speed handler. No-op if no replay controller
+// is attached or AutoSpeed is off.
+func (i *Interface) syncReplaySpeedToZoom() {
+	if i.replayCtrl == nil {
+		return
+	}
+	i.replayCtrl.UpdateSpeedFromZoom(i.grid.Camera.GridUnitSize())
 }
 
 // OnResize updates viewport dimensions when the window is resized.
@@ -77,7 +93,7 @@ func (i *Interface) OnResize() {
 }
 
 func (i *Interface) Render(screen *ebiten.Image) {
-	screen.Clear()
+	fillThemeBackground(screen)
 
 	start := time.Now()
 
@@ -112,15 +128,21 @@ func (i *Interface) handleKeyboard() {
 	if inpututil.IsKeyJustReleased(ebiten.KeyD) {
 		i.simulation.ToggleDebug()
 	}
+	if inpututil.IsKeyJustReleased(ebiten.KeyT) {
+		cycleTheme()
+		i.grid.doRefresh = true
+	}
 
 	// Zoom via keyboard
 	mx, my := ebiten.CursorPosition()
 	pivotX, pivotY := (mx-panelWidth)/GridDisplayScale, my/GridDisplayScale
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) { // + key
 		i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
+		i.syncReplaySpeedToZoom()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
 		i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
+		i.syncReplaySpeedToZoom()
 	}
 
 	// Pan via arrow keys (continuous while held)
@@ -150,6 +172,7 @@ func (i *Interface) handleMouse() {
 			} else {
 				i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
 			}
+			i.syncReplaySpeedToZoom()
 		}
 	}
 

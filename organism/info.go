@@ -19,4 +19,10 @@ type Info struct {
 	Age        int
 	Children   int
 	PhEffect   float64
+	// ChemoFailed is true when the organism's most recent
+	// chemosynthesis action was outside its pH tolerance range and
+	// produced no health gain. Only meaningful when Action ==
+	// ActChemosynthesis; stale values on other actions are ignored by
+	// the renderer.
+	ChemoFailed bool
 }

@@ -172,6 +172,7 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		IdealPh:                traits.IdealPh,
 		PhTolerance:            traits.PhTolerance,
 		PhGrowthEffect:         traits.PhGrowthEffect,
+		MaxLifespan:            traits.MaxLifespan,
 		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
 		CurrentAction:          int(o.Action()),
 	}

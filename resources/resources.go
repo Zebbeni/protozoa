@@ -19,20 +19,21 @@ import (
 // animationFileName is the filename stem used for per-action spritesheet PNGs
 // (e.g. "small_move.png"). Kept in sync with resources/gen/main.go.
 var animationFileName = map[animation.Animation]string{
-	animation.AnimIdle:    "idle",
-	animation.AnimMove:    "move",
-	animation.AnimBlocked: "blocked",
-	animation.AnimTurn:    "turn",
-	animation.AnimAttack:  "attack",
-	animation.AnimEat:     "eat",
-	animation.AnimChemo:   "chemo",
-	animation.AnimDie:     "die",
+	animation.AnimIdle:      "idle",
+	animation.AnimMove:      "move",
+	animation.AnimBlocked:   "blocked",
+	animation.AnimTurnLeft:  "turn_left",
+	animation.AnimTurnRight: "turn_right",
+	animation.AnimAttack:    "attack",
+	animation.AnimEat:       "eat",
+	animation.AnimChemo:     "chemo",
+	animation.AnimChemoFail: "chemofail",
+	animation.AnimDie:       "die",
 }
 
 // organismRoleName maps each organism role to the filename stem used by the
 // per-action spritesheets (e.g. "small", "medium", "large").
 var organismRoleName = map[ImageRole]string{
-	RoleOrganismTiny:   "tiny",
 	RoleOrganismSmall:  "small",
 	RoleOrganismMedium: "medium",
 	RoleOrganismLarge:  "large",
@@ -53,17 +54,17 @@ const (
 	RoleOrganismSmall ImageRole = iota
 	RoleOrganismMedium
 	RoleOrganismLarge
-	RoleFood
+	RoleFoodSmall
+	RoleFoodMedium
+	RoleFoodLarge
 	RoleBox // walls
-	RoleOrganismTiny
 )
 
 // FrameSet holds one slice of per-frame sprites per Animation kind.
 //
-// For 4x4 sprites every slice is length 1 (we only show the final frame per
-// cycle at that zoom). For 16x16 sprites organism animations hold
-// animation.BaseFramesPerCycle frames; non-organism roles (food, walls)
-// still only populate AnimIdle and only ever need one frame.
+// Frame count scales with the sprite set's resolution: 4x4 holds 1 frame,
+// 8x8 holds 2, 16x16 holds 4 (resolution / 4). Non-organism roles (food,
+// walls) only populate AnimIdle and only ever need one frame.
 type FrameSet map[animation.Animation][]*ebiten.Image
 
 var (
@@ -79,19 +80,29 @@ var (
 	Images map[ImageRole]FrameSet
 )
 
-// ZoomImages holds sprite sets for the 2 native sprite sizes (0=4x4, 1=16x16).
-var ZoomImages [2]map[ImageRole]FrameSet
+// ZoomImages holds sprite sets for the 3 native sprite sizes
+// (0=4x4, 1=8x8, 2=16x16).
+var ZoomImages [3]map[ImageRole]FrameSet
+
+// currentZoom tracks which ZoomImages entry is active. Persisted across
+// calls to initImages so reloads (e.g. theme toggling) keep pointing at
+// the sprite set the camera is currently using, instead of snapping back
+// to zero.
+var currentZoom int
 
 func Init() {
 	initFonts()
 	initImages()
 }
 
-// SelectZoom sets the active image set to the given sprite-set index (0-1).
+// SelectZoom sets the active image set to the given sprite-set index (0-2).
+// The level is also remembered so subsequent reloads (ReloadImages) restore
+// it instead of snapping back to zero.
 func SelectZoom(level int) {
-	if level < 0 || level > 1 {
+	if level < 0 || level >= len(ZoomImages) {
 		return
 	}
+	currentZoom = level
 	Images = ZoomImages[level]
 }
 
@@ -133,52 +144,58 @@ func initImages() {
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	dirs := [2]string{"4x4", "16x16"}
-	sizes := [2]int{4, 16}
+	dirs := [3]string{"4x4", "8x8", "16x16"}
+	sizes := [3]int{4, 8, 16}
 
 	for i, dir := range dirs {
 		size := sizes[i]
 		path := "resources/images/grid/" + dir + "/"
 
 		// Base single-frame sprites per organism role. Used as a fallback
-		// when a per-action sheet is missing, and as the entire sprite for
-		// the 4x4 zoom (where we don't animate per frame). Loaded from
-		// disk if the corresponding square_<role>.png exists; otherwise
-		// synthesised programmatically so the loader never crashes on a
-		// missing file.
-		baseTiny := loadOrGenerateFilled(path+"square_tiny.png", size, max(1, size/5))
+		// when a per-action sheet is missing. Loaded from disk if the
+		// corresponding square_<role>.png exists; otherwise synthesised
+		// programmatically so the loader never crashes on missing art.
 		baseSmall := loadOrGenerateFilled(path+"square_small.png", size, max(1, size/3))
 		baseMedium := loadOrGenerateFilled(path+"square_medium.png", size, max(2, size*2/3))
 		baseLarge := loadOrGenerateFilled(path+"square_large.png", size, size)
 
 		box := generateBoxImage(size)
-		food := loadOrGenerateCircle(path+"food.png", size, max(2, size*2/3))
+		// Food is authored as three size tiers per resolution; the grid
+		// renderer picks between them based on the food item's value as a
+		// fraction of MaxFoodValue. Circle fallbacks match the organism
+		// size-tier fallbacks so missing art degrades gracefully.
+		foodSmall := loadOrGenerateCircle(path+"food_small.png", size, max(1, size/3))
+		foodMedium := loadOrGenerateCircle(path+"food_medium.png", size, max(2, size*2/3))
+		foodLarge := loadOrGenerateCircle(path+"food_large.png", size, size)
 
-		// Number of frames per organism animation at this zoom. At 4x4 we
-		// show a single frame per cycle by design; at 16x16 we animate
-		// across the full 4-frame cycle.
-		orgFrames := 1
-		if size >= 16 {
-			orgFrames = animation.BaseFramesPerCycle
+		// Frames per cycle scale with resolution (1 / 2 / 4 at 4 / 8 / 16).
+		// Missing per-action sheets fall back to repeating the base sprite
+		// so all frame slots render the same image (harmless).
+		orgFrames := size / 4
+		if orgFrames < 1 {
+			orgFrames = 1
 		}
 
 		bases := map[ImageRole]*ebiten.Image{
-			RoleOrganismTiny:   baseTiny,
 			RoleOrganismSmall:  baseSmall,
 			RoleOrganismMedium: baseMedium,
 			RoleOrganismLarge:  baseLarge,
 		}
 
 		ZoomImages[i] = map[ImageRole]FrameSet{
-			RoleFood: staticFrames(food),
-			RoleBox:  staticFrames(box),
+			RoleFoodSmall:  staticFrames(foodSmall),
+			RoleFoodMedium: staticFrames(foodMedium),
+			RoleFoodLarge:  staticFrames(foodLarge),
+			RoleBox:        staticFrames(box),
 		}
 		for role, base := range bases {
 			ZoomImages[i][role] = loadOrganismFrames(path, role, base, size, orgFrames)
 		}
 	}
 
-	SelectZoom(0)
+	// Preserve whichever zoom was active before a reload — on first init
+	// currentZoom is zero so this still picks the 4x4 set by default.
+	SelectZoom(currentZoom)
 }
 
 // loadOrGenerateFilled returns loadImage(fullPath) if the file exists,

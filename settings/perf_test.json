@@ -22,6 +22,7 @@
   "max_ideal_ph": 8.0,
   "min_ph_tolerance_range": 0.5,
   "max_ph_tolerance_range": 1.0,
+  "chemosynthesis_tolerance": 0.5,
   "max_organism_ph_growth_effect": 0.05,
   "max_ph_effect_change": 0.0025,
   "ph_diffuse_factor": 0.5,

@@ -50,6 +50,11 @@ func (p Point) Add(toAdd Point) Point {
 	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
 }
 
+// Sub subtracts a given Point and returns the wrapped result.
+func (p Point) Sub(toSub Point) Point {
+	return Point{X: p.X - toSub.X, Y: p.Y - toSub.Y}.Wrap()
+}
+
 // Times multiplies a given value and returns the result
 func (p *Point) Times(toMultiply int) Point {
 	return Point{

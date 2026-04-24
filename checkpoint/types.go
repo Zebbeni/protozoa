@@ -50,6 +50,7 @@ type OrganismRecord struct {
 	IdealPh                    float64
 	PhTolerance                float64
 	PhGrowthEffect             float64
+	MaxLifespan                int
 
 	// Decision tree as serialized string
 	DecisionTree  string

@@ -137,10 +137,17 @@ func (r *Runner) startReplayViewer() {
 	ebiten.SetScreenClearedEveryFrame(false)
 }
 
+// lastReplayPath is the stable tmp-directory path used for the most
+// recent simulation's replay file. --resume loads from this path; a
+// fresh run (no --resume) overwrites it via os.Create when the writer
+// opens, so old data is replaced rather than accumulating alongside.
+func lastReplayPath() string {
+	return filepath.Join(os.TempDir(), "protozoa_last.pzr")
+}
+
 func ensureCheckpointPath(opts *c.Options) {
 	if opts.CheckpointFile == "" {
-		tmpDir := os.TempDir()
-		opts.CheckpointFile = filepath.Join(tmpDir, fmt.Sprintf("protozoa_%d.pzr", time.Now().UnixNano()))
+		opts.CheckpointFile = lastReplayPath()
 	}
 	if opts.CheckpointInterval <= 0 {
 		opts.CheckpointInterval = 1000
@@ -163,6 +170,21 @@ func RunSimulation(opts *c.Options) {
 			log.Fatal(err)
 		}
 		return
+	}
+
+	// --resume: jump straight into the replay viewer using the
+	// previously-saved file, skipping the config screen and the sim.
+	// Ignored if the user explicitly passed --replay (that wins) or
+	// --headless (no GUI to show a replay in). If the stable file is
+	// missing we warn and fall through to the normal startup path so
+	// the user gets a useful session instead of an error exit.
+	if opts.Resume && !opts.IsHeadless && opts.ReplayFile == "" {
+		path := lastReplayPath()
+		if _, err := os.Stat(path); err == nil {
+			opts.ReplayFile = path
+		} else {
+			fmt.Fprintf(os.Stderr, "No saved replay at %s; starting a new simulation\n", path)
+		}
 	}
 
 	if opts.IsHeadless {

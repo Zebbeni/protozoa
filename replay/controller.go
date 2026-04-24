@@ -35,6 +35,19 @@ type Controller struct {
 	// Playback state
 	Speed      int // playback multiplier; see animation package for semantics
 	FinalCycle int // last cycle in the file (from last snapshot)
+
+	// AutoSpeed, when true, lets the viewer drive Speed from the camera's
+	// current zoom level via UpdateSpeedFromZoom — zoomed out views play
+	// faster so you can see large-scale behaviour without the sim
+	// crawling. A manual SetSpeed call turns this off. The UI exposes a
+	// toggle that turns it back on and re-anchors speed to the zoom.
+	AutoSpeed bool
+
+	// SeekCount increments on every successful snapshot seek. UI
+	// elements that cache sim state (e.g. the minimap) compare it
+	// against their last-seen value to invalidate when the playhead
+	// jumps — a pure observer signal with no callback plumbing.
+	SeekCount int
 }
 
 // NewController opens a .pzr file and restores from the first snapshot.
@@ -78,6 +91,7 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 		AnimState:  animation.NewState(),
 		Speed:      1,
 		FinalCycle: lastSnap.Cycle,
+		AutoSpeed:  true,
 	}
 
 	// Scan for descendant trees and history sections
@@ -155,6 +169,7 @@ func (c *Controller) SeekToSnapshot(index int) error {
 	// organism set, and the clock must start fresh at the new position.
 	c.AnimState.Frames = map[int]animation.Frame{}
 	c.AnimState.ResetClock()
+	c.SeekCount++
 	return nil
 }
 
@@ -199,14 +214,56 @@ func (c *Controller) StepForward() {
 	c.sim.Pause(wasPaused)
 }
 
-// SetSpeed sets the playback speed multiplier. See the animation package
-// for what Speed values mean in terms of frames per cycle.
+// SetSpeed sets the playback speed multiplier and disables AutoSpeed —
+// the user is explicitly overriding the auto-from-zoom behaviour.
 func (c *Controller) SetSpeed(speed int) {
+	c.AutoSpeed = false
+	c.setSpeedInternal(speed)
+}
+
+// setSpeedInternal updates Speed without touching AutoSpeed. Used by the
+// auto-sync path so re-anchoring from zoom doesn't toggle the user's
+// preference off.
+func (c *Controller) setSpeedInternal(speed int) {
 	if speed < 1 {
 		speed = 1
 	}
 	c.Speed = speed
 	c.AnimState.Speed = speed
+}
+
+// SpeedForUnitSize returns the auto-speed for a given camera unit size.
+// Larger zoom (bigger unit sizes) → 1x; smaller zoom → progressively
+// faster so large-scale behaviour plays in a reasonable amount of time.
+func SpeedForUnitSize(unitSize int) int {
+	switch {
+	case unitSize >= 32:
+		return 1
+	case unitSize >= 16:
+		return 2
+	case unitSize >= 8:
+		return 4
+	default:
+		return 6
+	}
+}
+
+// UpdateSpeedFromZoom re-anchors Speed to the given unit size IF
+// AutoSpeed is enabled. No-op otherwise. Call this from the viewer when
+// the camera zoom changes.
+func (c *Controller) UpdateSpeedFromZoom(unitSize int) {
+	if !c.AutoSpeed {
+		return
+	}
+	c.setSpeedInternal(SpeedForUnitSize(unitSize))
+}
+
+// EnableAutoSpeed turns AutoSpeed on and immediately re-anchors Speed to
+// the given unit size. Pass the current camera unit size at the call
+// site.
+func (c *Controller) EnableAutoSpeed(unitSize int) {
+	c.AutoSpeed = true
+	c.setSpeedInternal(SpeedForUnitSize(unitSize))
 }
 
 // SnapshotCycles returns the cycle numbers of all snapshots.

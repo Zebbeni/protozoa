@@ -15,6 +15,7 @@ import (
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/animation"
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -31,6 +32,7 @@ const (
 // hotReloadDirs lists the sprite directories watched for mtime changes.
 var hotReloadDirs = []string{
 	"resources/images/grid/4x4",
+	"resources/images/grid/8x8",
 	"resources/images/grid/16x16",
 }
 
@@ -40,7 +42,7 @@ var hotReloadDirs = []string{
 // inspect each sprite sheet visually. Zoom and a small color palette let
 // them change the sprite set and tint.
 type AnimationTest struct {
-	spriteSet int // 0 = 4x4 sprites, 1 = 16x16 sprites
+	spriteSet int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites
 	unitSize  int // pixels per cell before GridDisplayScale
 	color     colorful.Color
 	palette   []colorful.Color
@@ -78,7 +80,6 @@ var demoRoles = []struct {
 	role  resources.ImageRole
 	label string
 }{
-	{resources.RoleOrganismTiny, "TINY"},
 	{resources.RoleOrganismSmall, "SMALL"},
 	{resources.RoleOrganismMedium, "MEDIUM"},
 	{resources.RoleOrganismLarge, "LARGE"},
@@ -107,10 +108,12 @@ var demoAnimations = []demoCell{
 	{"IDLE", animation.AnimIdle},
 	{"MOVE", animation.AnimMove},
 	{"BLOCKED", animation.AnimBlocked},
-	{"TURN", animation.AnimTurn},
+	{"TURN L", animation.AnimTurnLeft},
+	{"TURN R", animation.AnimTurnRight},
 	{"ATTACK", animation.AnimAttack},
 	{"EAT", animation.AnimEat},
 	{"CHEMO", animation.AnimChemo},
+	{"CHEMO FAIL", animation.AnimChemoFail},
 	{"DIE", animation.AnimDie},
 }
 
@@ -128,7 +131,7 @@ func NewAnimationTest() *AnimationTest {
 		colorful.HSLuv(0, 0, 0.85),      // near-white
 	}
 	a := &AnimationTest{
-		spriteSet: 1,
+		spriteSet: 2,
 		unitSize:  16,
 		color:     palette[0],
 		palette:   palette,
@@ -187,6 +190,11 @@ func (a *AnimationTest) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
 		a.panX, a.panY = 0, 0
 	}
+	// T toggles light / dark theme — reloads sheets so <theme>_*.png
+	// swaps in on the fly for iterating on both palettes side by side.
+	if inpututil.IsKeyJustPressed(ebiten.KeyT) {
+		cycleTheme()
+	}
 
 	// Mouse input: click on a swatch picks a color; click-and-drag anywhere
 	// else pans the matrix. Swatch check happens first so clicks on
@@ -219,13 +227,12 @@ func (a *AnimationTest) Update() error {
 
 // Draw paints the color picker, the labelled sprite matrix, and a hint line.
 func (a *AnimationTest) Draw(screen *ebiten.Image) {
-	// Match the replay viewer's grid area (ux.Interface.Render clears the
-	// screen to transparent-black and overlays its layers on top), so
-	// colour preview in the demo reads the same way it will in-sim.
-	screen.Clear()
+	// Match the replay viewer's background — dark mode clears to
+	// transparent black, light mode fills with the configured light bg.
+	fillThemeBackground(screen)
 
 	elapsed := time.Since(a.startTime)
-	_, frameIdx := animation.LoopProgress(elapsed)
+	_, frameIdx := animation.LoopProgress(elapsed, zoomSpriteFrameCounts[a.spriteSet])
 
 	// Switch the active resource set to match the demo's spriteSet — the
 	// main renderer isn't running so we own this global in demo mode.
@@ -253,7 +260,7 @@ func (a *AnimationTest) zoomIn() {
 	order := []struct {
 		spriteSet, unitSize int
 	}{
-		{0, 4}, {0, 6}, {0, 8}, {0, 12}, {1, 16}, {1, 24}, {1, 32}, {1, 48}, {1, 64},
+		{0, 4}, {1, 8}, {2, 16}, {2, 32}, {2, 48},
 	}
 	for i, step := range order {
 		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
@@ -270,7 +277,7 @@ func (a *AnimationTest) zoomOut() {
 	order := []struct {
 		spriteSet, unitSize int
 	}{
-		{0, 4}, {0, 6}, {0, 8}, {0, 12}, {1, 16}, {1, 24}, {1, 32}, {1, 48}, {1, 64},
+		{0, 4}, {1, 8}, {2, 16}, {2, 32}, {2, 48},
 	}
 	for i, step := range order {
 		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
@@ -304,13 +311,13 @@ func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) {
 		if c == a.color {
 			// thin white border to mark the selected swatch
 			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y-selBorder),
-				float64(swatchW+2*selBorder), float64(selBorder), color.White)
+				float64(swatchW+2*selBorder), float64(selBorder), themedForeground())
 			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y+swatchH),
-				float64(swatchW+2*selBorder), float64(selBorder), color.White)
+				float64(swatchW+2*selBorder), float64(selBorder), themedForeground())
 			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y),
-				float64(selBorder), float64(swatchH), color.White)
+				float64(selBorder), float64(swatchH), themedForeground())
 			ebitenutil.DrawRect(screen, float64(x+swatchW), float64(y),
-				float64(selBorder), float64(swatchH), color.White)
+				float64(selBorder), float64(swatchH), themedForeground())
 		}
 		a.swatches = append(a.swatches, rect)
 		x += swatchW + gap
@@ -341,7 +348,7 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int) {
 	// Column headers drawn above the extension buffer of row 0.
 	for c, demo := range demoAnimations {
 		x := int(leftPx + float64(c)*colW)
-		text.Draw(screen, demo.label, resources.FontSourceCodePro10, x, int(topPx)-int(cell)-8, color.White)
+		text.Draw(screen, demo.label, resources.FontSourceCodePro10, x, int(topPx)-int(cell)-8, themedForeground())
 	}
 
 	// Rows: outer = direction, inner = size.
@@ -350,7 +357,7 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int) {
 		for _, roleRow := range demoRoles {
 			rowY := topPx + float64(rowIdx)*rowH
 			label := dir.label + " " + roleRow.label
-			text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cell*0.75), color.White)
+			text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cell*0.75), themedForeground())
 
 			for c, demo := range demoAnimations {
 				drawX := leftPx + float64(c)*colW
@@ -364,20 +371,29 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int) {
 // drawDemoSprite draws one cell of the matrix. All cells paint at their
 // static matrix position — motion (move, attack) lives entirely inside the
 // 2-cell spritesheet; rotation applied via drawAnimatedSprite handles
-// orientation.
+// orientation. Below minOrganismAnimationUnitSize we pin to frame 0 so
+// the demo matches what the live grid renders at the same zoom.
 func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 	role resources.ImageRole, anim animation.Animation, direction utils.Point, frameIdx int) {
 
 	scale := a.scale()
 	cellSize := float64(zoomSpriteSizes[a.spriteSet])
 
+	if a.unitSize < minOrganismAnimationUnitSize {
+		frameIdx = 0
+	}
+
 	sprite := resources.Sprite(role, anim, frameIdx)
 	drawAnimatedSprite(screen, x, y, sprite, direction, a.color, cellSize, scale)
 }
 
 func (a *AnimationTest) drawHint(screen *ebiten.Image) {
-	hint := "wheel / + / - : zoom   |   drag or arrows : pan   |   home : recentre   |   sheet edits hot-reload"
-	text.Draw(screen, hint, resources.FontSourceCodePro10, 12, a.windowH-12, color.White)
+	hint := "wheel / + / - : zoom   |   drag or arrows : pan   |   home : recentre   |   t : toggle theme   |   sheet edits hot-reload"
+	hintCol := color.RGBA{R: 230, G: 230, B: 230, A: 255}
+	if config.IsLightTheme() {
+		hintCol = color.RGBA{R: 40, G: 40, B: 40, A: 255}
+	}
+	text.Draw(screen, hint, resources.FontSourceCodePro10, 12, a.windowH-12, hintCol)
 }
 
 // pollHotReload scans hotReloadDirs for the newest .png mtime and, if it's

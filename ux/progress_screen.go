@@ -86,7 +86,7 @@ func (p *ProgressScreen) Update() bool {
 
 // Draw renders the progress screen.
 func (p *ProgressScreen) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 20, G: 20, B: 25, A: 255})
+	fillThemeBackground(screen)
 
 	sw := config.ScreenWidth()
 	sh := config.ScreenHeight()
@@ -106,7 +106,7 @@ func (p *ProgressScreen) Draw(screen *ebiten.Image) {
 
 	titleBounds := boundString(r.FontSourceCodePro12, title)
 	titleX := panelX + (panelW-titleBounds.Dx())/2
-	text.Draw(screen, title, r.FontSourceCodePro12, titleX, 30, color.White)
+	text.Draw(screen, title, r.FontSourceCodePro12, titleX, 30, themedForeground())
 
 	// Scrollable log area
 	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
@@ -187,7 +187,7 @@ func (p *ProgressScreen) drawButton(screen *ebiten.Image, x, y, w, h int, label 
 	bounds := boundString(r.FontSourceCodePro12, label)
 	tx := x + (w-bounds.Dx())/2
 	ty := y + (h+bounds.Dy())/2
-	text.Draw(screen, label, r.FontSourceCodePro12, tx, ty, color.White)
+	text.Draw(screen, label, r.FontSourceCodePro12, tx, ty, themedForeground())
 }
 
 func splitLines(s string) []string {

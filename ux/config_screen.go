@@ -107,7 +107,7 @@ func (cs *ConfigScreen) Update() bool {
 
 // Draw renders the config screen
 func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 20, G: 20, B: 25, A: 255})
+	fillThemeBackground(screen)
 
 	sh := c.ScreenHeight()
 	panelX := (c.ScreenWidth() - cfgPanelWidth) / 2
@@ -117,7 +117,7 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 	title := "SIMULATION SETTINGS"
 	titleBounds := boundString(r.FontSourceCodePro12, title)
 	titleX := panelX + (cfgPanelWidth-titleBounds.Dx())/2
-	text.Draw(screen, title, r.FontSourceCodePro12, titleX, panelTop+titleBounds.Dy(), color.White)
+	text.Draw(screen, title, r.FontSourceCodePro12, titleX, panelTop+titleBounds.Dy(), themedForeground())
 
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
 	rowIdx := 0
@@ -240,6 +240,8 @@ func (cs *ConfigScreen) drawButton(screen *ebiten.Image, x, y, w, h int, label s
 	bounds := boundString(r.FontSourceCodePro12, label)
 	tx := x + (w-bounds.Dx())/2
 	ty := y + (h+bounds.Dy())/2
+	// Button label stays white regardless of theme since the button has
+	// its own coloured background.
 	text.Draw(screen, label, r.FontSourceCodePro12, tx, ty, color.White)
 }
 
@@ -496,6 +498,7 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Ideal pH", "max_ideal_ph"),
 			field("Min pH Tolerance Range", "min_ph_tolerance_range"),
 			field("Max pH Tolerance Range", "max_ph_tolerance_range"),
+			field("Chemosynthesis Tolerance", "chemosynthesis_tolerance"),
 			field("Max pH Growth Effect", "max_organism_ph_growth_effect"),
 			field("Max pH Effect Change", "max_ph_effect_change"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
@@ -513,6 +516,9 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Initial Cycles Between Spawns", "max_initial_cycles_between_spawns"),
 			field("Min Spawn Health", "min_spawn_health"),
 			field("Max Spawn Health Percent", "max_spawn_health_percent"),
+			field("Min Max Lifespan", "min_max_lifespan"),
+			field("Max Max Lifespan (0=off)", "max_max_lifespan"),
+			field("Max Max Lifespan Change", "max_max_lifespan_change"),
 		}},
 		{title: "— DECISION TREES —", fields: []configField{
 			field("Initial Mutations", "initial_organism_decision_tree_mutations"),

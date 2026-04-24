@@ -8,6 +8,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -21,6 +23,7 @@ const (
 
 type Minimap struct {
 	simulation *simulation.Simulation
+	grid       *Grid
 	camera     *Camera
 	width      int
 	height     int
@@ -29,9 +32,23 @@ type Minimap struct {
 	pendingImage  chan *ebiten.Image
 	rendering     bool
 	lastCycleUsed int
+	// lastViewMode is the grid view mode the most recent background render
+	// used. When the live mode differs we invalidate the cached image so
+	// the minimap switches appearance without waiting for the 20-cycle
+	// refresh interval.
+	lastViewMode mode
+
+	// replayCtrl (optional) lets the minimap detect replay seeks so the
+	// cache refreshes as soon as the playhead jumps — even backwards or
+	// by less than 20 cycles, where the normal cycle-delta check would
+	// miss the change. Nil when the minimap is wired up before a replay
+	// controller exists (e.g. live sim) and set later via
+	// SetReplayController.
+	replayCtrl    *replay.Controller
+	lastSeekCount int
 }
 
-func NewMinimap(sim *simulation.Simulation, cam *Camera) *Minimap {
+func NewMinimap(sim *simulation.Simulation, grid *Grid) *Minimap {
 	worldW := config.GridUnitsWide()
 	worldH := config.GridUnitsHigh()
 	scale := min(float64(minimapMaxW)/float64(worldW), float64(minimapMaxH)/float64(worldH))
@@ -40,10 +57,24 @@ func NewMinimap(sim *simulation.Simulation, cam *Camera) *Minimap {
 
 	return &Minimap{
 		simulation:   sim,
-		camera:       cam,
+		grid:         grid,
+		camera:       grid.Camera,
 		width:        w,
 		height:       h,
 		pendingImage: make(chan *ebiten.Image, 1),
+		lastViewMode: grid.ViewMode(),
+	}
+}
+
+// SetReplayController attaches a replay controller so the minimap can
+// invalidate its cached image whenever the user seeks the playhead.
+// Safe to call multiple times; nil clears the attachment.
+func (m *Minimap) SetReplayController(ctrl *replay.Controller) {
+	m.replayCtrl = ctrl
+	if ctrl != nil {
+		m.lastSeekCount = ctrl.SeekCount
+	} else {
+		m.lastSeekCount = 0
 	}
 }
 
@@ -56,10 +87,23 @@ func (m *Minimap) Update() {
 	}
 
 	cycle := m.simulation.Cycle()
-	if !m.rendering && (m.image == nil || cycle-m.lastCycleUsed >= 20) {
+	curMode := m.grid.ViewMode()
+	modeChanged := curMode != m.lastViewMode
+	seeked := false
+	if m.replayCtrl != nil && m.replayCtrl.SeekCount != m.lastSeekCount {
+		seeked = true
+	}
+	stale := m.image == nil || cycle-m.lastCycleUsed >= 20
+	if !m.rendering && (stale || modeChanged || seeked) {
 		m.rendering = true
 		m.lastCycleUsed = cycle
-		go m.renderInBackground()
+		m.lastViewMode = curMode
+		if m.replayCtrl != nil {
+			m.lastSeekCount = m.replayCtrl.SeekCount
+		}
+		// Capture the mode value so the goroutine renders a consistent
+		// snapshot even if the user switches modes mid-render.
+		go m.renderInBackground(curMode)
 	}
 }
 
@@ -121,10 +165,10 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 	rx := float64(drawX) + (float64(m.width)-rw)/2
 	ry := float64(drawY) + (float64(m.height)-rh)/2
 
-	ebitenutil.DrawLine(screen, rx, ry, rx+rw, ry, color.White)
-	ebitenutil.DrawLine(screen, rx+rw, ry, rx+rw, ry+rh, color.White)
-	ebitenutil.DrawLine(screen, rx, ry+rh, rx+rw, ry+rh, color.White)
-	ebitenutil.DrawLine(screen, rx, ry, rx, ry+rh, color.White)
+	ebitenutil.DrawLine(screen, rx, ry, rx+rw, ry, themedForeground())
+	ebitenutil.DrawLine(screen, rx+rw, ry, rx+rw, ry+rh, themedForeground())
+	ebitenutil.DrawLine(screen, rx, ry+rh, rx+rw, ry+rh, themedForeground())
+	ebitenutil.DrawLine(screen, rx, ry, rx, ry+rh, themedForeground())
 }
 
 func (m *Minimap) HandleClick(screenX, screenY int) bool {
@@ -162,9 +206,33 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 	return true
 }
 
-func (m *Minimap) renderInBackground() {
+// renderInBackground paints the minimap to match the current grid view
+// mode. Four modes, four backgrounds and overlays:
+//
+//	orgsPhMode        — pH everywhere, organisms painted over it
+//	organismsOnlyMode — theme background, organisms painted over it
+//	phEffectsOnlyMode — theme background, organisms tinted by their
+//	                    PhEffect rather than their natural colour
+//	phOnlyMode        — pH everywhere, organisms omitted entirely
+//
+// The mode is captured by the caller (Update) and passed in so that a
+// user mid-switch doesn't tear: the goroutine renders one consistent
+// snapshot, and the cache is invalidated on the next Update pass.
+func (m *Minimap) renderInBackground(viewMode mode) {
 	worldW := config.GridUnitsWide()
 	worldH := config.GridUnitsHigh()
+
+	showPh := viewMode == orgsPhMode || viewMode == phOnlyMode
+	showOrgs := viewMode != phOnlyMode
+	phEffectTint := viewMode == phEffectsOnlyMode
+
+	// Theme background used wherever pH isn't painted.
+	tbR, tbG, tbB := config.ThemeBackgroundRGB()
+	bgR := byte(tbR * 255)
+	bgG := byte(tbG * 255)
+	bgB := byte(tbB * 255)
+
+	maxPhEffect := config.MaxOrganismPhGrowthEffect()
 
 	buf := make([]byte, 4*m.width*m.height)
 
@@ -176,16 +244,28 @@ func (m *Minimap) renderInBackground() {
 			point := utils.Point{X: gx, Y: gy}
 
 			var r, g, b byte
-
-			if info := m.simulation.GetOrganismInfoAtPoint(point); info != nil {
-				cr, cg, cb, _ := info.Color.RGBA()
-				r, g, b = byte(cr>>8), byte(cg>>8), byte(cb>>8)
-			} else {
+			if showPh {
 				ph := m.simulation.GetPhAtPoint(point)
 				pr, pg, pb, _ := PhValueColor(ph)
 				r = byte(pr * 255)
 				g = byte(pg * 255)
 				b = byte(pb * 255)
+			} else {
+				r, g, b = bgR, bgG, bgB
+			}
+
+			if showOrgs {
+				if info := m.simulation.GetOrganismInfoAtPoint(point); info != nil {
+					if phEffectTint {
+						col := PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, maxPhEffect))
+						r = byte(col.R * 255)
+						g = byte(col.G * 255)
+						b = byte(col.B * 255)
+					} else {
+						cr, cg, cb, _ := info.Color.RGBA()
+						r, g, b = byte(cr>>8), byte(cg>>8), byte(cb>>8)
+					}
+				}
 			}
 
 			idx := (py*m.width + px) * 4

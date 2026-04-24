@@ -31,6 +31,15 @@
 // We deliberately accept that tradeoff: users who ask for very fast
 // playback want to see results, not animation.
 //
+// # Per-sprite-set frame counts
+//
+// Each sprite set authors a different number of frames per cycle
+// (resolution / 4: 4x4 → 1 frame, 8x8 → 2, 16x16 → 4). Cycle timing
+// doesn't change with the sprite set — we just divide the same
+// Progress() into a different number of equal slots. SpriteFrameIndex
+// is the helper for that: callers pass the active sprite set's frame
+// count and get back the index to display.
+//
 // # Usage
 //
 // The caller driving playback (replay.Controller) owns a *State. Each
@@ -75,15 +84,17 @@ const (
 	AnimIdle Animation = iota
 	AnimMove
 	AnimBlocked
-	AnimTurn
+	AnimTurnLeft
+	AnimTurnRight
 	AnimAttack
 	AnimEat
 	AnimChemo
+	AnimChemoFail
 	AnimDie
 )
 
 // AllAnimations lists every Animation value, for resource preloading.
-var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurn, AnimAttack, AnimEat, AnimChemo, AnimDie}
+var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimChemo, AnimChemoFail, AnimDie}
 
 // ForAction maps a resolved decision.Action to the Animation sheet that
 // should play during its cycle transition. This is the position-agnostic
@@ -97,8 +108,10 @@ func ForAction(a decision.Action) Animation {
 		return AnimAttack
 	case decision.ActEat:
 		return AnimEat
-	case decision.ActTurnLeft, decision.ActTurnRight:
-		return AnimTurn
+	case decision.ActTurnLeft:
+		return AnimTurnLeft
+	case decision.ActTurnRight:
+		return AnimTurnRight
 	case decision.ActChemosynthesis:
 		return AnimChemo
 	case decision.ActIdle:
@@ -116,12 +129,18 @@ func ForAction(a decision.Action) Animation {
 //   - A Move whose FromLocation equals its ToLocation is a blocked move —
 //     the organism tried to advance but couldn't — and gets AnimBlocked
 //     so we don't play the 2-cell travel sprite in place.
+//   - A Chemosynthesis action whose ChemoFailed flag is set (organism
+//     was outside its pH tolerance range and gained no health) plays
+//     AnimChemoFail instead of AnimChemo.
 func ForFrame(f Frame) Animation {
 	if f.Dying {
 		return AnimDie
 	}
 	if f.Action == decision.ActMove && f.FromLocation == f.ToLocation {
 		return AnimBlocked
+	}
+	if f.Action == decision.ActChemosynthesis && f.ChemoFailed {
+		return AnimChemoFail
 	}
 	return ForAction(f.Action)
 }
@@ -144,6 +163,10 @@ type Frame struct {
 	Size         float64
 	PhEffect     float64
 	Dying        bool
+	// ChemoFailed is true when the organism attempted chemosynthesis but
+	// was outside its pH tolerance range (no health gained). Routed
+	// through ForFrame to pick AnimChemoFail instead of AnimChemo.
+	ChemoFailed bool
 }
 
 // State holds the current animation batch and cycle timing. One instance per
@@ -228,17 +251,31 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 	frames := make(map[int]Frame, len(infos)+len(s.preSnap))
 	for id, info := range infos {
 		from := info.Location
+		action := info.Action
 		if pre, ok := s.preSnap[id]; ok {
 			from = pre.Location
+		} else {
+			// Newborn: no pre-snap this cycle. Animate as if the
+			// organism just moved into its starting cell from the
+			// parent's cell. Spawn logic always orients the child
+			// away from its parent (Direction = parent→child step),
+			// so Location.Sub(Direction) recovers the parent's cell
+			// without needing to remember the parent here. Override
+			// the action to Move regardless of info.Action (newborns
+			// default to chemosynthesis) so ForFrame routes the frame
+			// to AnimMove.
+			from = info.Location.Sub(info.Direction)
+			action = decision.ActMove
 		}
 		frames[id] = Frame{
 			FromLocation: from,
 			ToLocation:   info.Location,
 			Direction:    info.Direction,
-			Action:       info.Action,
+			Action:       action,
 			Color:        info.Color,
 			Size:         info.Size,
 			PhEffect:     info.PhEffect,
+			ChemoFailed:  info.ChemoFailed,
 		}
 	}
 	for id, pre := range s.preSnap {
@@ -290,38 +327,48 @@ func (s *State) Progress() float64 {
 	return p
 }
 
-// FrameIndex returns which of the BaseFramesPerCycle sprite frames to show.
-// At Speed > BaseFramesPerCycle there is only one visible frame per cycle,
-// so we snap to the final frame.
-func (s *State) FrameIndex() int {
+// SpriteFrameIndex returns which of framesInSet sprite frames to show for
+// the current cycle progress, parameterised by the active sprite set's
+// per-cycle frame count (1 for 4x4, 2 for 8x8, 4 for 16x16).
+//
+// At Speed > framesInSet the cycle window is shorter than one visible
+// frame per sprite frame, so we snap to the last frame (the resolved
+// state of the animation). framesInSet <= 0 is treated as 1.
+func (s *State) SpriteFrameIndex(framesInSet int) int {
+	if framesInSet < 1 {
+		return 0
+	}
 	sp := s.Speed
 	if sp < 1 {
 		sp = 1
 	}
-	// Number of distinct sprite frames we can actually display this cycle.
-	visibleFrames := BaseFramesPerCycle / sp
-	if visibleFrames < 1 {
-		return BaseFramesPerCycle - 1
+	if framesInSet/sp < 1 {
+		return framesInSet - 1
 	}
-	idx := int(s.Progress() * float64(BaseFramesPerCycle))
-	if idx >= BaseFramesPerCycle {
-		idx = BaseFramesPerCycle - 1
+	idx := int(s.Progress() * float64(framesInSet))
+	if idx >= framesInSet {
+		idx = framesInSet - 1
 	}
 	return idx
 }
 
-// AnimatesPosition reports whether the renderer should interpolate positions
-// this cycle. False at very high speeds where a single render frame covers
-// the full cycle (or more); the renderer should just show the final state.
+// AnimatesPosition reports whether the renderer should animate at the
+// current Speed — both sprite-frame cycling AND position interpolation.
+// False above 2x, where each cycle's wall-clock window is short enough
+// that frame/position changes read as flicker more than motion; the
+// renderer should pin to frame 0 and snap to the final position.
 func (s *State) AnimatesPosition() bool {
-	return s.Speed <= BaseFramesPerCycle
+	return s.Speed <= 2
 }
 
 // LoopProgress computes a looping (progress, frameIdx) pair from an elapsed
 // wall-clock duration, as if the animation had been playing at Speed 1 from
-// time zero. Intended for standalone demos / previews that want to loop the
-// same animation forever without a full sim-driven State.
-func LoopProgress(elapsed time.Duration) (progress float64, frameIdx int) {
+// time zero. framesInSet is the sprite set's per-cycle frame count — the
+// returned index is divided proportionally across that many frames so the
+// loop displays each authored sprite for an equal share of the cycle.
+// Intended for standalone demos / previews that want to loop the same
+// animation forever without a full sim-driven State.
+func LoopProgress(elapsed time.Duration, framesInSet int) (progress float64, frameIdx int) {
 	if baseCycleDuration <= 0 {
 		return 0, 0
 	}
@@ -330,9 +377,12 @@ func LoopProgress(elapsed time.Duration) (progress float64, frameIdx int) {
 		mod += baseCycleDuration
 	}
 	progress = float64(mod) / float64(baseCycleDuration)
-	frameIdx = int(progress * float64(BaseFramesPerCycle))
-	if frameIdx >= BaseFramesPerCycle {
-		frameIdx = BaseFramesPerCycle - 1
+	if framesInSet < 1 {
+		return progress, 0
+	}
+	frameIdx = int(progress * float64(framesInSet))
+	if frameIdx >= framesInSet {
+		frameIdx = framesInSet - 1
 	}
 	return
 }

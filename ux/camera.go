@@ -18,32 +18,43 @@ type ZoomLevel int
 
 const (
 	Zoom4  ZoomLevel = 0
-	Zoom6  ZoomLevel = 1
-	Zoom8  ZoomLevel = 2
-	Zoom12 ZoomLevel = 3
-	Zoom16 ZoomLevel = 4
-	Zoom24 ZoomLevel = 5
-	Zoom32 ZoomLevel = 6
-	Zoom48 ZoomLevel = 7
-	Zoom64 ZoomLevel = 8
+	Zoom8  ZoomLevel = 1
+	Zoom16 ZoomLevel = 2
+	Zoom32 ZoomLevel = 3
+	Zoom48 ZoomLevel = 4
 
 	ZoomMin = Zoom4
-	ZoomMax = Zoom64
+	ZoomMax = Zoom48
 )
 
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
-var zoomUnitSizes = [9]int{4, 6, 8, 12, 16, 24, 32, 48, 64}
+// Each unit size is an exact multiple of exactly one sprite set's
+// native resolution — 4x4 is used only at 4px cells, 8x8 only at 8px
+// cells, 16x16 for 16 / 32 / 48 (scales 1x / 2x / 3x).
+var zoomUnitSizes = [5]int{4, 8, 16, 32, 48}
 
-// zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=16x16).
-// Each level uses the largest sprite set that doesn't exceed its unit size.
-var zoomSpriteSet = [9]int{0, 0, 0, 0, 1, 1, 1, 1, 1}
+// zoomSpriteSet maps each zoom level to the sprite set index
+// (0=4x4, 1=8x8, 2=16x16).
+var zoomSpriteSet = [5]int{0, 1, 2, 2, 2}
 
 // zoomSpriteSizes is the native pixel size per sprite set.
-var zoomSpriteSizes = [2]int{4, 16}
+var zoomSpriteSizes = [3]int{4, 8, 16}
 
-// SpriteSet returns the sprite set index (0-1) for the current zoom level.
+// zoomSpriteFrameCounts is the per-cycle frame count per sprite set —
+// resolution / 4. Authored sprite sheets contain this many frames per
+// animation tag; the renderer divides animation.State.Progress()
+// proportionally across them (see animation.SpriteFrameIndex).
+var zoomSpriteFrameCounts = [3]int{1, 2, 4}
+
+// SpriteSet returns the sprite set index (0-2) for the current zoom level.
 func (cam *Camera) SpriteSet() int {
 	return zoomSpriteSet[cam.Zoom]
+}
+
+// SpriteFrameCount returns the per-cycle sprite frame count for the
+// active sprite set (1 at 4x4, 2 at 8x8, 4 at 16x16).
+func (cam *Camera) SpriteFrameCount() int {
+	return zoomSpriteFrameCounts[cam.SpriteSet()]
 }
 
 // SpriteScale returns the factor to scale sprites up to the display unit size.

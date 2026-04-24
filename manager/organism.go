@@ -447,7 +447,13 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 		return false
 	}
 	id := m.generateId()
-	o := parent.NewChild(m.rng, id, spawnPoint, m.api)
+	// Face the child away from its parent (parent→child step vector).
+	// The birth-animation path synthesises Frame.FromLocation =
+	// child.Location.Sub(child.Direction), so as long as Direction is
+	// the outward step, the 2-cell move sprite draws parent→child
+	// correctly without anyone having to remember the parent's cell.
+	spawnDirection := spawnPoint.Sub(parent.Location)
+	o := parent.NewChild(m.rng, id, spawnPoint, spawnDirection, m.api)
 
 	traits := o.Traits()
 	sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
@@ -714,6 +720,14 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
+
+	// Lifespan enforcement: if the global max-lifespan is enabled
+	// (MaxMaxLifespan > 0), force health to 0 once the organism reaches
+	// its trait-defined lifespan. removeIfDead runs later in the same
+	// cycle and cleans up as usual.
+	if c.MaxMaxLifespan() > 0 && traits.MaxLifespan > 0 && o.Age >= traits.MaxLifespan {
+		o.Health = 0
+	}
 }
 
 // applyIdle is the resolution for ActIdle: the organism holds its current
@@ -725,12 +739,21 @@ func (m *OrganismManager) applyIdle(o *organism.Organism) {
 }
 
 // add a positive health change if organism attempts chemosynthesis in a
-// favorable ph environment
+// favorable ph environment. The chemo-viable window is a scaled subset
+// (or superset) of the organism's general pH tolerance: PhTolerance is
+// multiplied by ChemosynthesisTolerance so the config can make
+// chemosynthesis strictly harder than merely surviving (factor < 1) or
+// easier (factor > 1). Also records whether the attempt failed so the
+// renderer can play the chemofail sprite in place of the normal one.
 func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 	traits := o.TraitsRef()
 	ph := m.api.GetPhAtPoint(o.Location)
-	if math.Abs(traits.IdealPh-ph) < traits.PhTolerance {
+	chemoTolerance := traits.PhTolerance * c.ChemosynthesisTolerance()
+	if math.Abs(traits.IdealPh-ph) < chemoTolerance {
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
+		o.ChemoFailed = false
+	} else {
+		o.ChemoFailed = true
 	}
 }
 

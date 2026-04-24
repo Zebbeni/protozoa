@@ -14,6 +14,7 @@ type Options struct {
 	RestoreFile        string
 	ReplayFile         string
 	AnimationTest      bool
+	Resume             bool
 }
 
 func GetOptions() *Options {
@@ -30,6 +31,7 @@ func GetOptions() *Options {
 	flag.StringVar(&opts.RestoreFile, "restore", "", "Path to .pzr file to restore from")
 	flag.StringVar(&opts.ReplayFile, "replay", "", "Path to .pzr file to replay with viewer")
 	flag.BoolVar(&opts.AnimationTest, "animation-test", false, "Launch standalone animation preview (no sim)")
+	flag.BoolVar(&opts.Resume, "resume", false, "Skip running a new simulation and load the previously saved replay from the temp directory")
 
 	flag.Parse()
 
