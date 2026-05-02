@@ -26,7 +26,10 @@ const (
 	IsFoodRight
 	IsOrganismAhead
 	IsBiggerOrganismAhead
-	IsRelatedOrganismAhead
+	// IsRelatedOrganismAhead: removed but kept as a numeric placeholder so
+	// later Condition values stay at their original ints and old .pzr
+	// checkpoint files still decode correctly.
+	_ Condition = iota
 	IsOrganismLeft
 	IsRelatedOrganismLeft
 	IsOrganismRight
@@ -58,7 +61,6 @@ var (
 		IsFoodRight,
 		IsOrganismAhead,
 		IsBiggerOrganismAhead,
-		IsRelatedOrganismAhead,
 		IsOrganismLeft,
 		IsRelatedOrganismLeft,
 		IsOrganismRight,
@@ -84,7 +86,6 @@ var (
 		IsFoodRight:               "If Food Right",
 		IsOrganismAhead:           "If Organism Ahead",
 		IsBiggerOrganismAhead:     "If Bigger Organism Ahead",
-		IsRelatedOrganismAhead:    "If Related Organism Ahead",
 		IsOrganismLeft:            "If Organism Left",
 		IsRelatedOrganismLeft:     "If Related Organism Left",
 		IsOrganismRight:           "If Organism Right",

@@ -228,8 +228,6 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isOrganismAhead()
 	case d.IsBiggerOrganismAhead:
 		return o.isBiggerOrganismAhead()
-	case d.IsRelatedOrganismAhead:
-		return o.isRelatedOrganismAhead()
 	case d.IsOrganismLeft:
 		return o.isOrganismLeft()
 	case d.IsRelatedOrganismLeft:
@@ -345,10 +343,6 @@ func (o *Organism) isWallAhead() bool {
 
 func (o *Organism) isBiggerOrganismAhead() bool {
 	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
-}
-
-func (o *Organism) isRelatedOrganismAhead() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
 func (o *Organism) isOrganismLeft() bool {

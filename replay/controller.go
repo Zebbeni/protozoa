@@ -33,8 +33,8 @@ type Controller struct {
 	wasPaused bool
 
 	// Playback state
-	Speed      int // playback multiplier; see animation package for semantics
-	FinalCycle int // last cycle in the file (from last snapshot)
+	Speed      float64 // playback multiplier; see animation package for semantics
+	FinalCycle int     // last cycle in the file (from last snapshot)
 
 	// AutoSpeed, when true, lets the viewer drive Speed from the camera's
 	// current zoom level via UpdateSpeedFromZoom — zoomed out views play
@@ -216,7 +216,7 @@ func (c *Controller) StepForward() {
 
 // SetSpeed sets the playback speed multiplier and disables AutoSpeed —
 // the user is explicitly overriding the auto-from-zoom behaviour.
-func (c *Controller) SetSpeed(speed int) {
+func (c *Controller) SetSpeed(speed float64) {
 	c.AutoSpeed = false
 	c.setSpeedInternal(speed)
 }
@@ -224,18 +224,26 @@ func (c *Controller) SetSpeed(speed int) {
 // setSpeedInternal updates Speed without touching AutoSpeed. Used by the
 // auto-sync path so re-anchoring from zoom doesn't toggle the user's
 // preference off.
-func (c *Controller) setSpeedInternal(speed int) {
-	if speed < 1 {
-		speed = 1
+func (c *Controller) setSpeedInternal(speed float64) {
+	if speed < MinReplaySpeed {
+		speed = MinReplaySpeed
 	}
 	c.Speed = speed
 	c.AnimState.Speed = speed
 }
 
+// MinReplaySpeed and MaxReplaySpeed bound the user-selectable playback
+// speeds. Slower than 0.25x crawls so far it stops being useful; faster
+// than 64x outpaces the renderer's catch-up loop.
+const (
+	MinReplaySpeed = 0.25
+	MaxReplaySpeed = 64
+)
+
 // SpeedForUnitSize returns the auto-speed for a given camera unit size.
 // Larger zoom (bigger unit sizes) → 1x; smaller zoom → progressively
 // faster so large-scale behaviour plays in a reasonable amount of time.
-func SpeedForUnitSize(unitSize int) int {
+func SpeedForUnitSize(unitSize int) float64 {
 	switch {
 	case unitSize >= 32:
 		return 1

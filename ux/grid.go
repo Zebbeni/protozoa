@@ -75,10 +75,6 @@ type Grid struct {
 	animState  *animation.State
 
 	layers map[layerType]*ebiten.Image
-	// envIntermediate holds the env layer linearly upscaled from 1 px/cell
-	// to sprite-native per cell. Rebuilt when the sprite set changes (zoom
-	// crossing the 4x4 ↔ 16x16 threshold).
-	envIntermediate *ebiten.Image
 
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
@@ -107,7 +103,6 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 }
 
 func (g *Grid) initLayerImages() {
-	g.envIntermediate = g.newEnvIntermediateLayer()
 	g.layers = map[layerType]*ebiten.Image{
 		layerEnv:       g.newEnvLayer(),
 		layerWalls:     g.newBlankLayer(),
@@ -124,23 +119,15 @@ func (g *Grid) newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(g.Camera.WorldPixelWidth(), g.Camera.WorldPixelHeight())
 }
 
-// newEnvLayer creates a 1-pixel-per-grid-cell image for the environment
-// layer. Each cycle renderPhValue writes a single pixel per changed cell
-// into it. During composition this layer is linearly upscaled into an
-// intermediate at sprite-native resolution (see newEnvIntermediateLayer)
-// so adjacent cells blend smoothly before the final nearest-neighbour
-// pass to viewport.
+// newEnvLayer creates the environment image at sprite-native resolution
+// per grid cell (4 or 16 px/cell depending on the active sprite set).
+// Each pixel's colour is bilinearly interpolated CPU-side from the four
+// nearest cells' pH values when the cell changes, with wrap-aware
+// neighbour sampling. The viewport compose step uses FilterNearest, so
+// no GPU bilinear pass blurs the result — keeping the gradients smooth
+// without the seam artifact that FilterLinear leaves at the world wrap
+// edge.
 func (g *Grid) newEnvLayer() *ebiten.Image {
-	return ebiten.NewImage(config.GridUnitsWide(), config.GridUnitsHigh())
-}
-
-// newEnvIntermediateLayer creates the intermediate env image sized at
-// sprite-native resolution per grid cell (4 or 16 px/cell depending on
-// the active sprite set). The env layer is linearly upscaled into this
-// image, giving smooth cell-boundary transitions at the same pixel grid
-// as the sprites. A nearest-neighbour pass then scales this to the
-// viewport, preserving the pixel-art look for the final upscale.
-func (g *Grid) newEnvIntermediateLayer() *ebiten.Image {
 	cell := zoomSpriteSizes[g.Camera.SpriteSet()]
 	return ebiten.NewImage(config.GridUnitsWide()*cell, config.GridUnitsHigh()*cell)
 }
@@ -229,22 +216,12 @@ func (g *Grid) Render() *ebiten.Image {
 	}
 
 	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
-		// Two-step env compose:
-		//   1. env (1 px/cell) → envIntermediate (sprite-native per
-		//      cell) with FilterLinear, scale = sprite native size.
-		//      Produces smooth gradients at sprite-pixel resolution.
-		//   2. envIntermediate → viewport at sprite_scale with
-		//      FilterNearest. Keeps the pixel-art look on the final
-		//      upscale while preserving the linear blur baked into
-		//      step 1.
-		cell := zoomSpriteSizes[g.Camera.SpriteSet()]
-		g.envIntermediate.Clear()
-		envUpOp := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear}
-		envUpOp.GeoM.Scale(float64(cell), float64(cell))
-		g.envIntermediate.DrawImage(g.layers[layerEnv], envUpOp)
-
+		// env layer is already at sprite-native resolution with
+		// bilinear-interpolated colours baked in by renderPhValue.
+		// Compose with FilterNearest — the final upscale to display
+		// pixels is purely a sprite-style integer multiplication.
 		envScale := g.Camera.SpriteScale()
-		drawLayer(g.envIntermediate, envScale, envScale, ebiten.FilterNearest)
+		drawLayer(g.layers[layerEnv], envScale, envScale, ebiten.FilterNearest)
 	}
 	drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
 	if g.viewMode != phOnlyMode {
@@ -264,19 +241,67 @@ func (g *Grid) Render() *ebiten.Image {
 
 func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
 	if refresh {
-		phMap := g.simulation.GetPhMap()
-		for x := range phMap {
-			for y := range phMap[x] {
-				g.renderPhValue(envImage, x, y, phMap[x][y])
-			}
-		}
-	} else {
-		updatedPoints := g.simulation.GetUpdatedPhPoints()
-		for point := range updatedPoints {
-			phVal := g.simulation.GetPhAtPoint(point)
-			g.renderPhValue(envImage, point.X, point.Y, phVal)
+		g.rebuildEnvLayer(envImage)
+		return
+	}
+	updatedPoints := g.simulation.GetUpdatedPhPoints()
+	for point := range updatedPoints {
+		phVal := g.simulation.GetPhAtPoint(point)
+		g.renderPhValue(envImage, point.X, point.Y, phVal)
+	}
+}
+
+// rebuildEnvLayer redraws every pixel of the env layer in one CPU pass,
+// used on full refreshes (initial render, theme change, zoom change).
+// Each pixel is bilinearly interpolated from the four nearest cells'
+// colours with wrap-aware sampling, then uploaded via WritePixels.
+func (g *Grid) rebuildEnvLayer(envImage *ebiten.Image) {
+	N := zoomSpriteSizes[g.Camera.SpriteSet()]
+	W := config.GridUnitsWide()
+	H := config.GridUnitsHigh()
+	imgW := W * N
+	imgH := H * N
+
+	phMap := g.simulation.GetPhMap()
+	cellColors := make([]colorful.Color, W*H)
+	for x := 0; x < W; x++ {
+		for y := 0; y < H; y++ {
+			cellColors[x*H+y] = g.phToColor(phMap[x][y])
 		}
 	}
+
+	buf := make([]byte, 4*imgW*imgH)
+	invN := 1.0 / float64(N)
+	for py := 0; py < imgH; py++ {
+		v := (float64(py)+0.5)*invN - 0.5
+		cy := int(math.Floor(v))
+		fy := v - float64(cy)
+		cy0 := ((cy%H)+H)%H
+		cy1 := ((cy+1)%H+H)%H
+		for px := 0; px < imgW; px++ {
+			u := (float64(px)+0.5)*invN - 0.5
+			cx := int(math.Floor(u))
+			fx := u - float64(cx)
+			cx0 := ((cx%W)+W)%W
+			cx1 := ((cx+1)%W+W)%W
+
+			c00 := cellColors[cx0*H+cy0]
+			c10 := cellColors[cx1*H+cy0]
+			c01 := cellColors[cx0*H+cy1]
+			c11 := cellColors[cx1*H+cy1]
+
+			r := (1-fy)*((1-fx)*c00.R+fx*c10.R) + fy*((1-fx)*c01.R+fx*c11.R)
+			gv := (1-fy)*((1-fx)*c00.G+fx*c10.G) + fy*((1-fx)*c01.G+fx*c11.G)
+			b := (1-fy)*((1-fx)*c00.B+fx*c10.B) + fy*((1-fx)*c01.B+fx*c11.B)
+
+			i := (py*imgW + px) * 4
+			buf[i] = uint8(r * 255)
+			buf[i+1] = uint8(gv * 255)
+			buf[i+2] = uint8(b * 255)
+			buf[i+3] = 255
+		}
+	}
+	envImage.WritePixels(buf)
 }
 
 func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
@@ -289,20 +314,81 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 	// Walls are static — nothing to do on incremental frames
 }
 
+// renderPhValue updates the 2N×2N pixel region of envImage that depends
+// on cell (gridX, gridY)'s pH value. Pixels are bilinear-interpolated
+// from the cell and its 8 neighbours (wrap-aware), so each cell is
+// flat-coloured at its centre and smoothly transitions to neighbours
+// without any GPU FilterLinear pass — eliminating the seam at world
+// wrap edges.
+//
+// Hue runs acid→base across the range. Saturation grows with distance
+// from neutral pH (mid-pH is grey, extremes are colourful). Lightness
+// flips with the theme so extremes stay high-contrast against the
+// window fill, and the low-sat end blends towards the active theme's
+// background so neutral cells visually disappear into the grid fill
+// (black under dark, white under light, light-blue under light_blue).
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
-	// Environment image is 1px per cell — set the pixel directly.
-	//
-	// Hue runs acid→base across the range. Saturation is proportional to
-	// distance from neutral (so mid-pH is grey, extremes are colourful).
-	// Lightness flips between themes so extremes stay high-contrast
-	// against the window fill, and the low-sat end is blended towards the
-	// active theme's background so neutral cells visually disappear into
-	// the grid fill (black under dark, white under light, light-blue
-	// under light_blue).
-	// Blend between the theme background (at neutral pH) and a fixed
-	// "extreme" colour — #A9C218 (yellow-green) on the acid side,
-	// #E74766 (red-pink) on the basic side. Linear weight: 0 at neutral,
-	// 1 at the min/max of the pH range.
+	N := zoomSpriteSizes[g.Camera.SpriteSet()]
+	halfN := N / 2
+	W := config.GridUnitsWide()
+	H := config.GridUnitsHigh()
+	imgW := W * N
+	imgH := H * N
+
+	var col [3][3]colorful.Color
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			var ph float64
+			if dx == 0 && dy == 0 {
+				ph = phVal
+			} else {
+				wx := ((gridX+dx)%W + W) % W
+				wy := ((gridY+dy)%H + H) % H
+				ph = g.simulation.GetPhAtPoint(utils.Point{X: wx, Y: wy})
+			}
+			col[dy+1][dx+1] = g.phToColor(ph)
+		}
+	}
+
+	startPxX := gridX*N + halfN - N
+	startPxY := gridY*N + halfN - N
+	invN := 1.0 / float64(N)
+
+	for dpy := 0; dpy < 2*N; dpy++ {
+		py := startPxY + dpy
+		v := (float64(py)+0.5)*invN - 0.5
+		cy := int(math.Floor(v))
+		fy := v - float64(cy)
+		iy := cy - (gridY - 1)
+		for dpx := 0; dpx < 2*N; dpx++ {
+			px := startPxX + dpx
+			u := (float64(px)+0.5)*invN - 0.5
+			cx := int(math.Floor(u))
+			fx := u - float64(cx)
+			ix := cx - (gridX - 1)
+
+			c00 := col[iy][ix]
+			c10 := col[iy][ix+1]
+			c01 := col[iy+1][ix]
+			c11 := col[iy+1][ix+1]
+
+			r := (1-fy)*((1-fx)*c00.R+fx*c10.R) + fy*((1-fx)*c01.R+fx*c11.R)
+			gv := (1-fy)*((1-fx)*c00.G+fx*c10.G) + fy*((1-fx)*c01.G+fx*c11.G)
+			b := (1-fy)*((1-fx)*c00.B+fx*c10.B) + fy*((1-fx)*c01.B+fx*c11.B)
+
+			wpx := ((px % imgW) + imgW) % imgW
+			wpy := ((py % imgH) + imgH) % imgH
+			envImage.Set(wpx, wpy, color.RGBA{
+				R: uint8(r * 255), G: uint8(gv * 255), B: uint8(b * 255), A: 255,
+			})
+		}
+	}
+}
+
+// phToColor maps a pH value to its display colour. Extracted from the
+// per-pixel render loop so renderPhValue and rebuildEnvLayer can share
+// the same blend formula.
+func (g *Grid) phToColor(phVal float64) colorful.Color {
 	neutral := (config.MaxPh() + config.MinPh()) / 2.0
 	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
 	weight := 0.0
@@ -316,10 +402,7 @@ func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal flo
 	tgtR, tgtG, tgtB := config.PhTargetColorRGB(phVal)
 	bg := colorful.Color{R: bgR, G: bgG, B: bgB}
 	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
-	blended := bg.BlendRgb(target, weight).Clamped()
-	envImage.Set(gridX, gridY, color.RGBA{
-		R: uint8(blended.R * 255), G: uint8(blended.G * 255), B: uint8(blended.B * 255), A: 255,
-	})
+	return bg.BlendRgb(target, weight).Clamped()
 }
 
 func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {

@@ -28,14 +28,14 @@ const (
 )
 
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
-// Each unit size is an exact multiple of exactly one sprite set's
-// native resolution — 4x4 is used only at 4px cells, 8x8 only at 8px
-// cells, 16x16 for 16 / 32 / 48 (scales 1x / 2x / 3x).
+// 4x4 is used at 4px and 8px cells (1x / 2x); 16x16 is used at 16 / 32 /
+// 48 (1x / 2x / 3x). The 8x8 sprite set is preserved on disk but no
+// longer mapped to any zoom.
 var zoomUnitSizes = [5]int{4, 8, 16, 32, 48}
 
 // zoomSpriteSet maps each zoom level to the sprite set index
-// (0=4x4, 1=8x8, 2=16x16).
-var zoomSpriteSet = [5]int{0, 1, 2, 2, 2}
+// (0=4x4, 1=8x8, 2=16x16). Zoom8 uses the 4x4 set scaled to 2x.
+var zoomSpriteSet = [5]int{0, 0, 2, 2, 2}
 
 // zoomSpriteSizes is the native pixel size per sprite set.
 var zoomSpriteSizes = [3]int{4, 8, 16}

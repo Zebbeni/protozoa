@@ -58,7 +58,6 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **IsOrganismLeft -** _true if an organism lies 90 degrees to the left_
   * **IsOrganismRight -** _true if an organism lies 90 degrees to the right_
   * **IsBiggerOrganismAhead -** _true if an organism of greater size directly ahead_
-  * **IsRelatedOrganismAhead -** _true if an organism with a shared ancestor directly ahead_
   * **IsRelatedOrganismLeft -** _true if an organism with a shared ancestor lies 90 degrees to the left_
   * **IsRelatedOrganismRight -** _true if an organism with a shared ancestor lies 90 degrees to the right_
   * **IfHealthAboveFiftyPercent -** _true if organism's health values more than half its current size_

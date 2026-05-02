@@ -219,7 +219,7 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	bx += 16 + btnGap
 
 	// Speed indicator
-	speedLabel := fmt.Sprintf("%dx", ctrl.Speed)
+	speedLabel := formatReplaySpeed(ctrl.Speed)
 	text.Draw(panelImage, speedLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, color.RGBA{R: 200, G: 200, B: 200, A: 255})
 	bx += 28
 
@@ -311,8 +311,8 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	// Speed down (width 16)
 	if p.clickInRect(mx, my, bx, btnY, 16, btnH) {
 		speed := p.replayCtrl.Speed / 2
-		if speed < 1 {
-			speed = 1
+		if speed < replay.MinReplaySpeed {
+			speed = replay.MinReplaySpeed
 		}
 		p.replayCtrl.SetSpeed(speed)
 		return true
@@ -322,8 +322,8 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	// Speed up (width 16)
 	if p.clickInRect(mx, my, bx, btnY, 16, btnH) {
 		speed := p.replayCtrl.Speed * 2
-		if speed > 64 {
-			speed = 64
+		if speed > replay.MaxReplaySpeed {
+			speed = replay.MaxReplaySpeed
 		}
 		p.replayCtrl.SetSpeed(speed)
 		return true
@@ -346,6 +346,22 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 
 func (p *Panel) clickInRect(mx, my, bx, by, w, h int) bool {
 	return mx >= bx && mx < bx+w && my >= by && my < by+h
+}
+
+// formatReplaySpeed renders a Speed value as a compact display string.
+// Sub-1 speeds use fraction notation (1/2x, 1/4x) so they read at a
+// glance; integer speeds use the plain "Nx" form.
+func formatReplaySpeed(speed float64) string {
+	switch speed {
+	case 0.25:
+		return "1/4x"
+	case 0.5:
+		return "1/2x"
+	}
+	if speed == float64(int(speed)) {
+		return fmt.Sprintf("%dx", int(speed))
+	}
+	return fmt.Sprintf("%.2gx", speed)
 }
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {

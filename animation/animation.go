@@ -176,9 +176,11 @@ type State struct {
 	// Safe to read from the render goroutine between BeforeUpdate/AfterUpdate calls.
 	Frames map[int]Frame
 
-	// Current playback speed. The caller updates this when the user changes speed;
-	// we consult it each call to CycleDuration.
-	Speed int
+	// Current playback speed multiplier. 1 = real-time. Values < 1 (e.g.
+	// 0.5, 0.25) stretch the cycle window for slow-motion playback;
+	// values > 1 compress it. The caller updates this when the user
+	// changes speed; we consult it each call to CycleDuration.
+	Speed float64
 
 	// preSnap holds pre-Update organism snapshots captured in BeforeUpdate.
 	// Used by the next AfterUpdate both to pair each surviving organism
@@ -207,10 +209,10 @@ func NewState() *State {
 // computing render progress.
 func (s *State) CycleDuration() time.Duration {
 	sp := s.Speed
-	if sp < 1 {
+	if sp <= 0 {
 		sp = 1
 	}
-	return baseCycleDuration / time.Duration(sp)
+	return time.Duration(float64(baseCycleDuration) / sp)
 }
 
 // ShouldAdvance reports whether enough wall-clock time has elapsed since the
@@ -345,11 +347,7 @@ func (s *State) SpriteFrameIndex(framesInSet int) int {
 	if framesInSet < 1 {
 		return 0
 	}
-	sp := s.Speed
-	if sp < 1 {
-		sp = 1
-	}
-	if framesInSet/sp < 1 {
+	if s.Speed > float64(framesInSet) {
 		return framesInSet - 1
 	}
 	idx := int(s.Progress() * float64(framesInSet))
