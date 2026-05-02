@@ -323,7 +323,7 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 			rm.AddPositionRequest(target, o.ID)
 		}
 	case d.ActSpawn:
-		if target, ok := m.getChildSpawnLocation(o); ok {
+		if target, _, ok := m.getChildSpawnLocation(o); ok {
 			rm.AddPositionRequest(target, o.ID)
 		}
 	case d.ActAttack:
@@ -340,7 +340,7 @@ func (m *OrganismManager) addAttackRequest(o *organism.Organism) {
 }
 
 func (m *OrganismManager) addSpawnRequest(o *organism.Organism) {
-	target, ok := m.getChildSpawnLocation(o)
+	target, _, ok := m.getChildSpawnLocation(o)
 	if ok {
 		m.requestManager.AddPositionRequest(target, o.ID)
 	}
@@ -417,16 +417,22 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 		id := m.generateId()
 		o := organism.NewRandom(m.rng, id, spawnPoint, m.api)
 
-		traits := o.Traits()
-		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
-		node := &organism.DescendantNode{
-			ID:            id,
-			Color:         o.Color(),
-			PhEffectColor: organism.ComputePhEffectColor(sv),
-			StartCycle:    m.api.Cycle(),
+		// In replay/resume modes the descendant tree is pre-loaded from the
+		// recorded simulation. Reuse the existing node for this ID instead of
+		// creating a duplicate, so the population graph isn't double-counted.
+		node, exists := m.descendantTrees[id]
+		if !exists {
+			traits := o.Traits()
+			sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
+			node = &organism.DescendantNode{
+				ID:            id,
+				Color:         o.Color(),
+				PhEffectColor: organism.ComputePhEffectColor(sv),
+				StartCycle:    m.api.Cycle(),
+			}
+			m.descendantTrees[id] = node
 		}
 		o.TreeNode = node
-		m.descendantTrees[id] = node
 
 		m.registerNewOrganism(o, id)
 		m.addToOriginalAncestors(o)
@@ -439,7 +445,7 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 // location.
 // Returns true / false depending on whether a child was actually spawned.
 func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
-	spawnPoint, found := m.getChildSpawnLocation(parent)
+	spawnPoint, spawnDirection, found := m.getChildSpawnLocation(parent)
 	if found == false {
 		return false
 	}
@@ -452,21 +458,33 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	// child.Location.Sub(child.Direction), so as long as Direction is
 	// the outward step, the 2-cell move sprite draws parent→child
 	// correctly without anyone having to remember the parent's cell.
-	spawnDirection := spawnPoint.Sub(parent.Location)
 	o := parent.NewChild(m.rng, id, spawnPoint, spawnDirection, m.api)
 
-	traits := o.Traits()
-	sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
-	node := &organism.DescendantNode{
-		ID:            id,
-		Color:         o.Color(),
-		PhEffectColor: organism.ComputePhEffectColor(sv),
-		StartCycle:    m.api.Cycle(),
+	// In replay/resume modes the parent's existing tree (loaded from the
+	// recorded simulation) already has a child with this ID. Reuse it so we
+	// don't double the node under the same parent.
+	var node *organism.DescendantNode
+	if parent.TreeNode != nil {
+		parent.TreeNode.ForEachChild(func(child *organism.DescendantNode) {
+			if child.ID == id {
+				node = child
+			}
+		})
+	}
+	if node == nil {
+		traits := o.Traits()
+		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
+		node = &organism.DescendantNode{
+			ID:            id,
+			Color:         o.Color(),
+			PhEffectColor: organism.ComputePhEffectColor(sv),
+			StartCycle:    m.api.Cycle(),
+		}
+		if parent.TreeNode != nil {
+			parent.TreeNode.AddChild(node)
+		}
 	}
 	o.TreeNode = node
-	if parent.TreeNode != nil {
-		parent.TreeNode.AddChild(node)
-	}
 
 	m.registerNewOrganism(o, id)
 	return true
@@ -521,7 +539,12 @@ func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
 	return point, isEmpty
 }
 
-func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, bool) {
+// getChildSpawnLocation returns an empty cell adjacent to the parent and the
+// unit cardinal step from parent→cell. The step is returned separately
+// because computing it via spawnPoint.Sub(parent.Location) would wrap on
+// grid edges (e.g. (-1, 0) → (gridWidth-1, 0)) and break direction-based
+// sprite rotation.
+func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, utils.Point, bool) {
 	var point utils.Point
 	direction := parent.Direction
 	for i := 0; i < 4; i++ {
@@ -530,11 +553,11 @@ func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (util
 
 		empty := m.isGridLocationEmpty(point)
 		if empty {
-			return point, true
+			return point, direction, true
 		}
 	}
 
-	return point, false
+	return point, utils.Point{}, false
 }
 
 func initializeGrid() [][]int {

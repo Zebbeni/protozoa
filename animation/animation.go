@@ -252,20 +252,27 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 	for id, info := range infos {
 		from := info.Location
 		action := info.Action
-		if pre, ok := s.preSnap[id]; ok {
-			from = pre.Location
-		} else {
-			// Newborn: no pre-snap this cycle. Animate as if the
-			// organism just moved into its starting cell from the
-			// parent's cell. Spawn logic always orients the child
-			// away from its parent (Direction = parent→child step),
-			// so Location.Sub(Direction) recovers the parent's cell
-			// without needing to remember the parent here. Override
-			// the action to Move regardless of info.Action (newborns
-			// default to chemosynthesis) so ForFrame routes the frame
-			// to AnimMove.
+		switch {
+		case info.BornThisCycle:
+			// Newborn: animate as if the organism just moved into
+			// its starting cell from the parent's cell. Spawn logic
+			// always orients the child away from its parent
+			// (Direction = parent→child step), so
+			// Location.Sub(Direction) recovers the parent's cell
+			// without needing to carry it through. Override the
+			// action to Move regardless of info.Action (newborns
+			// default to chemosynthesis) so ForFrame picks AnimMove.
+			//
+			// We use the explicit flag rather than preSnap membership
+			// so post-seek frames don't misclassify surviving
+			// organisms as newborns — SeekToCycle's catch-up loop
+			// bypasses BeforeUpdate, so preSnap can be stale.
 			from = info.Location.Sub(info.Direction)
 			action = decision.ActMove
+		default:
+			if pre, ok := s.preSnap[id]; ok {
+				from = pre.Location
+			}
 		}
 		frames[id] = Frame{
 			FromLocation: from,

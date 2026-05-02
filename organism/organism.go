@@ -35,6 +35,14 @@ type Organism struct {
 	// Stale between non-chemo cycles; renderer only consults it when
 	// action == ActChemosynthesis.
 	ChemoFailed bool
+	// BornThisCycle is set to true in NewChild so the animation layer
+	// can build a birth Frame (2-cell move from the parent's cell into
+	// the child's cell). Cleared by UpdateStats at the start of the
+	// next cycle. Explicit signal instead of inferring from preSnap
+	// membership — preSnap can be stale after a seek, which would
+	// otherwise cause surviving organisms to be rendered as newborns
+	// and land one cell off from their true location.
+	BornThisCycle bool
 
 	lookupAPI LookupAPI
 
@@ -92,9 +100,10 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 		Direction:            direction,
 		OriginalAncestorID:   o.OriginalAncestorID,
 
-		traits:       traits,
-		decisionTree: inheritedTree,
-		action:       d.ActChemosynthesis,
+		traits:        traits,
+		decisionTree:  inheritedTree,
+		action:        d.ActChemosynthesis,
+		BornThisCycle: true,
 
 		lookupAPI: api,
 	}
@@ -125,18 +134,19 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 
 func (o *Organism) Info() *Info {
 	return &Info{
-		ID:          o.ID,
-		Health:      o.Health,
-		Location:    o.Location,
-		Direction:   o.Direction,
-		Size:        o.Size,
-		Action:      o.action,
-		AncestorID:  o.OriginalAncestorID,
-		Color:       o.traits.OrganismColor,
-		Age:         o.Age,
-		Children:    o.Children,
-		PhEffect:    o.traits.PhGrowthEffect,
-		ChemoFailed: o.ChemoFailed,
+		ID:            o.ID,
+		Health:        o.Health,
+		Location:      o.Location,
+		Direction:     o.Direction,
+		Size:          o.Size,
+		Action:        o.action,
+		AncestorID:    o.OriginalAncestorID,
+		Color:         o.traits.OrganismColor,
+		Age:           o.Age,
+		Children:      o.Children,
+		PhEffect:      o.traits.PhGrowthEffect,
+		ChemoFailed:   o.ChemoFailed,
+		BornThisCycle: o.BornThisCycle,
 	}
 }
 
@@ -147,6 +157,12 @@ func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
 	o.decisionTree.ResetUsedLastCycle()
+	// Birth flag lives for exactly the spawn cycle (set in NewChild,
+	// consumed by the animation layer in AfterUpdate). Clear it at the
+	// start of every subsequent cycle so the birth animation isn't
+	// replayed. Newborns aren't in the organism iteration on their
+	// spawn cycle, so they don't see this until the cycle after.
+	o.BornThisCycle = false
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision

@@ -25,4 +25,9 @@ type Info struct {
 	// ActChemosynthesis; stale values on other actions are ignored by
 	// the renderer.
 	ChemoFailed bool
+	// BornThisCycle is true for exactly the cycle on which the
+	// organism was spawned. The animation layer uses it to synthesise
+	// a birth Frame (2-cell move from the parent's cell into the
+	// child's cell) without needing to carry the parent's location.
+	BornThisCycle bool
 }
