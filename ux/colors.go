@@ -51,6 +51,27 @@ func themedForegroundDim() color.Color {
 	return color.RGBA{R: 180, G: 180, B: 180, A: 255}
 }
 
+// fadedForeground returns the primary foreground colour with its alpha
+// replaced by the given value, so callers can paint accents that read
+// as related-but-quieter than the main selection. Channels are
+// pre-multiplied to match Go's standard alpha-premultiplied colour
+// model used by ebiten.
+func fadedForeground(alpha uint8) color.Color {
+	var r, g, b uint8
+	if config.IsLightTheme() {
+		r, g, b = 30, 30, 35
+	} else {
+		r, g, b = 255, 255, 255
+	}
+	a := uint32(alpha)
+	return color.RGBA{
+		R: uint8(uint32(r) * a / 255),
+		G: uint8(uint32(g) * a / 255),
+		B: uint8(uint32(b) * a / 255),
+		A: alpha,
+	}
+}
+
 // fillThemeBackground paints the screen with the active theme's fill.
 // Dark mode uses Clear (transparent → reads as black); the light themes
 // fill with their specific background colour.

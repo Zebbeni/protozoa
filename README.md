@@ -58,8 +58,6 @@ Each organism's behavior is governed by a decision tree composed of various cond
   * **IsOrganismLeft -** _true if an organism lies 90 degrees to the left_
   * **IsOrganismRight -** _true if an organism lies 90 degrees to the right_
   * **IsBiggerOrganismAhead -** _true if an organism of greater size directly ahead_
-  * **IsRelatedOrganismLeft -** _true if an organism with a shared ancestor lies 90 degrees to the left_
-  * **IsRelatedOrganismRight -** _true if an organism with a shared ancestor lies 90 degrees to the right_
   * **IfHealthAboveFiftyPercent -** _true if organism's health values more than half its current size_
   * **IsHealthyPhHere -** _true if the ph level at current location is within the organism's tolerance - having no harmful health effects and allowing for chemosynthesis_
   * **IsHealthierPhAhead -** _true if the ph level directly ahead is closer to the organism's ideal ph than the ph at its current location tolerance_
@@ -81,6 +79,110 @@ Clicking on an organism in the simulation grid will display its traits and decis
 ![Screen Shot 2022-04-26 at 9 14 18 PM](https://user-images.githubusercontent.com/3377325/165596847-a73b1ae0-5ad4-4bf0-96c2-fa8479a3fb48.png) ![Decision Tree](https://user-images.githubusercontent.com/3377325/165603440-53925db2-e02d-4dc7-944b-1b73506a5197.jpg)
 
 As printed, each conditional statement (eg. "If Can Move Ahead") is followed by a line that splits into two branches. The first, top-most branch is the logic the organism will follow if the checked condition returns true. The second, bottom branch will evaluate if the condition returns false. All decision tree nodes evaluated in the previous cycle are followed by "◀◀". Thus, the example decision tree shows - in the previous cycle - the selected organism checked 'If Can Move Ahead' (true), checked 'If Food Right' (false), and so it chose the 'Move Ahead' action.
+
+# Architecture
+
+Protozoa runs in three distinct modes that share a common simulation core: a **headless simulation** that advances the world deterministically and writes a `.pzr` replay file, a **replay viewer** that re-runs the simulation against that file, and the **renderer** that paints whatever the live or replayed simulation currently looks like.
+
+## Headless simulation loop
+
+The headless loop is the source of truth. Given a seed and a config, it produces a fully deterministic sequence of cycles and streams the result to a `.pzr` file. The replay viewer just re-plays this sequence later.
+
+```mermaid
+flowchart TD
+    A[Config / settings.json] --> B[NewSimulation seed + options]
+    B --> C[Init managers:<br/>EnvironmentManager · FoodManager · OrganismManager]
+    C --> D[Open .pzr Writer]
+    D --> Loop{IsDone?}
+    Loop -- no --> Tick[cycle++]
+    Tick --> Env[Diffuse pH]
+    Env --> Food[Update food]
+    Food --> Decide[Organisms decide<br/>parallel: walk decision trees · build request map]
+    Decide --> Resolve[Organisms resolve<br/>sequential: apply health · spawn · removeIfDead]
+    Resolve --> History[Record per-ancestor population<br/>+ pH-effect / pH-distribution buckets]
+    History --> Snap{cycle %<br/>CheckpointInterval == 0?}
+    Snap -- yes --> SW[WriteSnapshot:<br/>RNG · organisms · grid · pH]
+    Snap -- no --> Loop
+    SW --> Loop
+    Loop -- yes --> Close[CloseRecorder<br/>flush DescendantTrees + History sections]
+    Close --> Done([Done])
+```
+
+The `decide` phase is parallel because each organism reads its own state and writes only to its worker's local request map; the `resolve` phase is sequential and the only place that mutates shared grids and applies organism deaths.
+
+## Replay flow
+
+The replay viewer opens a `.pzr` file, restores from the nearest snapshot, then advances the simulation forward in real time. Every cycle the viewer plays is the *same* simulation step the headless loop ran — same RNG, same organism actions, same outcomes.
+
+```mermaid
+flowchart TD
+    F[.pzr file] --> R[checkpoint.Reader]
+    R --> S0[Read first snapshot]
+    R -. scan end-of-file .-> ES[DescendantTrees + History payloads]
+    S0 --> RS[RestoreFromSnapshot:<br/>organisms · grid · RNG · pH]
+    ES --> Inject[RestoreDescendantTrees<br/>RestoreHistory]
+    RS --> Inject
+    Inject --> Live[(Live Simulation<br/>exposed to UI)]
+
+    Live --> Tick
+
+    subgraph Tick [Each ebiten tick]
+        direction TB
+        T1{AnimState.ShouldAdvance?}
+        T1 -- yes --> T2[BeforeUpdate:<br/>snapshot organism positions]
+        T2 --> T3[sim.Update<br/>re-runs the cycle deterministically]
+        T3 --> T4[AfterUpdate:<br/>build Frame map<br/>FromLocation → ToLocation]
+        T4 --> T1
+        T1 -- no --> T5[Hand state to renderer]
+    end
+
+    Live -. user scrubs .-> Seek
+
+    subgraph Seek [Scrubber click]
+        direction TB
+        K1[SeekToCycle target]
+        K1 --> K2[Find nearest snapshot ≤ target]
+        K2 --> K3[ResetFromSnapshot]
+        K3 --> K4[Re-inject trees + history]
+        K4 --> K5[Step forward to target cycle]
+    end
+
+    Seek -. resume play .-> Live
+```
+
+`AnimState` is the wall-clock pacer: at Speed 1x one cycle takes 4 animation frames at 12 fps; at higher speeds the cycle window shrinks (multiple sim steps may fire per tick); at fractional speeds (1/2x, 1/4x) the window stretches for slow-motion.
+
+## Rendering pipeline
+
+The renderer is read-only: it samples the live simulation and the current `AnimState.Frames` map and paints them. It never mutates simulation state.
+
+```mermaid
+flowchart TD
+    SimSt[Live Simulation state] --> Layers
+    AnimSt[AnimState.Frames<br/>id → from/to/direction/action] --> Org
+
+    subgraph Layers [Grid layers]
+        direction TB
+        Env[env layer<br/>sprite-native res<br/>CPU-bilinear pH<br/>wrap-aware]
+        Walls[walls layer]
+        FoodL[food layer<br/>sprite per size tier]
+        Org[organisms layer<br/>sprite per action,<br/>rotated by Direction,<br/>frame from Progress]
+    end
+
+    Env --> Compose
+    Walls --> Compose
+    FoodL --> Compose
+    Org --> Compose
+    Compose[drawLayer:<br/>wrap-aware tiling<br/>FilterNearest only]
+    Compose --> Sel[Overlay selection boxes]
+
+    Sel --> UI
+    Mini[Minimap<br/>async snapshot of full world] --> UI
+    Panel[Panel:<br/>stats · decision tree · graphs · replay controls] --> UI
+    UI[Interface.Render] --> Screen([screen])
+```
+
+The env layer is the only one with non-trivial colour math: each pixel is bilinearly interpolated from the four nearest cells' pH values with wrap-aware sampling, so the pH gradient stays smooth across the world-wrap boundary without the seam that GPU `FilterLinear` would leave there. Every other layer is sprite-native pixel art and composed with `FilterNearest` so the look stays crisp.
 
 # Setup
 ```

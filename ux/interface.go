@@ -2,7 +2,9 @@ package ux
 
 import (
 	"image"
+	"log"
 	"math"
+	"runtime/debug"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -71,6 +73,16 @@ func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 	// Initial speed sync — if AutoSpeed is on (default), anchor Speed to
 	// whatever zoom the camera is at.
 	i.syncReplaySpeedToZoom()
+	// If the replay opens with exactly one organism alive (the typical
+	// "single ancestor" config), centre the camera on it so the user
+	// doesn't have to hunt for the founder pixel on a wide grid. Larger
+	// initial populations are left at the default world-centre framing.
+	if infos := i.simulation.GetAllOrganismInfo(); len(infos) == 1 {
+		for _, info := range infos {
+			i.grid.Camera.CenterOn(info.Location.X, info.Location.Y)
+			break
+		}
+	}
 }
 
 // syncReplaySpeedToZoom pushes the current camera unit size through the
@@ -93,6 +105,21 @@ func (i *Interface) OnResize() {
 }
 
 func (i *Interface) Render(screen *ebiten.Image) {
+	// Catch any panic inside the draw stack so the DXGI DEVICE_REMOVED
+	// crashes leave a useful trace. Without this the runtime panic
+	// happens deep inside ebiten and the cycle/speed context is lost.
+	defer func() {
+		if rec := recover(); rec != nil {
+			cycle := i.simulation.Cycle()
+			speed := 0.0
+			if i.replayCtrl != nil {
+				speed = i.replayCtrl.Speed
+			}
+			log.Printf("Render panic at cycle=%d speed=%v viewMode=%v: %v\n%s",
+				cycle, speed, i.grid.ViewMode(), rec, debug.Stack())
+			panic(rec)
+		}
+	}()
 	fillThemeBackground(screen)
 
 	start := time.Now()
@@ -235,6 +262,8 @@ func (i *Interface) UpdateSelected() {
 		id = i.simulation.GetMostChildrenId()
 	case selectMostTraveled:
 		id = i.simulation.GetMostTraveledId()
+	case selectMostSuccessful:
+		id = i.simulation.GetMostSuccessfulId()
 	default:
 		return
 	}

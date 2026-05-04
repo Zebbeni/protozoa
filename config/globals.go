@@ -119,6 +119,9 @@ func SetTheme(theme string) {
 	}
 }
 func HealthChangeFromChemosynthesis() float64 { return constants.HealthChangeFromChemosynthesis }
+func HealthChangeFromFailedChemosynthesis() float64 {
+	return constants.HealthChangeFromFailedChemosynthesis
+}
 func HealthChangeFromTurning() float64        { return constants.HealthChangeFromTurning }
 func HealthChangeFromMoving() float64         { return constants.HealthChangeFromMoving }
 func HealthChangeFromEatingAttempt() float64  { return constants.HealthChangeFromEatingAttempt }
@@ -196,8 +199,9 @@ type Globals struct {
 	Theme string `json:"theme"`
 
 	// Health parameters (percent of organism size)
-	HealthChangeFromChemosynthesis  float64 `json:"health_change_from_chemosynthesis"`
-	HealthChangeFromTurning         float64 `json:"health_change_from_turning"`
+	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`
+	HealthChangeFromFailedChemosynthesis float64 `json:"health_change_from_failed_chemosynthesis"`
+	HealthChangeFromTurning              float64 `json:"health_change_from_turning"`
 	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`
 	HealthChangeFromEatingAttempt   float64 `json:"health_change_from_eating_attempt"`
 	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`

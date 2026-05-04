@@ -112,6 +112,7 @@ var demoAnimations = []demoCell{
 	{"TURN R", animation.AnimTurnRight},
 	{"ATTACK", animation.AnimAttack},
 	{"EAT", animation.AnimEat},
+	{"EAT FAIL", animation.AnimEatFail},
 	{"CHEMO", animation.AnimChemo},
 	{"CHEMO FAIL", animation.AnimChemoFail},
 	{"DIE", animation.AnimDie},

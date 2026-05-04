@@ -35,6 +35,12 @@ type Organism struct {
 	// Stale between non-chemo cycles; renderer only consults it when
 	// action == ActChemosynthesis.
 	ChemoFailed bool
+	// EatFailed is set each cycle the organism performs ActEat: true
+	// when the cell ahead held no food (the eat attempt cost health
+	// but produced none), false when food was actually consumed.
+	// Stale between non-eat cycles; renderer only consults it when
+	// action == ActEat.
+	EatFailed bool
 	// BornThisCycle is set to true in NewChild so the animation layer
 	// can build a birth Frame (2-cell move from the parent's cell into
 	// the child's cell). Cleared by UpdateStats at the start of the
@@ -146,6 +152,7 @@ func (o *Organism) Info() *Info {
 		Children:      o.Children,
 		PhEffect:      o.traits.PhGrowthEffect,
 		ChemoFailed:   o.ChemoFailed,
+		EatFailed:     o.EatFailed,
 		BornThisCycle: o.BornThisCycle,
 	}
 }
@@ -230,12 +237,8 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isBiggerOrganismAhead()
 	case d.IsOrganismLeft:
 		return o.isOrganismLeft()
-	case d.IsRelatedOrganismLeft:
-		return o.isRelatedOrganismLeft()
 	case d.IsOrganismRight:
 		return o.isOrganismRight()
-	case d.IsRelatedOrganismRight:
-		return o.isRelatedOrganismRight()
 	//case d.IsRandomFiftyPercent:
 	//	return rand.Float32() < 0.5
 	case d.IsHealthAboveFiftyPercent:
@@ -349,16 +352,8 @@ func (o *Organism) isOrganismLeft() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
-func (o *Organism) isRelatedOrganismLeft() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Left()))
-}
-
 func (o *Organism) isOrganismRight() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
-}
-
-func (o *Organism) isRelatedOrganismRight() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isHealthyPhHere() bool {
@@ -380,12 +375,6 @@ func (o *Organism) isAgeMultipleOfTen() bool {
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
 		return x != nil && x.Size > o.Size
-	})
-}
-
-func (o *Organism) isRelatedOrganismAtPoint(p utils.Point) bool {
-	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.OriginalAncestorID == o.OriginalAncestorID
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/manager"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
@@ -30,7 +31,7 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	phBucketWidth := 0.5
 	numBuckets := int(c.MaxPh() / phBucketWidth)
 
-	img := ebiten.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	src := gh.WhiteSrc()
 
 	sim.LockHistoryForReading()
@@ -104,7 +105,7 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	}
 
 	if newBarCount > 0 {
-		lineImg := ebiten.NewImage(newBarCount, avgPhLineHeight)
+		lineImg := instrument.NewImage(newBarCount, avgPhLineHeight)
 		lineImg.WritePixels(lineBuf)
 
 		lineOpts := &ebiten.DrawImageOptions{}

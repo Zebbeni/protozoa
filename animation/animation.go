@@ -88,13 +88,14 @@ const (
 	AnimTurnRight
 	AnimAttack
 	AnimEat
+	AnimEatFail
 	AnimChemo
 	AnimChemoFail
 	AnimDie
 )
 
 // AllAnimations lists every Animation value, for resource preloading.
-var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimChemo, AnimChemoFail, AnimDie}
+var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimEatFail, AnimChemo, AnimChemoFail, AnimDie}
 
 // ForAction maps a resolved decision.Action to the Animation sheet that
 // should play during its cycle transition. This is the position-agnostic
@@ -132,6 +133,8 @@ func ForAction(a decision.Action) Animation {
 //   - A Chemosynthesis action whose ChemoFailed flag is set (organism
 //     was outside its pH tolerance range and gained no health) plays
 //     AnimChemoFail instead of AnimChemo.
+//   - An Eat action whose EatFailed flag is set (no food in the target
+//     cell) plays AnimEatFail instead of AnimEat.
 func ForFrame(f Frame) Animation {
 	if f.Dying {
 		return AnimDie
@@ -141,6 +144,9 @@ func ForFrame(f Frame) Animation {
 	}
 	if f.Action == decision.ActChemosynthesis && f.ChemoFailed {
 		return AnimChemoFail
+	}
+	if f.Action == decision.ActEat && f.EatFailed {
+		return AnimEatFail
 	}
 	return ForAction(f.Action)
 }
@@ -167,6 +173,10 @@ type Frame struct {
 	// was outside its pH tolerance range (no health gained). Routed
 	// through ForFrame to pick AnimChemoFail instead of AnimChemo.
 	ChemoFailed bool
+	// EatFailed is true when the organism attempted to eat but the
+	// target cell had no food (no health gained). Routed through
+	// ForFrame to pick AnimEatFail instead of AnimEat.
+	EatFailed bool
 }
 
 // State holds the current animation batch and cycle timing. One instance per
@@ -285,6 +295,7 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Size:         info.Size,
 			PhEffect:     info.PhEffect,
 			ChemoFailed:  info.ChemoFailed,
+			EatFailed:    info.EatFailed,
 		}
 	}
 	for id, pre := range s.preSnap {

@@ -26,6 +26,7 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimTurnRight: "turn_right",
 	animation.AnimAttack:    "attack",
 	animation.AnimEat:       "eat",
+	animation.AnimEatFail:   "eatfail",
 	animation.AnimChemo:     "chemo",
 	animation.AnimChemoFail: "chemofail",
 	animation.AnimDie:       "die",

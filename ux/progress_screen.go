@@ -152,12 +152,16 @@ func (p *ProgressScreen) Draw(screen *ebiten.Image) {
 	stopped := p.stopped
 	p.mu.Unlock()
 
+	mx, my := ebiten.CursorPosition()
+	hovered := mx >= btnX && mx < btnX+btnW && my >= btnY && my < btnY+btnH
+	pressed := hovered && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
 	if !stopped {
 		// Stop button
-		p.drawButton(screen, btnX, btnY, btnW, btnH, "STOP SIMULATION", color.RGBA{R: 150, G: 40, B: 40, A: 255})
+		p.drawButton(screen, btnX, btnY, btnW, btnH, "STOP SIMULATION", color.RGBA{R: 150, G: 40, B: 40, A: 255}, hovered, pressed)
 	} else {
 		// Explore button
-		p.drawButton(screen, btnX, btnY, btnW, btnH, "EXPLORE", color.RGBA{R: 40, G: 100, B: 40, A: 255})
+		p.drawButton(screen, btnX, btnY, btnW, btnH, "EXPLORE", color.RGBA{R: 40, G: 100, B: 40, A: 255}, hovered, pressed)
 	}
 }
 
@@ -182,12 +186,53 @@ func (p *ProgressScreen) handleClick(mx, my int) {
 	}
 }
 
-func (p *ProgressScreen) drawButton(screen *ebiten.Image, x, y, w, h int, label string, bgColor color.RGBA) {
-	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bgColor)
+func (p *ProgressScreen) drawButton(screen *ebiten.Image, x, y, w, h int, label string, bgColor color.RGBA, hovered, pressed bool) {
+	// Tint the base colour: lighten on hover, darken slightly when held
+	// down. The shifts are small on purpose — just enough feedback to
+	// confirm the cursor is over the button and the click registered.
+	fill := bgColor
+	switch {
+	case pressed:
+		fill = shiftRGB(bgColor, -25)
+	case hovered:
+		fill = shiftRGB(bgColor, 25)
+	}
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), fill)
+
+	// Hover highlight: a 1px top border lightened further than the fill,
+	// so the button reads as raised when the cursor is over it.
+	if hovered && !pressed {
+		ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), 1, shiftRGB(bgColor, 70))
+	}
+
 	bounds := boundString(r.FontSourceCodePro12, label)
 	tx := x + (w-bounds.Dx())/2
 	ty := y + (h+bounds.Dy())/2
+	if pressed {
+		ty++ // nudge label down by 1px while held to imply press depth
+	}
 	text.Draw(screen, label, r.FontSourceCodePro12, tx, ty, themedForeground())
+}
+
+// shiftRGB returns c with each colour channel shifted by delta and clamped
+// to [0, 255]. Positive delta lightens, negative darkens. Alpha is
+// preserved.
+func shiftRGB(c color.RGBA, delta int) color.RGBA {
+	clamp := func(v int) uint8 {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return uint8(v)
+	}
+	return color.RGBA{
+		R: clamp(int(c.R) + delta),
+		G: clamp(int(c.G) + delta),
+		B: clamp(int(c.B) + delta),
+		A: c.A,
+	}
 }
 
 func splitLines(s string) []string {

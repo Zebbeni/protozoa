@@ -13,6 +13,7 @@ import (
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
@@ -41,6 +42,7 @@ const (
 	selectOldest mode = iota
 	selectMostChildren
 	selectMostTraveled
+	selectMostSuccessful
 	selectManual
 )
 
@@ -54,7 +56,7 @@ var (
 	foodColor = colorful.HSLuv(120, 0.2, 0.25)
 	wallColor = colorful.HSLuv(60, 0.25, 0.1)
 	viewModes          = []mode{orgsPhMode, organismsOnlyMode, phEffectsOnlyMode, phOnlyMode}
-	selectModes        = []mode{selectOldest, selectMostChildren, selectMostTraveled, selectManual}
+	selectModes        = []mode{selectOldest, selectMostChildren, selectMostTraveled, selectMostSuccessful, selectManual}
 	viewModeNames      = map[mode]string{
 		orgsPhMode:        "ORGANISMS & PH",
 		organismsOnlyMode: "ORGANISMS ONLY",
@@ -62,10 +64,11 @@ var (
 		phOnlyMode:        "PH ONLY",
 	}
 	selectModeNames = map[mode]string{
-		selectOldest:       "OLDEST",
-		selectMostChildren: "MOST CHILDREN",
-		selectMostTraveled: "MOST TRAVELED",
-		selectManual:       "MANUAL SELECT",
+		selectOldest:         "OLDEST",
+		selectMostChildren:   "MOST CHILDREN",
+		selectMostTraveled:   "MOST TRAVELED",
+		selectMostSuccessful: "MOST SUCCESSFUL",
+		selectManual:         "MANUAL SELECT",
 	}
 )
 
@@ -170,7 +173,7 @@ func (g *Grid) Render() *ebiten.Image {
 	g.renderOrganisms(g.layers[layerOrganisms], g.doRefresh)
 
 	// Compose visible portion into viewport-sized image with wrapping support.
-	viewportImage := ebiten.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
+	viewportImage := instrument.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
 	centerOX, centerOY := g.Camera.CenterOffset()
 
 	us := g.unitSize()
@@ -469,12 +472,60 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 }
 
 // renderSelectionBoxes draws selection box outlines in viewport coordinates.
+//
+// Tiered styling, brightest to faintest:
+//   - The selected organism gets the full themed foreground.
+//   - In selectMostSuccessful mode, every currently-living organism
+//     whose descendant node meets the "most successful" criteria gets a
+//     faded foreground box (~25% alpha) so the whole successful cohort
+//     is visible at once. The selected (oldest among them) still draws
+//     on top in the brighter colour.
+//   - Otherwise (any other select mode), living descendants of the
+//     selected organism get the faded box — useful for tracking how a
+//     single founder's lineage has spread across the grid.
+//   - The hover cell gets the dim foreground.
 func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 	if g.mouseOnGrid {
 		g.renderSelectionBox(g.mouseHoverLocation, viewportImage, themedForegroundDim())
 	}
-	if info := g.simulation.GetOrganismInfoByID(g.simulation.GetSelected()); info != nil {
-		g.renderSelectionBox(info.Location, viewportImage, themedForeground())
+	selID := g.simulation.GetSelected()
+
+	if g.selectMode == selectMostSuccessful {
+		successfulColor := fadedForeground(0x40)
+		for _, id := range g.simulation.GetMostSuccessfulIds() {
+			if id == selID {
+				continue // drawn last in bright colour
+			}
+			if info := g.simulation.GetOrganismInfoByID(id); info != nil {
+				g.renderSelectionBox(info.Location, viewportImage, successfulColor)
+			}
+		}
+	} else if selID >= 0 {
+		if node := g.simulation.GetOrganismTreeNode(selID); node != nil {
+			descColor := fadedForeground(0x40)
+			var walk func(n *organism.DescendantNode)
+			walk = func(n *organism.DescendantNode) {
+				n.ForEachChild(func(child *organism.DescendantNode) {
+					// In replay mode the loaded tree records the entire
+					// run — child.EndCycle reflects death at the final
+					// cycle, not the cycle we're currently viewing. Treat
+					// "alive right now" as "the live organism map still
+					// has this ID" so descendants who are currently alive
+					// but will die later are still highlighted.
+					if info := g.simulation.GetOrganismInfoByID(child.ID); info != nil {
+						g.renderSelectionBox(info.Location, viewportImage, descColor)
+					}
+					walk(child)
+				})
+			}
+			walk(node)
+		}
+	}
+
+	if selID >= 0 {
+		if info := g.simulation.GetOrganismInfoByID(selID); info != nil {
+			g.renderSelectionBox(info.Location, viewportImage, themedForeground())
+		}
 	}
 }
 
@@ -676,6 +727,14 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		}
 		if animate {
 			frameIdx = g.animState.SpriteFrameIndex(g.Camera.SpriteFrameCount())
+		} else if g.animState.Speed >= 4 && g.Camera.SpriteFrameCount() > 1 {
+			// At 4x+ speed with multi-frame sprites (currently only the
+			// 16x16 set), the wall-clock window per cycle is too short
+			// to play a real animation — pin every organism to frame 1
+			// so the action reads as a recognisable mid-action pose
+			// instead of either the start state (frame 0) or a frozen
+			// end state.
+			frameIdx = 1
 		} else if isMultiCellAnim(anim) {
 			// Multi-cell (_xl) sprites depict per-frame detail that
 			// matters for visual consistency at cycle boundaries —
@@ -715,7 +774,7 @@ func animatedCellPosition(f animation.Frame) (float64, float64) {
 // for the whole cycle, not the pre-action start state.
 func isMultiCellAnim(a animation.Animation) bool {
 	switch a {
-	case animation.AnimMove, animation.AnimAttack, animation.AnimEat:
+	case animation.AnimMove, animation.AnimAttack, animation.AnimEat, animation.AnimEatFail:
 		return true
 	}
 	return false

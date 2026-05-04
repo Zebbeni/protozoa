@@ -159,14 +159,15 @@ func (s *Simulation) RestoreHistory(payload *checkpoint.HistoryPayload) {
 // CloseRecorder writes the descendant trees and finalizes the checkpoint file.
 func (s *Simulation) CloseRecorder() {
 	if s.recorder != nil {
-		// Write the full descendant trees as a final section
+		// Tag the end sections with the true final cycle so the replay
+		// viewer can advance past the last snapshot to wherever the
+		// simulation actually ended.
 		treesPayload := s.organismManager.CaptureDescendantTrees()
-		if err := s.recorder.WriteDescendantTrees(treesPayload); err != nil {
+		if err := s.recorder.WriteDescendantTrees(treesPayload, s.cycle); err != nil {
 			fmt.Printf("\nWarning: failed to write descendant trees: %v", err)
 		}
-		// Write the full pH history as a final section
 		histPayload := s.organismManager.CaptureHistory()
-		if err := s.recorder.WriteHistory(histPayload); err != nil {
+		if err := s.recorder.WriteHistory(histPayload, s.cycle); err != nil {
 			fmt.Printf("\nWarning: failed to write history: %v", err)
 		}
 		if err := s.recorder.Close(); err != nil {
@@ -363,6 +364,19 @@ func (s *Simulation) GetMostChildrenId() int {
 // GetMostTraveledId returns the id of the most traveled organism
 func (s *Simulation) GetMostTraveledId() int {
 	return s.organismManager.GetMostTraveledId()
+}
+
+// GetMostSuccessfulId returns the id of the oldest living organism whose
+// descendant tree node meets the "most successful" criteria
+// (AllBranchesDeadCycle == 0 or equal to the tree's max). -1 if none.
+func (s *Simulation) GetMostSuccessfulId() int {
+	return s.organismManager.GetMostSuccessfulId()
+}
+
+// GetMostSuccessfulIds returns the IDs of all currently-living organisms
+// whose descendant tree node meets the "most successful" criteria.
+func (s *Simulation) GetMostSuccessfulIds() []int {
+	return s.organismManager.GetMostSuccessfulIds()
 }
 
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the

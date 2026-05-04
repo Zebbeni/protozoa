@@ -301,7 +301,7 @@ func (c *Controller) loadEndSections() {
 
 	freshReader.SeekAfterHeader()
 	for {
-		sType, _, payload, err := freshReader.ReadNextSection()
+		sType, cycle, payload, err := freshReader.ReadNextSection()
 		if err != nil {
 			break
 		}
@@ -316,6 +316,16 @@ func (c *Controller) loadEndSections() {
 				c.historyPayload = hist
 				c.sim.RestoreHistory(hist)
 			}
+		}
+		// End sections (descendant trees / history) are tagged with the
+		// simulation's true final cycle. Snapshots fire on a fixed
+		// interval, so the last snapshot is almost always before the
+		// true end. Lift FinalCycle to whichever cycle the file
+		// actually ran to so the viewer can replay the trailing
+		// post-snapshot tail. Older files wrote 0 here and degrade
+		// gracefully — FinalCycle stays at the last-snapshot value.
+		if cycle > c.FinalCycle {
+			c.FinalCycle = cycle
 		}
 	}
 }

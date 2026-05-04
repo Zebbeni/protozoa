@@ -48,6 +48,15 @@ type OrganismManager struct {
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
+	// mostSuccessful is the precomputed set of IDs whose descendant tree
+	// node has AllBranchesDeadCycle == 0 (lineage survives to end) or
+	// equal to the maximum AllBranchesDeadCycle across the loaded tree.
+	// Populated once in RestoreDescendantTrees so the per-tick "Most
+	// Successful" select mode just does an O(1) lookup per live
+	// organism instead of walking the full tree every frame. Empty
+	// (nil) in pure live mode where the tree is built up dynamically;
+	// callers fall back to the walking implementation when nil.
+	mostSuccessful map[int]struct{}
 	history map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
 
 	UpdateDuration, ResolveDuration, SortDuration, HistoryDuration time.Duration
@@ -690,6 +699,57 @@ func (m *OrganismManager) GetMostTraveledId() int {
 	return m.mostTraveledId
 }
 
+// GetMostSuccessfulIds returns the IDs of currently-living organisms
+// whose descendant tree node is "most successful" — defined as
+// AllBranchesDeadCycle == 0 (the lineage will live to the end of the
+// recorded simulation) OR AllBranchesDeadCycle equal to the maximum
+// AllBranchesDeadCycle found anywhere in the loaded ancestry tree.
+//
+// The set of qualifying tree-node IDs is precomputed in
+// RestoreDescendantTrees, so this method just iterates live organisms
+// and does an O(1) membership lookup against that map. In pure live
+// mode the set is nil (no trees loaded) and the result is always
+// empty. Result is sorted by ID for stable rendering.
+func (m *OrganismManager) GetMostSuccessfulIds() []int {
+	if m.mostSuccessful == nil {
+		return nil
+	}
+	m.organismMutex.RLock()
+	living := make([]int, 0, len(m.mostSuccessful))
+	for id := range m.organisms {
+		if _, ok := m.mostSuccessful[id]; ok {
+			living = append(living, id)
+		}
+	}
+	m.organismMutex.RUnlock()
+	sort.Ints(living)
+	return living
+}
+
+// GetMostSuccessfulId returns the ID of the oldest currently-living
+// organism whose descendant node meets the "most successful" criteria,
+// or -1 if none qualify. Single pass over live organisms with O(1)
+// membership lookup against the precomputed set.
+func (m *OrganismManager) GetMostSuccessfulId() int {
+	if m.mostSuccessful == nil {
+		return -1
+	}
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	oldestID := -1
+	oldestAge := -1
+	for id, o := range m.organisms {
+		if _, ok := m.mostSuccessful[id]; !ok {
+			continue
+		}
+		if o.Age > oldestAge || (o.Age == oldestAge && o.ID < oldestID) {
+			oldestAge = o.Age
+			oldestID = o.ID
+		}
+	}
+	return oldestID
+}
+
 // OrganismCount returns the current number of organisms alive in the simulation
 func (m *OrganismManager) OrganismCount() int {
 	m.organismMutex.RLock()
@@ -776,6 +836,7 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
 		o.ChemoFailed = false
 	} else {
+		m.applyHealthChange(o, c.HealthChangeFromFailedChemosynthesis()*o.Size)
 		o.ChemoFailed = true
 	}
 }
@@ -799,8 +860,17 @@ func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
 	return c.HealthChangeInflictedByAttack() * o.Size
 }
 
+// deathHealthEpsilon is the smallest Health value that still counts as
+// alive. Below this the organism is dead. The threshold matches the
+// panel's %5.2f display rounding cutoff, so anything that renders as
+// "0.00" is killed off — without it, Size-scaled eat / chemo costs can
+// converge asymptotically toward 0 in float64 and leave organisms
+// parked in a twilight "dead but not dying" state for thousands of
+// cycles.
+const deathHealthEpsilon = 0.005
+
 func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
-	if o.Health > 0.0 {
+	if o.Health > deathHealthEpsilon {
 		return false
 	}
 
@@ -839,6 +909,7 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	// than exists at a given point, but this seems preferable right now to denying
 	// the eat request altogether or coming up with some perfect way to divvy it up.
 	amountToEat := m.calculateValueToEat(o, target)
+	o.EatFailed = amountToEat <= 0
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
 	m.applyHealthChange(o, amountToEat)
 }

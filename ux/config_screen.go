@@ -528,6 +528,7 @@ func (cs *ConfigScreen) buildSections() {
 		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
 			field("Chemosynthesis", "health_change_from_chemosynthesis"),
+			field("Failed Chemosynthesis", "health_change_from_failed_chemosynthesis"),
 			field("Turning", "health_change_from_turning"),
 			field("Moving", "health_change_from_moving"),
 			field("Eating Attempt", "health_change_from_eating_attempt"),

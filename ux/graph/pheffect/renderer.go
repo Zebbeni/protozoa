@@ -4,6 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -29,7 +30,7 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	barWidth := gh.RealGraphWidth / float64(newBarCount)
 	numBuckets := 10
 
-	img := ebiten.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	src := gh.WhiteSrc()
 
 	var vertices []ebiten.Vertex

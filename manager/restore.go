@@ -74,6 +74,47 @@ func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantT
 			o.TreeNode = node
 		}
 	}
+
+	// Precompute the "most successful" set so the Most Successful
+	// select mode can do an O(1) per-organism lookup each frame.
+	m.mostSuccessful = computeMostSuccessfulSet(trees)
+}
+
+// computeMostSuccessfulSet walks the loaded descendant trees twice: first
+// to find the maximum AllBranchesDeadCycle, then to collect every node
+// whose AllBranchesDeadCycle is 0 (lineage survives to the end of the
+// recorded run) or equal to that maximum (longest-lasting extinct
+// branch). The returned set is keyed by organism ID for O(1) membership
+// checks.
+func computeMostSuccessfulSet(trees map[int]*organism.DescendantNode) map[int]struct{} {
+	maxCycle := 0
+	var walkMax func(*organism.DescendantNode)
+	walkMax = func(n *organism.DescendantNode) {
+		if n.AllBranchesDeadCycle > maxCycle {
+			maxCycle = n.AllBranchesDeadCycle
+		}
+		n.ForEachChild(walkMax)
+	}
+	for _, root := range trees {
+		if root != nil {
+			walkMax(root)
+		}
+	}
+
+	set := make(map[int]struct{})
+	var walkCollect func(*organism.DescendantNode)
+	walkCollect = func(n *organism.DescendantNode) {
+		if n.AllBranchesDeadCycle == 0 || n.AllBranchesDeadCycle >= maxCycle {
+			set[n.ID] = struct{}{}
+		}
+		n.ForEachChild(walkCollect)
+	}
+	for _, root := range trees {
+		if root != nil {
+			walkCollect(root)
+		}
+	}
+	return set
 }
 
 // indexTreeNodes recursively collects all tree nodes into a map keyed by ID.

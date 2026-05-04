@@ -63,13 +63,18 @@ func (w *Writer) WriteDelta(payload *DeltaPayload) error {
 }
 
 // WriteDescendantTrees writes the full descendant trees as a final section.
-func (w *Writer) WriteDescendantTrees(payload *DescendantTreesPayload) error {
-	return w.writeSection(SectionDescendantTrees, 0, payload)
+// finalCycle is the cycle the simulation ended on; the replay reader uses
+// it to extend FinalCycle past the last snapshot (snapshots fire at fixed
+// intervals, so the true end cycle is almost always between them).
+func (w *Writer) WriteDescendantTrees(payload *DescendantTreesPayload, finalCycle int) error {
+	return w.writeSection(SectionDescendantTrees, finalCycle, payload)
 }
 
-// WriteHistory writes the full pH distribution and effect history as a final section.
-func (w *Writer) WriteHistory(payload *HistoryPayload) error {
-	return w.writeSection(SectionHistory, 0, payload)
+// WriteHistory writes the full pH distribution and effect history as a
+// final section. finalCycle has the same meaning as in
+// WriteDescendantTrees.
+func (w *Writer) WriteHistory(payload *HistoryPayload, finalCycle int) error {
+	return w.writeSection(SectionHistory, finalCycle, payload)
 }
 
 // Close writes the snapshot index and footer, then closes the file.

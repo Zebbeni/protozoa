@@ -28,9 +28,7 @@ var conditionHues = map[Condition]float64{
 	IsOrganismAhead:           0,   // red
 	IsBiggerOrganismAhead:     10,  // red-orange
 	IsOrganismLeft:            340, // rose
-	IsRelatedOrganismLeft:     350, // pink-red
 	IsOrganismRight:           330, // magenta
-	IsRelatedOrganismRight:    320, // purple-pink
 	IsHealthAboveFiftyPercent: 140, // green-teal
 	IsHealthyPhHere:           100, // lime
 	IsHealthierPhAhead:        110, // green-lime

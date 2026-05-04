@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/simulation"
@@ -145,7 +146,7 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 	shiftY := float64(m.height)/2 - camMiniY
 
 	// Render tiled minimap onto a clipped temporary image
-	clipped := ebiten.NewImage(m.width, m.height)
+	clipped := instrument.NewImage(m.width, m.height)
 	for dx := -1; dx <= 1; dx++ {
 		for dy := -1; dy <= 1; dy++ {
 			op := &ebiten.DrawImageOptions{}

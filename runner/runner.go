@@ -5,9 +5,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
@@ -34,6 +36,11 @@ type Runner struct {
 	replayCtrl     *replay.Controller
 	checkpointPath string // path to the .pzr file being written
 	pressedKeys    map[ebiten.Key]bool
+
+	// lastHealthCycle is the most recent cycle for which logReplayHealth
+	// fired, so a paused replay sitting on a multiple of 500 doesn't
+	// spam the log every frame.
+	lastHealthCycle int
 }
 
 func (r *Runner) Update() error {
@@ -55,8 +62,34 @@ func (r *Runner) Update() error {
 		r.ui.HandleUserInput()
 		r.replayCtrl.Update()
 		r.ui.UpdateSelected()
+		r.logReplayHealth()
 	}
 	return nil
+}
+
+// logReplayHealth prints heap usage and per-window image-allocation
+// counts at a fixed cycle interval so we can correlate the
+// IDXGISwapChain DEVICE_REMOVED crashes with allocation churn /
+// memory growth. instrument.NewImage is wired into the per-frame
+// hot paths (grid viewport, minimap clipped, graph renderers); a
+// rising count between samples points at allocation churn, while
+// a rising HeapAlloc with stable count points at retained images.
+func (r *Runner) logReplayHealth() {
+	cycle := r.replayCtrl.Cycle()
+	if cycle == 0 || cycle%500 != 0 || cycle == r.lastHealthCycle {
+		return
+	}
+	r.lastHealthCycle = cycle
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	log.Printf("replay health cycle=%d speed=%v heap=%dMB sys=%dMB goroutines=%d new_images=%d",
+		cycle,
+		r.replayCtrl.Speed,
+		ms.HeapAlloc/(1<<20),
+		ms.Sys/(1<<20),
+		runtime.NumGoroutine(),
+		instrument.SwapImageAllocs(),
+	)
 }
 
 func (r *Runner) Draw(screen *ebiten.Image) {

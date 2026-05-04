@@ -25,6 +25,11 @@ type Info struct {
 	// ActChemosynthesis; stale values on other actions are ignored by
 	// the renderer.
 	ChemoFailed bool
+	// EatFailed is true when the organism's most recent eat action
+	// hit an empty cell (no food consumed). Only meaningful when
+	// Action == ActEat; stale on other actions and ignored by the
+	// renderer in that case.
+	EatFailed bool
 	// BornThisCycle is true for exactly the cycle on which the
 	// organism was spawned. The animation layer uses it to synthesise
 	// a birth Frame (2-cell move from the parent's cell into the

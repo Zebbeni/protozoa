@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
@@ -61,7 +62,7 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 
 	numCols := newBarCount - r.startBar
 	if numCols < 1 {
-		return ebiten.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	}
 
 	if r.baseImage == nil {
@@ -118,9 +119,9 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 	}
 
 	if r.baseImage == nil || numCols == 0 {
-		return ebiten.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	}
-	img := ebiten.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(gh.RealGraphWidth/float64(numCols), gh.RealGraphHeight/float64(baseHeight))
 	img.DrawImage(r.baseImage, opts)
@@ -166,7 +167,7 @@ func (r *Renderer) drawColumn(trees map[int]*organism.DescendantNode, ancestorID
 		y = yTop
 	}
 
-	col := ebiten.NewImage(1, baseHeight)
+	col := instrument.NewImage(1, baseHeight)
 	col.WritePixels(colBuf)
 
 	opts := &ebiten.DrawImageOptions{}
