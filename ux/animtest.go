@@ -30,10 +30,15 @@ const (
 )
 
 // hotReloadDirs lists the sprite directories watched for mtime changes.
+// Both light and dark sets are watched so saving an aseprite export
+// to either tree triggers a reload regardless of the active theme.
 var hotReloadDirs = []string{
-	"resources/images/grid/4x4",
-	"resources/images/grid/8x8",
-	"resources/images/grid/16x16",
+	"resources/images/grid_light/4x4",
+	"resources/images/grid_light/8x8",
+	"resources/images/grid_light/16x16",
+	"resources/images/grid_dark/4x4",
+	"resources/images/grid_dark/8x8",
+	"resources/images/grid_dark/16x16",
 }
 
 // AnimationTest is a standalone ebiten.Game for previewing every organism

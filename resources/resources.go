@@ -12,6 +12,7 @@ import (
 	"golang.org/x/image/font/opentype"
 
 	"github.com/Zebbeni/protozoa/animation"
+	"github.com/Zebbeni/protozoa/config"
 )
 
 // animationFileName is the filename stem used for per-action spritesheet PNGs
@@ -146,9 +147,18 @@ func initImages() {
 	dirs := [3]string{"4x4", "8x8", "16x16"}
 	sizes := [3]int{4, 8, 16}
 
+	// Light vs dark theme uses separate sprite directories so artists
+	// can keep two parallel sets — same Lua export script, different
+	// source aseprite files. ReloadImages is called by cycleTheme so
+	// switching themes at runtime picks up the new sheets.
+	themeDir := "grid_dark"
+	if config.IsLightTheme() {
+		themeDir = "grid_light"
+	}
+
 	for i, dir := range dirs {
 		size := sizes[i]
-		path := "resources/images/grid/" + dir + "/"
+		path := "resources/images/" + themeDir + "/" + dir + "/"
 
 		// Base single-frame sprites per organism role. Used as a fallback
 		// when a per-action sheet is missing. Loaded from disk if the

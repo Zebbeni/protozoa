@@ -31,22 +31,34 @@ const (
 	replayCtrlY      = 55  // Y offset for replay controls (below title)
 	replayCtrlHeight = 35  // height of the replay control bar
 
-	statsXOffset = padding
-	statsYOffset = 69
-
-	gridRenderXOffset = padding
-	gridRenderYOffset = 120
-
-	selectionsXOffset = padding
-	selectionsYOffset = 195
-
-	selectedXOffset = padding
-	selectedYOffset = 460
-
 	graphXOffset = padding
-	graphYOffset = 270
+	graphYOffset = 75 // graph sits closely under the timeline / replay controls
 	graphWidth   = 370
 	graphHeight  = 120
+
+	// statsYOffset positions the single living/dead row below the
+	// graph + graph-mode buttons. graphYOffset + graph-title (~10) +
+	// graphHeight + buttons-gap (14) + 2 button rows (40) ≈ 260.
+	statsXOffset = padding
+	statsYOffset = 265
+
+	// gridRender / highlight are rendered side by side, each in its own
+	// column with a comfortable gap between them. The button width is
+	// derived from panelWidth so the columns split the available area
+	// evenly minus padding and the inter-column gap.
+	sectionColumnGap  = 16
+	gridRenderXOffset = padding
+	gridRenderYOffset = 300
+	sectionColumnWidth = (panelWidth - 2*padding - sectionColumnGap) / 2
+	selectionsXOffset = padding + sectionColumnWidth + sectionColumnGap
+	selectionsYOffset = 300
+
+	// 4 single-column buttons (16 + 4) per row, 4 rows = 76, plus
+	// header line (~14) and a gap = ~95. selectedYOffset gives a bit
+	// more breathing room before the per-organism Selected Statistics
+	// section that follows.
+	selectedXOffset = padding
+	selectedYOffset = 415
 
 	// Scrubber dimensions
 	scrubberX      = padding
@@ -289,23 +301,20 @@ func (p *Panel) handleGraphButtonClick(mx, my int) bool {
 	return false
 }
 
-// renderSelections paints the SELECTIONS section above the graph: a
-// header and a 2x2 grid of auto-follow mode buttons. Refreshes
-// p.selectButtonRects so handleSelectButtonClick can dispatch.
+// renderSelections paints the HIGHLIGHT section in the right column
+// (paired side-by-side with GRID RENDER on the left). Single column
+// of buttons, one per row. Refreshes p.selectButtonRects.
 func (p *Panel) renderSelections(panelImage *ebiten.Image, yOff int) {
 	y := selectionsYOffset + yOff
-	text.Draw(panelImage, "SELECTIONS", r.FontSourceCodePro12, selectionsXOffset, y, themedForeground())
+	text.Draw(panelImage, "HIGHLIGHT", r.FontSourceCodePro12, selectionsXOffset, y, themedForeground())
 
-	totalWidth := graphWidth
-	btnW := (totalWidth - selectButtonGap*(selectButtonsPerRow-1)) / selectButtonsPerRow
+	btnW := sectionColumnWidth
 	topY := y + 8
 
 	rects := make([]selectButtonHitbox, 0, len(selectModeButtons))
 	for i, b := range selectModeButtons {
-		row := i / selectButtonsPerRow
-		col := i % selectButtonsPerRow
-		x := selectionsXOffset + col*(btnW+selectButtonGap)
-		by := topY + row*(selectButtonRowHeight+selectButtonGap)
+		x := selectionsXOffset
+		by := topY + i*(selectButtonRowHeight+selectButtonGap)
 
 		active := p.grid.selectMode == b.sel
 		drawGraphButton(panelImage, x, by, btnW, selectButtonRowHeight, b.label, active)
@@ -331,23 +340,20 @@ func (p *Panel) handleSelectButtonClick(mx, my int) bool {
 	return false
 }
 
-// renderGridRender paints the GRID RENDER section: a header and a
-// 2x2 grid of view-mode buttons. Refreshes p.viewModeButtonRects so
-// handleViewModeButtonClick can dispatch.
+// renderGridRender paints the GRID RENDER section in the left column
+// (paired side-by-side with HIGHLIGHT on the right). Single column of
+// buttons, one per row. Refreshes p.viewModeButtonRects.
 func (p *Panel) renderGridRender(panelImage *ebiten.Image, yOff int) {
 	y := gridRenderYOffset + yOff
 	text.Draw(panelImage, "GRID RENDER", r.FontSourceCodePro12, gridRenderXOffset, y, themedForeground())
 
-	totalWidth := graphWidth
-	btnW := (totalWidth - selectButtonGap*(selectButtonsPerRow-1)) / selectButtonsPerRow
+	btnW := sectionColumnWidth
 	topY := y + 8
 
 	rects := make([]viewModeButtonHitbox, 0, len(viewModeButtons))
 	for i, b := range viewModeButtons {
-		row := i / selectButtonsPerRow
-		col := i % selectButtonsPerRow
-		x := gridRenderXOffset + col*(btnW+selectButtonGap)
-		by := topY + row*(selectButtonRowHeight+selectButtonGap)
+		x := gridRenderXOffset
+		by := topY + i*(selectButtonRowHeight+selectButtonGap)
 
 		active := p.grid.viewMode == b.view
 		drawGraphButton(panelImage, x, by, btnW, selectButtonRowHeight, b.label, active)
@@ -720,8 +726,15 @@ func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
 }
 
 func (p *Panel) renderStats(panelImage *ebiten.Image, yOff int) {
-	statsString := fmt.Sprintf("CYCLE: %9d\nORGANISMS: %5d\nDEAD: %10d",
-		p.simulation.Cycle(), p.simulation.OrganismCount(), p.simulation.GetDeadCount())
+	// Cycle is shown in the timeline (when present), so we don't repeat
+	// it here. In live mode there's no timeline; the cycle is implicit
+	// from playback time.
+	// Left-pad each count to a fixed width so the LIVING / DEAD
+	// labels don't jitter as the values shrink or grow by a digit.
+	// DEAD reaches the millions on long runs, so reserve 10 digits
+	// for both so they're easy to compare visually.
+	statsString := fmt.Sprintf("LIVING: %10d        DEAD: %10d",
+		p.simulation.OrganismCount(), p.simulation.GetDeadCount())
 	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, themedForeground())
 }
 
@@ -798,6 +811,11 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 // position after the last line of content.
 func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	sY := selectedYOffset + yOff
+	// Section title sits above the per-organism info.
+	titleHeight := r.FontSourceCodePro12.Metrics().Height.Round()
+	text.Draw(panelImage, "SELECTED STATISTICS", r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
+	infoY := sY + titleHeight + 4
+
 	id := p.simulation.GetSelected()
 	info := p.simulation.GetOrganismInfoByID(id)
 	traits, found := p.simulation.GetOrganismTraitsByID(id)
@@ -806,7 +824,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	if info == nil || decisionTree == nil || found == false {
 		p.detailTabRects = nil
 		p.descRowRects = nil
-		return sY
+		return infoY
 	}
 	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
 	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
@@ -815,9 +833,10 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
 	infoLineCount := strings.Count(infoString, "\n") + 1
 	infoHeight := infoLineCount * r.FontSourceCodePro12.Metrics().Height.Round()
-	offsetY := sY + infoHeight + padding
+	// Small gap between info text and the tab strip below.
+	offsetY := infoY + infoHeight + 6
 
-	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
+	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, infoY, themedForeground())
 
 	// Tab buttons row, with a bit of breathing room before the
 	// content below so the first tab content line doesn't kiss the

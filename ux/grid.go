@@ -172,41 +172,48 @@ func (g *Grid) Render() *ebiten.Image {
 	g.renderFood(g.layers[layerFood], g.doRefresh)
 	g.renderOrganisms(g.layers[layerOrganisms], g.doRefresh)
 
-	// Compose visible portion into viewport-sized image with wrapping support.
+	// Compose visible portion into viewport-sized image. The world is
+	// rendered as a tiled wallpaper of copies — the simulation grid
+	// wraps mathematically (utils.Point.Wrap), so each tile is a valid
+	// view of the same world. Camera position picks which slice of the
+	// wallpaper sits at viewport (0,0); zooming out far enough to see
+	// the whole grid still tiles the surrounding viewport area.
 	viewportImage := instrument.NewImage(g.Camera.ViewportW, g.Camera.ViewportH)
-	centerOX, centerOY := g.Camera.CenterOffset()
 
 	us := g.unitSize()
 	wpw := float64(g.Camera.WorldPixelWidth())
 	wph := float64(g.Camera.WorldPixelHeight())
+	vw := float64(g.Camera.ViewportW)
+	vh := float64(g.Camera.ViewportH)
 
-	// Camera position in pixels, normalized to [0, worldPixelSize)
+	// Camera position in pixels, normalized to [0, worldPixelSize).
 	camPxX := g.Camera.NormalizedX() * float64(us)
 	camPxY := g.Camera.NormalizedY() * float64(us)
 
-	// Draw world layer at tiled offsets to cover the viewport when wrapping.
-	// On non-wrapping axes, just use the center offset.
-	// scaleX/scaleY scale the layer image up (e.g., env layer is sized at
-	// sprite-native resolution per cell and scaled by the sprite scale).
-	// Offsets are always in viewport pixel space. filter picks the ebiten
-	// sampling mode — nearest for sprite layers (no blur), linear for the
-	// env layer (smooths cell-boundary transitions).
-	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64, filter ebiten.Filter) {
-		xOffsets := []float64{-camPxX}
-		if g.Camera.WrapsX() {
-			xOffsets = append(xOffsets, -camPxX+wpw)
-		} else {
-			xOffsets = []float64{float64(centerOX)}
+	// firstOffset returns the leftmost / topmost tile origin so that
+	// the tile straddling viewport coord 0 is included. Subsequent
+	// tiles step by world-pixel size until viewport is fully covered.
+	firstOffset := func(camPx, worldPx float64) float64 {
+		// camPx is the in-world pixel where viewport (0,0) lands.
+		// Tile origin = -camPx, then walk back by worldPx until the
+		// origin is <= 0.
+		off := -camPx
+		for off > 0 {
+			off -= worldPx
 		}
-		yOffsets := []float64{-camPxY}
-		if g.Camera.WrapsY() {
-			yOffsets = append(yOffsets, -camPxY+wph)
-		} else {
-			yOffsets = []float64{float64(centerOY)}
-		}
+		return off
+	}
 
-		for _, ox := range xOffsets {
-			for _, oy := range yOffsets {
+	xStart := firstOffset(camPxX, wpw)
+	yStart := firstOffset(camPxY, wph)
+
+	// drawLayer paints the given layer at every tile origin needed to
+	// cover the viewport. scaleX/scaleY scale the layer image up to
+	// world-pixel size where applicable (e.g. the env layer is at
+	// sprite-native resolution). filter picks the ebiten sampling mode.
+	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64, filter ebiten.Filter) {
+		for ox := xStart; ox < vw; ox += wpw {
+			for oy := yStart; oy < vh; oy += wph {
 				op := &ebiten.DrawImageOptions{}
 				op.Filter = filter
 				if scaleX != 1 || scaleY != 1 {
@@ -486,7 +493,7 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 //   - The hover cell gets the dim foreground.
 func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 	if g.mouseOnGrid {
-		g.renderSelectionBox(g.mouseHoverLocation, viewportImage, themedForegroundDim())
+		g.renderHoverCellBox(viewportImage, themedForegroundDim())
 	}
 	selID := g.simulation.GetSelected()
 
@@ -537,13 +544,12 @@ func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
 		return
 	}
 
-	// View mode / selection / zoom label at top-left of the grid area.
-	// Zoom label shows the on-screen unit size, e.g. "ZOOM: 16px", which
-	// is what the camera actually renders at (pre-GridDisplayScale).
+	// Zoom label at top-left of the grid area. Shows the on-screen
+	// unit size — what the camera actually renders at, pre-GridDisplayScale.
 	xPadding := 10
 	yPadding := 20
 	fg := themedForeground()
-	info := fmt.Sprintf("VIEW MODE: %s\nSELECTED: %s\nZOOM: %dpx", viewModeNames[g.viewMode], selectModeNames[g.selectMode], g.Camera.GridUnitSize())
+	info := fmt.Sprintf("ZOOM: %dpx", g.Camera.GridUnitSize())
 	text.Draw(screen, info, resources.FontSourceCodePro10, panelWidth+xPadding, yPadding, fg)
 
 	// Hover info text near the cursor.
@@ -594,40 +600,73 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 	g.mouseOnGrid = onGrid
 }
 
-func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col color.Color) {
+// renderHoverCellBox draws a single hover-cell outline at the cursor's
+// actual viewport position. Unlike renderSelectionBox (which paints
+// the box at every wallpaper-tiled copy of the world), the hover
+// cursor is a UI element that should appear once, where the cursor is.
+// The cell origin in viewport coords accounts for the camera's
+// sub-cell offset — cells in a tiled view don't generally align to
+// viewport pixel 0.
+func (g *Grid) renderHoverCellBox(img *ebiten.Image, col color.Color) {
+	mx, my := ebiten.CursorPosition()
+	// Convert from screen pixels to viewport pixels (the same image
+	// space the rest of the grid renders into).
+	vx := float64(mx-panelWidth) / float64(GridDisplayScale)
+	vy := float64(my) / float64(GridDisplayScale)
 	us := float64(g.unitSize())
-	centerOX, centerOY := g.Camera.CenterOffset()
-	wpw := float64(g.Camera.WorldPixelWidth())
-	wph := float64(g.Camera.WorldPixelHeight())
 	camPxX := g.Camera.NormalizedX() * us
 	camPxY := g.Camera.NormalizedY() * us
-
-	// Grid position in world pixels
-	worldX := float64(point.X) * us
-	worldY := float64(point.Y) * us
-
-	// Convert to viewport coordinates (handle wrapping)
-	var vx, vy float64
-	if g.Camera.WrapsX() {
-		vx = math.Mod(worldX-camPxX+wpw, wpw)
-	} else {
-		vx = worldX + float64(centerOX)
-	}
-	if g.Camera.WrapsY() {
-		vy = math.Mod(worldY-camPxY+wph, wph)
-	} else {
-		vy = worldY + float64(centerOY)
-	}
-
-	// Box sits exactly on the selected cell's outer boundary. Previously
-	// an us/8 outset was added, which scaled with zoom and visibly spilled
-	// into adjacent cells at high zoom levels.
-	x0, y0 := vx, vy
-	x1, y1 := vx+us, vy+us
+	// World pixel coordinates align to the camera. The cell containing
+	// the cursor has its origin at world-pixel floor((vx+camPx)/us)*us;
+	// translating back into viewport coords subtracts camPx.
+	x0 := math.Floor((vx+camPxX)/us)*us - camPxX
+	y0 := math.Floor((vy+camPxY)/us)*us - camPxY
+	x1 := x0 + us
+	y1 := y0 + us
 	ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
 	ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
 	ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
 	ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
+}
+
+func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col color.Color) {
+	us := float64(g.unitSize())
+	wpw := float64(g.Camera.WorldPixelWidth())
+	wph := float64(g.Camera.WorldPixelHeight())
+	vw := float64(g.Camera.ViewportW)
+	vh := float64(g.Camera.ViewportH)
+	camPxX := g.Camera.NormalizedX() * us
+	camPxY := g.Camera.NormalizedY() * us
+
+	// In-world pixel coords of the selected cell.
+	worldX := float64(point.X) * us
+	worldY := float64(point.Y) * us
+
+	// Walk every visible tile of the wallpaper-tiled world and draw a
+	// box on each one that contains the cell. xStart / yStart are the
+	// leftmost/topmost tile origins straddling viewport coord 0.
+	xStart := -camPxX
+	for xStart > 0 {
+		xStart -= wpw
+	}
+	yStart := -camPxY
+	for yStart > 0 {
+		yStart -= wph
+	}
+
+	for ox := xStart; ox < vw; ox += wpw {
+		for oy := yStart; oy < vh; oy += wph {
+			x0, y0 := ox+worldX, oy+worldY
+			x1, y1 := x0+us, y0+us
+			if x1 < 0 || y1 < 0 || x0 > vw || y0 > vh {
+				continue
+			}
+			ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
+			ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
+			ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
+			ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
+		}
+	}
 }
 
 func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {

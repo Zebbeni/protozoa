@@ -120,52 +120,37 @@ func (cam *Camera) CenterOffset() (offsetX, offsetY int) {
 	return
 }
 
-// ScreenToGrid converts a screen pixel position (relative to the grid viewport area)
-// to world grid coordinates with wrapping.
+// ScreenToGrid converts a screen pixel position (relative to the grid
+// viewport area) to world grid coordinates. The world is rendered as
+// a tiled wallpaper, so any screen pixel always lands on some grid
+// cell — onGrid is always true.
 func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid bool) {
-	ox, oy := cam.CenterOffset()
 	us := float64(cam.GridUnitSize())
 	w := c.GridUnitsWide()
 	h := c.GridUnitsHigh()
 
-	if cam.WrapsX() {
-		// Screen pixel offset from camera origin, converted to fractional grid units
-		nx := cam.NormalizedX()
-		gridX = int(math.Floor(nx+float64(screenX-ox)/us)) % w
-		if gridX < 0 {
-			gridX += w
-		}
-	} else {
-		gridX = int(math.Floor(float64(screenX-ox) / us))
+	nx := cam.NormalizedX()
+	ny := cam.NormalizedY()
+	gridX = int(math.Floor(nx+float64(screenX)/us)) % w
+	if gridX < 0 {
+		gridX += w
+	}
+	gridY = int(math.Floor(ny+float64(screenY)/us)) % h
+	if gridY < 0 {
+		gridY += h
 	}
 
-	if cam.WrapsY() {
-		ny := cam.NormalizedY()
-		gridY = int(math.Floor(ny+float64(screenY-oy)/us)) % h
-		if gridY < 0 {
-			gridY += h
-		}
-	} else {
-		gridY = int(math.Floor(float64(screenY-oy) / us))
-	}
-
-	onGrid = gridX >= 0 && gridY >= 0 && gridX < w && gridY < h
+	onGrid = true
 	return
 }
 
 // Pan adjusts the camera position by the given grid-unit deltas.
-// Only wrapping axes allow free panning; non-wrapping axes are clamped.
+// Free panning on both axes — when the world is smaller than the
+// viewport the renderer tiles copies of the world to fill the
+// viewport, and panning shifts which copy sits where.
 func (cam *Camera) Pan(dx, dy float64) {
 	cam.X += dx
 	cam.Y += dy
-
-	// Clamp non-wrapping axes so the world stays visible
-	if !cam.WrapsX() {
-		cam.X = 0
-	}
-	if !cam.WrapsY() {
-		cam.Y = 0
-	}
 }
 
 func (cam *Camera) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
