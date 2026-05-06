@@ -16,7 +16,7 @@ import (
 
 // themeCycle is the rotation used by the T key: each press moves to the
 // next entry, wrapping around.
-var themeCycle = []string{"dark", "light", "light_blue"}
+var themeCycle = []string{"dark", "light"}
 
 // themeBackgroundColor returns the window / panel fill as a color.Color,
 // derived from config.ThemeBackgroundRGB. Used by fillThemeBackground and

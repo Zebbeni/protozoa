@@ -8,21 +8,35 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 )
+
+// readerBacking is the minimum API the Reader needs: random-access
+// reads, seeking, and close. Both *os.File and *memView satisfy it.
+type readerBacking interface {
+	io.Reader
+	io.Seeker
+	io.Closer
+}
 
 // Reader reads checkpoint data from a .pzr file.
 type Reader struct {
-	file            *os.File
-	path            string
-	Header          FileHeader
-	SnapshotIndex   []SnapshotEntry
-	sectionsStart   int64 // file offset where sections begin (after header)
-	indexOffset     int64 // file offset where snapshot index begins
+	file          readerBacking
+	path          string
+	Header        FileHeader
+	SnapshotIndex []SnapshotEntry
+	sectionsStart int64 // file offset where sections begin (after header)
+	indexOffset   int64 // file offset where snapshot index begins
 }
 
-// OpenReader opens a .pzr file and reads the header and snapshot index.
+// OpenReader opens a .pzr file and reads the header and snapshot
+// index. On native, opens via os.Open. On WASM (runtime.GOOS == "js")
+// looks up an in-memory MemFile registered by NewWriter under the
+// same path; this lets a checkpoint written during the same browser
+// session be read back without touching the (non-existent) browser
+// filesystem.
 func OpenReader(path string) (*Reader, error) {
-	file, err := os.Open(path)
+	file, err := openReaderBacking(path)
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +83,9 @@ func OpenReader(path string) (*Reader, error) {
 	// Sections begin right after the header
 	sectionsStart, _ := file.Seek(0, io.SeekCurrent)
 
-	// Read snapshot index from footer
-	// Footer is at end of file: [indexOffset: int64][indexCount: int32]
-	footerSize := int64(8 + 4) // int64 + int32
+	// Read snapshot index from footer.
+	// Footer: [int64 indexOffset][int32 indexCount]
+	footerSize := int64(8 + 4)
 	if _, err := file.Seek(-footerSize, io.SeekEnd); err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to seek to footer: %w", err)
@@ -100,7 +114,7 @@ func OpenReader(path string) (*Reader, error) {
 		Header:        header,
 		SnapshotIndex: index,
 		sectionsStart: sectionsStart,
-		indexOffset:    indexOffset,
+		indexOffset:   indexOffset,
 	}, nil
 }
 
@@ -234,4 +248,19 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 // Close closes the underlying file.
 func (r *Reader) Close() error {
 	return r.file.Close()
+}
+
+// openReaderBacking returns a readable backing for the given path —
+// real os.File on native, fresh *memView (from the registered
+// MemFile) on WASM. WASM reads return io.EOF beyond the data the
+// writer wrote.
+func openReaderBacking(path string) (readerBacking, error) {
+	if runtime.GOOS == "js" {
+		mf := lookupMemFile(path)
+		if mf == nil {
+			return nil, fmt.Errorf("checkpoint: no in-memory file registered for %q", path)
+		}
+		return mf.View(), nil
+	}
+	return os.Open(path)
 }

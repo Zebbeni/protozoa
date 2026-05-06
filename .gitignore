@@ -1,3 +1,6 @@
+# wasm build artefacts (rebuilt from source via web/build.sh)
+web/protozoa.wasm
+web/wasm_exec.js
 compiled
 .gitignore
 *.idea
@@ -5,3 +8,4 @@ compiled
 .claude
 Claude.md
 protozoa
+testdata/*.pzr

@@ -4,10 +4,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io/ioutil"
+	"io/fs"
 	"log"
-	"os"
-	"path/filepath"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
@@ -204,7 +202,7 @@ func initImages() {
 // per-file so a missing base PNG doesn't crash init — the loader falls
 // back gracefully for sizes the user hasn't drawn art for yet.
 func loadOrGenerateFilled(fullPath string, totalSize, innerSize int) *ebiten.Image {
-	if fileExists(fullPath) {
+	if assetExists(fullPath) {
 		return loadImage(fullPath)
 	}
 	return generateFilledImage(totalSize, innerSize)
@@ -213,7 +211,7 @@ func loadOrGenerateFilled(fullPath string, totalSize, innerSize int) *ebiten.Ima
 // loadOrGenerateCircle is the same pattern for circle-shaped fallbacks
 // (food).
 func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Image {
-	if fileExists(fullPath) {
+	if assetExists(fullPath) {
 		return loadImage(fullPath)
 	}
 	return generateCircle(totalSize, diameter)
@@ -234,7 +232,7 @@ func loadOrganismFrames(path string, role ImageRole, base *ebiten.Image, frameSi
 	for _, anim := range animation.AllAnimations {
 		animName := animationFileName[anim]
 		sheetPath := path + roleName + "_" + animName + ".png"
-		if roleName != "" && animName != "" && fileExists(sheetPath) {
+		if roleName != "" && animName != "" && assetExists(sheetPath) {
 			set[anim] = loadSpriteSheet(sheetPath, orgFrames)
 			continue
 		}
@@ -326,52 +324,33 @@ func generateBoxImage(size int) *ebiten.Image {
 	return ebiten.NewImageFromImage(img)
 }
 
-func dirExists(path string) bool {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	info, err := os.Stat(absPath)
-	return err == nil && info.IsDir()
-}
-
-func fileExists(path string) bool {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	info, err := os.Stat(absPath)
-	return err == nil && !info.IsDir()
-}
-
 func loadImage(path string) *ebiten.Image {
-	filepath, err := filepath.Abs(path)
-	if err != nil {
-		log.Fatal(err)
+	if assetsFS == nil {
+		log.Fatalf("resources: asset FS not initialised; UseEmbeddedAssets must be called before loading %q", path)
 	}
-	reader, err := os.Open(filepath)
+	reader, err := assetsFS.Open(path)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("resources: failed to open %q: %v", path, err)
 	}
+	defer reader.Close()
 	img, err := png.Decode(reader)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("resources: failed to decode %q: %v", path, err)
 	}
 	return ebiten.NewImageFromImage(img)
 }
 
 func loadFont(path string) *opentype.Font {
-	filepath, err := filepath.Abs(path)
-	if err != nil {
-		log.Fatal(err)
+	if assetsFS == nil {
+		log.Fatalf("resources: asset FS not initialised; UseEmbeddedAssets must be called before loading %q", path)
 	}
-	fontData, err := ioutil.ReadFile(filepath)
+	data, err := fs.ReadFile(assetsFS, path)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("resources: failed to read font %q: %v", path, err)
 	}
-	tt, err := opentype.Parse(fontData)
+	tt, err := opentype.Parse(data)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("resources: failed to parse font %q: %v", path, err)
 	}
 	return tt
 }

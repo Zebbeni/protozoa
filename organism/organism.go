@@ -266,6 +266,19 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 	return o.decisionTree.CopyTree()
 }
 
+// RebuildDecisionPath walks chooseAction on the current decision tree
+// to set UsedLastCycle and WasTravelled along the path that current
+// state would take. Called after a snapshot restore — the serialized
+// tree string drops the flags, so without this the panel shows no
+// highlights and no "◀◀" markers until the next sim Update cycles.
+// Doesn't change o.action (the saved action stays put).
+func (o *Organism) RebuildDecisionPath() {
+	if o.decisionTree == nil || o.decisionTree.Node == nil {
+		return
+	}
+	o.chooseAction(o.decisionTree.Node)
+}
+
 // Traits returns an organism's traits
 func (o Organism) Traits() Traits    { return o.traits }
 func (o *Organism) TraitsRef() *Traits { return &o.traits }
@@ -291,6 +304,11 @@ func (o Organism) ChanceToMutateDecisionTree() float64 { return o.traits.ChanceT
 
 // Action returns the Organism's currently-chosen action
 func (o Organism) Action() d.Action { return o.action }
+
+// SetAction overwrites the organism's currently-chosen action. Used by
+// the reverse-delta apply path to roll the action back to its
+// pre-cycle value during step-back.
+func (o *Organism) SetAction(a d.Action) { o.action = a }
 
 // Color returns an organism's color
 func (o Organism) Color() color.Color { return o.traits.OrganismColor }

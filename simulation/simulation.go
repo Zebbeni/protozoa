@@ -49,9 +49,24 @@ type Simulation struct {
 
 // NewSimulation returns a simulation with generated world and organisms
 // cycle increments at the beginning of Update() so start at -1 to ensure
-// first actions are attributed to cycle 0
+// first actions are attributed to cycle 0.
+//
+// Seed precedence: a non-zero CLI --seed wins (so existing scripts keep
+// behaving), otherwise the value from Globals (editable in the config
+// screen) is used. This lets wasm builds — which can't pass CLI flags
+// — pick a seed via the UI.
 func NewSimulation(options *config.Options) *Simulation {
-	rng := simrand.New(uint64(options.Seed))
+	seed := options.Seed
+	if seed == 0 {
+		seed = config.Seed()
+	}
+	if seed == 0 {
+		// Both unspecified — pick a wall-clock-based seed so wasm
+		// builds (and any "leave it blank" CLI use) get fresh runs
+		// instead of reproducing the same simulation every launch.
+		seed = int(time.Now().UnixNano())
+	}
+	rng := simrand.New(uint64(seed))
 	sim := &Simulation{
 		options:  options,
 		rng:      rng,
@@ -64,7 +79,7 @@ func NewSimulation(options *config.Options) *Simulation {
 	sim.organismManager = manager.NewOrganismManager(sim, rng)
 
 	header := checkpoint.FileHeader{
-		Seed:               uint64(options.Seed),
+		Seed:               uint64(seed),
 		CheckpointInterval: options.CheckpointInterval,
 		GridUnitsWide:      config.GridUnitsWide(),
 		GridUnitsHigh:      config.GridUnitsHigh(),
@@ -120,16 +135,18 @@ func (s *Simulation) Update() {
 	s.accCycles++
 }
 
-func (s *Simulation) writeSnapshot() {
+// CaptureSnapshot deep-copies the current simulation state into a
+// SnapshotPayload. Same shape as what gets written to .pzr snapshots,
+// reused by the replay-side in-memory ring buffer so step-back can
+// restore recent cycles without going to disk.
+func (s *Simulation) CaptureSnapshot() *checkpoint.SnapshotPayload {
 	rngState, err := s.rng.MarshalState()
 	if err != nil {
 		fmt.Printf("\nWarning: failed to marshal RNG state: %v", err)
-		return
+		return nil
 	}
-
 	currentPh, previousPh := s.environmentManager.CapturePhMaps()
-
-	snap := &checkpoint.SnapshotPayload{
+	return &checkpoint.SnapshotPayload{
 		Cycle:                 s.cycle,
 		RNGState:              rngState,
 		TotalOrganismsCreated: s.organismManager.TotalOrganismsCreated(),
@@ -140,7 +157,13 @@ func (s *Simulation) writeSnapshot() {
 		FoodItems:             s.foodManager.CaptureFoodRecords(),
 		Ancestors:             s.organismManager.CaptureAncestors(),
 	}
+}
 
+func (s *Simulation) writeSnapshot() {
+	snap := s.CaptureSnapshot()
+	if snap == nil {
+		return
+	}
 	if err := s.recorder.WriteSnapshot(snap); err != nil {
 		fmt.Printf("\nWarning: failed to write snapshot at cycle %d: %v", s.cycle, err)
 	}
@@ -377,6 +400,12 @@ func (s *Simulation) GetMostSuccessfulId() int {
 // whose descendant tree node meets the "most successful" criteria.
 func (s *Simulation) GetMostSuccessfulIds() []int {
 	return s.organismManager.GetMostSuccessfulIds()
+}
+
+// IsMostSuccessful reports whether the given organism ID is on the
+// most-successful lineage (alive or dead).
+func (s *Simulation) IsMostSuccessful(id int) bool {
+	return s.organismManager.IsMostSuccessful(id)
 }
 
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the

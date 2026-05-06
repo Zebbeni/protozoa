@@ -21,7 +21,7 @@ const (
 // spectrum. Matches the env-layer colour logic in ux/grid.go: extremes
 // get high-contrast colours, neutral pH is blended towards the active
 // theme's background so it visually disappears into the window fill
-// (black under dark, white under light, light-blue under light_blue).
+// (black under dark, white under light).
 func PhValueColor(ph float64) (float32, float32, float32, float32) {
 	// Same colour scheme as the env-layer renderer in ux/grid.go: blend
 	// between theme background (at neutral) and the acid (#A9C218) or

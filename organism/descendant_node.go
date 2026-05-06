@@ -110,7 +110,15 @@ func (n *DescendantNode) propagateDeadToParent(cycle int) {
 
 	parent.childMu.Lock()
 	parent.deadBranchesCount++
-	allDead := parent.EndCycle != 0 && parent.deadBranchesCount == len(parent.Children)
+	// In replay mode, the tree is restored from a snapshot with EndCycle
+	// already populated on every node from its original death. For an
+	// ancestor whose organism hasn't yet died in the current replay
+	// timeline, EndCycle is the *future* recorded death cycle, not 0.
+	// Without the EndCycle <= cycle check, a single dying leaf could
+	// trigger ABDC propagation up through still-alive ancestors and
+	// blank out the population graph from then on.
+	parentDead := parent.EndCycle != 0 && parent.EndCycle <= cycle
+	allDead := parentDead && parent.deadBranchesCount == len(parent.Children)
 	parent.childMu.Unlock()
 
 	if allDead {

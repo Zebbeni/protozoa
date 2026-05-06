@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -117,6 +116,16 @@ func (m *OrganismManager) Update() {
 	m.updateHistory()
 }
 
+// updateOrganismActions runs each organism's per-cycle stats update,
+// decision-tree walk, and request submission. Sequential by design:
+// an earlier parallel-by-CPU implementation made the simulation
+// non-deterministic across replays — replays starting from different
+// snapshots reached different states at the same target cycle, which
+// broke step-back/forward repeatability and caused organism IDs to be
+// assigned to different organisms across timeline jumps. The race
+// wasn't on shared writes (workers only modified their own organism)
+// but somewhere in the read paths through lookupAPI, so until that's
+// pinned down, sequential execution is the source of truth.
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
@@ -128,68 +137,20 @@ func (m *OrganismManager) updateOrganismActions() {
 	sort.Ints(ids)
 	m.SortDuration = time.Since(start)
 
-	n := len(ids)
-	numWorkers := runtime.NumCPU()
-	if numWorkers > n {
-		numWorkers = max(1, n)
-	}
-
-	type workerResult struct {
-		requests     RequestManager
-		organismIds  []int
-		attackPoints []utils.Point
-	}
-
-	results := make([]workerResult, numWorkers)
-	chunkSize := (n + numWorkers - 1) / numWorkers
-
-	var wg sync.WaitGroup
-	for w := 0; w < numWorkers; w++ {
-		lo := w * chunkSize
-		hi := lo + chunkSize
-		if hi > n {
-			hi = n
+	m.requestManager.ClearMaps()
+	for _, id := range ids {
+		o := m.organisms[id]
+		if o.Action() == d.ActAttack {
+			m.addUpdatedPoint(o.Location)
 		}
-		if lo >= hi {
-			continue
-		}
-
-		wg.Add(1)
-		go func(workerIdx int, chunk []int) {
-			defer wg.Done()
-			r := &results[workerIdx]
-			r.requests.ClearMaps()
-			r.organismIds = make([]int, 0, len(chunk))
-
-			for _, id := range chunk {
-				o := m.organisms[id]
-
-				if o.Action() == d.ActAttack {
-					r.attackPoints = append(r.attackPoints, o.Location)
-				}
-
-				o.UpdateStats()
-				o.UpdateAction()
-				m.updateRequestMapTo(o, &r.requests)
-				r.organismIds = append(r.organismIds, o.ID)
-			}
-		}(w, ids[lo:hi])
+		o.UpdateStats()
+		o.UpdateAction()
+		m.updateRequestMapTo(o, &m.requestManager)
+		m.organismIds = append(m.organismIds, o.ID)
 	}
-	wg.Wait()
-	m.DecideStatsDuration = time.Since(start) - m.SortDuration // parallel work wall-clock
-
-	// Merge results (sequential, deterministic — in chunk order)
-	mergeStart := time.Now()
-	for i := range results {
-		r := &results[i]
-		for _, p := range r.attackPoints {
-			m.addUpdatedPoint(p)
-		}
-		m.organismIds = append(m.organismIds, r.organismIds...)
-		m.requestManager.MergeFrom(&r.requests)
-	}
-	m.DecideTreeDuration = 0    // not measured separately in parallel mode
-	m.DecideRequestDuration = time.Since(mergeStart)
+	m.DecideStatsDuration = time.Since(start) - m.SortDuration
+	m.DecideTreeDuration = 0
+	m.DecideRequestDuration = 0
 	m.UpdateDuration = time.Since(start)
 }
 
@@ -636,13 +597,28 @@ func (m *OrganismManager) GetOrganismTreeNode(id int) *organism.DescendantNode {
 	return nil
 }
 
-// GetOrganismInfoAtPoint returns the Organism Info at the given point (nil if none)
+// GetOrganismInfoAtPoint returns the Organism Info at the given point
+// (nil if none). The fast path is the organismIDGrid lookup; a slower
+// fallback scans m.organisms by Location so a stray grid/organisms
+// inconsistency doesn't make a visibly-rendered organism unhoverable.
+// Production code shouldn't normally hit the fallback — if it does,
+// there's a bug elsewhere that's letting the grid drift from m.organisms.
 func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
 	if id, found := m.getOrganismIDAt(point); found {
 		m.organismMutex.RLock()
-		defer m.organismMutex.RUnlock()
-
 		if o, ok := m.organisms[id]; ok {
+			info := o.Info()
+			m.organismMutex.RUnlock()
+			return info
+		}
+		m.organismMutex.RUnlock()
+	}
+	// Fallback: linear scan. Catches the case where the grid says
+	// nothing's at this cell but an organism is logically here.
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	for _, o := range m.organisms {
+		if o.Location == point {
 			return o.Info()
 		}
 	}
@@ -699,25 +675,54 @@ func (m *OrganismManager) GetMostTraveledId() int {
 	return m.mostTraveledId
 }
 
-// GetMostSuccessfulIds returns the IDs of currently-living organisms
-// whose descendant tree node is "most successful" — defined as
-// AllBranchesDeadCycle == 0 (the lineage will live to the end of the
-// recorded simulation) OR AllBranchesDeadCycle equal to the maximum
-// AllBranchesDeadCycle found anywhere in the loaded ancestry tree.
-//
-// The set of qualifying tree-node IDs is precomputed in
-// RestoreDescendantTrees, so this method just iterates live organisms
-// and does an O(1) membership lookup against that map. In pure live
-// mode the set is nil (no trees loaded) and the result is always
-// empty. Result is sorted by ID for stable rendering.
+// mostSuccessfulSet returns the set of "most successful" tree node IDs.
+// In replay mode this is precomputed at restore time. In live mode the
+// recording hasn't ended yet, so we compute it on the fly: every node
+// whose subtree still contains an organism alive right now (EndCycle
+// == 0). EndCycle is set once by MarkDead and never overwritten, so
+// the walk is O(tree) and stable cycle-to-cycle.
+func (m *OrganismManager) mostSuccessfulSet() map[int]struct{} {
+	if m.mostSuccessful != nil {
+		return m.mostSuccessful
+	}
+	if len(m.descendantTrees) == 0 {
+		return nil
+	}
+	set := make(map[int]struct{})
+	var walk func(*organism.DescendantNode) bool
+	walk = func(n *organism.DescendantNode) bool {
+		hasSurvivor := n.EndCycle == 0
+		n.ForEachChild(func(c *organism.DescendantNode) {
+			if walk(c) {
+				hasSurvivor = true
+			}
+		})
+		if hasSurvivor {
+			set[n.ID] = struct{}{}
+		}
+		return hasSurvivor
+	}
+	for _, root := range m.descendantTrees {
+		if root != nil {
+			walk(root)
+		}
+	}
+	return set
+}
+
+// GetMostSuccessfulIds returns the IDs of currently-living organisms on
+// the most-successful lineage — last alive at recording end (or, in live
+// mode, currently alive) plus every ancestor of one. Result is sorted
+// by ID for stable rendering.
 func (m *OrganismManager) GetMostSuccessfulIds() []int {
-	if m.mostSuccessful == nil {
+	set := m.mostSuccessfulSet()
+	if set == nil {
 		return nil
 	}
 	m.organismMutex.RLock()
-	living := make([]int, 0, len(m.mostSuccessful))
+	living := make([]int, 0, len(set))
 	for id := range m.organisms {
-		if _, ok := m.mostSuccessful[id]; ok {
+		if _, ok := set[id]; ok {
 			living = append(living, id)
 		}
 	}
@@ -726,12 +731,36 @@ func (m *OrganismManager) GetMostSuccessfulIds() []int {
 	return living
 }
 
+// Organisms returns a snapshot slice of currently-living organisms.
+// Used by post-restore initialisation that needs to walk every
+// organism after the manager is wired into its parent simulation.
+func (m *OrganismManager) Organisms() []*organism.Organism {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	out := make([]*organism.Organism, 0, len(m.organisms))
+	for _, o := range m.organisms {
+		out = append(out, o)
+	}
+	return out
+}
+
+// IsMostSuccessful reports whether the given organism ID is on the
+// surviving (or, in extinct recordings, longest-lived) lineage. Used
+// by panel UI to badge nodes in the descendant-tree view.
+func (m *OrganismManager) IsMostSuccessful(id int) bool {
+	set := m.mostSuccessfulSet()
+	if set == nil {
+		return false
+	}
+	_, ok := set[id]
+	return ok
+}
+
 // GetMostSuccessfulId returns the ID of the oldest currently-living
-// organism whose descendant node meets the "most successful" criteria,
-// or -1 if none qualify. Single pass over live organisms with O(1)
-// membership lookup against the precomputed set.
+// organism on the most-successful lineage, or -1 if none qualify.
 func (m *OrganismManager) GetMostSuccessfulId() int {
-	if m.mostSuccessful == nil {
+	set := m.mostSuccessfulSet()
+	if set == nil {
 		return -1
 	}
 	m.organismMutex.RLock()
@@ -739,7 +768,7 @@ func (m *OrganismManager) GetMostSuccessfulId() int {
 	oldestID := -1
 	oldestAge := -1
 	for id, o := range m.organisms {
-		if _, ok := m.mostSuccessful[id]; !ok {
+		if _, ok := set[id]; !ok {
 			continue
 		}
 		if o.Age > oldestAge || (o.Age == oldestAge && o.ID < oldestID) {

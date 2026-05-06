@@ -187,38 +187,38 @@ The env layer is the only one with non-trivial colour math: each pixel is biline
 # Setup
 ```
 go get
-go run main.go
+go run .
 ```
 ## Run Options
 ```-config``` Use overriden simulation constants. Ex:
 ```
-go run main.go -config=settings/small.json
-go run main.go -config=settings/big.json
+go run . -config=settings/small.json
+go run . -config=settings/big.json
 ```
 ```-seed``` Set the random seed used by the simulation. Ex:
 ```
-go run main.go -seed=2
+go run . -seed=2
 ```
 ```-debug``` Display memory usage and FPS
 ```
-go run main.go -debug=true
+go run . -debug=true
 ```
 
 # Config
 You can create your own .json config files to override simulation constants at runtime.
 To print the default settings as json (you can paste and edit this in a new configuration .json file)
 ```
-go run main.go -dump-config
+go run . -dump-config
 ```
 
 # Run Headless
 - Single trial:
 ```
-go run main.go -headless
+go run . -headless
 ```
 - Multiple trials:
 ```
-go run main.go -headless -trials=10
+go run . -headless -trials=10
 ```
 
 # Saving and Replaying Simulations
@@ -226,19 +226,39 @@ Every run writes a `.pzr` replay file. By default it goes to a stable path in th
 
 - Save a run to a chosen file:
 ```
-go run main.go -checkpoint=runs/big_mutation.pzr
+go run . -checkpoint=runs/big_mutation.pzr
 ```
 
 - Replay a saved file:
 ```
-go run main.go -replay=runs/big_mutation.pzr
+go run . -replay=runs/big_mutation.pzr
 ```
 
 - Resume the last run still sitting in the temp directory (no need to remember the path — useful right after closing the window):
 ```
-go run main.go -resume=true
+go run . -resume=true
 ```
 If the temp file has been cleared or a new run has already overwritten it, `-resume` falls through to the normal startup path and prints a note. Explicit `-replay` wins over `-resume`, and `-resume` is ignored under `-headless` (no GUI to show the replay).
+
+# Run in a Browser (WebAssembly)
+
+Protozoa builds to WebAssembly via ebiten's wasm support. Sprite sheets, fonts, and `settings/default.json` are bundled into the binary via `go:embed`, so the wasm build is fully self-contained — no separate asset hosting needed.
+
+Build the wasm binary and stage Go's wasm runtime under `web/`:
+```
+./web/build.sh
+```
+
+The script writes `web/protozoa.wasm` and `web/wasm_exec.js`. Then serve the `web/` directory with any static file server and open it in a browser:
+```
+python3 -m http.server 8080 --directory web
+# open http://localhost:8080/
+```
+
+Notes / current limitations:
+- The wasm build runs in **live-only mode**: the in-browser file system is virtual, so saved replays don't survive a page reload. Replay controls work within a session but the `-resume` and `-replay` workflows are desktop-only.
+- CLI flags don't apply (the browser doesn't pass `os.Args`); the wasm build always boots with default settings.
+- The wasm binary is ~14 MB (mostly Go runtime + embedded sprite sheets). First load is the cold cost; subsequent loads can be cached.
 
 # Test
 ```

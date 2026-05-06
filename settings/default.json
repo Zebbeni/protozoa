@@ -1,8 +1,9 @@
 {
+  "seed": 0,
   "initial_food": 0,
   "initial_organisms": 1,
-  "grid_units_wide": 200,
-  "grid_units_high": 160,
+  "grid_units_wide": 100,
+  "grid_units_high": 80,
   "screen_width": 1400,
   "screen_height": 800,
   "population_update_interval": 20,

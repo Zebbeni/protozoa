@@ -146,12 +146,6 @@ func (i *Interface) handleKeyboard() {
 	if inpututil.IsKeyJustReleased(ebiten.KeySpace) {
 		i.simulation.Pause(!i.simulation.IsPaused())
 	}
-	if inpututil.IsKeyJustReleased(ebiten.KeyM) {
-		i.grid.ChangeViewMode()
-	}
-	if inpututil.IsKeyJustReleased(ebiten.KeyO) {
-		i.grid.UpdateAutoSelect()
-	}
 	if inpututil.IsKeyJustReleased(ebiten.KeyD) {
 		i.simulation.ToggleDebug()
 	}
@@ -304,9 +298,15 @@ func (i *Interface) renderPanel(screen *ebiten.Image) {
 }
 
 // getMouseGridLocation converts the cursor position to world grid coordinates
-// using the camera's offset and zoom level.
+// using the camera's offset and zoom level. Cursor positions inside the
+// panel return onGrid=false directly — without this guard a wrapping
+// world would normalise the negative screenX back into [0, w) and the
+// hover overlay would keep drawing while the cursor is over the panel.
 func (i *Interface) getMouseGridLocation() (utils.Point, bool) {
 	mouseX, mouseY := ebiten.CursorPosition()
+	if mouseX < panelWidth {
+		return utils.Point{}, false
+	}
 	screenX := (mouseX - panelWidth) / GridDisplayScale
 	screenY := mouseY / GridDisplayScale
 	gridX, gridY, onGrid := i.grid.Camera.ScreenToGrid(screenX, screenY)

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/Zebbeni/protozoa/checkpoint"
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/replay"
@@ -41,7 +42,28 @@ type Runner struct {
 	// fired, so a paused replay sitting on a multiple of 500 doesn't
 	// spam the log every frame.
 	lastHealthCycle int
+
+	// activeSim is the currently-running headless simulation. We
+	// advance it inside Update() rather than a background goroutine
+	// so WASM builds yield to the JS event loop between frame ticks
+	// (Go's WASM scheduler is cooperative — a tight goroutine loop
+	// freezes the page).
+	activeSim      *simulation.Simulation
+	activeSimStart time.Time
 }
+
+// stepSimulationBudget caps how long we spend advancing the headless
+// simulation per ebiten Update tick. The browser needs the rest of the
+// frame to render and stay responsive; native runs are paced by the
+// scheduler anyway. We're more aggressive here than during replay
+// because the progress screen has almost no interactive state — just
+// the Stop button and a scrolling log — so a 30 fps render rate is
+// fine and the sim claims the rest of the wall-clock budget.
+//
+// 25ms / 40 fps minimum keeps the page responsive enough that the
+// Stop button still reacts within ~25ms; sim throughput on wasm is
+// noticeably better than the previous 10ms / 60 fps split.
+const stepSimulationBudget = 25 * time.Millisecond
 
 func (r *Runner) Update() error {
 	switch r.state {
@@ -53,6 +75,7 @@ func (r *Runner) Update() error {
 			r.startHeadlessSimulation()
 		}
 	case stateSimulating:
+		r.stepSimulation()
 		r.progressScreen.Update()
 	case stateStopped:
 		if r.progressScreen.Update() {
@@ -124,34 +147,85 @@ func (r *Runner) startHeadlessSimulation() {
 
 	ebiten.SetScreenClearedEveryFrame(true)
 
-	// Run simulation in a background goroutine
-	go func() {
-		sim := simulation.NewSimulation(r.opts)
-		start := time.Now()
+	r.activeSim = simulation.NewSimulation(r.opts)
+	r.activeSimStart = time.Now()
+}
 
-		for !sim.IsDone() {
-			if r.progressScreen.IsStopRequested() {
-				break
-			}
-			sim.Update()
-			if sim.Cycle()%100 == 0 {
-				line := ux.FormatLogLine(sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
-				r.progressScreen.AddLog(line)
-			}
-			if sim.Cycle()%1000 == 0 {
-				if summary := sim.TimingSummary(); summary != "" {
-					r.progressScreen.SetTimingSummary(summary)
-				}
+// stepSimulation advances the headless simulation in time-bounded
+// batches per ebiten frame. Replaces the previous "spin a goroutine
+// until done" structure so WASM builds yield to the JS event loop
+// between batches and the page stays responsive. Termination paths
+// (sim done, user clicked Stop) finalise the recorder, log the
+// summary, and transition state — same as the old goroutine's tail.
+func (r *Runner) stepSimulation() {
+	if r.activeSim == nil {
+		return
+	}
+	deadline := time.Now().Add(stepSimulationBudget)
+	stopRequested := r.progressScreen.IsStopRequested()
+	for !stopRequested && !r.activeSim.IsDone() && time.Now().Before(deadline) {
+		r.activeSim.Update()
+		if r.activeSim.Cycle()%100 == 0 {
+			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(), r.activeSim.AveragePh())
+			r.progressScreen.AddLog(line)
+		}
+		if r.activeSim.Cycle()%1000 == 0 {
+			if summary := r.activeSim.TimingSummary(); summary != "" {
+				r.progressScreen.SetTimingSummary(summary)
 			}
 		}
+		stopRequested = r.progressScreen.IsStopRequested()
+	}
+	if !r.activeSim.IsDone() && !stopRequested {
+		return
+	}
 
-		sim.CloseRecorder()
-		elapsed := time.Since(start)
-		r.progressScreen.AddLog(fmt.Sprintf(""))
-		r.progressScreen.AddLog(fmt.Sprintf("Simulation ended at cycle %d (%s)", sim.Cycle(), elapsed.Round(time.Millisecond)))
-		r.progressScreen.SetStopped()
-		r.state = stateStopped
-	}()
+	// Sim is finished — finalise.
+	r.activeSim.CloseRecorder()
+	elapsed := time.Since(r.activeSimStart)
+	r.progressScreen.AddLog("")
+	r.progressScreen.AddLog(fmt.Sprintf("Simulation ended at cycle %d (%s)", r.activeSim.Cycle(), elapsed.Round(time.Millisecond)))
+	if size, ok := replayFileSize(r.checkpointPath); ok {
+		r.progressScreen.AddLog(fmt.Sprintf("Replay saved to %s (%s)", r.checkpointPath, size))
+	}
+	r.progressScreen.SetStopped()
+	r.activeSim = nil
+	r.state = stateStopped
+}
+
+// replayFileSize returns a human-readable size of the .pzr file at path,
+// or ("", false) if the file is missing / unreadable. Used after the
+// sim finishes to report where the replay landed and how big it got.
+// On WASM the path resolves to an in-memory MemFile registered by
+// the checkpoint writer; we look that up first so the size still
+// reads as a sensible number even though there's no real file.
+func replayFileSize(path string) (string, bool) {
+	if size, ok := checkpoint.MemFileSize(path); ok {
+		return formatByteSize(size), true
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", false
+	}
+	return formatByteSize(info.Size()), true
+}
+
+func formatByteSize(n int64) string {
+	const (
+		kb = 1024
+		mb = kb * 1024
+		gb = mb * 1024
+	)
+	switch {
+	case n >= gb:
+		return fmt.Sprintf("%.2f GB", float64(n)/float64(gb))
+	case n >= mb:
+		return fmt.Sprintf("%.2f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 func (r *Runner) startReplayViewer() {
@@ -183,7 +257,12 @@ func ensureCheckpointPath(opts *c.Options) {
 		opts.CheckpointFile = lastReplayPath()
 	}
 	if opts.CheckpointInterval <= 0 {
-		opts.CheckpointInterval = 1000
+		// 100 cycles is the default sweet spot: with the v2 compact
+		// snapshot encoding (~70–90 KB per snapshot for typical
+		// pop/grid sizes) a full 10k-cycle run lands around ~9 MB on
+		// disk, and step-back via SeekToCycle has to forward-sim at
+		// most 100 cycles regardless of where the user clicks.
+		opts.CheckpointInterval = 100
 	}
 }
 
@@ -251,6 +330,9 @@ func RunSimulation(opts *c.Options) {
 			sumAllCycles += sim.Cycle()
 			elapsed := time.Since(start)
 			fmt.Printf("\nTotal runtime for simulation %d: %s, cycles: %d\n", count, elapsed, sim.Cycle())
+			if size, ok := replayFileSize(opts.CheckpointFile); ok {
+				fmt.Printf("Replay saved to %s (%s)\n", opts.CheckpointFile, size)
+			}
 		}
 		avgCycles := sumAllCycles / opts.TrialCount
 		fmt.Printf("\nAverage number of cycles: %d\n", avgCycles)

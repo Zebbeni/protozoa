@@ -31,6 +31,14 @@ type Renderer struct {
 	maxAlive  int
 }
 
+// MaxAlive returns the renderer's current y-axis ceiling (peak alive
+// count seen, with 50% headroom). Exposed for diagnostic logging.
+func (r *Renderer) MaxAlive() int { return r.maxAlive }
+
+// IsSubTree reports whether this renderer is configured for a
+// selection sub-tree (true) or the overall sim (false).
+func (r *Renderer) IsSubTree() bool { return r.subTreeRoot != nil }
+
 func NewRenderer(colorFn NodeColorFunc, subTreeRoot *organism.DescendantNode, startBar int) *Renderer {
 	return &Renderer{
 		colorFn:     colorFn,
@@ -100,21 +108,48 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 			}
 		}
 		if needsRefresh {
-			r.baseImage = nil
-			return r.renderPopGraph(oldBarCount, newBarCount, trees, ancestorIDs)
-		}
-
-		if numCols > r.baseWidth {
-			newWidth := numCols * 2
-			newBase := ebiten.NewImage(newWidth, baseHeight)
-			newBase.DrawImage(r.baseImage, nil)
-			r.baseImage = newBase
-			r.baseWidth = newWidth
-		}
-
-		for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
-			cycle := barIdx * c.PopulationUpdateInterval()
-			r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
+			// Rebuild in place: recompute max, allocate a fresh
+			// baseImage of the right width, and redraw every column
+			// with the new scale. We do *not* null out r.baseImage
+			// before drawing — the previous version of this code did
+			// so and recursed back into renderPopGraph, which left a
+			// brief window where the renderer's image was empty if
+			// the goroutine got interleaved with the main thread's
+			// frame composition. Doing it linearly avoids that
+			// transient and is no more expensive.
+			max := 0
+			for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
+				cycle := barIdx * c.PopulationUpdateInterval()
+				count := countAliveInTrees(trees, ancestorIDs, cycle)
+				if count > max {
+					max = count
+				}
+			}
+			if max < 1 {
+				max = 1
+			}
+			r.maxAlive = max + max/2
+			r.baseWidth = numCols * 2
+			if r.baseWidth < 4 {
+				r.baseWidth = 4
+			}
+			r.baseImage = ebiten.NewImage(r.baseWidth, baseHeight)
+			for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
+				cycle := barIdx * c.PopulationUpdateInterval()
+				r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
+			}
+		} else {
+			if numCols > r.baseWidth {
+				newWidth := numCols * 2
+				newBase := ebiten.NewImage(newWidth, baseHeight)
+				newBase.DrawImage(r.baseImage, nil)
+				r.baseImage = newBase
+				r.baseWidth = newWidth
+			}
+			for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
+				cycle := barIdx * c.PopulationUpdateInterval()
+				r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
+			}
 		}
 	}
 
@@ -122,6 +157,10 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	}
 	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	// Faint dark-grey background so the graph area is visible even
+	// when bars would otherwise blend into the screen's black fill.
+	// 12/255 alpha keeps it subtle.
+	img.Fill(color.RGBA{R: 30, G: 30, B: 35, A: 255})
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(gh.RealGraphWidth/float64(numCols), gh.RealGraphHeight/float64(baseHeight))
 	img.DrawImage(r.baseImage, opts)

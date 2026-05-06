@@ -6,18 +6,36 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"io"
+	"runtime"
+
 	"os"
 )
 
+// writerBacking is the minimum API the Writer needs from its underlying
+// store: write bytes, seek (to record current offsets and rewrite the
+// footer), and close. Both *os.File and *memView satisfy this.
+type writerBacking interface {
+	io.Writer
+	io.Seeker
+	io.Closer
+}
+
 // Writer writes checkpoint data to a .pzr file.
 type Writer struct {
-	file          *os.File
+	file          writerBacking
 	snapshotIndex []SnapshotEntry
 }
 
-// NewWriter creates a new .pzr file and writes the header.
+// NewWriter creates a new .pzr "file" and writes the header.
+//
+// On native builds the path resolves to a real file via os.Create.
+// On WASM (runtime.GOOS == "js") the path becomes a key in an
+// in-memory registry; OpenReader will find the same MemFile by the
+// same path. This means a checkpoint written during a sim is
+// readable later in the same browser session, even though the
+// browser has no real filesystem to back it.
 func NewWriter(path string, header FileHeader) (*Writer, error) {
-	file, err := os.Create(path)
+	file, err := openWriterBacking(path)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +65,20 @@ func NewWriter(path string, header FileHeader) (*Writer, error) {
 	return &Writer{file: file}, nil
 }
 
+// openWriterBacking returns a writable backing for the given path —
+// real os.File on native, *memView (registered in memRegistry under
+// the path) on WASM. The MemFile entry persists in the package-level
+// registry so a subsequent OpenReader call with the same path finds
+// the data.
+func openWriterBacking(path string) (writerBacking, error) {
+	if runtime.GOOS == "js" {
+		// Treat NewWriter as truncate-on-create: register a fresh
+		// MemFile under the path, replacing any prior one.
+		return registerMemFile(path).View(), nil
+	}
+	return os.Create(path)
+}
+
 // WriteSnapshot writes a full snapshot section and records its offset.
 func (w *Writer) WriteSnapshot(payload *SnapshotPayload) error {
 	offset, _ := w.file.Seek(0, io.SeekCurrent)
@@ -57,7 +89,8 @@ func (w *Writer) WriteSnapshot(payload *SnapshotPayload) error {
 	return w.writeSection(SectionSnapshot, payload.Cycle, payload)
 }
 
-// WriteDelta writes a delta section.
+// WriteDelta writes a forward-delta section. (Reserved; not currently
+// emitted by the simulation.)
 func (w *Writer) WriteDelta(payload *DeltaPayload) error {
 	return w.writeSection(SectionDelta, payload.Cycle, payload)
 }
@@ -78,6 +111,9 @@ func (w *Writer) WriteHistory(payload *HistoryPayload, finalCycle int) error {
 }
 
 // Close writes the snapshot index and footer, then closes the file.
+//
+// Footer layout (read in reverse from end of file):
+//   [int64 indexOffset][int32 indexCount]
 func (w *Writer) Close() error {
 	// Record where the index starts
 	indexOffset, _ := w.file.Seek(0, io.SeekCurrent)

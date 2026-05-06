@@ -36,6 +36,14 @@ type Graph struct {
 	simulation *s.Simulation
 	mode       Mode
 
+	// showSelected controls which image currentImage returns when an
+	// organism is selected. False (default) → always show the
+	// overall image; True → show the selection's sub-tree image when
+	// available, falling back to overall otherwise. Toggled by the
+	// panel's graph-mode buttons so "Population (all)" vs
+	// "Population (selected)" are explicit user choices.
+	showSelected bool
+
 	renderers map[Mode]Renderer
 	images    map[Mode]*ebiten.Image
 
@@ -98,6 +106,25 @@ func (g *Graph) LastAvgPh() float64 {
 
 func (g *Graph) SetMode(mode Mode) {
 	g.mode = mode
+}
+
+// SetShowSelected toggles whether the currently-rendered graph shows
+// the selected organism's sub-tree (true) or the overall sim (false).
+// No effect when nothing is selected — there's no sub-tree image to
+// fall back to in that case, so currentImage returns the overall
+// image regardless.
+func (g *Graph) SetShowSelected(show bool) {
+	g.showSelected = show
+}
+
+// ShowSelected reports the current setting of the all/selected toggle.
+func (g *Graph) ShowSelected() bool {
+	return g.showSelected
+}
+
+// Mode returns the currently-displayed graph mode.
+func (g *Graph) Mode() Mode {
+	return g.mode
 }
 
 func (g *Graph) Render() *ebiten.Image {
@@ -191,7 +218,7 @@ func (g *Graph) updateSelection() bool {
 }
 
 func (g *Graph) currentImage() *ebiten.Image {
-	if g.selectedSubTreeRoot != nil {
+	if g.showSelected && g.selectedSubTreeRoot != nil {
 		if img, ok := g.selImages[g.mode]; ok && img != nil {
 			return img
 		}

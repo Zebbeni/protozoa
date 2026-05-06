@@ -329,7 +329,7 @@ func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 // flips with the theme so extremes stay high-contrast against the
 // window fill, and the low-sat end blends towards the active theme's
 // background so neutral cells visually disappear into the grid fill
-// (black under dark, white under light, light-blue under light_blue).
+// (black under dark, white under light).
 func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
 	N := zoomSpriteSizes[g.Camera.SpriteSet()]
 	halfN := N / 2

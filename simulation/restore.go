@@ -55,6 +55,8 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 	sim.foodManager = restoreFood(sim, rng, snap)
 	sim.organismManager = restoreOrganisms(sim, rng, snap)
 
+	rebuildDecisionPaths(sim)
+
 	return sim, nil
 }
 
@@ -73,7 +75,20 @@ func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 	s.foodManager = restoreFood(s, rng, snap)
 	s.organismManager = restoreOrganisms(s, rng, snap)
 
+	rebuildDecisionPaths(s)
+
 	return nil
+}
+
+// rebuildDecisionPaths walks every restored organism's chooseAction
+// once so the panel's decision-tree view has highlights immediately
+// after a snapshot restore. The serialized tree string drops the
+// per-node UsedLastCycle / WasTravelled flags; without this pass the
+// panel would render every line dim until the next sim cycle.
+func rebuildDecisionPaths(s *Simulation) {
+	for _, o := range s.organismManager.Organisms() {
+		o.RebuildDecisionPath()
+	}
 }
 
 func restoreEnvironment(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.EnvironmentManager {
@@ -85,7 +100,10 @@ func restoreFood(sim *Simulation, rng *simrand.RNG, snap *checkpoint.SnapshotPay
 }
 
 func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.SnapshotPayload) *manager.OrganismManager {
-	// Build organisms from records
+	// Build organisms from records. Decision tree flags get rebuilt by
+	// the caller once the manager is fully wired up — chooseAction uses
+	// the sim as its lookupAPI, and several lookups bottom out in
+	// sim.organismManager which we're still constructing here.
 	organisms := make(map[int]*organism.Organism)
 	for _, rec := range snap.Organisms {
 		o := recordToOrganism(rec, sim)
@@ -96,8 +114,9 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 	ancestorIDs := make([]int, 0, len(snap.Ancestors))
 	ancestorColors := make(map[int]color.Color)
 	for _, a := range snap.Ancestors {
-		ancestorIDs = append(ancestorIDs, a.ID)
-		ancestorColors[a.ID] = colorful.Color{R: a.ColorR, G: a.ColorG, B: a.ColorB}
+		id := int(a.ID)
+		ancestorIDs = append(ancestorIDs, id)
+		ancestorColors[id] = colorful.Color{R: float64(a.ColorR), G: float64(a.ColorG), B: float64(a.ColorB)}
 	}
 
 	return manager.RestoreOrganismManager(sim, rng, organisms, snap.OrganismGrid,
@@ -106,26 +125,26 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 
 func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *organism.Organism {
 	traits := organism.Traits{
-		OrganismColor:              colorful.Color{R: rec.ColorR, G: rec.ColorG, B: rec.ColorB},
+		OrganismColor:              colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
 		MaxSize:                    rec.MaxSize,
 		SpawnHealth:                rec.SpawnHealth,
 		MinHealthToSpawn:           rec.MinHealthToSpawn,
-		MinCyclesBetweenSpawns:     rec.MinCyclesBetweenSpawns,
+		MinCyclesBetweenSpawns:     int(rec.MinCyclesBetweenSpawns),
 		ChanceToMutateDecisionTree: rec.ChanceToMutateDecisionTree,
 		IdealPh:                    rec.IdealPh,
 		PhTolerance:                rec.PhTolerance,
 		PhGrowthEffect:             rec.PhGrowthEffect,
-		MaxLifespan:                rec.MaxLifespan,
+		MaxLifespan:                int(rec.MaxLifespan),
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)
 
 	return organism.Restore(
-		rec.ID, rec.Age, rec.Health, rec.Size, rec.Children,
-		rec.TraveledDist, rec.CyclesSinceLastSpawn,
-		utils.Point{X: rec.LocationX, Y: rec.LocationY},
-		utils.Point{X: rec.DirectionX, Y: rec.DirectionY},
-		rec.OriginalAncestorID,
+		int(rec.ID), int(rec.Age), rec.Health, rec.Size, int(rec.Children),
+		int(rec.TraveledDist), int(rec.CyclesSinceLastSpawn),
+		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
+		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
+		int(rec.OriginalAncestorID),
 		traits, tree, d.Action(rec.CurrentAction), api,
 	)
 }

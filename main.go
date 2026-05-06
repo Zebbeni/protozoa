@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/runner"
 )
 
@@ -15,6 +16,14 @@ func main() {
 }
 
 func init() {
+	// Wire the embedded asset bundle into the packages that need to
+	// read sprites / fonts / default settings. Done first so any of
+	// the config or resource calls below can find what they need
+	// without falling back to filesystem paths — important for
+	// wasm builds where there's no real filesystem.
+	config.UseEmbeddedAssets(embeddedAssets)
+	resources.UseEmbeddedAssets(embeddedAssets)
+
 	opts = config.GetOptions()
 
 	if opts.DumpConfig {

@@ -34,7 +34,12 @@ type configField struct {
 	label    string
 	jsonTag  string
 	kind     reflect.Kind // Int, Float64, Bool
-	fieldIdx int         // index into Globals struct
+	fieldIdx int          // index into Globals struct
+	// textOnly disables the slider/toggle for this row and shows just
+	// the value as text — clicking selects the row for direct
+	// keyboard entry. Used for fields whose value range isn't a
+	// natural slider (e.g. RNG seed).
+	textOnly bool
 }
 
 // configSection groups fields under a heading
@@ -79,9 +84,41 @@ func (cs *ConfigScreen) Update() bool {
 		return true
 	}
 
-	// Scroll
+	// Scroll. Mouse wheel + keyboard. Keyboard fallback exists because
+	// browsers (wasm build) sometimes don't deliver wheel deltas to the
+	// canvas if focus is elsewhere — Down / Up step a row at a time,
+	// PageDown / PageUp / Space jump in larger increments. End jumps to
+	// the bottom (where the START SIMULATION button lives).
 	_, wy := ebiten.Wheel()
 	cs.scrollY -= wy * 30
+	if ebiten.IsKeyPressed(ebiten.KeyDown) {
+		cs.scrollY += float64(cfgRowHeight)
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyUp) {
+		cs.scrollY -= float64(cfgRowHeight)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+		cs.scrollY += float64(cfgRowHeight * 10)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
+		cs.scrollY -= float64(cfgRowHeight * 10)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
+		cs.scrollY = float64(cs.contentHeight())
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+		cs.scrollY = 0
+	}
+
+	// Clamp to [0, max]. The max is whatever scrollY puts the
+	// START SIMULATION button just above the bottom of the screen.
+	maxScroll := cs.contentHeight() - c.ScreenHeight() + cfgButtonHeight + cfgPadding*2
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if cs.scrollY > float64(maxScroll) {
+		cs.scrollY = float64(maxScroll)
+	}
 	if cs.scrollY < 0 {
 		cs.scrollY = 0
 	}
@@ -91,6 +128,15 @@ func (cs *ConfigScreen) Update() bool {
 		cs.handleClick()
 	} else if cs.draggingSlider && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		cs.handleSliderDrag()
+	}
+
+	// Clamp scroll once more in case the click moved the layout.
+	maxScroll = cs.contentHeight() - c.ScreenHeight() + cfgButtonHeight + cfgPadding*2
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if cs.scrollY > float64(maxScroll) {
+		cs.scrollY = float64(maxScroll)
 	}
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		cs.draggingSlider = false
@@ -103,6 +149,21 @@ func (cs *ConfigScreen) Update() bool {
 	}
 
 	return false
+}
+
+// contentHeight returns the total pixel height of all sections, fields,
+// inter-section gaps, and the START SIMULATION button — i.e. the full
+// scrollable extent. Computed from the static section/field counts so
+// it matches what Draw lays out.
+func (cs *ConfigScreen) contentHeight() int {
+	h := cfgHeaderHeight
+	for _, section := range cs.sections {
+		h += cfgRowHeight + 4 // header
+		h += len(section.fields) * cfgRowHeight
+		h += 6 // gap between sections
+	}
+	h += cfgPadding + cfgButtonHeight
+	return h
 }
 
 // Draw renders the config screen
@@ -166,6 +227,10 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	// Value
 	valueStr := cs.getValueStr(fv, field, isSelected)
 	text.Draw(screen, valueStr, r.FontSourceCodePro10, px+cfgLabelWidth+cfgSliderWidth+10, py+10, valueColor)
+
+	if field.textOnly {
+		return
+	}
 
 	// Slider (for numeric types)
 	if field.kind == reflect.Float64 || field.kind == reflect.Int {
@@ -260,16 +325,18 @@ func (cs *ConfigScreen) handleClick() {
 		y += cfgRowHeight + 4 // section header
 		for _, field := range section.fields {
 			if my >= y-2 && my < y+cfgRowHeight-2 {
-				// Check if clicked on slider area
+				// Check if clicked on slider area (skipped for text-only fields)
 				sliderX := panelX + cfgLabelWidth
-				if field.kind == reflect.Bool && mx >= sliderX && mx < sliderX+40 {
-					cs.toggleBool(field)
-					return
-				}
-				if (field.kind == reflect.Float64 || field.kind == reflect.Int) &&
-					mx >= sliderX && mx < sliderX+cfgSliderWidth {
-					cs.handleSliderClick(mx-sliderX, field)
-					return
+				if !field.textOnly {
+					if field.kind == reflect.Bool && mx >= sliderX && mx < sliderX+40 {
+						cs.toggleBool(field)
+						return
+					}
+					if (field.kind == reflect.Float64 || field.kind == reflect.Int) &&
+						mx >= sliderX && mx < sliderX+cfgSliderWidth {
+						cs.handleSliderClick(mx-sliderX, field)
+						return
+					}
 				}
 				// Select row for text editing
 				cs.selectedRow = rowIdx
@@ -474,8 +541,16 @@ func (cs *ConfigScreen) buildSections() {
 			fieldIdx: idx,
 		}
 	}
+	textField := func(label, jsonTag string) configField {
+		f := field(label, jsonTag)
+		f.textOnly = true
+		return f
+	}
 
 	cs.sections = []configSection{
+		{title: "— SIMULATION —", fields: []configField{
+			textField("Seed (0 = random)", "seed"),
+		}},
 		{title: "— DISPLAY —", fields: []configField{
 			field("Grid Units Wide", "grid_units_wide"),
 			field("Grid Units High", "grid_units_high"),

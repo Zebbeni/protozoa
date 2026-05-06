@@ -37,10 +37,10 @@ func (m *OrganismManager) CaptureAncestors() []checkpoint.AncestorRecord {
 	for _, id := range m.originalAncestors {
 		col, _ := m.originalAncestorColors[id].(colorful.Color)
 		records = append(records, checkpoint.AncestorRecord{
-			ID:     id,
-			ColorR: col.R,
-			ColorG: col.G,
-			ColorB: col.B,
+			ID:     uint32(id),
+			ColorR: float32(col.R),
+			ColorG: float32(col.G),
+			ColorB: float32(col.B),
 		})
 	}
 	return records
@@ -56,15 +56,45 @@ func (m *FoodManager) CaptureFoodRecords() []checkpoint.FoodRecord {
 	records := make([]checkpoint.FoodRecord, 0, len(m.Items))
 	for _, item := range m.Items {
 		records = append(records, checkpoint.FoodRecord{
-			X:     item.Point.X,
-			Y:     item.Point.Y,
-			Value: item.Value,
+			X:     uint16(item.Point.X),
+			Y:     uint16(item.Point.Y),
+			Value: uint16(item.Value),
 		})
 	}
 	return records
 }
 
-// CapturePhMaps returns copies of the current and previous pH maps.
+// CopyCurrentPhMap returns a float64 deep copy of the current pH map.
+// Used by the per-cycle reverse-delta path to capture the pre-Update
+// pH state for later diffing — we keep the in-memory representation
+// at float64, only narrowing to float32 at the on-disk boundary.
+func (m *EnvironmentManager) CopyCurrentPhMap() [][]float64 {
+	w := len(m.currentPhMap)
+	if w == 0 {
+		return nil
+	}
+	h := len(m.currentPhMap[0])
+	out := make([][]float64, w)
+	for x := 0; x < w; x++ {
+		out[x] = make([]float64, h)
+		copy(out[x], m.currentPhMap[x])
+	}
+	return out
+}
+
+// CurrentPhMap returns a direct reference to the current pH map (no
+// copy). Caller must not mutate. Used by the reverse-delta diff to
+// compare against a previously copied pre-cycle state.
+func (m *EnvironmentManager) CurrentPhMap() [][]float64 {
+	return m.currentPhMap
+}
+
+// CapturePhMaps returns float64 copies of the current and previous pH
+// maps. Stored at full simulation precision so save/restore is exactly
+// lossless — replay from a snapshot reaches the same state at the
+// same cycle as the recording. An older version narrowed to float32
+// for ~halved snapshot size but the precision loss compounded across
+// pH-diffusion cycles into observable replay drift.
 func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	w := len(m.currentPhMap)
 	if w == 0 {
@@ -76,8 +106,8 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	previous = make([][]float64, w)
 	for x := 0; x < w; x++ {
 		current[x] = make([]float64, h)
-		copy(current[x], m.currentPhMap[x])
 		previous[x] = make([]float64, h)
+		copy(current[x], m.currentPhMap[x])
 		copy(previous[x], m.previousPhMap[x])
 	}
 	return
@@ -115,7 +145,7 @@ func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPa
 			continue
 		}
 		trees = append(trees, checkpoint.DescendantTreeRecord{
-			AncestorID: id,
+			AncestorID: uint32(id),
 			Root:       nodeToRecord(root),
 		})
 	}
@@ -126,17 +156,28 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 	col, _ := n.Color.(colorful.Color)
 	phCol, _ := n.PhEffectColor.(colorful.Color)
 
+	// Clamp StartCycle to 0 so the unsigned wire format doesn't round-trip
+	// negative values into huge positive ones. The very first ancestor
+	// node is created at sim.cycle == -1 (during NewSimulation, before
+	// the first Update); without this clamp, uint32(-1) decodes to
+	// 4294967295 and the descendant-tree walk in countAlive bails out
+	// at the root, making the population graph render as empty.
+	startCycle := n.StartCycle
+	if startCycle < 0 {
+		startCycle = 0
+	}
+
 	rec := checkpoint.DescendantNodeRecord{
-		ID:                   n.ID,
-		ColorR:               col.R,
-		ColorG:               col.G,
-		ColorB:               col.B,
-		PhEffectColorR:       phCol.R,
-		PhEffectColorG:       phCol.G,
-		PhEffectColorB:       phCol.B,
-		StartCycle:           n.StartCycle,
-		EndCycle:             n.EndCycle,
-		AllBranchesDeadCycle: n.AllBranchesDeadCycle,
+		ID:                   uint32(n.ID),
+		ColorR:               float32(col.R),
+		ColorG:               float32(col.G),
+		ColorB:               float32(col.B),
+		PhEffectColorR:       float32(phCol.R),
+		PhEffectColorG:       float32(phCol.G),
+		PhEffectColorB:       float32(phCol.B),
+		StartCycle:           uint32(startCycle),
+		EndCycle:             uint32(n.EndCycle),
+		AllBranchesDeadCycle: uint32(n.AllBranchesDeadCycle),
 	}
 
 	n.ForEachChild(func(child *organism.DescendantNode) {
@@ -149,31 +190,31 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 	traits := o.Traits()
 	return checkpoint.OrganismRecord{
-		ID:                     o.ID,
-		Age:                    o.Age,
-		Health:                 o.Health,
-		Size:                   o.Size,
-		Children:               o.Children,
-		TraveledDist:           o.TraveledDist,
-		CyclesSinceLastSpawn:   o.CyclesSinceLastSpawn,
-		LocationX:              o.Location.X,
-		LocationY:              o.Location.Y,
-		DirectionX:             o.Direction.X,
-		DirectionY:             o.Direction.Y,
-		OriginalAncestorID:     o.OriginalAncestorID,
-		ColorR:                 traits.OrganismColor.R,
-		ColorG:                 traits.OrganismColor.G,
-		ColorB:                 traits.OrganismColor.B,
-		MaxSize:                traits.MaxSize,
-		SpawnHealth:            traits.SpawnHealth,
-		MinHealthToSpawn:       traits.MinHealthToSpawn,
-		MinCyclesBetweenSpawns: traits.MinCyclesBetweenSpawns,
+		ID:                         uint32(o.ID),
+		Age:                        uint32(o.Age),
+		Health:                     o.Health,
+		Size:                       o.Size,
+		Children:                   uint16(o.Children),
+		TraveledDist:               uint32(o.TraveledDist),
+		CyclesSinceLastSpawn:       uint16(o.CyclesSinceLastSpawn),
+		LocationX:                  uint16(o.Location.X),
+		LocationY:                  uint16(o.Location.Y),
+		DirectionX:                 int8(o.Direction.X),
+		DirectionY:                 int8(o.Direction.Y),
+		OriginalAncestorID:         uint32(o.OriginalAncestorID),
+		ColorR:                     float32(traits.OrganismColor.R),
+		ColorG:                     float32(traits.OrganismColor.G),
+		ColorB:                     float32(traits.OrganismColor.B),
+		MaxSize:                    traits.MaxSize,
+		SpawnHealth:                traits.SpawnHealth,
+		MinHealthToSpawn:           traits.MinHealthToSpawn,
+		MinCyclesBetweenSpawns:     uint16(traits.MinCyclesBetweenSpawns),
 		ChanceToMutateDecisionTree: traits.ChanceToMutateDecisionTree,
-		IdealPh:                traits.IdealPh,
-		PhTolerance:            traits.PhTolerance,
-		PhGrowthEffect:         traits.PhGrowthEffect,
-		MaxLifespan:            traits.MaxLifespan,
-		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
-		CurrentAction:          int(o.Action()),
+		IdealPh:                    traits.IdealPh,
+		PhTolerance:                traits.PhTolerance,
+		PhGrowthEffect:             traits.PhGrowthEffect,
+		MaxLifespan:                uint16(traits.MaxLifespan),
+		DecisionTree:               o.GetDecisionTreeCopy().Serialize(),
+		CurrentAction:              uint8(o.Action()),
 	}
 }

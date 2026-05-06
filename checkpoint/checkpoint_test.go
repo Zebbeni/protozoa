@@ -42,7 +42,7 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 	delta := &DeltaPayload{
 		Cycle:  1,
 		Births: []OrganismRecord{{ID: 3, Health: 5.0, DecisionTree: "02"}},
-		Deaths: []int{2},
+		Deaths: []uint32{2},
 		Moves:  []MoveRecord{{ID: 1, LocationX: 4, LocationY: 4}},
 	}
 	if err := w.WriteDelta(delta); err != nil {

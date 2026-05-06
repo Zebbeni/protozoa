@@ -64,16 +64,14 @@ func PoolWidth() int                         { return constants.PoolWidth }
 func PoolHeight() int                        { return constants.PoolHeight }
 
 // Theme returns the active GUI theme name. Recognised values: "dark",
-// "light", "light_blue". Anything else falls back to dark behaviour at
-// render time.
+// "light". Anything else falls back to dark behaviour at render time.
 func Theme() string { return constants.Theme }
 
 // IsLightTheme reports whether the theme has a light-valued background.
-// Both "light" and "light_blue" count — the flag drives whichever code
-// paths need to flip lightness curves (e.g. pH colour mapping) so content
-// stays readable against the window fill.
+// Drives whichever code paths need to flip lightness curves (e.g. pH
+// colour mapping) so content stays readable against the window fill.
 func IsLightTheme() bool {
-	return constants.Theme == "light" || constants.Theme == "light_blue"
+	return constants.Theme == "light"
 }
 
 // ThemeBackgroundRGB returns the window / panel fill colour for the
@@ -84,8 +82,6 @@ func ThemeBackgroundRGB() (r, g, b float64) {
 	switch constants.Theme {
 	case "light":
 		return 240.0 / 255, 240.0 / 255, 240.0 / 255
-	case "light_blue":
-		return 200.0 / 255, 220.0 / 255, 245.0 / 255
 	default: // "dark" or unknown
 		return 0, 0, 0
 	}
@@ -112,7 +108,7 @@ func PhTargetColorRGB(ph float64) (r, g, b float64) {
 // agnostic now and designed to read against any background.
 func SetTheme(theme string) {
 	switch theme {
-	case "dark", "light", "light_blue":
+	case "dark", "light":
 		constants.Theme = theme
 	default:
 		constants.Theme = "dark"
@@ -132,8 +128,14 @@ func HealthChangeInflictedByAttack() float64  { return constants.HealthChangeInf
 
 func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
 func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize }
+func Seed() int                           { return constants.Seed }
 
 type Globals struct {
+	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
+	// or the time-based default chosen by the runner". Editable via
+	// the config screen so wasm builds (no CLI) can pick a seed.
+	Seed int `json:"seed"`
+
 	// Drawing parameters
 	GridUnitsWide int `json:"grid_units_wide"`
 	GridUnitsHigh int `json:"grid_units_high"`
@@ -219,9 +221,12 @@ func LoadFile(filePath string) io.Reader {
 	return file
 }
 
+// GetDefaultGlobals returns the project-baseline Globals decoded from
+// the embedded settings/default.json. Used both by the config screen
+// (as the starting point) and by anyone who wants a known-good
+// configuration without going through user input.
 func GetDefaultGlobals() Globals {
-	defaultFile := LoadFile(defaultFilePath)
-	g := applyGlobalsFromJson(defaultFile, Globals{})
+	g := applyGlobalsFromJson(loadEmbeddedDefault(), Globals{})
 	return *g
 }
 
