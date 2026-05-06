@@ -3,12 +3,12 @@ package organism
 import (
 	"image/color"
 	"math"
-	"math/rand"
 	"sync"
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
@@ -29,6 +29,26 @@ type Organism struct {
 
 	decisionTree *d.Tree
 	action       d.Action
+	// ChemoFailed is set each cycle the organism performs
+	// chemosynthesis: true when the pH at its location fell outside
+	// its tolerance range (no health gained), false when it succeeded.
+	// Stale between non-chemo cycles; renderer only consults it when
+	// action == ActChemosynthesis.
+	ChemoFailed bool
+	// EatFailed is set each cycle the organism performs ActEat: true
+	// when the cell ahead held no food (the eat attempt cost health
+	// but produced none), false when food was actually consumed.
+	// Stale between non-eat cycles; renderer only consults it when
+	// action == ActEat.
+	EatFailed bool
+	// BornThisCycle is set to true in NewChild so the animation layer
+	// can build a birth Frame (2-cell move from the parent's cell into
+	// the child's cell). Cleared by UpdateStats at the start of the
+	// next cycle. Explicit signal instead of inferring from preSnap
+	// membership — preSnap can be stale after a seek, which would
+	// otherwise cause surviving organisms to be rendered as newborns
+	// and land one cell off from their true location.
+	BornThisCycle bool
 
 	lookupAPI LookupAPI
 
@@ -36,12 +56,13 @@ type Organism struct {
 }
 
 // NewRandom initializes organism at with random grid location and direction
-func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := newRandomTraits()
+func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
+	traits := newRandomTraits(rng)
 	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
-		decisionTree = d.MutateTree(decisionTree)
+		decisionTree = d.MutateTree(rng, decisionTree)
 	}
+	traits.OrganismColor = d.TreeColor(decisionTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -50,7 +71,7 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
-		Direction:            utils.GetRandomDirection(),
+		Direction:            utils.GetRandomDirection(rng),
 		OriginalAncestorID:   id,
 
 		traits:       traits,
@@ -62,13 +83,18 @@ func NewRandom(id int, point utils.Point, api LookupAPI) *Organism {
 	return &organism
 }
 
-// NewChild initializes and returns a new organism with a copied TreeLibrary from its parent
-func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism {
-	traits := o.traits.copyMutated()
+// NewChild initializes and returns a new organism with a copied TreeLibrary
+// from its parent. direction is the unit vector from parent.Location to
+// point (i.e. "away from parent"): children are spawned facing outward
+// so the birth animation can render as a standard move from parent cell
+// into child cell (FromLocation = point.Sub(direction)).
+func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, direction utils.Point, api LookupAPI) *Organism {
+	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
-	if rand.Float64() < o.ChanceToMutateDecisionTree() {
-		inheritedTree = d.MutateTree(inheritedTree)
+	if rng.Float64() < o.ChanceToMutateDecisionTree() {
+		inheritedTree = d.MutateTree(rng, inheritedTree)
 	}
+	traits.OrganismColor = d.TreeColor(inheritedTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -77,30 +103,57 @@ func (o *Organism) NewChild(id int, point utils.Point, api LookupAPI) *Organism 
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
-		Direction:            utils.GetRandomDirection(),
+		Direction:            direction,
 		OriginalAncestorID:   o.OriginalAncestorID,
 
-		traits:       traits,
-		decisionTree: inheritedTree,
-		action:       d.ActChemosynthesis,
+		traits:        traits,
+		decisionTree:  inheritedTree,
+		action:        d.ActChemosynthesis,
+		BornThisCycle: true,
 
 		lookupAPI: api,
 	}
 	return &organism
 }
 
+// Restore creates an organism from fully specified state (for checkpoint restore).
+func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
+	location, direction utils.Point, ancestorID int,
+	traits Traits, tree *d.Tree, action d.Action, api LookupAPI) *Organism {
+	return &Organism{
+		ID:                   id,
+		Age:                  age,
+		Health:               health,
+		Size:                 size,
+		Children:             children,
+		TraveledDist:         traveledDist,
+		CyclesSinceLastSpawn: cyclesSinceLastSpawn,
+		Location:             location,
+		Direction:            direction,
+		OriginalAncestorID:   ancestorID,
+		traits:               traits,
+		decisionTree:         tree,
+		action:               action,
+		lookupAPI:            api,
+	}
+}
+
 func (o *Organism) Info() *Info {
 	return &Info{
-		ID:         o.ID,
-		Health:     o.Health,
-		Location:   o.Location,
-		Size:       o.Size,
-		Action:     o.action,
-		AncestorID: o.OriginalAncestorID,
-		Color:      o.traits.OrganismColor,
-		Age:        o.Age,
-		Children:   o.Children,
-		PhEffect:   o.traits.PhGrowthEffect,
+		ID:            o.ID,
+		Health:        o.Health,
+		Location:      o.Location,
+		Direction:     o.Direction,
+		Size:          o.Size,
+		Action:        o.action,
+		AncestorID:    o.OriginalAncestorID,
+		Color:         o.traits.OrganismColor,
+		Age:           o.Age,
+		Children:      o.Children,
+		PhEffect:      o.traits.PhGrowthEffect,
+		ChemoFailed:   o.ChemoFailed,
+		EatFailed:     o.EatFailed,
+		BornThisCycle: o.BornThisCycle,
 	}
 }
 
@@ -111,17 +164,31 @@ func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
 	o.decisionTree.ResetUsedLastCycle()
+	// Birth flag lives for exactly the spawn cycle (set in NewChild,
+	// consumed by the animation layer in AfterUpdate). Clear it at the
+	// start of every subsequent cycle so the birth animation isn't
+	// replayed. Newborns aren't in the organism iteration on their
+	// spawn cycle, so they don't see this until the cycle after.
+	o.BornThisCycle = false
 }
 
 // UpdateAction runs on each cycle, occasionally changing the current decision
-// tree before running it to determine its next action
+// tree before running it to determine its next action.
+//
+// chooseAction is called every cycle even when the sim is about to
+// override the result with ActSpawn, so the tree's UsedLastCycle markers
+// stay populated for the panel's decision-tree display. Without this,
+// spawn cycles would leave every node at UsedLastCycle=false (cleared
+// by UpdateStats and never re-set) and the panel would show no ◀◀
+// arrows at all.
 func (o *Organism) UpdateAction() {
+	chosen := o.chooseAction(o.decisionTree.Node)
 	if o.shouldSpawn() {
 		o.CyclesSinceLastSpawn = 0
 		o.action = d.ActSpawn
 		return
 	}
-	o.action = o.chooseAction(o.decisionTree.Node)
+	o.action = chosen
 }
 
 func (o *Organism) shouldSpawn() bool {
@@ -168,16 +235,10 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isOrganismAhead()
 	case d.IsBiggerOrganismAhead:
 		return o.isBiggerOrganismAhead()
-	case d.IsRelatedOrganismAhead:
-		return o.isRelatedOrganismAhead()
 	case d.IsOrganismLeft:
 		return o.isOrganismLeft()
-	case d.IsRelatedOrganismLeft:
-		return o.isRelatedOrganismLeft()
 	case d.IsOrganismRight:
 		return o.isOrganismRight()
-	case d.IsRelatedOrganismRight:
-		return o.isRelatedOrganismRight()
 	//case d.IsRandomFiftyPercent:
 	//	return rand.Float32() < 0.5
 	case d.IsHealthAboveFiftyPercent:
@@ -205,14 +266,22 @@ func (o *Organism) GetDecisionTreeCopy() *d.Tree {
 	return o.decisionTree.CopyTree()
 }
 
-// GetCurrentDecisionTreeLength returns the number of nodes in the organism's currently-used
-// decision tree
-func (o *Organism) GetCurrentDecisionTreeLength() int {
-	return o.decisionTree.Size()
+// RebuildDecisionPath walks chooseAction on the current decision tree
+// to set UsedLastCycle and WasTravelled along the path that current
+// state would take. Called after a snapshot restore — the serialized
+// tree string drops the flags, so without this the panel shows no
+// highlights and no "◀◀" markers until the next sim Update cycles.
+// Doesn't change o.action (the saved action stays put).
+func (o *Organism) RebuildDecisionPath() {
+	if o.decisionTree == nil || o.decisionTree.Node == nil {
+		return
+	}
+	o.chooseAction(o.decisionTree.Node)
 }
 
 // Traits returns an organism's traits
-func (o Organism) Traits() Traits { return o.traits }
+func (o Organism) Traits() Traits    { return o.traits }
+func (o *Organism) TraitsRef() *Traits { return &o.traits }
 
 // InitialHealth returns the health an organism and its children start life with
 func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }
@@ -235,6 +304,11 @@ func (o Organism) ChanceToMutateDecisionTree() float64 { return o.traits.ChanceT
 
 // Action returns the Organism's currently-chosen action
 func (o Organism) Action() d.Action { return o.action }
+
+// SetAction overwrites the organism's currently-chosen action. Used by
+// the reverse-delta apply path to roll the action back to its
+// pre-cycle value during step-back.
+func (o *Organism) SetAction(a d.Action) { o.action = a }
 
 // Color returns an organism's color
 func (o Organism) Color() color.Color { return o.traits.OrganismColor }
@@ -292,24 +366,12 @@ func (o *Organism) isBiggerOrganismAhead() bool {
 	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
-func (o *Organism) isRelatedOrganismAhead() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction))
-}
-
 func (o *Organism) isOrganismLeft() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
 
-func (o *Organism) isRelatedOrganismLeft() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Left()))
-}
-
 func (o *Organism) isOrganismRight() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
-}
-
-func (o *Organism) isRelatedOrganismRight() bool {
-	return o.isRelatedOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
 func (o *Organism) isHealthyPhHere() bool {
@@ -331,12 +393,6 @@ func (o *Organism) isAgeMultipleOfTen() bool {
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
 		return x != nil && x.Size > o.Size
-	})
-}
-
-func (o *Organism) isRelatedOrganismAtPoint(p utils.Point) bool {
-	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.OriginalAncestorID == o.OriginalAncestorID
 	})
 }
 

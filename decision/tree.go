@@ -1,9 +1,8 @@
 package decision
 
 import (
-	"math/rand"
-
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/simrand"
 )
 
 // Tree is a Node with info to track its success as a top-level decision tree
@@ -21,8 +20,19 @@ func TreeFromAction(action Action) *Tree {
 	return tree
 }
 
+// DeserializeTree reconstructs a Tree from a serialized string produced by Serialize().
+func DeserializeTree(s string) *Tree {
+	node, _ := Deserialize(s)
+	if node == nil {
+		return nil
+	}
+	return &Tree{
+		ID:   s,
+		Node: node,
+	}
+}
+
 // CopyTree returns a new, identical decision tree
-// Includes current stats as well if copyHistory=true
 func (t *Tree) CopyTree() *Tree {
 	tree := &Tree{
 		ID:   t.ID,
@@ -32,46 +42,46 @@ func (t *Tree) CopyTree() *Tree {
 }
 
 // MutateTree copies a root Tree, makes changes to the full tree, and returns
-func MutateTree(original *Tree) *Tree {
+func MutateTree(rng *simrand.RNG, original *Tree) *Tree {
 	tree := original.CopyTree()
-	tree.mutate()
+	tree.mutate(rng)
 	return tree
 }
 
-// mutate randomly mutates a single node of a tree. This function
-// should only be called on root tree nodes because it uses the tree size.
-func (t *Tree) mutate() {
-	// pick a random t anywhere in the decision tree
+func (t *Tree) mutate(rng *simrand.RNG) {
 	allSubNodes := t.getNodes()
-	node := allSubNodes[rand.Intn(len(allSubNodes))]
+	idx := rng.Intn(len(allSubNodes))
+	isRoot := idx == 0
+	node := allSubNodes[idx]
 
 	maxTreeSize := config.MaxDecisionTreeSize()
 
 	if node.IsAction() {
-		if rand.Intn(2) == 0 && t.size < maxTreeSize-1 {
-			// convert action to condition + 2 actions
+		if isRoot || (rng.Intn(2) == 0 && t.size <= maxTreeSize-2) {
 			originalAction := node.NodeType.(Action)
-			node.NodeType = GetRandomCondition()
-			if rand.Intn(2) == 0 {
-				node.YesNode = NodeFromAction(GetRandomAction())
+			node.NodeType = GetRandomCondition(rng)
+			if rng.Intn(2) == 0 {
+				node.YesNode = NodeFromAction(GetRandomAction(rng))
 				node.NoNode = NodeFromAction(originalAction)
 			} else {
 				node.YesNode = NodeFromAction(originalAction)
-				node.NoNode = NodeFromAction(GetRandomAction())
+				node.NoNode = NodeFromAction(GetRandomAction(rng))
 			}
 		} else {
-			// change action type
-			node.NodeType = GetRandomAction()
+			node.NodeType = GetRandomAction(rng)
 		}
 	} else {
-		if rand.Intn(2) == 0 {
-			// convert condition to action (simplify)
-			node.NodeType = GetRandomAction()
-			node.YesNode = nil
-			node.NoNode = nil
-		} else {
-			// change condition type
-			node.NodeType = GetRandomCondition()
+		randInt := rng.Intn(3)
+		switch randInt {
+		case 0:
+			node = node.YesNode
+			break
+		case 1:
+			node = node.NoNode
+			break
+		default:
+			node.NodeType = GetRandomCondition(rng)
+			break
 		}
 	}
 
@@ -91,4 +101,18 @@ func (t *Tree) Print() string {
 // PrintLines returns structured line data for rendering with per-line styling.
 func (t *Tree) PrintLines() []PrintLine {
 	return t.printLines("", true, false)
+}
+
+// ActionWeights returns the weighted probability distribution over actions.
+func (t *Tree) ActionWeights() map[Action]float64 {
+	weights := make(map[Action]float64)
+	t.Node.accumulateActionWeights(1.0, weights)
+	return weights
+}
+
+// ConditionWeights returns the weighted distribution over conditions.
+func (t *Tree) ConditionWeights() map[Condition]float64 {
+	weights := make(map[Condition]float64)
+	t.Node.accumulateConditionWeights(1.0, weights)
+	return weights
 }

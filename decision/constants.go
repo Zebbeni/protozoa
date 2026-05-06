@@ -6,7 +6,12 @@ type Action int
 // Condition is the custom type for all Organism conditions
 type Condition int
 
-// Define all possible actions for Organism
+// Define all possible actions for Organism.
+//
+// ActIdle is appended at the end of the const block so its numeric value
+// sits after every Condition — this keeps previously-serialized Action /
+// Condition integer values stable, so old .pzr checkpoint files still
+// decode correctly.
 const (
 	ActAttack Action = iota
 	ActEat
@@ -21,16 +26,20 @@ const (
 	IsFoodRight
 	IsOrganismAhead
 	IsBiggerOrganismAhead
-	IsRelatedOrganismAhead
+	// IsRelatedOrganismAhead / Left / Right: removed but kept as numeric
+	// placeholders so later Condition values stay at their original ints
+	// and old .pzr checkpoint files still decode correctly.
+	_ Condition = iota
 	IsOrganismLeft
-	IsRelatedOrganismLeft
+	_
 	IsOrganismRight
-	IsRelatedOrganismRight
+	_
 	IsHealthAboveFiftyPercent
 	IsHealthyPhHere
 	IsHealthierPhAhead
 	IsAgeMultipleOfTwo
 	IsAgeMultipleOfTen
+	ActIdle Action = iota
 )
 
 // Define slices
@@ -42,6 +51,7 @@ var (
 		ActMove,
 		ActTurnLeft,
 		ActTurnRight,
+		ActIdle,
 		// ActSpawn <-- Leave this out since it's not something we want organisms to 'choose' to do
 	}
 	Conditions = [...]Condition{
@@ -51,11 +61,8 @@ var (
 		IsFoodRight,
 		IsOrganismAhead,
 		IsBiggerOrganismAhead,
-		IsRelatedOrganismAhead,
 		IsOrganismLeft,
-		IsRelatedOrganismLeft,
 		IsOrganismRight,
-		IsRelatedOrganismRight,
 		IsHealthAboveFiftyPercent,
 		IsHealthyPhHere,
 		IsHealthierPhAhead,
@@ -70,17 +77,15 @@ var (
 		ActTurnLeft:               "Turn Left",
 		ActTurnRight:              "Turn Right",
 		ActSpawn:                  "Spawn",
+		ActIdle:                   "Idle",
 		CanMove:                   "If Can Move Ahead",
 		IsFoodAhead:               "If Food Ahead",
 		IsFoodLeft:                "If Food Left",
 		IsFoodRight:               "If Food Right",
 		IsOrganismAhead:           "If Organism Ahead",
 		IsBiggerOrganismAhead:     "If Bigger Organism Ahead",
-		IsRelatedOrganismAhead:    "If Related Organism Ahead",
 		IsOrganismLeft:            "If Organism Left",
-		IsRelatedOrganismLeft:     "If Related Organism Left",
 		IsOrganismRight:           "If Organism Right",
-		IsRelatedOrganismRight:    "If Related Organism Right",
 		IsHealthAboveFiftyPercent: "IsHealthAboveFiftyPercent",
 		IsHealthyPhHere:           "IsHealthyPhHere",
 		IsHealthierPhAhead:        "IsHealthierPhAhead",

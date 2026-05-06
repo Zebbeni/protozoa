@@ -7,16 +7,19 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
 // Simulation contains a list of forces, particles, and drawing settings
 type Simulation struct {
 	options *config.Options
+	rng     *simrand.RNG
 
 	cycle    int
 	isPaused bool
@@ -28,24 +31,65 @@ type Simulation struct {
 	environmentManager *manager.EnvironmentManager
 	updateManager      *manager.UpdateManager
 
-	// debug statistics
+	// Checkpoint recording (nil if not recording)
+	recorder *checkpoint.Writer
+
+	// Per-cycle timing (latest)
 	UpdateTime, EnvironmentUpdateTime, FoodUpdateTime, OrganismUpdateTime time.Duration
 	OrganismUpdateLoopTime, OrganismResolveLoopTime                       time.Duration
+
+	// Accumulated timing for periodic summaries
+	accEnv, accFood, accSort, accHistory, accCheckpoint time.Duration
+	accDecideStats, accDecideTree, accDecideRequest     time.Duration
+	accResolveHealth, accResolveAction, accResolveDead  time.Duration
+	accResolveSpawn                                     time.Duration
+	accTotal                                            time.Duration
+	accCycles, accSpawnCount                            int
 }
 
 // NewSimulation returns a simulation with generated world and organisms
 // cycle increments at the beginning of Update() so start at -1 to ensure
-// first actions are attributed to cycle 0
+// first actions are attributed to cycle 0.
+//
+// Seed precedence: a non-zero CLI --seed wins (so existing scripts keep
+// behaving), otherwise the value from Globals (editable in the config
+// screen) is used. This lets wasm builds — which can't pass CLI flags
+// — pick a seed via the UI.
 func NewSimulation(options *config.Options) *Simulation {
+	seed := options.Seed
+	if seed == 0 {
+		seed = config.Seed()
+	}
+	if seed == 0 {
+		// Both unspecified — pick a wall-clock-based seed so wasm
+		// builds (and any "leave it blank" CLI use) get fresh runs
+		// instead of reproducing the same simulation every launch.
+		seed = int(time.Now().UnixNano())
+	}
+	rng := simrand.New(uint64(seed))
 	sim := &Simulation{
 		options:  options,
+		rng:      rng,
 		cycle:    -1,
 		isPaused: false,
 	}
 	sim.updateManager = manager.NewUpdateManager()
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
-	sim.foodManager = manager.NewFoodManager(sim)
-	sim.organismManager = manager.NewOrganismManager(sim)
+	sim.foodManager = manager.NewFoodManager(sim, rng)
+	sim.organismManager = manager.NewOrganismManager(sim, rng)
+
+	header := checkpoint.FileHeader{
+		Seed:               uint64(seed),
+		CheckpointInterval: options.CheckpointInterval,
+		GridUnitsWide:      config.GridUnitsWide(),
+		GridUnitsHigh:      config.GridUnitsHigh(),
+	}
+	w, err := checkpoint.NewWriter(options.CheckpointFile, header)
+	if err != nil {
+		fmt.Printf("\nWarning: failed to create checkpoint file: %v", err)
+	} else {
+		sim.recorder = w
+	}
 
 	return sim
 }
@@ -64,6 +108,96 @@ func (s *Simulation) Update() {
 	s.updateOrganisms()
 
 	s.UpdateTime = time.Since(start)
+
+	// Write checkpoint snapshot at configured intervals
+	checkpointStart := time.Now()
+	if s.recorder != nil && s.cycle%s.options.CheckpointInterval == 0 {
+		s.writeSnapshot()
+	}
+	checkpointTime := time.Since(checkpointStart)
+
+	// Accumulate timing for periodic summaries
+	om := s.organismManager
+	s.accEnv += s.EnvironmentUpdateTime
+	s.accFood += s.FoodUpdateTime
+	s.accSort += om.SortDuration
+	s.accDecideStats += om.DecideStatsDuration
+	s.accDecideTree += om.DecideTreeDuration
+	s.accDecideRequest += om.DecideRequestDuration
+	s.accResolveHealth += om.ResolveHealthDuration
+	s.accResolveAction += om.ResolveActionDuration
+	s.accResolveSpawn += om.ResolveSpawnDuration
+	s.accResolveDead += om.ResolveDeadDuration
+	s.accHistory += om.HistoryDuration
+	s.accCheckpoint += checkpointTime
+	s.accTotal += s.UpdateTime + checkpointTime
+	s.accSpawnCount += om.SpawnCount
+	s.accCycles++
+}
+
+// CaptureSnapshot deep-copies the current simulation state into a
+// SnapshotPayload. Same shape as what gets written to .pzr snapshots,
+// reused by the replay-side in-memory ring buffer so step-back can
+// restore recent cycles without going to disk.
+func (s *Simulation) CaptureSnapshot() *checkpoint.SnapshotPayload {
+	rngState, err := s.rng.MarshalState()
+	if err != nil {
+		fmt.Printf("\nWarning: failed to marshal RNG state: %v", err)
+		return nil
+	}
+	currentPh, previousPh := s.environmentManager.CapturePhMaps()
+	return &checkpoint.SnapshotPayload{
+		Cycle:                 s.cycle,
+		RNGState:              rngState,
+		TotalOrganismsCreated: s.organismManager.TotalOrganismsCreated(),
+		Organisms:             s.organismManager.CaptureOrganismRecords(),
+		OrganismGrid:          s.organismManager.CaptureOrganismGrid(),
+		CurrentPhMap:          currentPh,
+		PreviousPhMap:         previousPh,
+		FoodItems:             s.foodManager.CaptureFoodRecords(),
+		Ancestors:             s.organismManager.CaptureAncestors(),
+	}
+}
+
+func (s *Simulation) writeSnapshot() {
+	snap := s.CaptureSnapshot()
+	if snap == nil {
+		return
+	}
+	if err := s.recorder.WriteSnapshot(snap); err != nil {
+		fmt.Printf("\nWarning: failed to write snapshot at cycle %d: %v", s.cycle, err)
+	}
+}
+
+// RestoreDescendantTrees injects pre-built descendant trees into the organism manager.
+func (s *Simulation) RestoreDescendantTrees(payload *checkpoint.DescendantTreesPayload) {
+	s.organismManager.RestoreDescendantTrees(payload)
+}
+
+// RestoreHistory injects pre-built pH history into the organism manager.
+func (s *Simulation) RestoreHistory(payload *checkpoint.HistoryPayload) {
+	s.organismManager.RestoreHistory(payload)
+}
+
+// CloseRecorder writes the descendant trees and finalizes the checkpoint file.
+func (s *Simulation) CloseRecorder() {
+	if s.recorder != nil {
+		// Tag the end sections with the true final cycle so the replay
+		// viewer can advance past the last snapshot to wherever the
+		// simulation actually ended.
+		treesPayload := s.organismManager.CaptureDescendantTrees()
+		if err := s.recorder.WriteDescendantTrees(treesPayload, s.cycle); err != nil {
+			fmt.Printf("\nWarning: failed to write descendant trees: %v", err)
+		}
+		histPayload := s.organismManager.CaptureHistory()
+		if err := s.recorder.WriteHistory(histPayload, s.cycle); err != nil {
+			fmt.Printf("\nWarning: failed to write history: %v", err)
+		}
+		if err := s.recorder.Close(); err != nil {
+			fmt.Printf("\nWarning: failed to close checkpoint file: %v", err)
+		}
+		s.recorder = nil
+	}
 }
 
 func (s *Simulation) updateEnvironment() {
@@ -86,10 +220,72 @@ func (s *Simulation) updateOrganisms() {
 	s.OrganismResolveLoopTime = s.organismManager.ResolveDuration
 }
 
+// TimingSummary returns a formatted breakdown of average time per cycle
+// over the accumulated window, then resets the accumulators.
+func (s *Simulation) TimingSummary() string {
+	if s.accCycles == 0 {
+		return ""
+	}
+	n := s.accCycles
+	avg := func(d time.Duration) time.Duration { return d / time.Duration(n) }
+
+	accDecide := s.accSort + s.accDecideStats + s.accDecideTree + s.accDecideRequest
+	accResolve := s.accResolveHealth + s.accResolveAction + s.accResolveSpawn + s.accResolveDead
+	accounted := s.accEnv + s.accFood + accDecide + accResolve + s.accHistory + s.accCheckpoint
+	other := s.accTotal - accounted
+	if other < 0 {
+		other = 0
+	}
+
+	spawnsPerCycle := float64(s.accSpawnCount) / float64(n)
+	avgSpawn := time.Duration(0)
+	if s.accSpawnCount > 0 {
+		avgSpawn = s.accResolveSpawn / time.Duration(s.accSpawnCount)
+	}
+
+	summary := fmt.Sprintf(
+		"Avg/cycle over %d cycles (total %s), %d organisms:\n"+
+			"  Environment:     %8s\n"+
+			"  Decide phase:    %8s\n"+
+			"    Sort IDs:      %8s\n"+
+			"    Parallel work: %8s\n"+
+			"    Merge:         %8s\n"+
+			"  Resolve phase:   %8s\n"+
+			"    Health calc:   %8s\n"+
+			"    Actions:       %8s\n"+
+			"    Spawn:         %8s  (%.1f/cycle, %s each)\n"+
+			"    Dead removal:  %8s\n"+
+			"  History:         %8s\n"+
+			"  Checkpoint:      %8s\n"+
+			"  Other:           %8s\n"+
+			"  TOTAL:           %8s",
+		n, s.accTotal.Round(time.Millisecond), s.GetNumOrganisms(),
+		avg(s.accEnv),
+		avg(accDecide),
+		avg(s.accSort), avg(s.accDecideStats),
+		avg(s.accDecideRequest),
+		avg(accResolve),
+		avg(s.accResolveHealth), avg(s.accResolveAction),
+		avg(s.accResolveSpawn), spawnsPerCycle, avgSpawn,
+		avg(s.accResolveDead),
+		avg(s.accHistory), avg(s.accCheckpoint),
+		avg(other), avg(s.accTotal))
+
+	// Reset accumulators
+	s.accEnv, s.accFood, s.accSort = 0, 0, 0
+	s.accDecideStats, s.accDecideTree, s.accDecideRequest = 0, 0, 0
+	s.accResolveHealth, s.accResolveAction, s.accResolveDead = 0, 0, 0
+	s.accResolveSpawn = 0
+	s.accHistory, s.accCheckpoint = 0, 0
+	s.accTotal, s.accCycles, s.accSpawnCount = 0, 0, 0
+
+	return summary
+}
+
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
 	if s.GetNumOrganisms() == 0 {
-		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, config.MaxOrganisms())
+		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, s.GetNumOrganisms())
 		return true
 	}
 	return false
@@ -137,19 +333,19 @@ func (s *Simulation) AddFoodUpdate(point utils.Point) {
 
 // GetUpdatedFoodPoints returns a map of all points recently updated by the
 // foodManager
-func (s *Simulation) GetUpdatedFoodPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedFoodPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedFoodPoints()
 }
 
 // GetUpdatedOrganismPoints returns a map of all points recently updated by the
 // organismManager
-func (s *Simulation) GetUpdatedOrganismPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedOrganismPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedOrganismPoints()
 }
 
 // GetUpdatedPhPoints returns a map of all points recently updated by the
 // environmentManager
-func (s *Simulation) GetUpdatedPhPoints() map[string]utils.Point {
+func (s *Simulation) GetUpdatedPhPoints() map[utils.Point]bool {
 	return s.updateManager.GetUpdatedPhPoints()
 }
 
@@ -193,32 +389,40 @@ func (s *Simulation) GetMostTraveledId() int {
 	return s.organismManager.GetMostTraveledId()
 }
 
+// GetMostSuccessfulId returns the id of the oldest living organism whose
+// descendant tree node meets the "most successful" criteria
+// (AllBranchesDeadCycle == 0 or equal to the tree's max). -1 if none.
+func (s *Simulation) GetMostSuccessfulId() int {
+	return s.organismManager.GetMostSuccessfulId()
+}
+
+// GetMostSuccessfulIds returns the IDs of all currently-living organisms
+// whose descendant tree node meets the "most successful" criteria.
+func (s *Simulation) GetMostSuccessfulIds() []int {
+	return s.organismManager.GetMostSuccessfulIds()
+}
+
+// IsMostSuccessful reports whether the given organism ID is on the
+// most-successful lineage (alive or dead).
+func (s *Simulation) IsMostSuccessful(id int) bool {
+	return s.organismManager.IsMostSuccessful(id)
+}
+
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
 // given organism (nil if no organism found)
 func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	return s.organismManager.GetOrganismDecisionTreeByID(id)
 }
 
-// GetHistory returns the full population history of all original ancestors as a
-// map of cycles to maps of ancestorIDs to the living descendants at that time
-func (s *Simulation) GetHistory() map[int]map[int]int32 {
-	return s.organismManager.GetHistory()
+// GetHistory returns a history map by type. Caller must hold history read lock.
+func (s *Simulation) GetHistory(histType manager.HistoryType) map[int]map[int]int32 {
+	return s.organismManager.GetHistory(histType)
 }
 
 // GetAncestorColors returns a map of all ancestors with at least one descendant
 // and the ancestor's color
 func (s *Simulation) GetAncestorColors() map[int]color.Color {
 	return s.organismManager.GetAncestorColors()
-}
-
-// GetPhEffectHistory returns per-cycle phEffect bucket counts
-func (s *Simulation) GetPhEffectHistory() map[int]map[int]int32 {
-	return s.organismManager.GetPhEffectHistory()
-}
-
-// GetPhDistributionHistory returns per-cycle pH bucket counts
-func (s *Simulation) GetPhDistributionHistory() map[int]map[int]int32 {
-	return s.organismManager.GetPhDistributionHistory()
 }
 
 // LockHistoryForReading acquires a read lock on the history data.
@@ -255,7 +459,7 @@ func (s *Simulation) GetDeadCount() int {
 }
 
 // GetFoodItems returns a map of all food items in the grid
-func (s *Simulation) GetFoodItems() map[string]*food.Item {
+func (s *Simulation) GetFoodItems() map[utils.Point]*food.Item {
 	return s.foodManager.GetFoodItems()
 }
 

@@ -2,9 +2,9 @@ package utils
 
 import (
 	"fmt"
-	"math/rand"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/simrand"
 )
 
 // Point contains simple X and Y coordinates for a point in space
@@ -33,21 +33,26 @@ var (
 )
 
 // GetRandomPoint returns a random point somewhere on the simulation grid
-func GetRandomPoint(width, height int) Point {
+func GetRandomPoint(rng *simrand.RNG, width, height int) Point {
 	return Point{
-		X: rand.Intn(width),
-		Y: rand.Intn(height),
+		X: rng.Intn(width),
+		Y: rng.Intn(height),
 	}
 }
 
 // GetRandomDirection returns a point representing a random direction
-func GetRandomDirection() Point {
-	return Directions[rand.Intn(len(Directions))]
+func GetRandomDirection(rng *simrand.RNG) Point {
+	return Directions[rng.Intn(len(Directions))]
 }
 
 // Add add a given Point and returns the result
 func (p Point) Add(toAdd Point) Point {
 	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
+}
+
+// Sub subtracts a given Point and returns the wrapped result.
+func (p Point) Sub(toSub Point) Point {
+	return Point{X: p.X - toSub.X, Y: p.Y - toSub.Y}.Wrap()
 }
 
 // Times multiplies a given value and returns the result
