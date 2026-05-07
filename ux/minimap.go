@@ -33,11 +33,16 @@ type Minimap struct {
 	pendingImage  chan *ebiten.Image
 	rendering     bool
 	lastCycleUsed int
-	// lastViewMode is the grid view mode the most recent background render
-	// used. When the live mode differs we invalidate the cached image so
-	// the minimap switches appearance without waiting for the 20-cycle
-	// refresh interval.
-	lastViewMode mode
+	// lastShowPh / lastShowOrgs / lastOrgColor / lastTheme are the
+	// render state the most recent background render used. When the
+	// live state differs we invalidate the cached image so the minimap
+	// switches appearance without waiting for the 20-cycle refresh
+	// interval. Food isn't tracked because the minimap doesn't render
+	// food.
+	lastShowPh    bool
+	lastShowOrgs  bool
+	lastOrgColor  mode
+	lastTheme     string
 
 	// replayCtrl (optional) lets the minimap detect replay seeks so the
 	// cache refreshes as soon as the playhead jumps — even backwards or
@@ -63,7 +68,9 @@ func NewMinimap(sim *simulation.Simulation, grid *Grid) *Minimap {
 		width:        w,
 		height:       h,
 		pendingImage: make(chan *ebiten.Image, 1),
-		lastViewMode: grid.ViewMode(),
+		lastShowPh:   grid.ShowPh(),
+		lastOrgColor: grid.OrgColor(),
+		lastTheme:    config.Theme(),
 	}
 }
 
@@ -88,8 +95,14 @@ func (m *Minimap) Update() {
 	}
 
 	cycle := m.simulation.Cycle()
-	curMode := m.grid.ViewMode()
-	modeChanged := curMode != m.lastViewMode
+	curShowPh := m.grid.ShowPh()
+	curShowOrgs := m.grid.ShowOrganisms()
+	curOrgColor := m.grid.OrgColor()
+	curTheme := config.Theme()
+	modeChanged := curShowPh != m.lastShowPh ||
+		curShowOrgs != m.lastShowOrgs ||
+		curOrgColor != m.lastOrgColor ||
+		curTheme != m.lastTheme
 	seeked := false
 	if m.replayCtrl != nil && m.replayCtrl.SeekCount != m.lastSeekCount {
 		seeked = true
@@ -98,13 +111,16 @@ func (m *Minimap) Update() {
 	if !m.rendering && (stale || modeChanged || seeked) {
 		m.rendering = true
 		m.lastCycleUsed = cycle
-		m.lastViewMode = curMode
+		m.lastShowPh = curShowPh
+		m.lastShowOrgs = curShowOrgs
+		m.lastOrgColor = curOrgColor
+		m.lastTheme = curTheme
 		if m.replayCtrl != nil {
 			m.lastSeekCount = m.replayCtrl.SeekCount
 		}
-		// Capture the mode value so the goroutine renders a consistent
-		// snapshot even if the user switches modes mid-render.
-		go m.renderInBackground(curMode)
+		// Capture the state by value so the goroutine renders a consistent
+		// snapshot even if the user toggles mid-render.
+		go m.renderInBackground(curShowPh, curShowOrgs, curOrgColor)
 	}
 }
 
@@ -207,25 +223,24 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 	return true
 }
 
-// renderInBackground paints the minimap to match the current grid view
-// mode. Four modes, four backgrounds and overlays:
+// renderInBackground paints the minimap to match the grid's current
+// pH-toggle, organism-toggle, and organism-colour state.
 //
-//	orgsPhMode        — pH everywhere, organisms painted over it
-//	organismsOnlyMode — theme background, organisms painted over it
-//	phEffectsOnlyMode — theme background, organisms tinted by their
-//	                    PhEffect rather than their natural colour
-//	phOnlyMode        — pH everywhere, organisms omitted entirely
+//	showPh    — pH heatmap behind organisms when true; theme bg otherwise
+//	showOrgs  — when false organisms are skipped entirely
+//	orgColor  — orgColorPhEffect tints by PhEffect; other modes use the
+//	            organism's natural colour (the minimap doesn't bother
+//	            with health colouring, which is a per-organism gradient
+//	            that reads poorly at minimap resolution).
 //
-// The mode is captured by the caller (Update) and passed in so that a
-// user mid-switch doesn't tear: the goroutine renders one consistent
+// State is captured by the caller (Update) and passed in so that a user
+// mid-switch doesn't tear: the goroutine renders one consistent
 // snapshot, and the cache is invalidated on the next Update pass.
-func (m *Minimap) renderInBackground(viewMode mode) {
+func (m *Minimap) renderInBackground(showPh, showOrgs bool, orgColor mode) {
 	worldW := config.GridUnitsWide()
 	worldH := config.GridUnitsHigh()
 
-	showPh := viewMode == orgsPhMode || viewMode == phOnlyMode
-	showOrgs := viewMode != phOnlyMode
-	phEffectTint := viewMode == phEffectsOnlyMode
+	phEffectTint := orgColor == orgColorPhEffect
 
 	// Theme background used wherever pH isn't painted.
 	tbR, tbG, tbB := config.ThemeBackgroundRGB()

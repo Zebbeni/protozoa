@@ -37,8 +37,7 @@ func MaxCyclesBetweenSpawns() int            { return constants.MaxCyclesBetween
 func MinSpawnHealth() float64                { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64         { return constants.MaxSpawnHealthPercent }
 func InitialDecisionTreeMutations() int      { return constants.InitialDecisionTreeMutations }
-func MinChanceToMutateDecisionTree() float64 { return constants.MinChanceToMutateDecisionTree }
-func MaxChanceToMutateDecisionTree() float64 { return constants.MaxChanceToMutateDecisionTree }
+func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
 func MinOrganisms() int                      { return constants.MinOrganisms }
 func MaxOrganisms() int                      { return constants.MaxOrganisms }
 func GrowthFactor() float64                  { return constants.GrowthFactor }
@@ -67,6 +66,39 @@ func PoolHeight() int                        { return constants.PoolHeight }
 // "light". Anything else falls back to dark behaviour at render time.
 func Theme() string { return constants.Theme }
 
+// PH colour scheme names. Stored in Globals.PhColorScheme so the
+// preference survives across config-screen launches and snapshot
+// reloads. The default ("green-pink") matches the original palette;
+// "blue-orange" is the colour-blind-safer alternative.
+const (
+	PhColorSchemeGreenPink  = "green-pink"
+	PhColorSchemeBlueOrange = "blue-orange"
+)
+
+// PhColorScheme returns the active pH colour palette. Anything other
+// than the recognised values is treated as the green-pink default.
+func PhColorScheme() string {
+	switch constants.PhColorScheme {
+	case PhColorSchemeBlueOrange:
+		return PhColorSchemeBlueOrange
+	default:
+		return PhColorSchemeGreenPink
+	}
+}
+
+// SetPhColorScheme swaps the active pH colour palette at runtime.
+// Callers are expected to invalidate any cached pH-coloured artefacts
+// (env layer, pH graphs, pre-coloured descendant tree nodes) so the
+// new palette is picked up on the next render.
+func SetPhColorScheme(name string) {
+	switch name {
+	case PhColorSchemeGreenPink, PhColorSchemeBlueOrange:
+		constants.PhColorScheme = name
+	default:
+		constants.PhColorScheme = PhColorSchemeGreenPink
+	}
+}
+
 // IsLightTheme reports whether the theme has a light-valued background.
 // Drives whichever code paths need to flip lightness curves (e.g. pH
 // colour mapping) so content stays readable against the window fill.
@@ -88,18 +120,44 @@ func ThemeBackgroundRGB() (r, g, b float64) {
 }
 
 // PhTargetColorRGB returns the "extreme" colour that a pH cell blends
-// towards as it moves away from neutral, in RGB floats [0, 1].
-//   - Sub-neutral (acidic) pH → #A9C218 (yellow-green)
-//   - Supra-neutral (basic) pH → #E74766 (red-pink)
+// towards as it moves away from neutral, in RGB floats [0, 1]. The
+// extremes depend on the active pH colour scheme:
+//   - green-pink:  acid #A9C218 (yellow-green) / base #E74766 (red-pink)
+//   - blue-orange: acid #2C7BB6 (blue)         / base #E66101 (orange)
 //
 // At exactly neutral the caller should use a weight of 0 so the target
 // colour has no effect.
 func PhTargetColorRGB(ph float64) (r, g, b float64) {
 	neutral := (constants.MaxPh + constants.MinPh) / 2.0
-	if ph < neutral {
-		return 0xA9 / 255.0, 0xC2 / 255.0, 0x18 / 255.0
+	acid := ph < neutral
+	switch PhColorScheme() {
+	case PhColorSchemeBlueOrange:
+		if acid {
+			return 0x2C / 255.0, 0x7B / 255.0, 0xB6 / 255.0
+		}
+		return 0xE6 / 255.0, 0x61 / 255.0, 0x01 / 255.0
+	default:
+		if acid {
+			return 0xA9 / 255.0, 0xC2 / 255.0, 0x18 / 255.0
+		}
+		return 0xE7 / 255.0, 0x47 / 255.0, 0x66 / 255.0
 	}
-	return 0xE7 / 255.0, 0x47 / 255.0, 0x66 / 255.0
+}
+
+// PhEffectHueRange returns the HSLuv hue endpoints for the active pH
+// colour scheme. spec=0 (acid) maps to the first value, spec=1 (base)
+// to the second. ComputePhEffectColor interpolates between them.
+func PhEffectHueRange() (acidHue, baseHue float64) {
+	switch PhColorScheme() {
+	case PhColorSchemeBlueOrange:
+		// Blue (~hue 250°) → orange (~hue 40°). The spectrum
+		// blends through purple/pink (going forward through 360°)
+		// rather than through green, but at neutral the colour
+		// blends to background so the intermediate hue isn't shown.
+		return 250.0, 40.0
+	default:
+		return 100.0, 0.0
+	}
 }
 
 // SetTheme swaps the active theme at runtime. The UI chrome (background
@@ -169,8 +227,7 @@ type Globals struct {
 	MaximumInitialSpawnHealth     float64 `json:"maximum_initial_spawn_health"`
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
 	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
-	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
-	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
+	ChanceToMutateDecisionTree float64 `json:"chance_to_mutate_decision_tree"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`
@@ -199,6 +256,12 @@ type Globals struct {
 	// GUI theme: "light" or "dark". Controls the window background and
 	// selects between <theme>-prefixed sprite sheets.
 	Theme string `json:"theme"`
+
+	// PhColorScheme: "green-pink" (default) or "blue-orange". Drives
+	// the pH grid layer, organism PH-effect tints, panel pH stat
+	// colours, and the pH/PhEffect graphs. Blue-orange is friendlier
+	// to red-green colour blindness.
+	PhColorScheme string `json:"ph_color_scheme"`
 
 	// Health parameters (percent of organism size)
 	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`

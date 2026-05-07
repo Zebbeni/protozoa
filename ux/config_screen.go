@@ -597,8 +597,7 @@ func (cs *ConfigScreen) buildSections() {
 		}},
 		{title: "— DECISION TREES —", fields: []configField{
 			field("Initial Mutations", "initial_organism_decision_tree_mutations"),
-			field("Min Chance to Mutate", "min_chance_to_mutate_decision_tree"),
-			field("Max Chance to Mutate", "max_chance_to_mutate_decision_tree"),
+			field("Chance to Mutate", "chance_to_mutate_decision_tree"),
 			field("Max Tree Size", "max_decision_tree_size"),
 		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{

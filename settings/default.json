@@ -25,7 +25,7 @@
   "max_ph_tolerance_range": 1.0,
   "chemosynthesis_tolerance": 0.25,
   "max_organism_ph_growth_effect": 0.05,
-  "max_ph_effect_change": 0.0025,
+  "max_ph_effect_change": 0.002,
   "min_max_lifespan": 500,
   "max_max_lifespan": 10000,
   "max_max_lifespan_change": 10,
@@ -37,8 +37,7 @@
   "pool_height": 20,
 
   "initial_organism_decision_tree_mutations": 0,
-  "min_chance_to_mutate_decision_tree": 0.25,
-  "max_chance_to_mutate_decision_tree": 1,
+  "chance_to_mutate_decision_tree": 0.5,
   "max_decision_tree_size": 32,
 
   "max_organisms": 50000,

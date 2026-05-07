@@ -169,11 +169,6 @@ func (r *Runner) stepSimulation() {
 			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(), r.activeSim.AveragePh())
 			r.progressScreen.AddLog(line)
 		}
-		if r.activeSim.Cycle()%1000 == 0 {
-			if summary := r.activeSim.TimingSummary(); summary != "" {
-				r.progressScreen.SetTimingSummary(summary)
-			}
-		}
 		stopRequested = r.progressScreen.IsStopRequested()
 	}
 	if !r.activeSim.IsDone() && !stopRequested {

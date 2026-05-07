@@ -43,10 +43,20 @@ type OrganismManager struct {
 	mostChildren     int
 	mostTraveledId   int
 	mostTraveledDist int
+	mostAggressiveId   int
+	mostAggressiveHits int
 
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
+	// descendantNodeIndex maps every node ID (alive or dead) to its
+	// DescendantNode for O(1) lookup. Populated alongside descendantTrees
+	// (RestoreDescendantTrees seeds it from the loaded payload; spawn
+	// paths append to it as new organisms are born). Without this,
+	// GetTreeNodeByID for a dead organism would walk every tree from its
+	// root every call — quadratic in tree size when called per render
+	// frame from the descendant-highlight code.
+	descendantNodeIndex map[int]*organism.DescendantNode
 	// mostSuccessful is the precomputed set of IDs whose descendant tree
 	// node has AllBranchesDeadCycle == 0 (lineage survives to end) or
 	// equal to the maximum AllBranchesDeadCycle across the loaded tree.
@@ -86,6 +96,7 @@ func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
 		descendantTrees:        make(map[int]*organism.DescendantNode),
+		descendantNodeIndex:    make(map[int]*organism.DescendantNode),
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
 			HistoryPhEffect:       make(map[int]map[int]int32),
@@ -161,6 +172,8 @@ func (m *OrganismManager) resetInterestingStats() {
 	m.mostChildren = -1
 	m.mostTraveledId = -1
 	m.mostTraveledDist = -1
+	m.mostAggressiveId = -1
+	m.mostAggressiveHits = -1
 }
 
 func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
@@ -175,6 +188,10 @@ func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
 	if o.TraveledDist > m.mostTraveledDist || o.TraveledDist == m.mostTraveledDist && o.ID < m.mostTraveledId {
 		m.mostTraveledDist = o.TraveledDist
 		m.mostTraveledId = o.ID
+	}
+	if o.AttackHits > m.mostAggressiveHits || (o.AttackHits == m.mostAggressiveHits && o.ID < m.mostAggressiveId) {
+		m.mostAggressiveHits = o.AttackHits
+		m.mostAggressiveId = o.ID
 	}
 }
 
@@ -300,6 +317,14 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		effect := m.calculateAttackEffect(o)
 		target := o.Location.Add(o.Direction)
 		rm.AddHealthEffectRequest(target, effect)
+		// Track attack stats: every attack counts toward AttackTotal,
+		// and only those landing on a real organism count as a hit.
+		// Checked at decision-time so "in front of you when you decided
+		// to attack" is the criterion the user described.
+		o.AttackTotal++
+		if m.isOrganismAtLocation(target) {
+			o.AttackHits++
+		}
 	}
 }
 
@@ -361,6 +386,28 @@ func (m *OrganismManager) GetDescendantTrees() map[int]*organism.DescendantNode 
 	return m.descendantTrees
 }
 
+// RebuildPhEffectColors walks every descendant tree and recomputes
+// each node's PhEffectColor from its stored PhGrowthEffect. Called when
+// the user changes the active pH colour scheme so cached node colours
+// match the new palette. Old recordings without a stored PhGrowthEffect
+// will collapse to the neutral colour after this — acceptable
+// degradation since the alternative is keeping stale extremes.
+func (m *OrganismManager) RebuildPhEffectColors() {
+	maxEffect := c.MaxOrganismPhGrowthEffect()
+	var walk func(n *organism.DescendantNode)
+	walk = func(n *organism.DescendantNode) {
+		if n == nil {
+			return
+		}
+		sv := organism.PhEffectSpectrumValue(n.PhGrowthEffect, maxEffect)
+		n.PhEffectColor = organism.ComputePhEffectColor(sv)
+		n.ForEachChild(func(c *organism.DescendantNode) { walk(c) })
+	}
+	for _, root := range m.descendantTrees {
+		walk(root)
+	}
+}
+
 // GetAncestors returns a list of all original ancestor IDs
 func (m *OrganismManager) GetAncestors() []int {
 	return m.originalAncestors
@@ -395,12 +442,14 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 			traits := o.Traits()
 			sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
 			node = &organism.DescendantNode{
-				ID:            id,
-				Color:         o.Color(),
-				PhEffectColor: organism.ComputePhEffectColor(sv),
-				StartCycle:    m.api.Cycle(),
+				ID:             id,
+				Color:          o.Color(),
+				PhEffectColor:  organism.ComputePhEffectColor(sv),
+				PhGrowthEffect: traits.PhGrowthEffect,
+				StartCycle:     m.api.Cycle(),
 			}
 			m.descendantTrees[id] = node
+			m.descendantNodeIndex[id] = node
 		}
 		o.TreeNode = node
 
@@ -445,15 +494,17 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 		traits := o.Traits()
 		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
 		node = &organism.DescendantNode{
-			ID:            id,
-			Color:         o.Color(),
-			PhEffectColor: organism.ComputePhEffectColor(sv),
-			StartCycle:    m.api.Cycle(),
+			ID:             id,
+			Color:          o.Color(),
+			PhEffectColor:  organism.ComputePhEffectColor(sv),
+			PhGrowthEffect: traits.PhGrowthEffect,
+			StartCycle:     m.api.Cycle(),
 		}
 		if parent.TreeNode != nil {
 			parent.TreeNode.AddChild(node)
 		}
 	}
+	m.descendantNodeIndex[id] = node
 	o.TreeNode = node
 
 	m.registerNewOrganism(o, id)
@@ -597,6 +648,18 @@ func (m *OrganismManager) GetOrganismTreeNode(id int) *organism.DescendantNode {
 	return nil
 }
 
+// GetTreeNodeByID returns the DescendantNode for the given ID — alive
+// or dead — in O(1) via descendantNodeIndex. Used by UI render paths
+// like the descendant-highlight walk that runs every frame.
+func (m *OrganismManager) GetTreeNodeByID(id int) *organism.DescendantNode {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	if o, ok := m.organisms[id]; ok {
+		return o.TreeNode
+	}
+	return m.descendantNodeIndex[id]
+}
+
 // GetOrganismInfoAtPoint returns the Organism Info at the given point
 // (nil if none). The fast path is the organismIDGrid lookup; a slower
 // fallback scans m.organisms by Location so a stray grid/organisms
@@ -673,6 +736,15 @@ func (m *OrganismManager) GetMostChildrenId() int {
 // GetMostTraveledId returns the id of the most traveled organism
 func (m *OrganismManager) GetMostTraveledId() int {
 	return m.mostTraveledId
+}
+
+// GetMostAggressiveId returns the id of the organism with the most
+// attack hits (attacks that landed on a target organism). -1 if none.
+func (m *OrganismManager) GetMostAggressiveId() int {
+	if m.mostAggressiveHits <= 0 {
+		return -1
+	}
+	return m.mostAggressiveId
 }
 
 // mostSuccessfulSet returns the set of "most successful" tree node IDs.
@@ -1000,15 +1072,15 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 	return fmt.Sprintf("\n      ID: %10d   |         InitialHealth: %4d"+
 		"\n     Age: %10d   |      MinHealthToSpawn: %4d"+
 		"\nChildren: %10d   |      MinCyclesToSpawn: %4d"+
-		"\nAncestor: %10d   |  "+
-		"\n  Health: %10.2f   |   ChanceToMutateTree:  %4.2f"+
+		"\nAncestor: %10d"+
+		"\n  Health: %10.2f"+
 		"\n    CalcAndUpdateSize: %10.2f   |              MaxSize:  %4.2f"+
 		"\n  Tree:\n%s",
 		o.ID, int(o.InitialHealth()),
 		o.Age, int(o.MinHealthToSpawn()),
 		o.Children, o.MinCyclesBetweenSpawns(),
 		o.OriginalAncestorID,
-		o.Health, o.ChanceToMutateDecisionTree(),
+		o.Health,
 		o.Size, o.MaxSize(),
 		o.GetDecisionTreeCopy().Print())
 }

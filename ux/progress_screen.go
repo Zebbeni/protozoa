@@ -3,7 +3,6 @@ package ux
 import (
 	"fmt"
 	"image/color"
-	"strings"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -18,10 +17,9 @@ import (
 // ProgressScreen shows simulation progress while running headless,
 // with a scrollable log and Stop/Explore buttons.
 type ProgressScreen struct {
-	logs           []string
-	timingSummary  string
-	mu             sync.Mutex
-	scrollY        float64
+	logs    []string
+	mu      sync.Mutex
+	scrollY float64
 
 	stopped  bool // simulation has stopped (done or user clicked Stop)
 	explored bool // user clicked Explore
@@ -37,13 +35,6 @@ func NewProgressScreen() *ProgressScreen {
 func (p *ProgressScreen) AddLog(line string) {
 	p.mu.Lock()
 	p.logs = append(p.logs, line)
-	p.mu.Unlock()
-}
-
-// SetTimingSummary updates the timing overlay (thread-safe, called from sim goroutine).
-func (p *ProgressScreen) SetTimingSummary(summary string) {
-	p.mu.Lock()
-	p.timingSummary = summary
 	p.mu.Unlock()
 }
 
@@ -101,7 +92,6 @@ func (p *ProgressScreen) Draw(screen *ebiten.Image) {
 	}
 	logsCopy := make([]string, len(p.logs))
 	copy(logsCopy, p.logs)
-	timingSummary := p.timingSummary
 	p.mu.Unlock()
 
 	titleBounds := boundString(r.FontSourceCodePro12, title)
@@ -132,18 +122,7 @@ func (p *ProgressScreen) Draw(screen *ebiten.Image) {
 	ebitenutil.DrawRect(screen, float64(panelX-5), float64(logTop-2), float64(panelW+10), 1, color.RGBA{R: 60, G: 60, B: 60, A: 255})
 	ebitenutil.DrawRect(screen, float64(panelX-5), float64(logBottom+2), float64(panelW+10), 1, color.RGBA{R: 60, G: 60, B: 60, A: 255})
 
-	// Timing summary overlay on the right
-	if timingSummary != "" {
-		timingX := panelX + panelW + 30
-		timingY := logTop
-		timingLineH := r.FontSourceCodePro8.Metrics().Height.Round()
-		for _, line := range splitLines(timingSummary) {
-			text.Draw(screen, line, r.FontSourceCodePro8, timingX, timingY+timingLineH, color.RGBA{R: 120, G: 140, B: 120, A: 255})
-			timingY += timingLineH
-		}
-	}
-
-	// Button
+// Button
 	btnW, btnH := 200, 30
 	btnX := panelX + (panelW-btnW)/2
 	btnY := sh - 45
@@ -233,10 +212,6 @@ func shiftRGB(c color.RGBA, delta int) color.RGBA {
 		B: clamp(int(c.B) + delta),
 		A: c.A,
 	}
-}
-
-func splitLines(s string) []string {
-	return strings.Split(s, "\n")
 }
 
 // FormatLogLine creates a standard log line.

@@ -15,14 +15,19 @@ type DescendantNode struct {
 	ID            int
 	Color         color.Color
 	PhEffectColor color.Color
-	StartCycle    int
-	EndCycle      int // 0 means still alive
-	Parent        *DescendantNode
-	Children      []*DescendantNode
-	childMu       sync.Mutex
+	// PhGrowthEffect is the source value PhEffectColor was derived
+	// from. Stored on the node so a pH-colour-scheme switch can walk
+	// the trees and rebuild every node's PhEffectColor without needing
+	// the live organism (which is gone for dead descendants).
+	PhGrowthEffect float64
+	StartCycle     int
+	EndCycle       int // 0 means still alive
+	Parent         *DescendantNode
+	Children       []*DescendantNode
+	childMu        sync.Mutex
 
 	// Dead-branch pruning: skip entire sub-trees during tree walks
-	deadBranchesCount   int // how many direct children have all branches dead
+	deadBranchesCount    int // how many direct children have all branches dead
 	AllBranchesDeadCycle int // cycle when this node AND all descendants are dead (0 = still has living)
 }
 
@@ -54,18 +59,18 @@ func PhEffectSpectrumValue(phGrowthEffect, maxEffect float64) float64 {
 }
 
 // ComputePhEffectColor returns a color for the given spectrum value [0,1]
-// using the same formula as ux.PhEffectColor.
+// using the active pH colour scheme.
 //
 // Neutral pH effect (spectrum value 0.5) blends into the active theme's
 // background so it visually disappears against the window fill. The
 // extremes stay high-contrast. Colours stored on DescendantNode at
-// organism birth are baked in at that moment — toggling themes mid-run
-// won't re-theme existing organisms, only those born afterwards — but the
-// dynamic pH-effect distribution graph recomputes each render and picks
-// up theme changes immediately.
+// organism birth are baked in at that moment — switching themes or pH
+// schemes mid-run only repaints existing nodes if the caller walks the
+// tree and reassigns each PhEffectColor (see ux/panel.go's scheme
+// switch handler).
 func ComputePhEffectColor(spectrumValue float64) colorful.Color {
-	const phMaxHue = 100.0
-	hue := phMaxHue - (phMaxHue * spectrumValue)
+	acidHue, baseHue := c.PhEffectHueRange()
+	hue := acidHue + (baseHue-acidHue)*spectrumValue
 	dist := math.Abs(spectrumValue - 0.5)
 	sat := 0.5 + dist
 	light := dist

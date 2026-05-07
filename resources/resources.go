@@ -117,7 +117,22 @@ func ReloadImages() {
 // defaulting to AnimIdle when the requested animation has no frames and
 // cycling within the available frames when frame >= len.
 func Sprite(role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
-	set, ok := Images[role]
+	return spriteFromSet(Images, role, anim, frame)
+}
+
+// SpriteAtZoom is like Sprite but reads from a specific sprite-set
+// level (0=4x4, 1=8x8, 2=16x16) regardless of which zoom is currently
+// active. Used by the panel's organism portrait, which always renders
+// from the 16x16 set so the sprite reads at 4x scale.
+func SpriteAtZoom(level int, role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
+	if level < 0 || level >= len(ZoomImages) {
+		return nil
+	}
+	return spriteFromSet(ZoomImages[level], role, anim, frame)
+}
+
+func spriteFromSet(images map[ImageRole]FrameSet, role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
+	set, ok := images[role]
 	if !ok {
 		return nil
 	}

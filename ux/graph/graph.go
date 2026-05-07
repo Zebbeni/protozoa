@@ -123,6 +123,27 @@ func (g *Graph) ShowSelected() bool {
 }
 
 // Mode returns the currently-displayed graph mode.
+// Invalidate clears every cached renderer image so the next Render
+// call rebuilds from scratch. Used when an external setting (e.g. the
+// pH colour scheme) shifts the colour mapping for already-painted
+// bars.
+func (g *Graph) Invalidate() {
+	for _, r := range g.renderers {
+		r.Reset()
+	}
+	for _, r := range g.selRenderers {
+		r.Reset()
+	}
+	for k := range g.images {
+		delete(g.images, k)
+	}
+	for k := range g.selImages {
+		delete(g.selImages, k)
+	}
+	g.currentBarCount = 0
+	g.selBarCount = 0
+}
+
 func (g *Graph) Mode() Mode {
 	return g.mode
 }

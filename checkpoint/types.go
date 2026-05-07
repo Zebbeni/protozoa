@@ -71,20 +71,24 @@ type OrganismRecord struct {
 	OriginalAncestorID   uint32
 
 	// Traits
-	ColorR, ColorG, ColorB     float32 // render-only, precision loss is fine
-	MaxSize                    float64
-	SpawnHealth                float64
-	MinHealthToSpawn           float64
-	MinCyclesBetweenSpawns     uint16
-	ChanceToMutateDecisionTree float64
-	IdealPh                    float64
-	PhTolerance                float64
-	PhGrowthEffect             float64
-	MaxLifespan                uint16
+	ColorR, ColorG, ColorB float32 // render-only, precision loss is fine
+	MaxSize                float64
+	SpawnHealth            float64
+	MinHealthToSpawn       float64
+	MinCyclesBetweenSpawns uint16
+	IdealPh                float64
+	PhTolerance            float64
+	PhGrowthEffect         float64
+	MaxLifespan            uint16
 
 	// Decision tree as serialized string
 	DecisionTree  string
 	CurrentAction uint8
+
+	// Lifetime attack counters used by the "MOST AGGRESSIVE"
+	// highlight and the "Attacks: hits/total" display.
+	AttackTotal uint32
+	AttackHits  uint32
 }
 
 // FoodRecord is the serializable form of a food item.
@@ -152,10 +156,13 @@ type DescendantTreeRecord struct {
 }
 
 // DescendantNodeRecord is the serializable form of a DescendantNode.
+// PhGrowthEffect is persisted so a pH-colour-scheme switch on replay
+// can rebuild each node's PhEffectColor from the original source value.
 type DescendantNodeRecord struct {
 	ID                                             uint32
 	ColorR, ColorG, ColorB                         float32
 	PhEffectColorR, PhEffectColorG, PhEffectColorB float32
+	PhGrowthEffect                                 float64
 	StartCycle                                     uint32
 	EndCycle                                       uint32
 	AllBranchesDeadCycle                           uint32

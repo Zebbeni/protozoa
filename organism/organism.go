@@ -25,6 +25,15 @@ type Organism struct {
 	OriginalAncestorID   int
 	TreeNode             *DescendantNode
 
+	// AttackTotal counts every cycle the organism resolved an attack
+	// action, regardless of whether anything was in front of it.
+	// AttackHits counts the subset where there was an organism in the
+	// target cell at attack time. The pair drives the "MOST AGGRESSIVE"
+	// highlight (sorted by AttackHits) and the "Attacks: hits/total"
+	// stat in the panel.
+	AttackTotal int
+	AttackHits  int
+
 	traits Traits
 
 	decisionTree *d.Tree
@@ -91,7 +100,7 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, direction utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
-	if rng.Float64() < o.ChanceToMutateDecisionTree() {
+	if rng.Float64() < c.ChanceToMutateDecisionTree() {
 		inheritedTree = d.MutateTree(rng, inheritedTree)
 	}
 	traits.OrganismColor = d.TreeColor(inheritedTree)
@@ -119,7 +128,8 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 // Restore creates an organism from fully specified state (for checkpoint restore).
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
-	traits Traits, tree *d.Tree, action d.Action, api LookupAPI) *Organism {
+	traits Traits, tree *d.Tree, action d.Action,
+	attackTotal, attackHits int, api LookupAPI) *Organism {
 	return &Organism{
 		ID:                   id,
 		Age:                  age,
@@ -134,6 +144,8 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		traits:               traits,
 		decisionTree:         tree,
 		action:               action,
+		AttackTotal:          attackTotal,
+		AttackHits:           attackHits,
 		lookupAPI:            api,
 	}
 }
@@ -150,10 +162,13 @@ func (o *Organism) Info() *Info {
 		Color:         o.traits.OrganismColor,
 		Age:           o.Age,
 		Children:      o.Children,
+		TraveledDist:  o.TraveledDist,
 		PhEffect:      o.traits.PhGrowthEffect,
 		ChemoFailed:   o.ChemoFailed,
 		EatFailed:     o.EatFailed,
 		BornThisCycle: o.BornThisCycle,
+		AttackTotal:   o.AttackTotal,
+		AttackHits:    o.AttackHits,
 	}
 }
 
@@ -297,10 +312,6 @@ func (o Organism) MinHealthToSpawn() float64 { return o.traits.MinHealthToSpawn 
 // MinCyclesBetweenSpawns returns the minimum number of cycles needed for an
 // organism to spawn
 func (o Organism) MinCyclesBetweenSpawns() int { return o.traits.MinCyclesBetweenSpawns }
-
-// ChanceToMutateDecisionTree returns the chance this organism will give a
-// mutated copy of its decision tree to each spawned child
-func (o Organism) ChanceToMutateDecisionTree() float64 { return o.traits.ChanceToMutateDecisionTree }
 
 // Action returns the Organism's currently-chosen action
 func (o Organism) Action() d.Action { return o.action }

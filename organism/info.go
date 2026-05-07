@@ -16,9 +16,15 @@ type Info struct {
 	Action     decision.Action
 	AncestorID int
 	Color      colorful.Color
-	Age        int
-	Children   int
-	PhEffect   float64
+	Age          int
+	Children     int
+	TraveledDist int // lifetime grid-unit travel count
+	PhEffect     float64
+	// AttackTotal is the lifetime count of attack-action cycles.
+	// AttackHits is the subset that landed on an organism in the target
+	// cell at the moment of the attack.
+	AttackTotal int
+	AttackHits  int
 	// ChemoFailed is true when the organism's most recent
 	// chemosynthesis action was outside its pH tolerance range and
 	// produced no health gain. Only meaningful when Action ==

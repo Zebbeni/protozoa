@@ -3,12 +3,13 @@ package ux
 import (
 	"fmt"
 	"image/color"
-	"strings"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 
+	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/organism"
@@ -42,23 +43,45 @@ const (
 	statsXOffset = padding
 	statsYOffset = 265
 
-	// gridRender / highlight are rendered side by side, each in its own
-	// column with a comfortable gap between them. The button width is
-	// derived from panelWidth so the columns split the available area
-	// evenly minus padding and the inter-column gap.
-	sectionColumnGap  = 16
-	gridRenderXOffset = padding
-	gridRenderYOffset = 300
-	sectionColumnWidth = (panelWidth - 2*padding - sectionColumnGap) / 2
-	selectionsXOffset = padding + sectionColumnWidth + sectionColumnGap
-	selectionsYOffset = 300
+	// MODE / DISPLAY / ORGANISM COLOR / FIND MOST are inline rows: a
+	// fixed-width label on the left and a strip of equally-sized
+	// buttons filling the rest of the row. Saves vertical space vs the
+	// previous header-above + column layouts.
+	sectionRowX       = padding
+	sectionLabelWidth = 105 // reserved for the row label (FontSourceCodePro12)
+	sectionRowHeight  = 16
+	sectionRowGap     = 6
+	sectionBtnGap     = 4
+	sectionBtnsX      = sectionRowX + sectionLabelWidth
+	sectionBtnsWidth  = panelWidth - padding - sectionBtnsX
+	modeYOffset     = 295
+	phColorYOffset  = modeYOffset + sectionRowHeight + sectionRowGap
+	displayYOffset  = phColorYOffset + sectionRowHeight + sectionRowGap
+	orgColorYOffset = displayYOffset + sectionRowHeight + sectionRowGap
+	findMostYOffset = orgColorYOffset + sectionRowHeight + sectionRowGap
 
-	// 4 single-column buttons (16 + 4) per row, 4 rows = 76, plus
-	// header line (~14) and a gap = ~95. selectedYOffset gives a bit
-	// more breathing room before the per-organism Selected Statistics
-	// section that follows.
+	// Selected Statistics section starts below the Find Most row, with
+	// a comfortable gap so it reads as its own section rather than a
+	// fifth row.
 	selectedXOffset = padding
-	selectedYOffset = 415
+	selectedYOffset = findMostYOffset + sectionRowHeight + 28
+
+	// Portrait window: an animated 96x96 spotlight of the selected
+	// organism's sprite, drawn as the third column to the right of two
+	// stat columns. The 16x16 sprite is scaled 4x (nearest-neighbour)
+	// and centred on its base cell.
+	portraitSize       = 96
+	portraitSpriteCell = 16
+	portraitScale      = 4
+	// Asymmetric gaps: a tight 8px between the two stat columns, then
+	// a larger 16px before the portrait so it has visible breathing
+	// room from the column 2 values.
+	selectedColInnerGap = 8
+	selectedPortraitGap = 16
+	selectedColWidth    = (panelWidth - 2*padding - portraitSize - selectedColInnerGap - selectedPortraitGap) / 2
+	selectedCol1X       = padding
+	selectedCol2X       = selectedCol1X + selectedColWidth + selectedColInnerGap
+	selectedPortraitX   = panelWidth - padding - portraitSize
 
 	// Scrubber dimensions
 	scrubberX      = padding
@@ -92,9 +115,21 @@ type Panel struct {
 	// select buttons in the SELECTIONS section above the graph.
 	selectButtonRects []selectButtonHitbox
 
-	// viewModeButtonRects caches the on-screen hitboxes of the
-	// grid-render mode buttons.
-	viewModeButtonRects []viewModeButtonHitbox
+	// displayBtnRects caches hitboxes for the GRID DISPLAY toggle row
+	// (ORGANISMS / PH / FOOD).
+	displayBtnRects []displayBtnHitbox
+
+	// orgColorBtnRects caches hitboxes for the ORGANISM COLOR radio row
+	// (TRUE / PH EFFECT / HEALTH).
+	orgColorBtnRects []orgColorBtnHitbox
+
+	// themeButtonRects caches the on-screen hitboxes of the MODE row
+	// buttons (DARK / LIGHT theme pickers).
+	themeButtonRects []themeButtonHitbox
+
+	// phColorButtonRects caches hitboxes for the PH COLOR row
+	// (GREEN/PINK / BLUE/ORANGE palette pickers).
+	phColorButtonRects []phColorButtonHitbox
 
 	// selectedTab toggles the bottom-of-panel detail view between the
 	// decision tree (0) and the descendant tree (1).
@@ -111,6 +146,56 @@ type Panel struct {
 	// descRowRects caches the row hitboxes from the descendant-tree
 	// tab so handleClick can route clicks to row-select / expand-toggle.
 	descRowRects []descRowHitbox
+
+	// showParentRect caches the "Show Parent" button hitbox (one per
+	// render). Only populated when the displayed tree root has a parent
+	// to walk up to.
+	showParentRect *showParentHitbox
+
+	// cachedSel* hold the most recent live snapshot of the selected
+	// organism's stats so the panel can keep showing them after death,
+	// dimmed. cachedSelID is the ID those values were captured for; the
+	// cache is repopulated on every render where a live lookup succeeds.
+	cachedSelID        int
+	cachedInfo         *organism.Info
+	cachedTraits       organism.Traits
+	cachedTraitsValid  bool
+	cachedDecisionTree *d.Tree
+
+	// descRootID is the displayed root of the descendant tree. 0 means
+	// "follow the live selection". Show Parent walks this up the tree.
+	descRootID int
+
+	// lastObservedSelectedID lets the panel detect when the simulation's
+	// selection changed from outside the descendant tree (grid click,
+	// auto-select switch) so descRootID can reset to follow. Tree-internal
+	// row clicks set skipNextRootReset to suppress the reset, keeping the
+	// user's family-tree view stable as they browse siblings.
+	lastObservedSelectedID int
+	skipNextRootReset      bool
+
+	// portraitImg is a reusable 96x96 image for the Selected Org
+	// portrait. Allocated lazily on first render, cleared and redrawn
+	// each frame; reused so we don't churn GPU textures every frame.
+	portraitImg *ebiten.Image
+
+
+	// Reconstruction goroutine state. When the user selects a dead
+	// organism in replay mode and we have no cached stats, a goroutine
+	// reconstructs the simulation at EndCycle-1 from the nearest
+	// snapshot. While in flight reconstructInFlight is true and
+	// reconstructForID names the target. Stale results (the user moved
+	// on while we were working) are discarded when drained.
+	reconstructInFlight bool
+	reconstructForID    int
+	reconstructResult   chan reconstructPayload
+}
+
+// reconstructPayload carries a goroutine-reconstructed organism back to
+// the main panel. orgID lets the receiver discard stale results.
+type reconstructPayload struct {
+	orgID  int
+	result replay.ReconstructionResult
 }
 
 // detailTabHitbox associates a detail-view tab button's screen rect
@@ -129,6 +214,14 @@ type descRowHitbox struct {
 	nodeID                 int
 }
 
+// showParentHitbox caches the "Show Parent" button rect at the top of
+// the descendant tree tab, so handleDetailTabClick can dispatch the
+// walk-up without recomputing layout.
+type showParentHitbox struct {
+	x, y, w, h int
+	parentID   int
+}
+
 // selectButtonHitbox associates a select-mode button's screen rect
 // with the auto-select mode it activates.
 type selectButtonHitbox struct {
@@ -136,11 +229,32 @@ type selectButtonHitbox struct {
 	sel        mode
 }
 
-// viewModeButtonHitbox associates a grid-render mode button's screen
-// rect with the view mode it activates.
-type viewModeButtonHitbox struct {
+// displayBtnHitbox associates a GRID DISPLAY toggle button's screen
+// rect with the layer it toggles.
+type displayBtnHitbox struct {
 	x, y, w, h int
-	view       mode
+	kind       displayToggleKind
+}
+
+// orgColorBtnHitbox associates an ORGANISM COLOR radio button's
+// screen rect with the colour mode it selects.
+type orgColorBtnHitbox struct {
+	x, y, w, h int
+	color      mode
+}
+
+// themeButtonHitbox associates a MODE row button's screen rect with
+// the theme name it activates.
+type themeButtonHitbox struct {
+	x, y, w, h int
+	theme      string
+}
+
+// phColorButtonHitbox associates a PH COLOR row button's screen rect
+// with the palette scheme name it activates.
+type phColorButtonHitbox struct {
+	x, y, w, h int
+	scheme     string
 }
 
 // graphButtonHitbox associates a graph mode button's screen rect with
@@ -153,11 +267,17 @@ type graphButtonHitbox struct {
 
 func NewPanel(sim *s.Simulation, grid *Grid) *Panel {
 	return &Panel{
-		simulation:    sim,
-		grid:          grid,
-		graph:         graph.NewGraph(sim),
-		graphMode:     graph.ModePopulation,
-		descCollapsed: make(map[int]bool),
+		simulation:             sim,
+		grid:                   grid,
+		graph:                  graph.NewGraph(sim),
+		graphMode:              graph.ModePopulation,
+		descCollapsed:          make(map[int]bool),
+		cachedSelID:            -1,
+		lastObservedSelectedID: -1,
+		reconstructForID:       -1,
+		// Buffered so the goroutine never blocks on send even if the
+		// panel hasn't drained yet (e.g. stalled render).
+		reconstructResult: make(chan reconstructPayload, 4),
 	}
 }
 
@@ -186,11 +306,9 @@ const (
 	graphButtonsPerRow   = 3
 )
 
-// selectModeButton is one entry in the SELECTIONS button strip. The
-// last entry (MANUAL) doubles as the "deselect" state — clicking it
-// stops auto-following the current criterion. We expose it as a button
-// so the user can clear an active follow without having to click on the
-// grid first.
+// selectModeButton is one entry in the FIND MOST button strip. With
+// "FIND MOST" as the row title the per-button labels drop the "MOST"
+// prefix to fit comfortably across five columns.
 type selectModeButton struct {
 	label string
 	sel   mode
@@ -198,28 +316,38 @@ type selectModeButton struct {
 
 var selectModeButtons = [...]selectModeButton{
 	{label: "OLDEST", sel: selectOldest},
-	{label: "MOST CHILDREN", sel: selectMostChildren},
-	{label: "MOST TRAVELED", sel: selectMostTraveled},
-	{label: "MOST SUCCESSFUL", sel: selectMostSuccessful},
+	{label: "CHILDREN", sel: selectMostChildren},
+	{label: "TRAVELED", sel: selectMostTraveled},
+	{label: "ATTACKS", sel: selectMostAggressive},
+	{label: "SUCCESSFUL", sel: selectMostSuccessful},
 }
+
+// displayToggleKind tags each button in the GRID DISPLAY toggle row
+// with the layer it controls.
+type displayToggleKind int
 
 const (
-	selectButtonRowHeight = 16
-	selectButtonGap       = 4
-	selectButtonsPerRow   = 2
+	displayOrganisms displayToggleKind = iota
+	displayPh
+	displayFood
 )
 
-// viewModeButton is one entry in the GRID RENDER button strip.
-type viewModeButton struct {
+var displayToggles = [...]struct {
 	label string
-	view  mode
+	kind  displayToggleKind
+}{
+	{label: "ORGANISMS", kind: displayOrganisms},
+	{label: "PH", kind: displayPh},
+	{label: "FOOD", kind: displayFood},
 }
 
-var viewModeButtons = [...]viewModeButton{
-	{label: "ORGANISMS & PH", view: orgsPhMode},
-	{label: "ORGANISMS ONLY", view: organismsOnlyMode},
-	{label: "ORGANISM PH EFFECTS", view: phEffectsOnlyMode},
-	{label: "PH ONLY", view: phOnlyMode},
+var orgColorButtons = [...]struct {
+	label string
+	color mode
+}{
+	{label: "TRUE", color: orgColorTrue},
+	{label: "PH EFFECT", color: orgColorPhEffect},
+	{label: "HEALTH", color: orgColorHealth},
 }
 
 // graphModeLabel returns the title rendered above the graph for the
@@ -272,13 +400,26 @@ func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, topY int) {
 
 // drawGraphButton renders one mode-selection button. Active button
 // gets a brighter fill; the rest stay subdued so the active choice
-// reads at a glance.
+// reads at a glance. Both palettes share the same blue accent so the
+// active state is visible regardless of theme.
 func drawGraphButton(img *ebiten.Image, x, y, w, h int, label string, active bool) {
-	bg := color.RGBA{R: 35, G: 35, B: 45, A: 255}
-	fg := color.RGBA{R: 170, G: 170, B: 180, A: 255}
+	bg := chrome(
+		color.RGBA{R: 35, G: 35, B: 45, A: 255},
+		color.RGBA{R: 215, G: 215, B: 220, A: 255},
+	)
+	fg := chrome(
+		color.RGBA{R: 170, G: 170, B: 180, A: 255},
+		color.RGBA{R: 70, G: 70, B: 80, A: 255},
+	)
 	if active {
-		bg = color.RGBA{R: 70, G: 90, B: 130, A: 255}
-		fg = color.RGBA{R: 235, G: 235, B: 245, A: 255}
+		bg = chrome(
+			color.RGBA{R: 70, G: 90, B: 130, A: 255},
+			color.RGBA{R: 110, G: 140, B: 200, A: 255},
+		)
+		fg = chrome(
+			color.RGBA{R: 235, G: 235, B: 245, A: 255},
+			color.RGBA{R: 250, G: 250, B: 255, A: 255},
+		)
 	}
 	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h), bg)
 	bounds := boundString(r.FontSourceCodePro8, label)
@@ -301,26 +442,202 @@ func (p *Panel) handleGraphButtonClick(mx, my int) bool {
 	return false
 }
 
-// renderSelections paints the HIGHLIGHT section in the right column
-// (paired side-by-side with GRID RENDER on the left). Single column
-// of buttons, one per row. Refreshes p.selectButtonRects.
-func (p *Panel) renderSelections(panelImage *ebiten.Image, yOff int) {
-	y := selectionsYOffset + yOff
-	text.Draw(panelImage, "HIGHLIGHT", r.FontSourceCodePro12, selectionsXOffset, y, themedForeground())
+// sectionRowButtonRect computes the (x, w) for the idx-th button in a
+// row of count buttons, fitting the area to the right of the row label.
+// Buttons share the same height (sectionRowHeight) so callers only need
+// a y-coord.
+func sectionRowButtonRect(idx, count int) (x, w int) {
+	totalGap := sectionBtnGap * (count - 1)
+	w = (sectionBtnsWidth - totalGap) / count
+	x = sectionBtnsX + idx*(w+sectionBtnGap)
+	return x, w
+}
 
-	btnW := sectionColumnWidth
-	topY := y + 8
+// drawRowLabel paints a row's left-aligned label vertically centred
+// against the button strip on its right.
+func drawRowLabel(panelImage *ebiten.Image, label string, y int) {
+	bounds := boundString(r.FontSourceCodePro12, label)
+	// FontSourceCodePro12 is drawn with baseline at y; offset to centre
+	// against the button row whose top is also at y.
+	ty := y + sectionRowHeight/2 + bounds.Dy()/2
+	text.Draw(panelImage, label, r.FontSourceCodePro12, sectionRowX, ty, themedForeground())
+}
+
+// renderMode paints the MODE row: a label plus DARK / LIGHT theme
+// buttons sharing the row to its right.
+func (p *Panel) renderMode(panelImage *ebiten.Image, yOff int) {
+	y := modeYOffset + yOff
+	drawRowLabel(panelImage, "MODE", y)
+
+	current := config.Theme()
+	entries := [...]struct{ label, theme string }{
+		{"DARK", "dark"},
+		{"LIGHT", "light"},
+	}
+	rects := make([]themeButtonHitbox, 0, len(entries))
+	for i, e := range entries {
+		x, w := sectionRowButtonRect(i, len(entries))
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, e.label, current == e.theme)
+		rects = append(rects, themeButtonHitbox{
+			x: x, y: y, w: w, h: sectionRowHeight, theme: e.theme,
+		})
+	}
+	p.themeButtonRects = rects
+}
+
+// renderPhColor paints the PH COLOR row: a label plus two palette
+// pickers (GREEN/PINK and BLUE/ORANGE). Blue/Orange is the
+// colour-blind-safer alternative.
+func (p *Panel) renderPhColor(panelImage *ebiten.Image, yOff int) {
+	y := phColorYOffset + yOff
+	drawRowLabel(panelImage, "PH COLOR", y)
+
+	current := config.PhColorScheme()
+	entries := [...]struct{ label, scheme string }{
+		{"GREEN/PINK", config.PhColorSchemeGreenPink},
+		{"BLUE/ORANGE", config.PhColorSchemeBlueOrange},
+	}
+	rects := make([]phColorButtonHitbox, 0, len(entries))
+	for i, e := range entries {
+		x, w := sectionRowButtonRect(i, len(entries))
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, e.label, current == e.scheme)
+		rects = append(rects, phColorButtonHitbox{
+			x: x, y: y, w: w, h: sectionRowHeight, scheme: e.scheme,
+		})
+	}
+	p.phColorButtonRects = rects
+}
+
+// handlePhColorButtonClick consumes a click on a pH-colour palette
+// button. On hit it swaps the active scheme and invalidates everything
+// that caches a pH-derived colour: descendant tree node tints, the
+// graph caches, and the grid env layer.
+func (p *Panel) handlePhColorButtonClick(mx, my int) bool {
+	for _, r := range p.phColorButtonRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			if config.PhColorScheme() == r.scheme {
+				return true
+			}
+			config.SetPhColorScheme(r.scheme)
+			// Repaint baked-in node tints (pop graph, pH-effect view
+			// in pop graph) from each node's stored PhGrowthEffect.
+			p.simulation.RebuildPhEffectColors()
+			// Force every cached graph image to rebuild on the next
+			// render so the pH histogram and pH-effect history pick
+			// up the new palette.
+			if p.graph != nil {
+				p.graph.Invalidate()
+			}
+			// Grid env layer caches per-cell pH colours; refreshing
+			// the whole grid is the simplest invalidation path.
+			p.grid.doRefresh = true
+			return true
+		}
+	}
+	return false
+}
+
+// handleThemeButtonClick consumes a click on a theme button. Returns
+// true on hit. Caller must have scroll-adjusted my.
+func (p *Panel) handleThemeButtonClick(mx, my int) bool {
+	for _, r := range p.themeButtonRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			setTheme(r.theme)
+			p.grid.doRefresh = true
+			return true
+		}
+	}
+	return false
+}
+
+// renderDisplay paints the GRID DISPLAY row: layer toggles for
+// ORGANISMS / PH / FOOD, each independently on/off.
+func (p *Panel) renderDisplay(panelImage *ebiten.Image, yOff int) {
+	y := displayYOffset + yOff
+	drawRowLabel(panelImage, "GRID DISPLAY", y)
+
+	rects := make([]displayBtnHitbox, 0, len(displayToggles))
+	for i, b := range displayToggles {
+		x, w := sectionRowButtonRect(i, len(displayToggles))
+		var active bool
+		switch b.kind {
+		case displayOrganisms:
+			active = p.grid.showOrganisms
+		case displayPh:
+			active = p.grid.showPh
+		case displayFood:
+			active = p.grid.showFood
+		}
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
+		rects = append(rects, displayBtnHitbox{
+			x: x, y: y, w: w, h: sectionRowHeight, kind: b.kind,
+		})
+	}
+	p.displayBtnRects = rects
+}
+
+// handleDisplayButtonClick toggles the matching layer flag on hit.
+func (p *Panel) handleDisplayButtonClick(mx, my int) bool {
+	for _, r := range p.displayBtnRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			switch r.kind {
+			case displayOrganisms:
+				p.grid.showOrganisms = !p.grid.showOrganisms
+			case displayPh:
+				p.grid.showPh = !p.grid.showPh
+			case displayFood:
+				p.grid.showFood = !p.grid.showFood
+			}
+			p.grid.doRefresh = true
+			return true
+		}
+	}
+	return false
+}
+
+// renderOrgColor paints the ORGANISM COLOR radio row: TRUE / PH EFFECT
+// / HEALTH, exclusive choice, only meaningful when ORGANISMS is on.
+func (p *Panel) renderOrgColor(panelImage *ebiten.Image, yOff int) {
+	y := orgColorYOffset + yOff
+	drawRowLabel(panelImage, "ORGANISM COLOR", y)
+
+	rects := make([]orgColorBtnHitbox, 0, len(orgColorButtons))
+	for i, b := range orgColorButtons {
+		x, w := sectionRowButtonRect(i, len(orgColorButtons))
+		active := p.grid.orgColor == b.color
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
+		rects = append(rects, orgColorBtnHitbox{
+			x: x, y: y, w: w, h: sectionRowHeight, color: b.color,
+		})
+	}
+	p.orgColorBtnRects = rects
+}
+
+// handleOrgColorButtonClick sets the active organism colour mode.
+func (p *Panel) handleOrgColorButtonClick(mx, my int) bool {
+	for _, r := range p.orgColorBtnRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			p.grid.orgColor = r.color
+			p.grid.doRefresh = true
+			return true
+		}
+	}
+	return false
+}
+
+// renderFindMost paints the FIND MOST radio row: the auto-select
+// criteria that drive the grid's highlighted organism.
+func (p *Panel) renderFindMost(panelImage *ebiten.Image, yOff int) {
+	y := findMostYOffset + yOff
+	drawRowLabel(panelImage, "FIND MOST", y)
 
 	rects := make([]selectButtonHitbox, 0, len(selectModeButtons))
 	for i, b := range selectModeButtons {
-		x := selectionsXOffset
-		by := topY + i*(selectButtonRowHeight+selectButtonGap)
-
+		x, w := sectionRowButtonRect(i, len(selectModeButtons))
 		active := p.grid.selectMode == b.sel
-		drawGraphButton(panelImage, x, by, btnW, selectButtonRowHeight, b.label, active)
-
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
 		rects = append(rects, selectButtonHitbox{
-			x: x, y: by, w: btnW, h: selectButtonRowHeight, sel: b.sel,
+			x: x, y: y, w: w, h: sectionRowHeight, sel: b.sel,
 		})
 	}
 	p.selectButtonRects = rects
@@ -333,44 +650,6 @@ func (p *Panel) handleSelectButtonClick(mx, my int) bool {
 	for _, r := range p.selectButtonRects {
 		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
 			p.grid.selectMode = r.sel
-			p.grid.doRefresh = true
-			return true
-		}
-	}
-	return false
-}
-
-// renderGridRender paints the GRID RENDER section in the left column
-// (paired side-by-side with HIGHLIGHT on the right). Single column of
-// buttons, one per row. Refreshes p.viewModeButtonRects.
-func (p *Panel) renderGridRender(panelImage *ebiten.Image, yOff int) {
-	y := gridRenderYOffset + yOff
-	text.Draw(panelImage, "GRID RENDER", r.FontSourceCodePro12, gridRenderXOffset, y, themedForeground())
-
-	btnW := sectionColumnWidth
-	topY := y + 8
-
-	rects := make([]viewModeButtonHitbox, 0, len(viewModeButtons))
-	for i, b := range viewModeButtons {
-		x := gridRenderXOffset
-		by := topY + i*(selectButtonRowHeight+selectButtonGap)
-
-		active := p.grid.viewMode == b.view
-		drawGraphButton(panelImage, x, by, btnW, selectButtonRowHeight, b.label, active)
-
-		rects = append(rects, viewModeButtonHitbox{
-			x: x, y: by, w: btnW, h: selectButtonRowHeight, view: b.view,
-		})
-	}
-	p.viewModeButtonRects = rects
-}
-
-// handleViewModeButtonClick consumes a click on a view-mode button.
-// Returns true on hit. Caller must have scroll-adjusted my already.
-func (p *Panel) handleViewModeButtonClick(mx, my int) bool {
-	for _, r := range p.viewModeButtonRects {
-		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
-			p.grid.viewMode = r.view
 			p.grid.doRefresh = true
 			return true
 		}
@@ -420,8 +699,11 @@ func (p *Panel) Render() *ebiten.Image {
 	}
 	yOff := p.replayYOffset()
 	p.renderStats(innerImage, yOff)
-	p.renderGridRender(innerImage, yOff)
-	p.renderSelections(innerImage, yOff)
+	p.renderMode(innerImage, yOff)
+	p.renderPhColor(innerImage, yOff)
+	p.renderDisplay(innerImage, yOff)
+	p.renderOrgColor(innerImage, yOff)
+	p.renderFindMost(innerImage, yOff)
 	p.renderGraph(innerImage, yOff)
 	contentBottom := p.renderSelected(innerImage, yOff)
 	p.contentHeight = contentBottom + padding
@@ -463,10 +745,16 @@ func (p *Panel) drawScrollbar(panelImage *ebiten.Image, screenH int) {
 
 	// Track
 	ebitenutil.DrawRect(panelImage, scrollbarX, 0, scrollbarWidth, trackH,
-		color.RGBA{R: 40, G: 40, B: 40, A: 150})
+		chrome(
+			color.RGBA{R: 40, G: 40, B: 40, A: 150},
+			color.RGBA{R: 200, G: 200, B: 205, A: 150},
+		))
 	// Thumb
 	ebitenutil.DrawRect(panelImage, scrollbarX, thumbY, scrollbarWidth, thumbH,
-		color.RGBA{R: 120, G: 120, B: 120, A: 200})
+		chrome(
+			color.RGBA{R: 120, G: 120, B: 120, A: 200},
+			color.RGBA{R: 130, G: 130, B: 140, A: 200},
+		))
 }
 
 func (p *Panel) renderDividingLine(panelImage *ebiten.Image, screenH int) {
@@ -479,10 +767,22 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	finalCycle := ctrl.FinalCycle
 	paused := p.simulation.IsPaused()
 
+	arrowFg := chrome(
+		color.RGBA{R: 180, G: 180, B: 180, A: 255},
+		color.RGBA{R: 70, G: 70, B: 80, A: 255},
+	)
+	mutedFg := chrome(
+		color.RGBA{R: 150, G: 150, B: 150, A: 255},
+		color.RGBA{R: 100, G: 100, B: 110, A: 255},
+	)
+
 	// Scrubber track
 	scrubY := replayCtrlY
 	ebitenutil.DrawRect(panelImage, float64(scrubberX), float64(scrubY), float64(scrubberW), float64(scrubberH),
-		color.RGBA{R: 50, G: 50, B: 60, A: 255})
+		chrome(
+			color.RGBA{R: 50, G: 50, B: 60, A: 255},
+			color.RGBA{R: 200, G: 205, B: 215, A: 255},
+		))
 
 	// Scrubber fill (progress)
 	progress := 0.0
@@ -491,19 +791,28 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	}
 	fillW := progress * float64(scrubberW)
 	ebitenutil.DrawRect(panelImage, float64(scrubberX), float64(scrubY), fillW, float64(scrubberH),
-		color.RGBA{R: 80, G: 80, B: 120, A: 255})
+		chrome(
+			color.RGBA{R: 80, G: 80, B: 120, A: 255},
+			color.RGBA{R: 130, G: 150, B: 200, A: 255},
+		))
 
 	// Scrubber handle
 	handleX := float64(scrubberX) + fillW - float64(scrubberHandleW)/2
 	ebitenutil.DrawRect(panelImage, handleX, float64(scrubY-2), float64(scrubberHandleW), float64(scrubberH+4),
-		color.RGBA{R: 180, G: 180, B: 220, A: 255})
+		chrome(
+			color.RGBA{R: 180, G: 180, B: 220, A: 255},
+			color.RGBA{R: 70, G: 90, B: 150, A: 255},
+		))
 
 	// Snapshot markers on the scrubber
 	for _, snapCycle := range ctrl.SnapshotCycles() {
 		if finalCycle > 0 {
 			mx := float64(scrubberX) + float64(snapCycle)/float64(finalCycle)*float64(scrubberW)
 			ebitenutil.DrawRect(panelImage, mx, float64(scrubY), 1, float64(scrubberH),
-				color.RGBA{R: 150, G: 150, B: 150, A: 100})
+				chrome(
+					color.RGBA{R: 150, G: 150, B: 150, A: 100},
+					color.RGBA{R: 80, G: 80, B: 90, A: 100},
+				))
 		}
 	}
 
@@ -514,55 +823,81 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	bx := scrubberX
 
 	// Prev cycle
-	p.drawButton(panelImage, bx, btnY, 24, btnH, "<<", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	p.drawButton(panelImage, bx, btnY, 24, btnH, "<<", arrowFg)
 	bx += 24 + btnGap
 
 	// Play/Pause
 	if paused {
-		p.drawButton(panelImage, bx, btnY, 36, btnH, "PLAY", color.RGBA{R: 100, G: 200, B: 100, A: 255})
+		p.drawButton(panelImage, bx, btnY, 36, btnH, "PLAY", chrome(
+			color.RGBA{R: 100, G: 200, B: 100, A: 255},
+			color.RGBA{R: 50, G: 140, B: 70, A: 255},
+		))
 	} else {
-		p.drawButton(panelImage, bx, btnY, 36, btnH, "STOP", color.RGBA{R: 200, G: 200, B: 100, A: 255})
+		p.drawButton(panelImage, bx, btnY, 36, btnH, "STOP", chrome(
+			color.RGBA{R: 200, G: 200, B: 100, A: 255},
+			color.RGBA{R: 160, G: 130, B: 30, A: 255},
+		))
 	}
 	bx += 36 + btnGap
 
 	// Next cycle
-	p.drawButton(panelImage, bx, btnY, 24, btnH, ">>", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	p.drawButton(panelImage, bx, btnY, 24, btnH, ">>", arrowFg)
 	bx += 24 + btnGap + 8
 
 	// Speed down / up
-	p.drawButton(panelImage, bx, btnY, 16, btnH, "-", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	p.drawButton(panelImage, bx, btnY, 16, btnH, "-", arrowFg)
 	bx += 16 + btnGap
 
 	// Speed indicator
 	speedLabel := formatReplaySpeed(ctrl.Speed)
-	text.Draw(panelImage, speedLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, color.RGBA{R: 200, G: 200, B: 200, A: 255})
+	text.Draw(panelImage, speedLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, chrome(
+		color.RGBA{R: 200, G: 200, B: 200, A: 255},
+		color.RGBA{R: 60, G: 60, B: 70, A: 255},
+	))
 	bx += 28
 
-	p.drawButton(panelImage, bx, btnY, 16, btnH, "+", color.RGBA{R: 180, G: 180, B: 180, A: 255})
+	p.drawButton(panelImage, bx, btnY, 16, btnH, "+", arrowFg)
 	bx += 16 + btnGap
 
 	// AUTO toggle — green label when on, dim grey when off. When on, the
 	// replay speed is driven by the camera's zoom; when off the speed
 	// responds only to the - / + buttons.
-	autoLabel := color.RGBA{R: 110, G: 110, B: 110, A: 255}
+	autoLabel := chrome(
+		color.RGBA{R: 110, G: 110, B: 110, A: 255},
+		color.RGBA{R: 140, G: 140, B: 150, A: 255},
+	)
 	if ctrl.AutoSpeed {
-		autoLabel = color.RGBA{R: 110, G: 200, B: 120, A: 255}
+		autoLabel = chrome(
+			color.RGBA{R: 110, G: 200, B: 120, A: 255},
+			color.RGBA{R: 50, G: 140, B: 70, A: 255},
+		)
 	}
 	p.drawButton(panelImage, bx, btnY, 32, btnH, "AUTO", autoLabel)
 	bx += 32 + btnGap + 8
 
 	// Cycle counter
 	cycleLabel := fmt.Sprintf("Cycle %d / %d", cycle, finalCycle)
-	text.Draw(panelImage, cycleLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, color.RGBA{R: 150, G: 150, B: 150, A: 255})
+	text.Draw(panelImage, cycleLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, mutedFg)
 }
 
 func (p *Panel) drawButton(img *ebiten.Image, x, y, w, h int, label string, col color.RGBA) {
 	// Button background
 	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h),
-		color.RGBA{R: 40, G: 40, B: 50, A: 255})
+		chrome(
+			color.RGBA{R: 40, G: 40, B: 50, A: 255},
+			color.RGBA{R: 220, G: 220, B: 225, A: 255},
+		))
 	// Border
-	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), 1, color.RGBA{R: 70, G: 70, B: 80, A: 255})
-	ebitenutil.DrawRect(img, float64(x), float64(y+h-1), float64(w), 1, color.RGBA{R: 30, G: 30, B: 35, A: 255})
+	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), 1,
+		chrome(
+			color.RGBA{R: 70, G: 70, B: 80, A: 255},
+			color.RGBA{R: 200, G: 200, B: 210, A: 255},
+		))
+	ebitenutil.DrawRect(img, float64(x), float64(y+h-1), float64(w), 1,
+		chrome(
+			color.RGBA{R: 30, G: 30, B: 35, A: 255},
+			color.RGBA{R: 180, G: 180, B: 190, A: 255},
+		))
 	// Label centered
 	bounds := boundString(r.FontSourceCodePro8, label)
 	tx := x + (w-bounds.Dx())/2
@@ -576,12 +911,21 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	// Adjust for scroll once so all hit-tests share the same coords.
 	scrolledY := my + int(p.scrollY)
 
-	// Graph and selection buttons are independent of replay state —
-	// handle them first so they work in non-replay mode too.
+	// Graph, theme, and section-row buttons are independent of replay
+	// state — handle them first so they work in non-replay mode too.
 	if p.handleSelectButtonClick(mx, scrolledY) {
 		return true
 	}
-	if p.handleViewModeButtonClick(mx, scrolledY) {
+	if p.handleDisplayButtonClick(mx, scrolledY) {
+		return true
+	}
+	if p.handleOrgColorButtonClick(mx, scrolledY) {
+		return true
+	}
+	if p.handleThemeButtonClick(mx, scrolledY) {
+		return true
+	}
+	if p.handlePhColorButtonClick(mx, scrolledY) {
 		return true
 	}
 	if p.handleGraphButtonClick(mx, scrolledY) {
@@ -596,6 +940,24 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	}
 
 	my = scrolledY
+
+	// Click anywhere in the graph area → seek to the cycle the cursor
+	// maps to. Same range math as the hover overlay.
+	gY := graphYOffset + p.replayYOffset()
+	graphTop := gY + 10
+	graphBot := gY + 10 + graphHeight
+	if mx >= graphXOffset && mx < graphXOffset+graphWidth && my >= graphTop && my < graphBot {
+		startCycle, endCycle := p.graphCycleRange()
+		if endCycle > startCycle {
+			rel := float64(mx-graphXOffset) / float64(graphWidth)
+			target := startCycle + int(rel*float64(endCycle-startCycle))
+			p.simulation.Pause(true)
+			if err := p.replayCtrl.SeekToCycle(target); err == nil {
+				p.grid.doRefresh = true
+			}
+			return true
+		}
+	}
 
 	// Check scrubber click (with expanded hit area for easier clicking)
 	scrubY := replayCtrlY
@@ -704,7 +1066,14 @@ func formatReplaySpeed(speed float64) string {
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	bounds := boundString(r.FontInversionz40, "protozoa")
-	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), themedForeground())
+	// Title borrows the *opposite* theme's inactive-button fill — light
+	// grey on dark, dark grey on light — so it reads as a soft accent
+	// against the panel chrome instead of disappearing into it.
+	titleColor := chrome(
+		color.RGBA{R: 215, G: 215, B: 220, A: 255},
+		color.RGBA{R: 35, G: 35, B: 45, A: 255},
+	)
+	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), titleColor)
 }
 
 func (p *Panel) renderKeyBindingText(panelImage *ebiten.Image) {
@@ -729,12 +1098,10 @@ func (p *Panel) renderStats(panelImage *ebiten.Image, yOff int) {
 	// Cycle is shown in the timeline (when present), so we don't repeat
 	// it here. In live mode there's no timeline; the cycle is implicit
 	// from playback time.
-	// Left-pad each count to a fixed width so the LIVING / DEAD
+	// Left-pad each count to a fixed width so the ORGANISMS / DEAD / AVG PH
 	// labels don't jitter as the values shrink or grow by a digit.
-	// DEAD reaches the millions on long runs, so reserve 10 digits
-	// for both so they're easy to compare visually.
-	statsString := fmt.Sprintf("LIVING: %10d        DEAD: %10d",
-		p.simulation.OrganismCount(), p.simulation.GetDeadCount())
+	statsString := fmt.Sprintf("ORGANISMS: %8d   DEAD: %8d   AVG PH: %4.1f",
+		p.simulation.OrganismCount(), p.simulation.GetDeadCount(), p.simulation.AveragePh())
 	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, themedForeground())
 }
 
@@ -802,57 +1169,431 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 	ebitenutil.DrawLine(panelImage, left, bottom, right, bottom, themedForeground())
 	ebitenutil.DrawLine(panelImage, left, top, left, bottom, themedForeground())
 
+	// Hover overlay: vertical line + cycle label when the cursor is
+	// over the graph. The cursor's panel-inner Y is screen Y +
+	// scrollY; X is the same as screen X since the panel sits at
+	// screen 0.
+	mx, my := ebiten.CursorPosition()
+	panelMy := my + int(p.scrollY)
+	graphTop := gY + 10
+	graphBot := gY + 10 + graphHeight
+	if mx >= graphXOffset && mx < graphXOffset+graphWidth && panelMy >= graphTop && panelMy < graphBot {
+		startCycle, endCycle := p.graphCycleRange()
+		if endCycle > startCycle {
+			ebitenutil.DrawRect(panelImage,
+				float64(mx), float64(graphTop),
+				1, float64(graphHeight),
+				themedForegroundDim())
+			rel := float64(mx-graphXOffset) / float64(graphWidth)
+			cycle := startCycle + int(rel*float64(endCycle-startCycle))
+			label := fmt.Sprintf("%d", cycle)
+			lb := boundString(r.FontSourceCodePro8, label)
+			tx := mx + 3
+			if tx+lb.Dx() > graphXOffset+graphWidth {
+				tx = mx - 3 - lb.Dx()
+			}
+			text.Draw(panelImage, label, r.FontSourceCodePro8,
+				tx, graphTop+lb.Dy()+2, themedForeground())
+		}
+	}
+
 	// Graph mode buttons in a 2×3 grid below the graph.
 	p.renderGraphButtons(panelImage, gY+graphHeight+14)
 }
 
+// graphCycleRange returns the [start, end) cycle range the graph
+// currently covers. start depends on whether a sub-tree selection is
+// in play (otherwise 0); end is the simulation's current cycle. Used
+// to map cursor X position over the graph back to a sim cycle for
+// hover labels and click-to-seek.
+func (p *Panel) graphCycleRange() (start, end int) {
+	start = 0
+	if p.graphShowSelected && p.graph.HasSelection() {
+		if s := p.graph.SelectedStartCycle(); s >= 0 {
+			start = s
+		}
+	}
+	end = p.simulation.Cycle()
+	return start, end
+}
+
 // renderSelected draws the selected organism info and the active
-// detail tab (decision tree or descendant tree). Returns the Y
-// position after the last line of content.
+// detail tab (decision tree or descendant tree). When the selected
+// organism is alive, its info is captured into the cache so we can keep
+// showing their stats — dimmed — after they die. In replay mode, dead
+// organisms with no cached stats trigger a background reconstruction
+// from the nearest snapshot. Returns the Y position after the last
+// line of content.
 func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
+	p.drainReconstruction()
+
 	sY := selectedYOffset + yOff
-	// Section title sits above the per-organism info.
 	titleHeight := r.FontSourceCodePro12.Metrics().Height.Round()
-	text.Draw(panelImage, "SELECTED STATISTICS", r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
 	infoY := sY + titleHeight + 4
 
 	id := p.simulation.GetSelected()
-	info := p.simulation.GetOrganismInfoByID(id)
-	traits, found := p.simulation.GetOrganismTraitsByID(id)
 
-	decisionTree := p.simulation.GetOrganismDecisionTreeByID(id)
-	if info == nil || decisionTree == nil || found == false {
+	// Detect outside-the-tree selection changes so descRootID can reset
+	// to follow them. Tree-internal row clicks set skipNextRootReset to
+	// suppress this reset (so users can browse siblings within a family
+	// without losing the displayed root).
+	if id != p.lastObservedSelectedID {
+		if !p.skipNextRootReset {
+			p.descRootID = 0
+		}
+		p.skipNextRootReset = false
+		p.lastObservedSelectedID = id
+	}
+
+	if id < 0 {
+		// Nothing selected — skip the section entirely so the panel
+		// doesn't show an orphaned title with empty space below.
 		p.detailTabRects = nil
 		p.descRowRects = nil
-		return infoY
+		p.showParentRect = nil
+		p.cachedSelID = -1
+		p.cachedInfo = nil
+		p.cachedTraitsValid = false
+		p.cachedDecisionTree = nil
+		return sY
 	}
-	infoString := fmt.Sprintf("ORGANISM ID:    %7d       HEALTH:       %[4]*.[3]*[2]f", info.ID, info.Health, 2, 5)
-	infoString += fmt.Sprintf("\nANCESTOR ID:    %7d       SIZE:         %5.2f", info.AncestorID, info.Size)
-	infoString += fmt.Sprintf("\nAGE:            %7d       CHILDREN:   %7d", info.Age, info.Children)
-	infoString += fmt.Sprintf("\nMUTATE CHANCE:     %3.0f%%       SPAWN HEALTH: %[4]*.[3]*[2]f", traits.ChanceToMutateDecisionTree*100.0, traits.MinHealthToSpawn, 2, 5)
-	infoString += fmt.Sprintf("\nPH TOLERANCE:   %1.1f-%1.1f       PH EFFECT: %+1.5f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance, traits.PhGrowthEffect)
-	infoLineCount := strings.Count(infoString, "\n") + 1
-	infoHeight := infoLineCount * r.FontSourceCodePro12.Metrics().Height.Round()
-	// Small gap between info text and the tab strip below.
-	offsetY := infoY + infoHeight + 6
 
-	text.Draw(panelImage, infoString, r.FontSourceCodePro12, selectedXOffset, infoY, themedForeground())
+	// Section title — drawn only when there's something to show below.
+	titleStr := fmt.Sprintf("SELECTED ORG: %d", id)
+	text.Draw(panelImage, titleStr, r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
 
-	// Tab buttons row, with a bit of breathing room before the
-	// content below so the first tab content line doesn't kiss the
-	// button edges.
+	liveInfo := p.simulation.GetOrganismInfoByID(id)
+	liveTraits, traitsFound := p.simulation.GetOrganismTraitsByID(id)
+	liveTree := p.simulation.GetOrganismDecisionTreeByID(id)
+	alive := liveInfo != nil && traitsFound && liveTree != nil
+
+	// Refresh the cache from the live snapshot whenever it's available.
+	// This naturally re-populates when the user steps backward in
+	// replay mode and the organism comes back to life.
+	if alive {
+		p.cachedSelID = id
+		p.cachedInfo = liveInfo
+		p.cachedTraits = liveTraits
+		p.cachedTraitsValid = true
+		p.cachedDecisionTree = liveTree
+	}
+
+	// Pick the data to render: live values when present, otherwise the
+	// last-seen cache for the same id. If neither matches, we have no
+	// stats to show (e.g. clicking a long-dead organism we never
+	// observed alive in this session).
+	var (
+		info         *organism.Info
+		traits       organism.Traits
+		decisionTree *d.Tree
+		dim          = !alive
+	)
+	switch {
+	case alive:
+		info, traits, decisionTree = liveInfo, liveTraits, liveTree
+	case p.cachedSelID == id && p.cachedInfo != nil && p.cachedTraitsValid && p.cachedDecisionTree != nil:
+		info, traits, decisionTree = p.cachedInfo, p.cachedTraits, p.cachedDecisionTree
+	}
+
+	// The portrait + stats block is always 96px tall regardless of
+	// whether we're showing live data, cached/dim data, or a placeholder
+	// message — keeps the detail tabs and tree below from jumping when
+	// reconstruction completes ~half a second after a click.
+	statsLineHeight := r.FontSourceCodePro12.Metrics().Height.Round()
+	statsBottom := infoY + portraitSize
+
+	if info == nil || decisionTree == nil {
+		// We have a selection but no stats to show. In replay mode we
+		// can reconstruct from the nearest snapshot; in live mode (or
+		// after a failed reconstruction attempt) we just say so. Either
+		// way the descendant tree tab still renders so the user can
+		// navigate the family.
+		p.detailTabRects = nil
+		p.descRowRects = nil
+		p.showParentRect = nil
+
+		// cachedSelID == id means we already attempted reconstruction
+		// for this organism (success would have populated info above;
+		// reaching here means the attempt failed to find them).
+		triedThisOrg := p.cachedSelID == id
+		canReconstruct := p.replayCtrl != nil && !triedThisOrg
+		if canReconstruct && !p.reconstructInFlight {
+			p.startReconstruction(id)
+		}
+
+		msg := "(no stats — try stepping back to when this organism was alive)"
+		if canReconstruct || (p.reconstructInFlight && p.reconstructForID == id) {
+			msg = "Reconstructing stats from snapshot..."
+		}
+		// Centre the message inside the reserved block so the
+		// transition from placeholder to real stats doesn't shift the
+		// rest of the panel.
+		bounds := boundString(r.FontSourceCodePro10, msg)
+		msgX := selectedXOffset + (graphWidth-bounds.Dx())/2
+		msgY := infoY + portraitSize/2 + bounds.Dy()/2
+		text.Draw(panelImage, msg, r.FontSourceCodePro10, msgX, msgY, themedForegroundDim())
+
+		offsetY := statsBottom + 6
+		offsetY = p.renderDetailTabs(panelImage, offsetY) + 14
+		switch p.selectedTab {
+		case 1:
+			offsetY = p.renderDescendantTreeTab(panelImage, p.effectiveDescRoot(id), id, offsetY)
+		}
+		return offsetY
+	}
+
+	// Portrait — right column, flush against the right padding.
+	p.renderPortrait(panelImage, info, dim, selectedPortraitX, infoY)
+
+	infoColor := themedForeground()
+	if dim {
+		infoColor = themedForegroundDim()
+	}
+
+	// Two stat columns to the left of the portrait. Each line uses
+	// `%-Ns %Ms` with N = label-pad width and M = value-pad width, so
+	// labels are left-aligned at the column's left edge and values
+	// are right-aligned at the column's right edge, lining up across
+	// rows.
+	const (
+		col1LabelW = 9 // "CHILDREN:" / "TRAVELED:" are the longest col1 labels
+		col1ValueW = 7 // "X.X-X.X" PH TOL / 7-digit ints / "12.34" health
+		col2LabelW = 10 // "PH EFFECT:" is the longest col2 label
+		col2ValueW = 8  // "+0.00100" PH EFFECT / "100/200" attacks / "12.34" health
+	)
+
+	healthVal := fmt.Sprintf("%5.2f", info.Health)
+	ageVal := fmt.Sprintf("%d", info.Age)
+	if dim {
+		ageVal = fmt.Sprintf("%d (dead)", info.Age)
+	}
+	phTolVal := fmt.Sprintf("%1.1f-%1.1f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance)
+	col1 := fmt.Sprintf("%-*s %*s", col1LabelW, "HEALTH:", col1ValueW, healthVal)
+	col1 += fmt.Sprintf("\n%-*s %*s", col1LabelW, "AGE:", col1ValueW, ageVal)
+	col1 += fmt.Sprintf("\n%-*s %*d", col1LabelW, "CHILDREN:", col1ValueW, info.Children)
+	col1 += fmt.Sprintf("\n%-*s %*d", col1LabelW, "TRAVELED:", col1ValueW, info.TraveledDist)
+	col1 += fmt.Sprintf("\n%-*s %*s", col1LabelW, "PH TOL:", col1ValueW, phTolVal)
+
+	sizeVal := fmt.Sprintf("%5.2f", info.Size)
+	spawnVal := fmt.Sprintf("%5.2f", traits.MinHealthToSpawn)
+	attacksVal := fmt.Sprintf("%d/%d", info.AttackHits, info.AttackTotal)
+	phEffVal := fmt.Sprintf("%+1.5f", traits.PhGrowthEffect)
+	col2 := fmt.Sprintf("%-*s %*s", col2LabelW, "SIZE:", col2ValueW, sizeVal)
+	col2 += fmt.Sprintf("\n%-*s %*s", col2LabelW, "SPAWN HP:", col2ValueW, spawnVal)
+	col2 += fmt.Sprintf("\n%-*s %*s", col2LabelW, "HITS/ATK:", col2ValueW, attacksVal)
+	col2 += fmt.Sprintf("\n%-*s %*s", col2LabelW, "PH EFFECT:", col2ValueW, phEffVal)
+
+	// First baseline shifted down one line height so visual top of
+	// line 1 aligns with the top of the portrait beside it.
+	statsTextY := infoY + statsLineHeight
+	text.Draw(panelImage, col1, r.FontSourceCodePro12, selectedCol1X, statsTextY, infoColor)
+	text.Draw(panelImage, col2, r.FontSourceCodePro12, selectedCol2X, statsTextY, infoColor)
+
+	// Overlay coloured health, pH-tolerance, and pH-effect values.
+	// Skipped in dim mode (dead organism) — the cached pH at a stale
+	// location wouldn't say anything useful, and the consistent dim
+	// treatment reads as "snapshot, not live".
+	if !dim {
+		col1ValuePrefix := fmt.Sprintf("%-*s ", col1LabelW, "")
+		col2ValuePrefix := fmt.Sprintf("%-*s ", col2LabelW, "")
+		col1ValueX := selectedCol1X + textAdvance(r.FontSourceCodePro12, col1ValuePrefix)
+		col2ValueX := selectedCol2X + textAdvance(r.FontSourceCodePro12, col2ValuePrefix)
+
+		// HEALTH — col 1 line 0
+		healthOver := fmt.Sprintf("%*s", col1ValueW, healthVal)
+		text.Draw(panelImage, healthOver, r.FontSourceCodePro12, col1ValueX, statsTextY, healthColor(info.Health, info.Size))
+
+		// PH TOL — col 1 line 4
+		phTolOver := fmt.Sprintf("%*s", col1ValueW, phTolVal)
+		phTolY := statsTextY + 4*statsLineHeight
+		text.Draw(panelImage, phTolOver, r.FontSourceCodePro12, col1ValueX, phTolY, phIdealTextColor(traits.IdealPh))
+
+		// PH EFFECT — col 2 line 3
+		phEffOver := fmt.Sprintf("%*s", col2ValueW, phEffVal)
+		phEffY := statsTextY + 3*statsLineHeight
+		text.Draw(panelImage, phEffOver, r.FontSourceCodePro12, col2ValueX, phEffY, phEffectTextColor(traits.PhGrowthEffect, config.MaxOrganismPhGrowthEffect()))
+	}
+
+	offsetY := statsBottom + 6
+
 	offsetY = p.renderDetailTabs(panelImage, offsetY)
 	offsetY += 14
 
 	switch p.selectedTab {
 	case 1:
 		p.descRowRects = nil
-		offsetY = p.renderDescendantTreeTab(panelImage, id, offsetY)
+		offsetY = p.renderDescendantTreeTab(panelImage, p.effectiveDescRoot(id), id, offsetY)
 	default:
 		p.descRowRects = nil
-		offsetY = p.renderDecisionTreeTab(panelImage, decisionTree, offsetY)
+		p.showParentRect = nil
+		offsetY = p.renderDecisionTreeTab(panelImage, decisionTree, dim, offsetY)
 	}
 	return offsetY
+}
+
+// renderPortrait draws an animated 96x96 spotlight of the selected
+// organism — a 4x-scaled 16x16 sprite centred on its base cell, picked
+// for the organism's current size, action, direction, and animation
+// frame. xl multi-cell sprites extend past the frame in their facing
+// direction; cropping is OK and clipped at the portrait edge by
+// rendering into a dedicated buffer image.
+func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, dim bool, x, y int) {
+	if p.portraitImg == nil {
+		p.portraitImg = ebiten.NewImage(portraitSize, portraitSize)
+	}
+	// Background: pH colour of the organism's current cell, computed
+	// the same way the grid env layer paints it (theme bg blended
+	// toward PhTargetColorRGB by distance from neutral).
+	p.portraitImg.Fill(portraitPhBackground(p.simulation.GetPhAtPoint(info.Location)))
+
+	// Size-to-role mapping mirrors the grid renderer so the portrait
+	// shows the same sprite the grid uses.
+	maxSize := config.MaximumMaxSize()
+	var role r.ImageRole
+	switch {
+	case info.Size < maxSize*(1.0/3.0):
+		role = r.RoleOrganismSmall
+	case info.Size < maxSize*(2.0/3.0):
+		role = r.RoleOrganismMedium
+	default:
+		role = r.RoleOrganismLarge
+	}
+
+	// Live organisms get the action's animation and a frame index
+	// driven by playback. Dead organisms (dim) freeze on frame 0 of
+	// their last action so the portrait reads as a snapshot.
+	anim := animation.ForAction(info.Action)
+	frameIdx := 0
+	direction := info.Direction
+	if !dim && p.grid.animState != nil {
+		if frame, ok := p.grid.animState.Frames[info.ID]; ok {
+			anim = animation.ForFrame(frame)
+			direction = frame.Direction
+		}
+		// 16x16 sprite set always uses 4 frames per cycle.
+		frameIdx = p.grid.animState.SpriteFrameIndex(4)
+	}
+
+	sprite := r.SpriteAtZoom(2, role, anim, frameIdx)
+
+	// Centre the base cell at the portrait centre. Multi-cell xl
+	// sprites extend up from the base in their authored orientation;
+	// drawAnimatedSprite rotates around the base anchor, so the
+	// extension swings to follow direction. Anything past the
+	// portrait edge is clipped by drawing into the dedicated buffer.
+	const cellSize = portraitSpriteCell
+	const scale = float64(portraitScale)
+	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
+	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
+	drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
+
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(x), float64(y))
+	panelImage.DrawImage(p.portraitImg, op)
+
+	// 1px border around the portrait window. Uses the dim foreground
+	// so it reads as a thin frame rather than a heavy outline against
+	// either theme.
+	border := themedForegroundDim()
+	fx, fy, fw, fh := float64(x), float64(y), float64(portraitSize), float64(portraitSize)
+	ebitenutil.DrawRect(panelImage, fx, fy, fw, 1, border)
+	ebitenutil.DrawRect(panelImage, fx, fy+fh-1, fw, 1, border)
+	ebitenutil.DrawRect(panelImage, fx, fy, 1, fh, border)
+	ebitenutil.DrawRect(panelImage, fx+fw-1, fy, 1, fh, border)
+}
+
+// portraitPhBackground returns the colour the grid env layer would
+// paint a cell at the given pH — theme bg blended toward
+// PhTargetColorRGB by distance from neutral. Used as a flat fill
+// behind the portrait sprite so the spotlight matches the org's
+// surrounding pH at a glance.
+func portraitPhBackground(ph float64) color.Color {
+	neutral := (config.MaxPh() + config.MinPh()) / 2.0
+	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
+	weight := 0.0
+	if halfRange > 0 {
+		diff := ph - neutral
+		if diff < 0 {
+			diff = -diff
+		}
+		weight = diff / halfRange
+		if weight > 1 {
+			weight = 1
+		}
+	}
+	bgR, bgG, bgB := config.ThemeBackgroundRGB()
+	tR, tG, tB := config.PhTargetColorRGB(ph)
+	return color.RGBA{
+		R: uint8((weight*tR + (1-weight)*bgR) * 255),
+		G: uint8((weight*tG + (1-weight)*bgG) * 255),
+		B: uint8((weight*tB + (1-weight)*bgB) * 255),
+		A: 255,
+	}
+}
+
+// effectiveDescRoot returns the ID of the node currently being shown
+// as the descendant-tree root. descRootID > 0 wins (set by Show
+// Parent); otherwise it tracks the live selection.
+func (p *Panel) effectiveDescRoot(selectedID int) int {
+	if p.descRootID > 0 {
+		return p.descRootID
+	}
+	return selectedID
+}
+
+// startReconstruction launches a background goroutine that rebuilds
+// the simulation at the cycle just before the named organism died and
+// reads back its stats. No-op if we're not in replay mode, the org's
+// tree node can't be found, or it doesn't have a death cycle.
+func (p *Panel) startReconstruction(orgID int) {
+	if p.replayCtrl == nil {
+		return
+	}
+	node := p.simulation.GetTreeNodeByID(orgID)
+	if node == nil || node.EndCycle <= 0 {
+		return
+	}
+	target := node.EndCycle - 1
+	if target < 0 {
+		target = 0
+	}
+
+	p.reconstructInFlight = true
+	p.reconstructForID = orgID
+
+	ctrl := p.replayCtrl
+	ch := p.reconstructResult
+	go func() {
+		ch <- reconstructPayload{
+			orgID:  orgID,
+			result: ctrl.ReconstructOrganismAt(target, orgID),
+		}
+	}()
+}
+
+// drainReconstruction empties the goroutine result channel, applying
+// payloads that match the live selection and discarding any others.
+// Caching the result (success or failure) on cachedSelID prevents the
+// next render from re-triggering the same reconstruction.
+func (p *Panel) drainReconstruction() {
+	for {
+		select {
+		case payload := <-p.reconstructResult:
+			p.reconstructInFlight = false
+			if payload.orgID != p.simulation.GetSelected() {
+				// Stale: the user moved on while we were working. Drop
+				// the result entirely so it doesn't poison the cache.
+				continue
+			}
+			p.cachedSelID = payload.orgID
+			p.cachedInfo = payload.result.Info
+			p.cachedTraits = payload.result.Traits
+			p.cachedTraitsValid = payload.result.TraitsValid
+			p.cachedDecisionTree = payload.result.DecisionTree
+		default:
+			return
+		}
+	}
 }
 
 // renderDetailTabs draws the two-tab strip (DECISION / DESCENDANT)
@@ -874,18 +1615,42 @@ func (p *Panel) renderDetailTabs(panelImage *ebiten.Image, topY int) int {
 	return topY + tabH
 }
 
-// renderDecisionTreeTab draws the existing decision-tree text block.
-func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.Tree, topY int) int {
-	var activeColor, dimColor color.Color = themedForeground(), color.RGBA{R: 80, G: 80, B: 80, A: 255}
-	if config.IsLightTheme() {
-		dimColor = color.RGBA{R: 170, G: 170, B: 180, A: 255}
-	}
+// renderDecisionTreeTab draws the decision-tree text block in three
+// tiers:
+//   - active   — UsedLastCycle, the path chooseAction just took
+//   - travelled — WasTravelled, ever-visited but not on current path,
+//                 so the user can see which branches the organism has
+//                 explored over its lifetime distinct from dead code
+//   - dim      — never-visited
+//
+// When dim==true the organism is dead and the cached tree's per-cycle
+// flags are stale; everything collapses to the dim foreground.
+func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.Tree, dim bool, topY int) int {
+	activeColor := themedForeground()
+	// Travelled nodes keep the original "dim" tone so they read as
+	// noticeably distinct from never-visited branches.
+	travelledColor := chrome(
+		color.RGBA{R: 80, G: 80, B: 80, A: 255},
+		color.RGBA{R: 170, G: 170, B: 180, A: 255},
+	)
+	// Untravelled nodes step further toward the background so the
+	// "dead branches" of the tree fade out rather than competing with
+	// travelled lines for visual weight.
+	dimColor := chrome(
+		color.RGBA{R: 50, G: 50, B: 55, A: 255},
+		color.RGBA{R: 205, G: 205, B: 215, A: 255},
+	)
 	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
 	offsetY := topY
 	for _, line := range decisionTree.PrintLines() {
-		clr := dimColor
-		if line.WasTravelled {
-			clr = activeColor
+		var clr color.Color = dimColor
+		if !dim {
+			switch {
+			case line.UsedLastCycle:
+				clr = activeColor
+			case line.WasTravelled:
+				clr = travelledColor
+			}
 		}
 		text.Draw(panelImage, line.Text, r.FontSourceCodePro10, selectedXOffset, offsetY, clr)
 		offsetY += lineHeight
@@ -894,18 +1659,33 @@ func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.
 }
 
 // renderDescendantTreeTab draws an indented, scrollable view of the
-// selected organism's descendant subtree. Only nodes whose StartCycle
-// is at or before the current sim cycle are shown — the loaded
-// replay tree contains descendants from the full recording, including
-// future births that haven't happened yet at the current playhead.
-// Live nodes use the themed foreground; dead nodes are dimmed. Each
-// row is clickable (selects that organism) and shows a [+]/[-] toggle
-// when it has children that have already been born.
-func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, selectedID, topY int) int {
-	root := p.simulation.GetOrganismTreeNode(selectedID)
+// rooted-at-rootID subtree. selectedID is the live selection — its row
+// gets a gold highlight so the user can see where they sit in the tree
+// even when Show Parent has walked the displayed root above them. Only
+// nodes whose StartCycle is at or before the current sim cycle are
+// shown. Live nodes use the themed foreground; dead nodes are dimmed.
+func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, selectedID, topY int) int {
+	root := p.simulation.GetTreeNodeByID(rootID)
 	if root == nil {
 		text.Draw(panelImage, "(no descendant tree)", r.FontSourceCodePro10, selectedXOffset, topY+12, themedForegroundDim())
+		p.showParentRect = nil
 		return topY + 16
+	}
+
+	// Show Parent button at the top, only when the displayed root has
+	// somewhere to walk up to (root descendant tree nodes have nil
+	// Parent).
+	y := topY
+	p.showParentRect = nil
+	if root.Parent != nil {
+		btnH := 16
+		btnW := 90
+		drawGraphButton(panelImage, selectedXOffset, y, btnW, btnH, "SHOW PARENT", false)
+		p.showParentRect = &showParentHitbox{
+			x: selectedXOffset, y: y, w: btnW, h: btnH,
+			parentID: root.Parent.ID,
+		}
+		y += btnH + 4
 	}
 
 	currentCycle := p.simulation.Cycle()
@@ -923,7 +1703,6 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, selectedID, to
 	// would otherwise infinitely recurse and crash the render loop).
 	visited := make(map[int]struct{})
 
-	y := topY
 	truncated := false
 	var walk func(n *organism.DescendantNode, depth int)
 	walk = func(n *organism.DescendantNode, depth int) {
@@ -978,10 +1757,15 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, selectedID, to
 		if alive {
 			clr = live
 		}
+		// Gold pill marks the live selection so the user can spot where
+		// they are after Show Parent has walked above them.
 		if n.ID == selectedID {
 			ebitenutil.DrawRect(panelImage, float64(x), float64(y),
 				float64(graphWidth-(x-selectedXOffset)), float64(rowH-2),
-				color.RGBA{R: 70, G: 90, B: 130, A: 100})
+				chrome(
+					color.RGBA{R: 220, G: 175, B: 60, A: 130},
+					color.RGBA{R: 230, G: 180, B: 40, A: 160},
+				))
 		}
 
 		nodeLabel := fmt.Sprintf("id %d", n.ID)
@@ -1021,14 +1805,20 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, selectedID, to
 	return y
 }
 
-// handleDetailTabClick consumes a click on the detail-view tab strip
-// or a row in the descendant-tree tab. Returns true if consumed.
+// handleDetailTabClick consumes a click on the detail-view tab strip,
+// the Show Parent button, or a row in the descendant-tree tab.
+// Returns true if consumed.
 func (p *Panel) handleDetailTabClick(mx, my int) bool {
 	for _, t := range p.detailTabRects {
 		if mx >= t.x && mx < t.x+t.w && my >= t.y && my < t.y+t.h {
 			p.selectedTab = t.tab
 			return true
 		}
+	}
+	if sp := p.showParentRect; sp != nil &&
+		mx >= sp.x && mx < sp.x+sp.w && my >= sp.y && my < sp.y+sp.h {
+		p.descRootID = sp.parentID
+		return true
 	}
 	for _, row := range p.descRowRects {
 		if my < row.rowY || my >= row.rowY+row.rowH {
@@ -1040,9 +1830,18 @@ func (p *Panel) handleDetailTabClick(mx, my int) bool {
 			return true
 		}
 		if mx >= row.rowX && mx < row.rowX+row.rowW {
+			// Tree-internal selection — keep the displayed root pinned
+			// so users can browse siblings/children without losing the
+			// view.
+			p.skipNextRootReset = true
 			p.simulation.Select(row.nodeID)
 			p.grid.SetManualSelection()
 			p.grid.doRefresh = true
+			// Smooth-pan to the picked organism if they're alive on
+			// the grid (dead nodes have no location to centre on).
+			if info := p.simulation.GetOrganismInfoByID(row.nodeID); info != nil {
+				p.grid.Camera.PanTo(info.Location.X, info.Location.Y, time.Second)
+			}
 			return true
 		}
 	}
