@@ -37,8 +37,7 @@ func MaxCyclesBetweenSpawns() int            { return constants.MaxCyclesBetween
 func MinSpawnHealth() float64                { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64         { return constants.MaxSpawnHealthPercent }
 func InitialDecisionTreeMutations() int      { return constants.InitialDecisionTreeMutations }
-func MinChanceToMutateDecisionTree() float64 { return constants.MinChanceToMutateDecisionTree }
-func MaxChanceToMutateDecisionTree() float64 { return constants.MaxChanceToMutateDecisionTree }
+func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
 func MinOrganisms() int                      { return constants.MinOrganisms }
 func MaxOrganisms() int                      { return constants.MaxOrganisms }
 func GrowthFactor() float64                  { return constants.GrowthFactor }
@@ -49,14 +48,11 @@ func MaximumInitialSpawnHealth() float64     { return constants.MaximumInitialSp
 func MaxInitialCyclesBetweenSpawns() int     { return constants.MaxInitialCyclesBetweenSpawns }
 func MinIdealPh() float64                    { return constants.MinIdealPh }
 func MaxIdealPh() float64                    { return constants.MaxIdealPh }
-func MinPhToleranceRange() float64           { return constants.MinPhToleranceRange }
-func MaxPhToleranceRange() float64           { return constants.MaxPhToleranceRange }
+func PhTolerance() float64                   { return constants.PhTolerance }
 func ChemosynthesisTolerance() float64       { return constants.ChemosynthesisTolerance }
-func MaxOrganismPhGrowthEffect() float64     { return constants.MaxOrganismPhGrowthEffect }
-func MaxPhEffectChange() float64             { return constants.MaxPhEffectChange }
-func MinMaxLifespan() int                    { return constants.MinMaxLifespan }
-func MaxMaxLifespan() int                    { return constants.MaxMaxLifespan }
-func MaxMaxLifespanChange() int              { return constants.MaxMaxLifespanChange }
+func ChemoPhEffectPerSize() float64          { return constants.ChemoPhEffectPerSize }
+func EatingPhEffectPerFood() float64         { return constants.EatingPhEffectPerFood }
+func MaxLifespan() int                       { return constants.MaxLifespan }
 func PhIncrementToDisplay() float64          { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64               { return constants.PhDiffuseFactor }
 func UsePools() bool                         { return constants.UsePools }
@@ -66,6 +62,39 @@ func PoolHeight() int                        { return constants.PoolHeight }
 // Theme returns the active GUI theme name. Recognised values: "dark",
 // "light". Anything else falls back to dark behaviour at render time.
 func Theme() string { return constants.Theme }
+
+// PH colour scheme names. Stored in Globals.PhColorScheme so the
+// preference survives across config-screen launches and snapshot
+// reloads. The default ("green-pink") matches the original palette;
+// "blue-orange" is the colour-blind-safer alternative.
+const (
+	PhColorSchemeGreenPink  = "green-pink"
+	PhColorSchemeBlueOrange = "blue-orange"
+)
+
+// PhColorScheme returns the active pH colour palette. Anything other
+// than the recognised values is treated as the green-pink default.
+func PhColorScheme() string {
+	switch constants.PhColorScheme {
+	case PhColorSchemeBlueOrange:
+		return PhColorSchemeBlueOrange
+	default:
+		return PhColorSchemeGreenPink
+	}
+}
+
+// SetPhColorScheme swaps the active pH colour palette at runtime.
+// Callers are expected to invalidate any cached pH-coloured artefacts
+// (env layer, pH graphs, pre-coloured descendant tree nodes) so the
+// new palette is picked up on the next render.
+func SetPhColorScheme(name string) {
+	switch name {
+	case PhColorSchemeGreenPink, PhColorSchemeBlueOrange:
+		constants.PhColorScheme = name
+	default:
+		constants.PhColorScheme = PhColorSchemeGreenPink
+	}
+}
 
 // IsLightTheme reports whether the theme has a light-valued background.
 // Drives whichever code paths need to flip lightness curves (e.g. pH
@@ -88,18 +117,44 @@ func ThemeBackgroundRGB() (r, g, b float64) {
 }
 
 // PhTargetColorRGB returns the "extreme" colour that a pH cell blends
-// towards as it moves away from neutral, in RGB floats [0, 1].
-//   - Sub-neutral (acidic) pH → #A9C218 (yellow-green)
-//   - Supra-neutral (basic) pH → #E74766 (red-pink)
+// towards as it moves away from neutral, in RGB floats [0, 1]. The
+// extremes depend on the active pH colour scheme:
+//   - green-pink:  acid #A9C218 (yellow-green) / base #E74766 (red-pink)
+//   - blue-orange: acid #2C7BB6 (blue)         / base #E66101 (orange)
 //
 // At exactly neutral the caller should use a weight of 0 so the target
 // colour has no effect.
 func PhTargetColorRGB(ph float64) (r, g, b float64) {
 	neutral := (constants.MaxPh + constants.MinPh) / 2.0
-	if ph < neutral {
-		return 0xA9 / 255.0, 0xC2 / 255.0, 0x18 / 255.0
+	acid := ph < neutral
+	switch PhColorScheme() {
+	case PhColorSchemeBlueOrange:
+		if acid {
+			return 0x2C / 255.0, 0x7B / 255.0, 0xB6 / 255.0
+		}
+		return 0xE6 / 255.0, 0x61 / 255.0, 0x01 / 255.0
+	default:
+		if acid {
+			return 0xA9 / 255.0, 0xC2 / 255.0, 0x18 / 255.0
+		}
+		return 0xE7 / 255.0, 0x47 / 255.0, 0x66 / 255.0
 	}
-	return 0xE7 / 255.0, 0x47 / 255.0, 0x66 / 255.0
+}
+
+// PhEffectHueRange returns the HSLuv hue endpoints for the active pH
+// colour scheme. spec=0 (acid) maps to the first value, spec=1 (base)
+// to the second. ComputePhEffectColor interpolates between them.
+func PhEffectHueRange() (acidHue, baseHue float64) {
+	switch PhColorScheme() {
+	case PhColorSchemeBlueOrange:
+		// Blue (~hue 250°) → orange (~hue 40°). The spectrum
+		// blends through purple/pink (going forward through 360°)
+		// rather than through green, but at neutral the colour
+		// blends to background so the intermediate hue isn't shown.
+		return 250.0, 40.0
+	default:
+		return 100.0, 0.0
+	}
 }
 
 // SetTheme swaps the active theme at runtime. The UI chrome (background
@@ -169,25 +224,32 @@ type Globals struct {
 	MaximumInitialSpawnHealth     float64 `json:"maximum_initial_spawn_health"`
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
 	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
-	MinChanceToMutateDecisionTree float64 `json:"min_chance_to_mutate_decision_tree"`
-	MaxChanceToMutateDecisionTree float64 `json:"max_chance_to_mutate_decision_tree"`
+	ChanceToMutateDecisionTree float64 `json:"chance_to_mutate_decision_tree"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`
-	MinPhToleranceRange           float64 `json:"min_ph_tolerance_range"`
-	MaxPhToleranceRange           float64 `json:"max_ph_tolerance_range"`
-	// ChemosynthesisTolerance multiplies an organism's PhTolerance to
-	// define the pH window in which chemosynthesis succeeds. Values
-	// below 1 narrow chemo-viable pH relative to the organism's
-	// general survival tolerance; values above 1 widen it.
+	// PhTolerance is the absolute pH distance every organism can sit
+	// from its IdealPh without taking unhealthy-pH damage. Global
+	// rather than per-organism — variation between organisms now comes
+	// from IdealPh alone.
+	PhTolerance                   float64 `json:"ph_tolerance"`
+	// ChemosynthesisTolerance multiplies PhTolerance to define the pH
+	// window in which chemosynthesis succeeds. Values below 1 narrow
+	// chemo-viable pH relative to general survival tolerance; values
+	// above 1 widen it.
 	ChemosynthesisTolerance       float64 `json:"chemosynthesis_tolerance"`
-	MaxOrganismPhGrowthEffect     float64 `json:"max_organism_ph_growth_effect"`
-	MaxPhEffectChange             float64 `json:"max_ph_effect_change"`
-	// Max lifespan (in cycles) range and mutation step. Set
-	// MaxMaxLifespan to 0 to disable lifespan-based death entirely.
-	MinMaxLifespan       int     `json:"min_max_lifespan"`
-	MaxMaxLifespan       int     `json:"max_max_lifespan"`
-	MaxMaxLifespanChange int     `json:"max_max_lifespan_change"`
+	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize *
+	// organism.Size on each successful chemo cycle. Eating pushes the
+	// local pH up by EatingPhEffectPerFood * food_amount_eaten on each
+	// successful eat. Replaces the old per-organism PhGrowthEffect
+	// trait — same overall mechanic (organisms shape their environment)
+	// but driven by what they actually do, not what they're born with.
+	ChemoPhEffectPerSize  float64 `json:"chemosynthesis_ph_effect_per_size"`
+	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
+	// MaxLifespan is the global lifespan cap (in cycles) every organism
+	// dies at when reached. Set to 0 to disable lifespan-based death
+	// entirely.
+	MaxLifespan          int     `json:"max_lifespan"`
 	MinChangeToPh        float64 `json:"min_change_to_ph"`
 	MaxChangeToPh        float64 `json:"max_change_to_ph"`
 	PhIncrementToDisplay float64 `json:"ph_increment_to_display"`
@@ -199,6 +261,12 @@ type Globals struct {
 	// GUI theme: "light" or "dark". Controls the window background and
 	// selects between <theme>-prefixed sprite sheets.
 	Theme string `json:"theme"`
+
+	// PhColorScheme: "green-pink" (default) or "blue-orange". Drives
+	// the pH grid layer, organism PH-effect tints, panel pH stat
+	// colours, and the pH/PhEffect graphs. Blue-orange is friendlier
+	// to red-green colour blindness.
+	PhColorScheme string `json:"ph_color_scheme"`
 
 	// Health parameters (percent of organism size)
 	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`

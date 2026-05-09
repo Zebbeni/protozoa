@@ -14,11 +14,24 @@ import (
 
 const baseHeight = 4096
 
+// popGraphCeiling returns the y-axis ceiling to render bars against,
+// given the current peak population. Adds a small relative headroom
+// (12.5%, with an absolute floor of 2) so the highest bars don't
+// touch the top edge of the graph but still fill most of the
+// vertical space — a previous 50% headroom left a noticeable empty
+// band above the peak.
+func popGraphCeiling(peak int) int {
+	headroom := peak / 8
+	if headroom < 2 {
+		headroom = 2
+	}
+	return peak + headroom
+}
+
 // NodeColorFunc selects which color to use from a DescendantNode
 type NodeColorFunc func(node *organism.DescendantNode) color.Color
 
-func TraitColor(node *organism.DescendantNode) color.Color        { return node.Color }
-func PhEffectNodeColor(node *organism.DescendantNode) color.Color { return node.PhEffectColor }
+func TraitColor(node *organism.DescendantNode) color.Color { return node.Color }
 
 // Renderer renders a population bar graph using a descendant tree walk.
 type Renderer struct {
@@ -85,8 +98,7 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 		if max < 1 {
 			max = 1
 		}
-		// Add 50% headroom so we don't trigger full refreshes on every growth tick
-		r.maxAlive = max + max/2
+		r.maxAlive = popGraphCeiling(max)
 		r.baseWidth = numCols * 2
 		if r.baseWidth < 4 {
 			r.baseWidth = 4
@@ -128,7 +140,7 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 			if max < 1 {
 				max = 1
 			}
-			r.maxAlive = max + max/2
+			r.maxAlive = popGraphCeiling(max)
 			r.baseWidth = numCols * 2
 			if r.baseWidth < 4 {
 				r.baseWidth = 4
@@ -157,10 +169,14 @@ func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
 		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	}
 	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
-	// Faint dark-grey background so the graph area is visible even
-	// when bars would otherwise blend into the screen's black fill.
-	// 12/255 alpha keeps it subtle.
-	img.Fill(color.RGBA{R: 30, G: 30, B: 35, A: 255})
+	// Faint background just barely off the panel fill, so the graph
+	// area is visible without competing with the bars. Light theme uses
+	// a near-white shade; dark theme stays at near-black.
+	bg := color.RGBA{R: 30, G: 30, B: 35, A: 255}
+	if c.IsLightTheme() {
+		bg = color.RGBA{R: 235, G: 235, B: 240, A: 255}
+	}
+	img.Fill(bg)
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(gh.RealGraphWidth/float64(numCols), gh.RealGraphHeight/float64(baseHeight))
 	img.DrawImage(r.baseImage, opts)

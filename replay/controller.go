@@ -7,6 +7,8 @@ import (
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
+	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simulation"
 )
 
@@ -368,6 +370,69 @@ func (c *Controller) EnableAutoSpeed(unitSize int) {
 	c.AutoSpeed = true
 	c.maxSpeed = MaxSpeedForUnitSize(unitSize)
 	c.setSpeedInternal(SpeedForUnitSize(unitSize))
+}
+
+// ReconstructionResult is the panel-relevant snapshot of an organism
+// reconstructed from an earlier point in the recording. Any of Info /
+// TraitsValid / DecisionTree may be zero-valued if the organism didn't
+// exist at the requested cycle. Err carries any failure that prevented
+// reconstruction (file I/O, missing snapshot, etc).
+type ReconstructionResult struct {
+	Info         *organism.Info
+	Traits       organism.Traits
+	TraitsValid  bool
+	DecisionTree *d.Tree
+	Err          error
+}
+
+// ReconstructOrganismAt rebuilds simulation state at targetCycle from
+// the nearest preceding snapshot, runs forward to that cycle, and
+// returns the named organism's stats. Heavy: forward-plays up to one
+// CheckpointInterval, so call from a goroutine. Uses a fresh checkpoint
+// reader so the controller's main reader isn't disturbed.
+func (c *Controller) ReconstructOrganismAt(targetCycle, orgID int) ReconstructionResult {
+	// Find the nearest snapshot at or before targetCycle.
+	bestIdx := -1
+	for i, entry := range c.snapshots {
+		if entry.Cycle <= targetCycle {
+			bestIdx = i
+		} else {
+			break
+		}
+	}
+	if bestIdx < 0 {
+		return ReconstructionResult{Err: fmt.Errorf("no snapshot at or before cycle %d", targetCycle)}
+	}
+
+	reader, err := checkpoint.OpenReader(c.reader.Path())
+	if err != nil {
+		return ReconstructionResult{Err: fmt.Errorf("open reader: %w", err)}
+	}
+	defer reader.Close()
+
+	snap, err := reader.ReadSnapshot(bestIdx)
+	if err != nil {
+		return ReconstructionResult{Err: fmt.Errorf("read snapshot %d: %w", bestIdx, err)}
+	}
+
+	// RestoreFromSnapshot builds a Simulation with no recorder, so
+	// forward-play here doesn't write to the .pzr file.
+	sim, err := simulation.RestoreFromSnapshot(snap, c.options)
+	if err != nil {
+		return ReconstructionResult{Err: fmt.Errorf("restore snapshot: %w", err)}
+	}
+
+	sim.Pause(false)
+	for sim.Cycle() < targetCycle {
+		sim.Update()
+	}
+
+	res := ReconstructionResult{
+		Info:         sim.GetOrganismInfoByID(orgID),
+		DecisionTree: sim.GetOrganismDecisionTreeByID(orgID),
+	}
+	res.Traits, res.TraitsValid = sim.GetOrganismTraitsByID(orgID)
+	return res
 }
 
 // SnapshotCycles returns the cycle numbers of all snapshots.

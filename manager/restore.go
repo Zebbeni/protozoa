@@ -51,12 +51,11 @@ func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodR
 	}
 }
 
-// RestoreHistory injects pre-built pH distribution and effect history into the OrganismManager.
+// RestoreHistory injects pre-built pH distribution history into the OrganismManager.
 func (m *OrganismManager) RestoreHistory(payload *checkpoint.HistoryPayload) {
 	m.historyMutex.Lock()
 	defer m.historyMutex.Unlock()
 	m.history[HistoryPhDistribution] = payload.PhDistribution
-	m.history[HistoryPhEffect] = payload.PhEffect
 }
 
 // RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
@@ -78,13 +77,15 @@ func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantT
 	m.originalAncestors = ancestorIDs
 	m.originalAncestorColors = ancestorColors
 
-	// Link living organisms to their tree nodes
-	nodeIndex := make(map[int]*organism.DescendantNode)
+	// Persist the by-ID index so GetTreeNodeByID is O(1) for both alive
+	// and dead organisms — used per render frame by the descendant
+	// highlight code.
+	m.descendantNodeIndex = make(map[int]*organism.DescendantNode)
 	for _, root := range trees {
-		indexTreeNodes(root, nodeIndex)
+		indexTreeNodes(root, m.descendantNodeIndex)
 	}
 	for _, o := range m.organisms {
-		if node, ok := nodeIndex[o.ID]; ok {
+		if node, ok := m.descendantNodeIndex[o.ID]; ok {
 			o.TreeNode = node
 		}
 	}
@@ -189,7 +190,6 @@ func recordToNode(rec checkpoint.DescendantNodeRecord, parent *organism.Descenda
 	node := &organism.DescendantNode{
 		ID:                   int(rec.ID),
 		Color:                colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
-		PhEffectColor:        colorful.Color{R: float64(rec.PhEffectColorR), G: float64(rec.PhEffectColorG), B: float64(rec.PhEffectColorB)},
 		StartCycle:           startCycle,
 		EndCycle:             int(rec.EndCycle),
 		AllBranchesDeadCycle: int(rec.AllBranchesDeadCycle),
@@ -230,9 +230,9 @@ func RestoreOrganismManager(
 		originalAncestors:      ancestorIDs,
 		originalAncestorColors: ancestorColors,
 		descendantTrees:        make(map[int]*organism.DescendantNode),
+		descendantNodeIndex:    make(map[int]*organism.DescendantNode),
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
-			HistoryPhEffect:       make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
 		},
 	}

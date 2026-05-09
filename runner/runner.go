@@ -21,21 +21,46 @@ import (
 type runnerState int
 
 const (
-	stateConfigScreen runnerState = iota
-	stateSimulating   // headless sim running in goroutine, progress UI shown
-	stateStopped      // sim finished, Explore button shown
-	stateReplay       // full replay viewer
+	// stateSplash plays the title-card animation on first launch.
+	stateSplash runnerState = iota
+	// stateMainMenu shows the four-button top-level menu.
+	stateMainMenu
+	// stateRules shows the scrollable rules explainer.
+	stateRules
+	// stateMainMenuPopup overlays the New Simulation popup on the main
+	// menu. The popup owns its own sub-mode (config / running /
+	// complete) and dispatches simulation lifecycle requests via Take.
+	stateMainMenuPopup
+	// stateLoadingReplay is the brief gap between a View / Load
+	// Previous click and the replay controller finishing on a
+	// background goroutine. The previous screen (menu, optionally with
+	// the popup) keeps painting underneath an animated loading overlay
+	// so the user sees feedback while replay.NewController churns
+	// through the .pzr file.
+	stateLoadingReplay
+	// stateReplay is the full replay viewer (unchanged).
+	stateReplay
 )
 
 type Runner struct {
-	opts           *c.Options
-	state          runnerState
-	configScreen   *ux.ConfigScreen
-	progressScreen *ux.ProgressScreen
-	sim            *simulation.Simulation
-	ui             *ux.Interface
-	replayCtrl     *replay.Controller
-	checkpointPath string // path to the .pzr file being written
+	opts  *c.Options
+	state runnerState
+
+	// Per-state UI. All optional; only the field for the active state
+	// is non-nil at any given moment, but we hold them across frames
+	// rather than rebuilding so transient state (scroll position,
+	// scroll Y, edit selection) survives mode swaps within the popup.
+	splash    *ux.Splash
+	mainMenu  *ux.MainMenu
+	rules     *ux.RulesScreen
+	simPopup  *ux.SimPopup
+
+	// Replay-mode UI.
+	sim        *simulation.Simulation
+	ui         *ux.Interface
+	replayCtrl *replay.Controller
+
+	checkpointPath string
 	pressedKeys    map[ebiten.Key]bool
 
 	// lastHealthCycle is the most recent cycle for which logReplayHealth
@@ -43,44 +68,83 @@ type Runner struct {
 	// spam the log every frame.
 	lastHealthCycle int
 
-	// activeSim is the currently-running headless simulation. We
-	// advance it inside Update() rather than a background goroutine
-	// so WASM builds yield to the JS event loop between frame ticks
-	// (Go's WASM scheduler is cooperative — a tight goroutine loop
-	// freezes the page).
+	// activeSim is the currently-running headless simulation while the
+	// popup is in its running sub-mode. Stepped inside Update() rather
+	// than a goroutine so WASM builds yield to the JS event loop
+	// between frame ticks.
 	activeSim      *simulation.Simulation
 	activeSimStart time.Time
+
+	// loadingResultCh is the rendezvous channel for the goroutine
+	// that's loading a .pzr file. Non-nil while a load is in flight;
+	// nil otherwise. Each Update of stateLoadingReplay does a
+	// non-blocking receive so the render loop keeps running (and the
+	// loading overlay keeps animating) until the result arrives.
+	loadingResultCh chan replayLoadResult
+	// loadStartedAt is the wall-clock time we kicked off the load.
+	// Used by the menu-source loading overlay to animate dots.
+	loadStartedAt time.Time
+}
+
+// replayLoadResult carries the outcome of a background
+// replay.NewController call so the main goroutine can install the
+// controller (or report the error) without blocking.
+type replayLoadResult struct {
+	ctrl *replay.Controller
+	err  error
 }
 
 // stepSimulationBudget caps how long we spend advancing the headless
 // simulation per ebiten Update tick. The browser needs the rest of the
 // frame to render and stay responsive; native runs are paced by the
-// scheduler anyway. We're more aggressive here than during replay
-// because the progress screen has almost no interactive state — just
-// the Stop button and a scrolling log — so a 30 fps render rate is
-// fine and the sim claims the rest of the wall-clock budget.
-//
-// 25ms / 40 fps minimum keeps the page responsive enough that the
-// Stop button still reacts within ~25ms; sim throughput on wasm is
-// noticeably better than the previous 10ms / 60 fps split.
+// scheduler anyway. 25ms / 40fps minimum keeps the page responsive
+// enough that the Stop button still reacts within ~25ms.
 const stepSimulationBudget = 25 * time.Millisecond
 
 func (r *Runner) Update() error {
 	switch r.state {
-	case stateConfigScreen:
-		if r.configScreen.Update() {
-			globals := r.configScreen.Globals()
-			c.SetGlobals(globals)
-			resources.Init()
-			r.startHeadlessSimulation()
+	case stateSplash:
+		if r.splash.Update() {
+			r.enterMainMenu()
 		}
-	case stateSimulating:
-		r.stepSimulation()
-		r.progressScreen.Update()
-	case stateStopped:
-		if r.progressScreen.Update() {
-			r.startReplayViewer()
+	case stateMainMenu:
+		switch r.mainMenu.Update() {
+		case ux.MenuChoiceNewSimulation:
+			r.openNewSimulationPopup()
+		case ux.MenuChoiceLoadPrevious:
+			if path, ok := mostRecentReplay(); ok {
+				r.beginLoadingReplay(path)
+			}
+		case ux.MenuChoiceRules:
+			r.rules = ux.NewRulesScreen()
+			r.state = stateRules
+		case ux.MenuChoiceExit:
+			os.Exit(0)
 		}
+	case stateRules:
+		if r.rules.Update() {
+			r.state = stateMainMenu
+		}
+	case stateMainMenuPopup:
+		// While the popup is in running mode, advance the sim. The
+		// popup itself doesn't know how to step a sim — the runner
+		// owns that loop and feeds the popup log lines + completion
+		// stats.
+		if r.simPopup.Mode() == ux.SimPopupRunning {
+			r.stepSimulation()
+		}
+		r.simPopup.Update()
+		switch r.simPopup.Take() {
+		case ux.PopupReqCancel:
+			r.simPopup = nil
+			r.state = stateMainMenu
+		case ux.PopupReqStart, ux.PopupReqRetry:
+			r.startSimFromPopup()
+		case ux.PopupReqView:
+			r.beginLoadingReplay(r.checkpointPath)
+		}
+	case stateLoadingReplay:
+		r.checkReplayLoad()
 	case stateReplay:
 		r.ui.HandleUserInput()
 		r.replayCtrl.Update()
@@ -90,13 +154,145 @@ func (r *Runner) Update() error {
 	return nil
 }
 
+// enterMainMenu builds the main menu and toggles the Load Previous
+// button based on whether a saved replay exists. Called on first
+// transition from splash and any later return-to-menu.
+func (r *Runner) enterMainMenu() {
+	r.mainMenu = ux.NewMainMenu()
+	if _, ok := mostRecentReplay(); !ok {
+		r.mainMenu.SetDisabled(ux.MenuChoiceLoadPrevious, true)
+	}
+	r.state = stateMainMenu
+}
+
+// openNewSimulationPopup spawns the popup over the main menu in
+// config sub-mode. We work on a fresh copy of the default globals so
+// uncommitted edits never leak back to the menu / earlier runs.
+func (r *Runner) openNewSimulationPopup() {
+	globals := c.GetDefaultGlobals()
+	// CLI --seed seeds the form so the user can see / edit it; once
+	// inside the popup, globals.Seed is the source of truth and
+	// opts.Seed stays out of the way.
+	if r.opts.Seed != 0 {
+		globals.Seed = r.opts.Seed
+		r.opts.Seed = 0
+	}
+	r.simPopup = ux.NewSimPopup(&globals)
+	r.state = stateMainMenuPopup
+}
+
+// beginLoadingReplay transitions into stateLoadingReplay and kicks
+// off the controller load on a background goroutine. The previous
+// state (menu, optionally with the popup on top) keeps painting
+// underneath an animated loading overlay so the user sees feedback
+// during the multi-second load. Either entry point — popup View or
+// menu Load Previous — funnels through here.
+func (r *Runner) beginLoadingReplay(path string) {
+	if r.loadingResultCh != nil {
+		return // already loading
+	}
+	r.checkpointPath = path
+	r.loadStartedAt = time.Now()
+
+	if r.simPopup != nil {
+		r.simPopup.SetLoadingReplay(true)
+	}
+
+	ch := make(chan replayLoadResult, 1)
+	r.loadingResultCh = ch
+	opts := r.opts // pointer; controller doesn't mutate, safe to share
+	go func() {
+		ctrl, err := replay.NewController(path, opts)
+		ch <- replayLoadResult{ctrl: ctrl, err: err}
+	}()
+	r.state = stateLoadingReplay
+}
+
+// checkReplayLoad does a non-blocking receive on the load channel.
+// On success it installs the controller (UI construction has to run
+// on the main goroutine because it touches ebiten.Image) and
+// transitions to stateReplay. On failure it logs and reverts to the
+// state we came from — popup if one is still open, otherwise the
+// main menu — so the user can retry without losing their place.
+func (r *Runner) checkReplayLoad() {
+	if r.loadingResultCh == nil {
+		// Shouldn't happen, but if we got into stateLoadingReplay
+		// without a pending load, recover by dropping back to the
+		// most sensible previous state.
+		if r.simPopup != nil {
+			r.state = stateMainMenuPopup
+		} else {
+			r.state = stateMainMenu
+		}
+		return
+	}
+	select {
+	case res := <-r.loadingResultCh:
+		r.loadingResultCh = nil
+		if res.err != nil {
+			log.Printf("Failed to open replay: %v", res.err)
+			if r.simPopup != nil {
+				r.simPopup.SetLoadingReplay(false)
+				r.state = stateMainMenuPopup
+			} else {
+				r.state = stateMainMenu
+			}
+			return
+		}
+		r.installReplayController(res.ctrl)
+	default:
+		// still loading — keep rendering the overlay
+	}
+}
+
+// installReplayController mounts a freshly-loaded controller and
+// builds the replay UI on the main goroutine. Shared between the
+// async loading path and any future synchronous fallback.
+func (r *Runner) installReplayController(ctrl *replay.Controller) {
+	r.replayCtrl = ctrl
+	r.sim = ctrl.Simulation()
+	r.ui = ux.NewInterface(r.sim)
+	r.ui.SetReplayController(ctrl)
+	r.simPopup = nil
+	r.state = stateReplay
+	ebiten.SetScreenClearedEveryFrame(false)
+}
+
+// startSimFromPopup resolves the seed, promotes the popup's globals
+// to the active config, and kicks off a new headless simulation. Used
+// for both initial Start and Retry; Retry just clears any leftover
+// 0-means-random seed first so a fresh wall-clock value is generated.
+func (r *Runner) startSimFromPopup() {
+	if r.simPopup == nil {
+		return
+	}
+	globals := r.simPopup.Globals()
+
+	// Retry: zero out the seed so the wall-clock branch fires below.
+	// Initial Start respects whatever the user has typed — if they
+	// left it 0, we generate; if they set it, we honour it.
+	if r.simPopup.Mode() == ux.SimPopupComplete {
+		globals.Seed = 0
+	}
+
+	if globals.Seed == 0 {
+		globals.Seed = int(time.Now().UnixNano())
+	}
+
+	c.SetGlobals(globals)
+	resources.Init()
+
+	r.checkpointPath = r.opts.CheckpointFile
+	r.activeSim = simulation.NewSimulation(r.opts)
+	r.activeSimStart = time.Now()
+
+	r.simPopup.SetDisplaySeed(globals.Seed)
+	r.simPopup.SetRunning()
+}
+
 // logReplayHealth prints heap usage and per-window image-allocation
-// counts at a fixed cycle interval so we can correlate the
-// IDXGISwapChain DEVICE_REMOVED crashes with allocation churn /
-// memory growth. instrument.NewImage is wired into the per-frame
-// hot paths (grid viewport, minimap clipped, graph renderers); a
-// rising count between samples points at allocation churn, while
-// a rising HeapAlloc with stable count points at retained images.
+// counts at a fixed cycle interval so we can correlate IDXGISwapChain
+// DEVICE_REMOVED crashes with allocation churn / memory growth.
 func (r *Runner) logReplayHealth() {
 	cycle := r.replayCtrl.Cycle()
 	if cycle == 0 || cycle%500 != 0 || cycle == r.lastHealthCycle {
@@ -117,10 +313,39 @@ func (r *Runner) logReplayHealth() {
 
 func (r *Runner) Draw(screen *ebiten.Image) {
 	switch r.state {
-	case stateConfigScreen:
-		r.configScreen.Draw(screen)
-	case stateSimulating, stateStopped:
-		r.progressScreen.Draw(screen)
+	case stateSplash:
+		r.splash.Draw(screen)
+	case stateMainMenu:
+		r.mainMenu.Draw(screen)
+	case stateRules:
+		r.rules.Draw(screen)
+	case stateMainMenuPopup:
+		// Menu first so it shows through the popup's dim layer; if
+		// we got here from the --config bypass there's no menu to
+		// paint, and the popup's dim layer falls on a cleared screen.
+		if r.mainMenu != nil {
+			r.mainMenu.Draw(screen)
+		} else {
+			screen.Clear()
+		}
+		r.simPopup.Draw(screen)
+	case stateLoadingReplay:
+		// Keep painting whatever was on screen when the user clicked
+		// (menu, optionally with popup) so the loading state reads
+		// as a continuation of their last view rather than a hard
+		// cut. The popup paints its own loading overlay when its
+		// loadingReplay flag is set; the menu-only path uses the
+		// shared DrawLoadingReplayOverlay helper.
+		if r.mainMenu != nil {
+			r.mainMenu.Draw(screen)
+		} else {
+			screen.Clear()
+		}
+		if r.simPopup != nil {
+			r.simPopup.Draw(screen)
+		} else {
+			ux.DrawLoadingReplayOverlay(screen, r.loadStartedAt)
+		}
 	case stateReplay:
 		r.ui.Render(screen)
 		r.replayCtrl.Simulation().ClearUpdatedPoints()
@@ -140,65 +365,59 @@ func (r *Runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
 }
 
-func (r *Runner) startHeadlessSimulation() {
-	r.checkpointPath = r.opts.CheckpointFile
-	r.progressScreen = ux.NewProgressScreen()
-	r.state = stateSimulating
-
-	ebiten.SetScreenClearedEveryFrame(true)
-
-	r.activeSim = simulation.NewSimulation(r.opts)
-	r.activeSimStart = time.Now()
-}
-
-// stepSimulation advances the headless simulation in time-bounded
-// batches per ebiten frame. Replaces the previous "spin a goroutine
-// until done" structure so WASM builds yield to the JS event loop
-// between batches and the page stays responsive. Termination paths
-// (sim done, user clicked Stop) finalise the recorder, log the
-// summary, and transition state — same as the old goroutine's tail.
+// stepSimulation advances the headless sim in time-bounded batches
+// per ebiten frame. Termination paths (sim done / Stop clicked) close
+// the recorder, log the summary into the popup, and flip the popup
+// into completion mode.
 func (r *Runner) stepSimulation() {
 	if r.activeSim == nil {
 		return
 	}
 	deadline := time.Now().Add(stepSimulationBudget)
-	stopRequested := r.progressScreen.IsStopRequested()
+	stopRequested := r.simPopup.StopRequested()
 	for !stopRequested && !r.activeSim.IsDone() && time.Now().Before(deadline) {
 		r.activeSim.Update()
 		if r.activeSim.Cycle()%100 == 0 {
-			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(), r.activeSim.AveragePh())
-			r.progressScreen.AddLog(line)
+			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(),
+				r.activeSim.FoodCount(), r.activeSim.AveragePh())
+			r.simPopup.AddLog(line)
 		}
-		if r.activeSim.Cycle()%1000 == 0 {
-			if summary := r.activeSim.TimingSummary(); summary != "" {
-				r.progressScreen.SetTimingSummary(summary)
-			}
-		}
-		stopRequested = r.progressScreen.IsStopRequested()
+		stopRequested = r.simPopup.StopRequested()
 	}
 	if !r.activeSim.IsDone() && !stopRequested {
 		return
 	}
 
-	// Sim is finished — finalise.
 	r.activeSim.CloseRecorder()
 	elapsed := time.Since(r.activeSimStart)
-	r.progressScreen.AddLog("")
-	r.progressScreen.AddLog(fmt.Sprintf("Simulation ended at cycle %d (%s)", r.activeSim.Cycle(), elapsed.Round(time.Millisecond)))
+	finalCycle := r.activeSim.Cycle()
+	finalOrgs := r.activeSim.OrganismCount()
+	finalFood := r.activeSim.FoodCount()
+
+	replaySize := ""
 	if size, ok := replayFileSize(r.checkpointPath); ok {
-		r.progressScreen.AddLog(fmt.Sprintf("Replay saved to %s (%s)", r.checkpointPath, size))
+		replaySize = size
 	}
-	r.progressScreen.SetStopped()
+	r.simPopup.SetSimComplete(finalCycle, finalOrgs, finalFood, elapsed, r.checkpointPath, replaySize)
 	r.activeSim = nil
-	r.state = stateStopped
 }
 
-// replayFileSize returns a human-readable size of the .pzr file at path,
-// or ("", false) if the file is missing / unreadable. Used after the
-// sim finishes to report where the replay landed and how big it got.
-// On WASM the path resolves to an in-memory MemFile registered by
-// the checkpoint writer; we look that up first so the size still
-// reads as a sensible number even though there's no real file.
+// mostRecentReplay reports whether a saved replay exists and where.
+// Wraps both the WASM in-memory file registry and the desktop temp
+// file so Load Previous works in either environment.
+func mostRecentReplay() (string, bool) {
+	path := lastReplayPath()
+	if _, ok := checkpoint.MemFileSize(path); ok {
+		return path, true
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path, true
+	}
+	return "", false
+}
+
+// replayFileSize returns a human-readable size of the .pzr file at
+// path, or ("", false) if missing/unreadable.
 func replayFileSize(path string) (string, bool) {
 	if size, ok := checkpoint.MemFileSize(path); ok {
 		return formatByteSize(size), true
@@ -228,26 +447,8 @@ func formatByteSize(n int64) string {
 	}
 }
 
-func (r *Runner) startReplayViewer() {
-	ctrl, err := replay.NewController(r.checkpointPath, r.opts)
-	if err != nil {
-		log.Printf("Failed to open replay: %v", err)
-		return
-	}
-
-	r.replayCtrl = ctrl
-	r.sim = ctrl.Simulation()
-	r.ui = ux.NewInterface(r.sim)
-	r.ui.SetReplayController(ctrl)
-	r.state = stateReplay
-
-	ebiten.SetScreenClearedEveryFrame(false)
-}
-
 // lastReplayPath is the stable tmp-directory path used for the most
-// recent simulation's replay file. --resume loads from this path; a
-// fresh run (no --resume) overwrites it via os.Create when the writer
-// opens, so old data is replaced rather than accumulating alongside.
+// recent simulation's replay file.
 func lastReplayPath() string {
 	return filepath.Join(os.TempDir(), "protozoa_last.pzr")
 }
@@ -257,11 +458,6 @@ func ensureCheckpointPath(opts *c.Options) {
 		opts.CheckpointFile = lastReplayPath()
 	}
 	if opts.CheckpointInterval <= 0 {
-		// 100 cycles is the default sweet spot: with the v2 compact
-		// snapshot encoding (~70–90 KB per snapshot for typical
-		// pop/grid sizes) a full 10k-cycle run lands around ~9 MB on
-		// disk, and step-back via SeekToCycle has to forward-sim at
-		// most 100 cycles regardless of where the user clicks.
 		opts.CheckpointInterval = 100
 	}
 }
@@ -271,10 +467,6 @@ func RunSimulation(opts *c.Options) {
 	ensureCheckpointPath(opts)
 
 	if opts.AnimationTest {
-		// Standalone animation preview — no simulation runs, no config
-		// screen. Just loop every organism animation in a matrix.
-		// Window size is sized to fit the (4 dirs × 3 sizes) × 7 anims
-		// grid at the default zoom; user can resize freely.
 		ebiten.SetWindowResizable(true)
 		ebiten.SetWindowSize(900, 960)
 		ebiten.SetScreenClearedEveryFrame(true)
@@ -284,12 +476,8 @@ func RunSimulation(opts *c.Options) {
 		return
 	}
 
-	// --resume: jump straight into the replay viewer using the
-	// previously-saved file, skipping the config screen and the sim.
-	// Ignored if the user explicitly passed --replay (that wins) or
-	// --headless (no GUI to show a replay in). If the stable file is
-	// missing we warn and fall through to the normal startup path so
-	// the user gets a useful session instead of an error exit.
+	// --resume promotes the most-recent .pzr into a replay launch,
+	// unless --replay or --headless already steered us elsewhere.
 	if opts.Resume && !opts.IsHeadless && opts.ReplayFile == "" {
 		path := lastReplayPath()
 		if _, err := os.Stat(path); err == nil {
@@ -300,90 +488,112 @@ func RunSimulation(opts *c.Options) {
 	}
 
 	if opts.IsHeadless {
-		// Pure headless mode (no GUI)
-		sumAllCycles := 0
-		for count := 0; count < opts.TrialCount; count++ {
-			var sim *simulation.Simulation
-			if opts.RestoreFile != "" {
-				var err error
-				sim, err = simulation.RestoreFromCheckpoint(opts.RestoreFile, opts)
-				if err != nil {
-					log.Fatalf("Failed to restore: %v", err)
-				}
-				fmt.Printf("\nRestored from checkpoint at cycle %d", sim.Cycle())
-			} else {
-				sim = simulation.NewSimulation(opts)
-			}
-			start := time.Now()
-			for !sim.IsDone() {
-				sim.Update()
-				if sim.Cycle()%100 == 0 {
-					fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
-				}
-				if sim.Cycle()%1000 == 0 {
-					if summary := sim.TimingSummary(); summary != "" {
-						fmt.Printf("\n\n%s\n", summary)
-					}
-				}
-			}
-			sim.CloseRecorder()
-			sumAllCycles += sim.Cycle()
-			elapsed := time.Since(start)
-			fmt.Printf("\nTotal runtime for simulation %d: %s, cycles: %d\n", count, elapsed, sim.Cycle())
-			if size, ok := replayFileSize(opts.CheckpointFile); ok {
-				fmt.Printf("Replay saved to %s (%s)\n", opts.CheckpointFile, size)
-			}
-		}
-		avgCycles := sumAllCycles / opts.TrialCount
-		fmt.Printf("\nAverage number of cycles: %d\n", avgCycles)
-	} else if opts.ReplayFile != "" {
-		// Direct replay of existing .pzr file
-		ctrl, err := replay.NewController(opts.ReplayFile, opts)
-		if err != nil {
-			log.Fatalf("Failed to open replay: %v", err)
-		}
-		defer ctrl.Close()
+		runHeadless(opts)
+		return
+	}
+	if opts.ReplayFile != "" {
+		runReplay(opts)
+		return
+	}
 
-		gameRunner := &Runner{
-			opts:        opts,
-			state:       stateReplay,
-			replayCtrl:  ctrl,
-			pressedKeys: map[ebiten.Key]bool{},
-		}
-		gameRunner.sim = ctrl.Simulation()
-		gameRunner.ui = ux.NewInterface(gameRunner.sim)
-		gameRunner.ui.SetReplayController(ctrl)
+	// GUI mode: branches by what the CLI told us
+	gameRunner := &Runner{
+		opts:        opts,
+		pressedKeys: map[ebiten.Key]bool{},
+	}
 
-		ebiten.SetWindowResizable(true)
-		ebiten.SetScreenClearedEveryFrame(false)
-		if err := ebiten.RunGame(gameRunner); err != nil {
-			log.Fatal(err)
+	switch {
+	case opts.ConfigFile != "":
+		// --config preloads a setting file and skips the splash + menu.
+		// Drop straight into the popup in running mode — same UX as
+		// before in the sense that the user sees logs while the sim
+		// runs, then gets View / Retry / Edit on completion.
+		gameRunner.state = stateMainMenuPopup
+		globals := c.GetCurrentGlobals()
+		// Promote any CLI --seed onto the globals so it appears in
+		// the popup display and survives Edit Settings; mirrors the
+		// menu path's openNewSimulationPopup.
+		if opts.Seed != 0 {
+			globals.Seed = opts.Seed
+			opts.Seed = 0
 		}
-	} else {
-		// GUI mode: config screen → headless sim → replay
-		gameRunner := &Runner{
-			opts:        opts,
-			pressedKeys: map[ebiten.Key]bool{},
-		}
+		gameRunner.simPopup = ux.NewSimPopup(globals)
+		gameRunner.startSimFromPopup()
+	default:
+		// No flags — full splash → menu → popup → replay flow.
+		gameRunner.splash = ux.NewSplash()
+		gameRunner.state = stateSplash
+	}
 
-		if opts.ConfigFile != "" {
-			// Skip config screen, go straight to headless sim
-			resources.Init()
-			gameRunner.progressScreen = ux.NewProgressScreen()
-			gameRunner.state = stateSimulating
-			// Need to start simulation after ebiten loop starts,
-			// so we do it on the first Update by using a flag
-			gameRunner.startHeadlessSimulation()
+	ebiten.SetWindowResizable(true)
+	ebiten.SetScreenClearedEveryFrame(true)
+	if err := ebiten.RunGame(gameRunner); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// runHeadless executes the pure-CLI loop (no GUI) used by --headless
+// and --trials. Identical to the previous inline implementation, just
+// extracted so RunSimulation reads cleaner.
+func runHeadless(opts *c.Options) {
+	sumAllCycles := 0
+	for count := 0; count < opts.TrialCount; count++ {
+		var sim *simulation.Simulation
+		if opts.RestoreFile != "" {
+			var err error
+			sim, err = simulation.RestoreFromCheckpoint(opts.RestoreFile, opts)
+			if err != nil {
+				log.Fatalf("Failed to restore: %v", err)
+			}
+			fmt.Printf("\nRestored from checkpoint at cycle %d", sim.Cycle())
 		} else {
-			globals := c.GetDefaultGlobals()
-			gameRunner.configScreen = ux.NewConfigScreen(&globals)
-			gameRunner.state = stateConfigScreen
+			sim = simulation.NewSimulation(opts)
 		}
+		start := time.Now()
+		for !sim.IsDone() {
+			sim.Update()
+			if sim.Cycle()%100 == 0 {
+				fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
+			}
+			if sim.Cycle()%1000 == 0 {
+				if summary := sim.TimingSummary(); summary != "" {
+					fmt.Printf("\n\n%s\n", summary)
+				}
+			}
+		}
+		sim.CloseRecorder()
+		sumAllCycles += sim.Cycle()
+		elapsed := time.Since(start)
+		fmt.Printf("\nTotal runtime for simulation %d: %s, cycles: %d\n", count, elapsed, sim.Cycle())
+		if size, ok := replayFileSize(opts.CheckpointFile); ok {
+			fmt.Printf("Replay saved to %s (%s)\n", opts.CheckpointFile, size)
+		}
+	}
+	avgCycles := sumAllCycles / opts.TrialCount
+	fmt.Printf("\nAverage number of cycles: %d\n", avgCycles)
+}
 
-		ebiten.SetWindowResizable(true)
-		ebiten.SetScreenClearedEveryFrame(true)
-		if err := ebiten.RunGame(gameRunner); err != nil {
-			log.Fatal(err)
-		}
+// runReplay opens the replay viewer directly (--replay path).
+func runReplay(opts *c.Options) {
+	ctrl, err := replay.NewController(opts.ReplayFile, opts)
+	if err != nil {
+		log.Fatalf("Failed to open replay: %v", err)
+	}
+	defer ctrl.Close()
+
+	gameRunner := &Runner{
+		opts:        opts,
+		state:       stateReplay,
+		replayCtrl:  ctrl,
+		pressedKeys: map[ebiten.Key]bool{},
+	}
+	gameRunner.sim = ctrl.Simulation()
+	gameRunner.ui = ux.NewInterface(gameRunner.sim)
+	gameRunner.ui.SetReplayController(ctrl)
+
+	ebiten.SetWindowResizable(true)
+	ebiten.SetScreenClearedEveryFrame(false)
+	if err := ebiten.RunGame(gameRunner); err != nil {
+		log.Fatal(err)
 	}
 }

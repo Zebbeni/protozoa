@@ -41,17 +41,28 @@ type Interface struct {
 	mouseDown    bool
 	isDragging   bool
 	lastDragPos  image.Point
+
+	// lastAutoSelectedID tracks the most recent auto-pick so we only
+	// trigger a smooth pan when Find Most actually changes selection,
+	// not on every frame the same organism keeps winning.
+	lastAutoSelectedID int
 }
+
+// autoPanDuration is how long the smooth-pan transition takes when
+// the camera follows a newly-selected organism. ~1s feels responsive
+// without being jarring across the whole world.
+const autoPanDuration = time.Second
 
 func NewInterface(sim *simulation.Simulation) *Interface {
 	grid := NewGrid(sim)
 	i := &Interface{
-		simulation:   sim,
-		grid:         grid,
-		panel:        NewPanel(sim, grid),
-		minimap:      NewMinimap(sim, grid),
-		gridOptions:  &ebiten.DrawImageOptions{},
-		panelOptions: &ebiten.DrawImageOptions{},
+		simulation:         sim,
+		grid:               grid,
+		panel:              NewPanel(sim, grid),
+		minimap:            NewMinimap(sim, grid),
+		gridOptions:        &ebiten.DrawImageOptions{},
+		panelOptions:       &ebiten.DrawImageOptions{},
+		lastAutoSelectedID: -1,
 	}
 	i.gridOptions.GeoM.Scale(GridDisplayScale, GridDisplayScale)
 	i.gridOptions.GeoM.Translate(panelWidth, 0)
@@ -115,8 +126,8 @@ func (i *Interface) Render(screen *ebiten.Image) {
 			if i.replayCtrl != nil {
 				speed = i.replayCtrl.Speed
 			}
-			log.Printf("Render panic at cycle=%d speed=%v viewMode=%v: %v\n%s",
-				cycle, speed, i.grid.ViewMode(), rec, debug.Stack())
+			log.Printf("Render panic at cycle=%d speed=%v showPh=%v orgColor=%v: %v\n%s",
+				cycle, speed, i.grid.ShowPh(), i.grid.OrgColor(), rec, debug.Stack())
 			panic(rec)
 		}
 	}()
@@ -136,6 +147,9 @@ func (i *Interface) Render(screen *ebiten.Image) {
 }
 
 func (i *Interface) HandleUserInput() {
+	// Advance any in-flight smooth-pan animation before reading input.
+	// Manual pan / zoom in the input handlers will cancel it as needed.
+	i.grid.Camera.UpdatePan()
 	i.handleKeyboard()
 	i.panel.HandleScroll()
 	i.handleMouse()
@@ -148,10 +162,6 @@ func (i *Interface) handleKeyboard() {
 	}
 	if inpututil.IsKeyJustReleased(ebiten.KeyD) {
 		i.simulation.ToggleDebug()
-	}
-	if inpututil.IsKeyJustReleased(ebiten.KeyT) {
-		cycleTheme()
-		i.grid.doRefresh = true
 	}
 
 	// Zoom via keyboard
@@ -258,10 +268,27 @@ func (i *Interface) UpdateSelected() {
 		id = i.simulation.GetMostTraveledId()
 	case selectMostSuccessful:
 		id = i.simulation.GetMostSuccessfulId()
+	case selectMostAggressive:
+		id = i.simulation.GetMostAggressiveId()
 	default:
+		// Manual mode (or anything that isn't a Find Most pick) — clear
+		// the tracker so the next time auto-select takes over we always
+		// pan to that first pick.
+		i.lastAutoSelectedID = -1
 		return
 	}
 	i.simulation.Select(id)
+
+	// Smooth-pan only when the auto-pick changes; otherwise the camera
+	// would re-centre every frame and the user couldn't pan freely.
+	if id != i.lastAutoSelectedID {
+		i.lastAutoSelectedID = id
+		if id >= 0 {
+			if info := i.simulation.GetOrganismInfoByID(id); info != nil {
+				i.grid.Camera.PanTo(info.Location.X, info.Location.Y, autoPanDuration)
+			}
+		}
+	}
 }
 
 func (i *Interface) handleMouseHover() {
@@ -288,6 +315,7 @@ func (i *Interface) renderGrid(screen *ebiten.Image) {
 	// authored size instead of being multiplied by GridDisplayScale.
 	i.grid.RenderOverlayText(screen)
 	i.debug.gridRenderTime = time.Since(start)
+	i.debug.gridTimings = i.grid.LastRenderTimings()
 }
 
 func (i *Interface) renderPanel(screen *ebiten.Image) {

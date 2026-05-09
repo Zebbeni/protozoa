@@ -25,6 +25,23 @@ type Organism struct {
 	OriginalAncestorID   int
 	TreeNode             *DescendantNode
 
+	// AttackTotal counts every cycle the organism resolved an attack
+	// action, regardless of whether anything was in front of it.
+	// AttackHits counts the subset where there was an organism in the
+	// target cell at attack time. The pair drives the "MOST AGGRESSIVE"
+	// highlight (sorted by AttackHits) and the "Attacks: hits/total"
+	// stat in the panel.
+	AttackTotal int
+	AttackHits  int
+
+	// PhPositive / PhNegative are the lifetime cumulative magnitudes
+	// of pH the organism has pushed *up* (eating) and *down* (chemo)
+	// at its surrounding cells. Both values are non-negative; the
+	// renderer derives a colour from max/min and which one is larger
+	// to tint organisms by their net behavioural pH effect.
+	PhPositive float64
+	PhNegative float64
+
 	traits Traits
 
 	decisionTree *d.Tree
@@ -91,7 +108,7 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, direction utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
-	if rng.Float64() < o.ChanceToMutateDecisionTree() {
+	if rng.Float64() < c.ChanceToMutateDecisionTree() {
 		inheritedTree = d.MutateTree(rng, inheritedTree)
 	}
 	traits.OrganismColor = d.TreeColor(inheritedTree)
@@ -119,7 +136,8 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 // Restore creates an organism from fully specified state (for checkpoint restore).
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
-	traits Traits, tree *d.Tree, action d.Action, api LookupAPI) *Organism {
+	traits Traits, tree *d.Tree, action d.Action,
+	attackTotal, attackHits int, phPositive, phNegative float64, api LookupAPI) *Organism {
 	return &Organism{
 		ID:                   id,
 		Age:                  age,
@@ -134,6 +152,10 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		traits:               traits,
 		decisionTree:         tree,
 		action:               action,
+		AttackTotal:          attackTotal,
+		AttackHits:           attackHits,
+		PhPositive:           phPositive,
+		PhNegative:           phNegative,
 		lookupAPI:            api,
 	}
 }
@@ -150,10 +172,14 @@ func (o *Organism) Info() *Info {
 		Color:         o.traits.OrganismColor,
 		Age:           o.Age,
 		Children:      o.Children,
-		PhEffect:      o.traits.PhGrowthEffect,
+		TraveledDist:  o.TraveledDist,
+		PhPositive:    o.PhPositive,
+		PhNegative:    o.PhNegative,
 		ChemoFailed:   o.ChemoFailed,
 		EatFailed:     o.EatFailed,
 		BornThisCycle: o.BornThisCycle,
+		AttackTotal:   o.AttackTotal,
+		AttackHits:    o.AttackHits,
 	}
 }
 
@@ -172,24 +198,32 @@ func (o *Organism) UpdateStats() {
 	o.BornThisCycle = false
 }
 
-// UpdateAction runs on each cycle, occasionally changing the current decision
-// tree before running it to determine its next action.
-//
-// chooseAction is called every cycle even when the sim is about to
-// override the result with ActSpawn, so the tree's UsedLastCycle markers
-// stay populated for the panel's decision-tree display. Without this,
-// spawn cycles would leave every node at UsedLastCycle=false (cleared
-// by UpdateStats and never re-set) and the panel would show no ◀◀
-// arrows at all.
+// UpdateAction picks the decision tree's action and stores it on
+// the organism. Spawn promotion happens at the manager level (which
+// can verify against the live grid that a child can fit) — keeping
+// it out of here means a "wants to spawn but trapped" organism
+// resolves through the tree's actual choice, with the request map
+// and side effects matching what will run.
 func (o *Organism) UpdateAction() {
-	chosen := o.chooseAction(o.decisionTree.Node)
-	if o.shouldSpawn() {
-		o.CyclesSinceLastSpawn = 0
-		o.action = d.ActSpawn
-		return
-	}
-	o.action = chosen
+	o.action = o.chooseAction(o.decisionTree.Node)
 }
+
+// PromoteToSpawn is called by the manager during the decide phase
+// when an organism is eligible to spawn AND the grid has room for a
+// child. Sets the action to ActSpawn and resets the spawn cooldown.
+// Trapped organisms (no empty neighbour) skip this call and keep
+// their tree-picked action.
+func (o *Organism) PromoteToSpawn() {
+	o.action = d.ActSpawn
+	o.CyclesSinceLastSpawn = 0
+}
+
+// ShouldSpawn reports whether the organism currently meets the
+// per-organism preconditions for reproducing: enough cycles since
+// its last spawn, enough health to bear the spawn cost, and
+// global-population headroom. Doesn't check whether the grid has
+// room for a child; the manager pairs this with getChildSpawnLocation.
+func (o *Organism) ShouldSpawn() bool { return o.shouldSpawn() }
 
 func (o *Organism) shouldSpawn() bool {
 	if o.CyclesSinceLastSpawn < o.MinCyclesBetweenSpawns() {
@@ -298,10 +332,6 @@ func (o Organism) MinHealthToSpawn() float64 { return o.traits.MinHealthToSpawn 
 // organism to spawn
 func (o Organism) MinCyclesBetweenSpawns() int { return o.traits.MinCyclesBetweenSpawns }
 
-// ChanceToMutateDecisionTree returns the chance this organism will give a
-// mutated copy of its decision tree to each spawned child
-func (o Organism) ChanceToMutateDecisionTree() float64 { return o.traits.ChanceToMutateDecisionTree }
-
 // Action returns the Organism's currently-chosen action
 func (o Organism) Action() d.Action { return o.action }
 
@@ -375,7 +405,7 @@ func (o *Organism) isOrganismRight() bool {
 }
 
 func (o *Organism) isHealthyPhHere() bool {
-	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, o.Traits().PhTolerance)
+	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.PhTolerance())
 }
 
 func (o *Organism) isHealthierPhAhead() bool {

@@ -389,6 +389,11 @@ func (s *Simulation) GetMostTraveledId() int {
 	return s.organismManager.GetMostTraveledId()
 }
 
+// GetMostAggressiveId returns the id of the organism with the most attack hits
+func (s *Simulation) GetMostAggressiveId() int {
+	return s.organismManager.GetMostAggressiveId()
+}
+
 // GetMostSuccessfulId returns the id of the oldest living organism whose
 // descendant tree node meets the "most successful" criteria
 // (AllBranchesDeadCycle == 0 or equal to the tree's max). -1 if none.
@@ -436,6 +441,12 @@ func (s *Simulation) GetOrganismTreeNode(id int) *organism.DescendantNode {
 	return s.organismManager.GetOrganismTreeNode(id)
 }
 
+// GetTreeNodeByID returns the descendant tree node for the given ID,
+// alive or dead.
+func (s *Simulation) GetTreeNodeByID(id int) *organism.DescendantNode {
+	return s.organismManager.GetTreeNodeByID(id)
+}
+
 // GetDescendantTrees returns the root node of each ancestor's family tree
 func (s *Simulation) GetDescendantTrees() map[int]*organism.DescendantNode {
 	return s.organismManager.GetDescendantTrees()
@@ -461,6 +472,11 @@ func (s *Simulation) GetDeadCount() int {
 // GetFoodItems returns a map of all food items in the grid
 func (s *Simulation) GetFoodItems() map[utils.Point]*food.Item {
 	return s.foodManager.GetFoodItems()
+}
+
+// FoodCount returns the total number of food items currently on the grid.
+func (s *Simulation) FoodCount() int {
+	return s.foodManager.FoodCount()
 }
 
 // CheckOrganismAtPoint returns the result of running a check against any

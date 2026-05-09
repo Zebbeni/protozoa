@@ -120,7 +120,6 @@ func (m *OrganismManager) CaptureHistory() *checkpoint.HistoryPayload {
 
 	return &checkpoint.HistoryPayload{
 		PhDistribution: copyHistoryMap(m.history[HistoryPhDistribution]),
-		PhEffect:       copyHistoryMap(m.history[HistoryPhEffect]),
 	}
 }
 
@@ -154,7 +153,6 @@ func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPa
 
 func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 	col, _ := n.Color.(colorful.Color)
-	phCol, _ := n.PhEffectColor.(colorful.Color)
 
 	// Clamp StartCycle to 0 so the unsigned wire format doesn't round-trip
 	// negative values into huge positive ones. The very first ancestor
@@ -172,9 +170,6 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 		ColorR:               float32(col.R),
 		ColorG:               float32(col.G),
 		ColorB:               float32(col.B),
-		PhEffectColorR:       float32(phCol.R),
-		PhEffectColorG:       float32(phCol.G),
-		PhEffectColorB:       float32(phCol.B),
 		StartCycle:           uint32(startCycle),
 		EndCycle:             uint32(n.EndCycle),
 		AllBranchesDeadCycle: uint32(n.AllBranchesDeadCycle),
@@ -202,19 +197,19 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		DirectionX:                 int8(o.Direction.X),
 		DirectionY:                 int8(o.Direction.Y),
 		OriginalAncestorID:         uint32(o.OriginalAncestorID),
-		ColorR:                     float32(traits.OrganismColor.R),
-		ColorG:                     float32(traits.OrganismColor.G),
-		ColorB:                     float32(traits.OrganismColor.B),
-		MaxSize:                    traits.MaxSize,
-		SpawnHealth:                traits.SpawnHealth,
-		MinHealthToSpawn:           traits.MinHealthToSpawn,
-		MinCyclesBetweenSpawns:     uint16(traits.MinCyclesBetweenSpawns),
-		ChanceToMutateDecisionTree: traits.ChanceToMutateDecisionTree,
-		IdealPh:                    traits.IdealPh,
-		PhTolerance:                traits.PhTolerance,
-		PhGrowthEffect:             traits.PhGrowthEffect,
-		MaxLifespan:                uint16(traits.MaxLifespan),
-		DecisionTree:               o.GetDecisionTreeCopy().Serialize(),
-		CurrentAction:              uint8(o.Action()),
+		ColorR:                 float32(traits.OrganismColor.R),
+		ColorG:                 float32(traits.OrganismColor.G),
+		ColorB:                 float32(traits.OrganismColor.B),
+		MaxSize:                traits.MaxSize,
+		SpawnHealth:            traits.SpawnHealth,
+		MinHealthToSpawn:       traits.MinHealthToSpawn,
+		MinCyclesBetweenSpawns: uint16(traits.MinCyclesBetweenSpawns),
+		IdealPh:                traits.IdealPh,
+		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
+		CurrentAction:          uint8(o.Action()),
+		AttackTotal:            uint32(o.AttackTotal),
+		AttackHits:             uint32(o.AttackHits),
+		PhPositive:             o.PhPositive,
+		PhNegative:             o.PhNegative,
 	}
 }

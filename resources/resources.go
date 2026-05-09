@@ -117,7 +117,22 @@ func ReloadImages() {
 // defaulting to AnimIdle when the requested animation has no frames and
 // cycling within the available frames when frame >= len.
 func Sprite(role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
-	set, ok := Images[role]
+	return spriteFromSet(Images, role, anim, frame)
+}
+
+// SpriteAtZoom is like Sprite but reads from a specific sprite-set
+// level (0=4x4, 1=8x8, 2=16x16) regardless of which zoom is currently
+// active. Used by the panel's organism portrait, which always renders
+// from the 16x16 set so the sprite reads at 4x scale.
+func SpriteAtZoom(level int, role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
+	if level < 0 || level >= len(ZoomImages) {
+		return nil
+	}
+	return spriteFromSet(ZoomImages[level], role, anim, frame)
+}
+
+func spriteFromSet(images map[ImageRole]FrameSet, role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
+	set, ok := images[role]
 	if !ok {
 		return nil
 	}
@@ -233,33 +248,46 @@ func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Imag
 // sliced into orgFrames frames; each frame's width is derived from the
 // sheet (total width / orgFrames) so multi-cell sheets (e.g. 128x16 move
 // sheets depicting a 2-cell journey) work without per-action configuration.
-// If the sheet is missing it falls back to repeating the base single-frame
-// sprite.
+//
+// A sheet authored too narrow for the expected frame count (typically a
+// static single-frame asset placed where a multi-frame sheet was
+// expected) gets repeated rather than sliced — splitting an 8x8 sheet
+// into "two 4x8 frames" used to render the sprite at half-width and
+// look like a cropped enlargement.
+//
+// If no sheet file exists at all, falls back to repeating the base
+// role sprite.
 func loadOrganismFrames(path string, role ImageRole, base *ebiten.Image, frameSize, orgFrames int) FrameSet {
-	_ = frameSize // per-frame width is inferred from sheet dimensions
 	set := make(FrameSet, len(animation.AllAnimations))
 	roleName := organismRoleName[role]
 	for _, anim := range animation.AllAnimations {
 		animName := animationFileName[anim]
 		sheetPath := path + roleName + "_" + animName + ".png"
-		if roleName != "" && animName != "" && assetExists(sheetPath) {
-			set[anim] = loadSpriteSheet(sheetPath, orgFrames)
+		if roleName == "" || animName == "" || !assetExists(sheetPath) {
+			set[anim] = repeatSprite(base, orgFrames)
 			continue
 		}
-		set[anim] = repeatSprite(base, orgFrames)
+		sheet := loadImage(sheetPath)
+		if sheet.Bounds().Dx() < orgFrames*frameSize {
+			// Sheet is narrower than orgFrames × cell width — author
+			// intended a single static frame. Repeat it so each frame
+			// slot points at the full image instead of slicing into
+			// invalid sub-frames.
+			set[anim] = repeatSprite(sheet, orgFrames)
+			continue
+		}
+		set[anim] = sliceSheet(sheet, orgFrames)
 	}
 	return set
 }
 
-// loadSpriteSheet loads a horizontal spritesheet and returns per-frame
-// SubImage views. Frame width is inferred from the sheet's dimensions
-// (total width / frames), so a sheet can hold multi-cell frames without
-// the caller specifying the cell size.
-func loadSpriteSheet(path string, frames int) []*ebiten.Image {
+// sliceSheet splits a horizontal spritesheet into per-frame SubImage
+// views. Frame width = total width / frames, height = full sheet
+// height (so multi-cell vertical sprites are preserved per frame).
+func sliceSheet(sheet *ebiten.Image, frames int) []*ebiten.Image {
 	if frames < 1 {
 		frames = 1
 	}
-	sheet := loadImage(path)
 	b := sheet.Bounds()
 	frameW := b.Dx() / frames
 	frameH := b.Dy()

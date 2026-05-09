@@ -2,6 +2,7 @@ package ux
 
 import (
 	"math"
+	"time"
 
 	c "github.com/Zebbeni/protozoa/config"
 )
@@ -67,6 +68,18 @@ type Camera struct {
 	Zoom      ZoomLevel // current zoom level
 	ViewportW int       // viewport pixel width (screen area for grid)
 	ViewportH int       // viewport pixel height
+
+	// Smooth-pan animation state. When panActive, UpdatePan
+	// interpolates X/Y toward panTo over panDuration starting at
+	// panStart. Triggered by PanTo; manual Pan / SetZoom cancel it
+	// so the user always wins over an in-flight transition.
+	panActive    bool
+	panStart     time.Time
+	panDuration  time.Duration
+	panFromX     float64
+	panFromY     float64
+	panToX       float64
+	panToY       float64
 }
 
 // NewCamera creates a camera at medium zoom, centered on the world.
@@ -147,8 +160,10 @@ func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid 
 // Pan adjusts the camera position by the given grid-unit deltas.
 // Free panning on both axes — when the world is smaller than the
 // viewport the renderer tiles copies of the world to fill the
-// viewport, and panning shifts which copy sits where.
+// viewport, and panning shifts which copy sits where. Cancels any
+// in-flight smooth-pan animation so manual input wins.
 func (cam *Camera) Pan(dx, dy float64) {
+	cam.panActive = false
 	cam.X += dx
 	cam.Y += dy
 }
@@ -163,6 +178,10 @@ func (cam *Camera) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 	if level == cam.Zoom {
 		return
 	}
+
+	// Cancel any in-flight smooth pan — the target was computed in the
+	// old zoom's units and would be wrong after the change.
+	cam.panActive = false
 
 	oldUnitSize := cam.GridUnitSize()
 	pivotGridX := cam.X + float64(pivotScreenX)/float64(oldUnitSize)
@@ -187,4 +206,75 @@ func (cam *Camera) CenterOn(gridX, gridY int) {
 	unitSize := cam.GridUnitSize()
 	cam.X = float64(gridX) - float64(cam.ViewportW)/float64(unitSize)/2.0
 	cam.Y = float64(gridY) - float64(cam.ViewportH)/float64(unitSize)/2.0
+}
+
+// PanTo starts a smooth animated pan to centre the camera on
+// (gridX, gridY) over the given duration. Wraps the shorter way around
+// the toroidal world. Cancels any in-flight animation and replaces it
+// with the new target.
+func (cam *Camera) PanTo(gridX, gridY int, duration time.Duration) {
+	if duration <= 0 {
+		cam.CenterOn(gridX, gridY)
+		return
+	}
+	unitSize := cam.GridUnitSize()
+	targetX := float64(gridX) - float64(cam.ViewportW)/float64(unitSize)/2.0
+	targetY := float64(gridY) - float64(cam.ViewportH)/float64(unitSize)/2.0
+
+	// Wrap-aware: pan whichever direction is closer around the world.
+	targetX = shortestWrappedTarget(cam.X, targetX, cam.WorldUnitsWide())
+	targetY = shortestWrappedTarget(cam.Y, targetY, cam.WorldUnitsHigh())
+
+	cam.panActive = true
+	cam.panStart = time.Now()
+	cam.panDuration = duration
+	cam.panFromX, cam.panFromY = cam.X, cam.Y
+	cam.panToX, cam.panToY = targetX, targetY
+}
+
+// UpdatePan advances any active smooth-pan animation. Safe to call
+// every frame; no-op when nothing is in flight.
+func (cam *Camera) UpdatePan() {
+	if !cam.panActive {
+		return
+	}
+	elapsed := time.Since(cam.panStart)
+	if elapsed >= cam.panDuration {
+		cam.X = cam.panToX
+		cam.Y = cam.panToY
+		cam.panActive = false
+		return
+	}
+	t := float64(elapsed) / float64(cam.panDuration)
+	eased := easeInOutCubic(t)
+	cam.X = cam.panFromX + (cam.panToX-cam.panFromX)*eased
+	cam.Y = cam.panFromY + (cam.panToY-cam.panFromY)*eased
+}
+
+// shortestWrappedTarget returns the (possibly out-of-range) target
+// coordinate that produces the shortest signed delta from `from`,
+// given a toroidal world of size `world`. Lets the smooth-pan
+// animation cross the world wrap edge in a straight line instead of
+// looping all the way around.
+func shortestWrappedTarget(from, to, world float64) float64 {
+	if world <= 0 {
+		return to
+	}
+	delta := math.Mod(to-from, world)
+	if delta > world/2 {
+		delta -= world
+	} else if delta < -world/2 {
+		delta += world
+	}
+	return from + delta
+}
+
+// easeInOutCubic is a slow→fast→slow easing curve. Cheap enough for
+// per-frame use and visually preferable to linear interpolation.
+func easeInOutCubic(t float64) float64 {
+	if t < 0.5 {
+		return 4 * t * t * t
+	}
+	p := 2*t - 2
+	return 1 + p*p*p/2
 }

@@ -48,7 +48,11 @@ type configSection struct {
 	fields []configField
 }
 
-// ConfigScreen is the pre-simulation config editor UI
+// ConfigScreen is the pre-simulation config editor UI. Used either as
+// a full-screen panel (legacy path / fallback) or, when SetEmbedded
+// is called, as the body of the New Simulation popup — the popup
+// supplies its own chrome, Cancel/Start buttons, and viewport bounds,
+// and the screen renders only the scrollable form within those bounds.
 type ConfigScreen struct {
 	globals    *c.Globals
 	initValues c.Globals // snapshot of initial values for stable slider ranges
@@ -62,6 +66,20 @@ type ConfigScreen struct {
 	// Slider drag state
 	draggingSlider bool
 	dragField      *configField
+
+	// Embedded mode: when true the screen skips painting its own
+	// background and START button (the popup owns those). The
+	// viewport rect bounds the scroll area in screen coords — rows
+	// outside this range are clipped, the form panel centres
+	// horizontally inside [Left, Right], and the slider column
+	// shrinks if the popup is narrower than the standalone-mode
+	// default. accepted never goes true in embedded mode; the popup
+	// decides when Start fires.
+	embedded       bool
+	viewportLeft   int
+	viewportTop    int
+	viewportRight  int
+	viewportBottom int
 }
 
 func NewConfigScreen(globals *c.Globals) *ConfigScreen {
@@ -76,6 +94,68 @@ func NewConfigScreen(globals *c.Globals) *ConfigScreen {
 
 func (cs *ConfigScreen) Globals() *c.Globals {
 	return cs.globals
+}
+
+// SetEmbedded switches the screen into popup-body mode and binds the
+// scroll viewport to the given screen-coordinate range. Pass the
+// inner bounds of the popup body — the form centres within
+// [left, right] and scrolls within [top, bottom]. Rows outside the
+// vertical range are clipped; the slider column shrinks
+// automatically when right-left is narrower than the standalone
+// panel width.
+func (cs *ConfigScreen) SetEmbedded(left, top, right, bottom int) {
+	cs.embedded = true
+	cs.viewportLeft = left
+	cs.viewportTop = top
+	cs.viewportRight = right
+	cs.viewportBottom = bottom
+}
+
+// panelWidth returns the form's content-column width. Standalone
+// mode uses the fixed default; embedded mode shrinks to fit the
+// popup body when narrower (capped at the default).
+func (cs *ConfigScreen) panelWidth() int {
+	if !cs.embedded {
+		return cfgPanelWidth
+	}
+	avail := cs.viewportRight - cs.viewportLeft
+	if avail > cfgPanelWidth {
+		return cfgPanelWidth
+	}
+	if avail < cfgPanelWidth/2 {
+		// Pathologically narrow popup — clamp so layout math stays
+		// sane. The form will overflow the popup body in this case
+		// but at least won't go negative.
+		return cfgPanelWidth / 2
+	}
+	return avail
+}
+
+// panelX returns the form's left edge in screen coordinates.
+// Embedded mode centres within the popup viewport; standalone mode
+// centres on screen.
+func (cs *ConfigScreen) panelX() int {
+	pw := cs.panelWidth()
+	if cs.embedded {
+		return cs.viewportLeft + (cs.viewportRight-cs.viewportLeft-pw)/2
+	}
+	return (c.ScreenWidth() - pw) / 2
+}
+
+// sliderColWidth returns the slider column's pixel width given the
+// current panel width. The label and value columns keep their fixed
+// widths for legibility; the slider absorbs whatever space remains
+// (with min/max clamps).
+func (cs *ConfigScreen) sliderColWidth() int {
+	const interColGap = 20 // total horizontal padding between label/slider/value
+	sw := cs.panelWidth() - cfgLabelWidth - cfgValueWidth - interColGap
+	if sw < 50 {
+		sw = 50
+	}
+	if sw > cfgSliderWidth {
+		sw = cfgSliderWidth
+	}
+	return sw
 }
 
 // Update handles input; returns true when the user accepts the config.
@@ -110,12 +190,11 @@ func (cs *ConfigScreen) Update() bool {
 		cs.scrollY = 0
 	}
 
-	// Clamp to [0, max]. The max is whatever scrollY puts the
-	// START SIMULATION button just above the bottom of the screen.
-	maxScroll := cs.contentHeight() - c.ScreenHeight() + cfgButtonHeight + cfgPadding*2
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	// Clamp to [0, max]. Outside embedded mode max accounts for the
+	// START SIMULATION button at the bottom; inside embedded mode the
+	// popup owns the button area and the form ends at the viewport's
+	// bottom edge.
+	maxScroll := cs.maxScroll()
 	if cs.scrollY > float64(maxScroll) {
 		cs.scrollY = float64(maxScroll)
 	}
@@ -131,10 +210,7 @@ func (cs *ConfigScreen) Update() bool {
 	}
 
 	// Clamp scroll once more in case the click moved the layout.
-	maxScroll = cs.contentHeight() - c.ScreenHeight() + cfgButtonHeight + cfgPadding*2
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	maxScroll = cs.maxScroll()
 	if cs.scrollY > float64(maxScroll) {
 		cs.scrollY = float64(maxScroll)
 	}
@@ -162,36 +238,62 @@ func (cs *ConfigScreen) contentHeight() int {
 		h += len(section.fields) * cfgRowHeight
 		h += 6 // gap between sections
 	}
-	h += cfgPadding + cfgButtonHeight
+	if !cs.embedded {
+		h += cfgPadding + cfgButtonHeight
+	}
 	return h
+}
+
+// maxScroll returns the largest valid scrollY value given the current
+// viewport. Standalone mode targets full screen height; embedded mode
+// targets the popup body height and stops one row above the bottom so
+// the popup's buttons aren't covered by trailing content.
+func (cs *ConfigScreen) maxScroll() int {
+	var visible int
+	if cs.embedded {
+		visible = cs.viewportBottom - cs.viewportTop
+	} else {
+		visible = c.ScreenHeight() - cfgButtonHeight - cfgPadding*2
+	}
+	maxScroll := cs.contentHeight() - visible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	return maxScroll
 }
 
 // Draw renders the config screen
 func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
-	fillThemeBackground(screen)
+	if !cs.embedded {
+		fillThemeBackground(screen)
+	}
 
-	sh := c.ScreenHeight()
-	panelX := (c.ScreenWidth() - cfgPanelWidth) / 2
-	panelTop := 20
+	panelX := cs.panelX()
+	panelW := cs.panelWidth()
+	panelTop := cs.panelTop()
+	clipTop, clipBottom := cs.clipRange()
 
-	// Title
-	title := "SIMULATION SETTINGS"
-	titleBounds := boundString(r.FontSourceCodePro12, title)
-	titleX := panelX + (cfgPanelWidth-titleBounds.Dx())/2
-	text.Draw(screen, title, r.FontSourceCodePro12, titleX, panelTop+titleBounds.Dy(), themedForeground())
+	// Title — only in standalone mode; the popup paints its own title
+	// bar so it stays anchored while the form scrolls.
+	if !cs.embedded {
+		title := "SIMULATION SETTINGS"
+		titleBounds := boundString(r.FontSourceCodePro12, title)
+		titleX := panelX + (panelW-titleBounds.Dx())/2
+		text.Draw(screen, title, r.FontSourceCodePro12, titleX, panelTop+titleBounds.Dy(), themedForeground())
+	}
 
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
 	rowIdx := 0
 
 	for _, section := range cs.sections {
 		// Section header
-		if y > -cfgRowHeight && y < sh {
+		if y+cfgRowHeight > clipTop && y < clipBottom {
 			text.Draw(screen, section.title, r.FontSourceCodePro12, panelX, y+12, color.RGBA{R: 180, G: 180, B: 255, A: 255})
 		}
 		y += cfgRowHeight + 4
 
 		for _, field := range section.fields {
-			if y > -cfgRowHeight && y < sh {
+			if y+cfgRowHeight > clipTop && y < clipBottom {
 				cs.drawRow(screen, panelX, y, rowIdx, field)
 			}
 			y += cfgRowHeight
@@ -200,12 +302,35 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 		y += 6 // gap between sections
 	}
 
-	// Accept button
-	btnX := panelX + (cfgPanelWidth-cfgButtonWidth)/2
-	btnY := y + cfgPadding
-	if btnY > -cfgButtonHeight && btnY < sh {
-		cs.drawButton(screen, btnX, btnY, cfgButtonWidth, cfgButtonHeight, "START SIMULATION")
+	// Standalone START button — popup mode hides this; the popup
+	// renders its own Cancel/Start row in fixed footer position.
+	if !cs.embedded {
+		btnX := panelX + (panelW-cfgButtonWidth)/2
+		btnY := y + cfgPadding
+		if btnY > -cfgButtonHeight && btnY < c.ScreenHeight() {
+			cs.drawButton(screen, btnX, btnY, cfgButtonWidth, cfgButtonHeight, "START SIMULATION")
+		}
 	}
+}
+
+// panelTop returns the y-coordinate of the form's top edge. Standalone
+// mode hardcodes 20px (room for the in-form title); embedded mode uses
+// the viewport top supplied by the popup.
+func (cs *ConfigScreen) panelTop() int {
+	if cs.embedded {
+		return cs.viewportTop
+	}
+	return 20
+}
+
+// clipRange is the screen-coord band rows must overlap to be drawn.
+// In embedded mode it's the popup's body bounds; otherwise the full
+// screen.
+func (cs *ConfigScreen) clipRange() (int, int) {
+	if cs.embedded {
+		return cs.viewportTop, cs.viewportBottom
+	}
+	return 0, c.ScreenHeight()
 }
 
 func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field configField) {
@@ -217,7 +342,7 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	if isSelected {
 		// highlight row
-		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cfgPanelWidth), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
+		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
 		valueColor = color.RGBA{R: 100, G: 255, B: 100, A: 255}
 	}
 
@@ -225,8 +350,9 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	text.Draw(screen, field.label, r.FontSourceCodePro10, px, py+10, labelColor)
 
 	// Value
+	sliderW := cs.sliderColWidth()
 	valueStr := cs.getValueStr(fv, field, isSelected)
-	text.Draw(screen, valueStr, r.FontSourceCodePro10, px+cfgLabelWidth+cfgSliderWidth+10, py+10, valueColor)
+	text.Draw(screen, valueStr, r.FontSourceCodePro10, px+cfgLabelWidth+sliderW+10, py+10, valueColor)
 
 	if field.textOnly {
 		return
@@ -267,7 +393,7 @@ func (cs *ConfigScreen) getValueStr(fv reflect.Value, field configField, isEditi
 
 func (cs *ConfigScreen) drawSlider(screen *ebiten.Image, x, y int, fv reflect.Value, field configField) {
 	sx, sy := float64(x), float64(y+4)
-	sw := float64(cfgSliderWidth)
+	sw := float64(cs.sliderColWidth())
 	sh := float64(cfgRowHeight - 8)
 
 	// Track
@@ -312,8 +438,18 @@ func (cs *ConfigScreen) drawButton(screen *ebiten.Image, x, y, w, h int, label s
 
 func (cs *ConfigScreen) handleClick() {
 	mx, my := ebiten.CursorPosition()
-	panelX := (c.ScreenWidth() - cfgPanelWidth) / 2
-	panelTop := 20
+	panelX := cs.panelX()
+	panelW := cs.panelWidth()
+	sliderW := cs.sliderColWidth()
+	panelTop := cs.panelTop()
+	clipTop, clipBottom := cs.clipRange()
+
+	// In embedded mode, ignore clicks outside the body region — the
+	// popup chrome lives there and we don't want a click on the title
+	// bar to fall through and land on a row.
+	if cs.embedded && (my < clipTop || my >= clipBottom) {
+		return
+	}
 
 	// Commit any current edit
 	cs.commitEdit()
@@ -333,7 +469,7 @@ func (cs *ConfigScreen) handleClick() {
 						return
 					}
 					if (field.kind == reflect.Float64 || field.kind == reflect.Int) &&
-						mx >= sliderX && mx < sliderX+cfgSliderWidth {
+						mx >= sliderX && mx < sliderX+sliderW {
 						cs.handleSliderClick(mx-sliderX, field)
 						return
 					}
@@ -349,12 +485,15 @@ func (cs *ConfigScreen) handleClick() {
 		y += 6
 	}
 
-	// Check accept button
-	btnX := panelX + (cfgPanelWidth-cfgButtonWidth)/2
-	btnY := y + cfgPadding
-	if mx >= btnX && mx < btnX+cfgButtonWidth && my >= btnY && my < btnY+cfgButtonHeight {
-		cs.accepted = true
-		return
+	// Standalone mode owns the START button; embedded mode delegates
+	// that role to the popup so we skip the hit-test entirely.
+	if !cs.embedded {
+		btnX := panelX + (panelW-cfgButtonWidth)/2
+		btnY := y + cfgPadding
+		if mx >= btnX && mx < btnX+cfgButtonWidth && my >= btnY && my < btnY+cfgButtonHeight {
+			cs.accepted = true
+			return
+		}
 	}
 
 	cs.selectedRow = -1
@@ -423,7 +562,7 @@ func (cs *ConfigScreen) toggleBool(field configField) {
 func (cs *ConfigScreen) handleSliderClick(relX int, field configField) {
 	cs.draggingSlider = true
 	cs.dragField = &field
-	ratio := float64(relX) / float64(cfgSliderWidth)
+	ratio := float64(relX) / float64(cs.sliderColWidth())
 	if ratio < 0 {
 		ratio = 0
 	}
@@ -438,10 +577,9 @@ func (cs *ConfigScreen) handleSliderDrag() {
 		return
 	}
 	mx, _ := ebiten.CursorPosition()
-	panelX := (c.ScreenWidth() - cfgPanelWidth) / 2
-	sliderX := panelX + cfgLabelWidth
+	sliderX := cs.panelX() + cfgLabelWidth
 	relX := mx - sliderX
-	ratio := float64(relX) / float64(cfgSliderWidth)
+	ratio := float64(relX) / float64(cs.sliderColWidth())
 	if ratio < 0 {
 		ratio = 0
 	}
@@ -571,11 +709,10 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Initial pH", "max_initial_ph"),
 			field("Min Ideal pH", "min_ideal_ph"),
 			field("Max Ideal pH", "max_ideal_ph"),
-			field("Min pH Tolerance Range", "min_ph_tolerance_range"),
-			field("Max pH Tolerance Range", "max_ph_tolerance_range"),
+			field("pH Tolerance", "ph_tolerance"),
 			field("Chemosynthesis Tolerance", "chemosynthesis_tolerance"),
-			field("Max pH Growth Effect", "max_organism_ph_growth_effect"),
-			field("Max pH Effect Change", "max_ph_effect_change"),
+			field("Chemo pH Effect / Size", "chemosynthesis_ph_effect_per_size"),
+			field("Eating pH Effect / Food", "eating_ph_effect_per_food"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
 			field("pH Increment to Display", "ph_increment_to_display"),
 		}},
@@ -591,14 +728,11 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Initial Cycles Between Spawns", "max_initial_cycles_between_spawns"),
 			field("Min Spawn Health", "min_spawn_health"),
 			field("Max Spawn Health Percent", "max_spawn_health_percent"),
-			field("Min Max Lifespan", "min_max_lifespan"),
-			field("Max Max Lifespan (0=off)", "max_max_lifespan"),
-			field("Max Max Lifespan Change", "max_max_lifespan_change"),
+			field("Max Lifespan (0=off)", "max_lifespan"),
 		}},
 		{title: "— DECISION TREES —", fields: []configField{
 			field("Initial Mutations", "initial_organism_decision_tree_mutations"),
-			field("Min Chance to Mutate", "min_chance_to_mutate_decision_tree"),
-			field("Max Chance to Mutate", "max_chance_to_mutate_decision_tree"),
+			field("Chance to Mutate", "chance_to_mutate_decision_tree"),
 			field("Max Tree Size", "max_decision_tree_size"),
 		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{

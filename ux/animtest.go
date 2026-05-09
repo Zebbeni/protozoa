@@ -199,7 +199,11 @@ func (a *AnimationTest) Update() error {
 	// T toggles light / dark theme — reloads sheets so <theme>_*.png
 	// swaps in on the fly for iterating on both palettes side by side.
 	if inpututil.IsKeyJustPressed(ebiten.KeyT) {
-		cycleTheme()
+		if config.Theme() == "dark" {
+			setTheme("light")
+		} else {
+			setTheme("dark")
+		}
 	}
 
 	// Mouse input: click on a swatch picks a color; click-and-drag anywhere

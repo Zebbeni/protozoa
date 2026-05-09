@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -28,14 +29,16 @@ const (
 	layerWalls
 	layerFood
 	layerOrganisms
+	layerSelection
 )
 
-// use separate constant group to ensure orgsPhMode starts at 0
+// orgColor mode controls how organisms are tinted on the grid. The pH
+// and food layers are independent toggles; this mode only affects the
+// organism layer.
 const (
-	orgsPhMode mode = iota
-	organismsOnlyMode
-	phEffectsOnlyMode
-	phOnlyMode
+	orgColorTrue mode = iota
+	orgColorPhEffect
+	orgColorHealth
 )
 
 const (
@@ -43,6 +46,7 @@ const (
 	selectMostChildren
 	selectMostTraveled
 	selectMostSuccessful
+	selectMostAggressive
 	selectManual
 )
 
@@ -55,21 +59,6 @@ const minOrganismAnimationUnitSize = 8
 var (
 	foodColor = colorful.HSLuv(120, 0.2, 0.25)
 	wallColor = colorful.HSLuv(60, 0.25, 0.1)
-	viewModes          = []mode{orgsPhMode, organismsOnlyMode, phEffectsOnlyMode, phOnlyMode}
-	selectModes        = []mode{selectOldest, selectMostChildren, selectMostTraveled, selectMostSuccessful, selectManual}
-	viewModeNames      = map[mode]string{
-		orgsPhMode:        "ORGANISMS & PH",
-		organismsOnlyMode: "ORGANISMS ONLY",
-		phEffectsOnlyMode: "ORGANISM PH EFFECTS",
-		phOnlyMode:        "PH ONLY",
-	}
-	selectModeNames = map[mode]string{
-		selectOldest:         "OLDEST",
-		selectMostChildren:   "MOST CHILDREN",
-		selectMostTraveled:   "MOST TRAVELED",
-		selectMostSuccessful: "MOST SUCCESSFUL",
-		selectManual:         "MANUAL SELECT",
-	}
 )
 
 type Grid struct {
@@ -82,9 +71,77 @@ type Grid struct {
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
 	doRefresh          bool
-	viewMode           mode
-	selectMode         mode
-	clearImg           *ebiten.Image
+	// showPh / showFood / showOrganisms toggle their respective layers
+	// independently of the organism colour mode. orgColor decides how
+	// organisms are tinted when shown.
+	showPh        bool
+	showFood      bool
+	showOrganisms bool
+	orgColor      mode
+	selectMode    mode
+	clearImg   *ebiten.Image
+	// selectionBoxImg is the source bitmap stamped onto layerSelection
+	// for every highlighted organism. Authored white-on-transparent so
+	// the per-stamp ColorScale can tint to any selection colour.
+	// Rebuilt on zoom change.
+	selectionBoxImg *ebiten.Image
+
+	// Per-phase render timings, refreshed each call to Render(). Surfaced
+	// to the debug overlay so a slow frame can be attributed to a
+	// specific layer or compose pass.
+	timeWalls       time.Duration
+	timeEnv         time.Duration
+	timeFood        time.Duration
+	timeOrganisms   time.Duration
+	timeCompose     time.Duration
+	timeSelectionBoxes time.Duration
+
+	// descHighlight caches the set of descendant IDs to highlight for
+	// the currently-selected organism, valid for a window of cycles
+	// around the playhead. The set is built once per (selection,
+	// window) and consulted O(1) per living organism per render —
+	// avoiding the per-frame subtree walk that got expensive when we
+	// allowed dead-organism selections.
+	descHighlight *descHighlightCache
+}
+
+// descHighlightCache is the precomputed answer to "which IDs are
+// descendants of selID and alive somewhere in [fromCycle, toCycle]?"
+// Rebuilt on selection change or when the playhead crosses the window.
+type descHighlightCache struct {
+	selID              int
+	fromCycle, toCycle int
+	ids                map[int]struct{}
+}
+
+// descHighlightBufferCycles is how far ahead of the playhead each
+// rebuild looks. Bigger means fewer rebuilds but a larger walk each
+// time; ~1000 cycles at default speed = a rebuild every several seconds
+// of wall-clock playback, which is barely perceptible.
+const descHighlightBufferCycles = 1000
+
+// RenderTimings is the per-phase breakdown surfaced to the debug
+// overlay. Returned by LastRenderTimings.
+type RenderTimings struct {
+	Walls       time.Duration
+	Env         time.Duration
+	Food        time.Duration
+	Organisms   time.Duration
+	Compose     time.Duration
+	SelectionBoxes time.Duration
+}
+
+// LastRenderTimings returns the per-phase timings from the most recent
+// Render() call. Used by the debug overlay; safe to call any time.
+func (g *Grid) LastRenderTimings() RenderTimings {
+	return RenderTimings{
+		Walls:       g.timeWalls,
+		Env:         g.timeEnv,
+		Food:        g.timeFood,
+		Organisms:   g.timeOrganisms,
+		Compose:     g.timeCompose,
+		SelectionBoxes: g.timeSelectionBoxes,
+	}
 }
 
 func NewGrid(sim *simulation.Simulation) *Grid {
@@ -93,11 +150,14 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 	cam := NewCamera(viewportW, viewportH)
 
 	g := &Grid{
-		simulation: sim,
-		Camera:     cam,
-		doRefresh:  true,
-		viewMode:   organismsOnlyMode,
-		selectMode: selectOldest,
+		simulation:    sim,
+		Camera:        cam,
+		doRefresh:     true,
+		showPh:        true,
+		showFood:      true,
+		showOrganisms: true,
+		orgColor:      orgColorTrue,
+		selectMode:    selectOldest,
 	}
 	g.initLayerImages()
 	g.loadOrganismImages()
@@ -111,7 +171,31 @@ func (g *Grid) initLayerImages() {
 		layerWalls:     g.newBlankLayer(),
 		layerFood:      g.newBlankLayer(),
 		layerOrganisms: g.newBlankLayer(),
+		layerSelection: g.newBlankLayer(),
 	}
+	g.buildSelectionBoxImg()
+}
+
+// buildSelectionBoxImg creates a white outlined-square image at the
+// current unit size, used as the source for every per-organism
+// selection box. Stamping a tinted copy of this image is one DrawImage
+// per highlight; the previous version drew 4 lines × N visible tiles
+// per box, which dominated frames with many highlights at low zoom.
+//
+// Uses 1px-tall / 1px-wide filled rects (not DrawLine) so each side
+// lands on a whole-pixel row/column and the corners overlap cleanly.
+// DrawLine's sub-pixel boundary places y=0 on the row above pixel 0
+// and gets clipped, leaving visible gaps on the top and left.
+func (g *Grid) buildSelectionBoxImg() {
+	us := g.unitSize()
+	img := ebiten.NewImage(us, us)
+	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	usf := float64(us)
+	ebitenutil.DrawRect(img, 0, 0, usf, 1, white)     // top
+	ebitenutil.DrawRect(img, 0, 0, 1, usf, white)     // left
+	ebitenutil.DrawRect(img, 0, usf-1, usf, 1, white) // bottom
+	ebitenutil.DrawRect(img, usf-1, 0, 1, usf, white) // right
+	g.selectionBoxImg = img
 }
 
 func (g *Grid) loadOrganismImages() {
@@ -165,12 +249,41 @@ func (g *Grid) Render() *ebiten.Image {
 		g.layers[layerWalls] = g.newBlankLayer()
 		g.layers[layerFood] = g.newBlankLayer()
 		g.layers[layerOrganisms] = g.newBlankLayer()
+		g.layers[layerSelection] = g.newBlankLayer()
 	}
 
+	t := time.Now()
 	g.renderWalls(g.layers[layerWalls], g.doRefresh)
+	g.timeWalls = time.Since(t)
+
+	t = time.Now()
 	g.renderEnvironment(g.layers[layerEnv], g.doRefresh)
+	g.timeEnv = time.Since(t)
+
+	t = time.Now()
 	g.renderFood(g.layers[layerFood], g.doRefresh)
-	g.renderOrganisms(g.layers[layerOrganisms], g.doRefresh)
+	g.timeFood = time.Since(t)
+
+	// Fetch the alive organism map once per render so renderOrganisms
+	// and the selection layer can share it. Each call rebuilds a fresh
+	// map and allocates an Info per organism — sharing halves that cost
+	// when a selection is active.
+	aliveInfos := g.simulation.GetAllOrganismInfo()
+
+	t = time.Now()
+	g.renderOrganisms(g.layers[layerOrganisms], g.doRefresh, aliveInfos)
+	g.timeOrganisms = time.Since(t)
+
+	// Populate the selection layer before compose so its tile-draw
+	// folds into the same wallpaper loop as the other layers — one
+	// DrawImage per highlight (instead of 4 line draws × N visible
+	// tiles per highlight, which dominated frames at low zoom with a
+	// sizeable descendant set).
+	t = time.Now()
+	g.populateSelectionLayer(aliveInfos)
+	g.timeSelectionBoxes = time.Since(t)
+
+	composeStart := time.Now()
 
 	// Compose visible portion into viewport-sized image. The world is
 	// rendered as a tiled wallpaper of copies — the simulation grid
@@ -225,7 +338,7 @@ func (g *Grid) Render() *ebiten.Image {
 		}
 	}
 
-	if g.viewMode == orgsPhMode || g.viewMode == phOnlyMode {
+	if g.showPh {
 		// env layer is already at sprite-native resolution with
 		// bilinear-interpolated colours baked in by renderPhValue.
 		// Compose with FilterNearest — the final upscale to display
@@ -234,13 +347,19 @@ func (g *Grid) Render() *ebiten.Image {
 		drawLayer(g.layers[layerEnv], envScale, envScale, ebiten.FilterNearest)
 	}
 	drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
-	if g.viewMode != phOnlyMode {
+	if g.showFood {
 		drawLayer(g.layers[layerFood], 1, 1, ebiten.FilterNearest)
+	}
+	if g.showOrganisms {
 		drawLayer(g.layers[layerOrganisms], 1, 1, ebiten.FilterNearest)
 	}
-
-	// Draw selection boxes directly on viewport in screen coordinates
-	g.renderSelectionBoxes(viewportImage)
+	// Hover cell first (so any selection box stamped over the same
+	// cell wins on top), then the selection layer wallpaper.
+	if g.mouseOnGrid {
+		g.renderHoverCellBox(viewportImage, themedForegroundDim())
+	}
+	drawLayer(g.layers[layerSelection], 1, 1, ebiten.FilterNearest)
+	g.timeCompose = time.Since(composeStart)
 
 	// Overlay text is drawn on the final screen by the caller (see
 	// RenderOverlayText) so it isn't multiplied by GridDisplayScale.
@@ -443,10 +562,9 @@ func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
 // neighbour cell" requires no special bookkeeping — both cells are empty
 // on the organism layer each frame, and food/walls below come from their
 // own layers.
-func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
+func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organismInfo map[int]*organism.Info) {
 	organismsImage.Clear()
 
-	organismInfo := g.simulation.GetAllOrganismInfo()
 	for _, info := range organismInfo {
 		g.renderOrganism(info, organismsImage)
 	}
@@ -471,30 +589,31 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool) {
 				Size:      frame.Size,
 				Action:    frame.Action,
 				Color:     frame.Color,
-				PhEffect:  frame.PhEffect,
 			}
 			g.renderOrganism(synth, organismsImage)
 		}
 	}
 }
 
-// renderSelectionBoxes draws selection box outlines in viewport coordinates.
+// populateSelectionLayer redraws the selection-box layer in world
+// coordinates. Each highlight is a single DrawImage of selectionBoxImg
+// with a per-color tint; the surrounding compose loop handles wallpaper
+// tiling so we don't re-stamp the same box at every visible tile.
 //
-// Tiered styling, brightest to faintest:
-//   - The selected organism gets the full themed foreground.
-//   - In selectMostSuccessful mode, every currently-living organism
-//     whose descendant node meets the "most successful" criteria gets a
-//     faded foreground box (~25% alpha) so the whole successful cohort
-//     is visible at once. The selected (oldest among them) still draws
-//     on top in the brighter colour.
-//   - Otherwise (any other select mode), living descendants of the
-//     selected organism get the faded box — useful for tracking how a
-//     single founder's lineage has spread across the grid.
-//   - The hover cell gets the dim foreground.
-func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
-	if g.mouseOnGrid {
-		g.renderHoverCellBox(viewportImage, themedForegroundDim())
-	}
+// Tiered styling, brightest last so it overdraws the rest:
+//   - In selectMostSuccessful mode, every currently-living organism on
+//     the most-successful set gets a faded box.
+//   - Otherwise, every living descendant of the selected organism
+//     (resolved through the descendant-highlight cache) gets a faded
+//     box.
+//   - The selected organism itself gets the full themed foreground.
+//
+// The hover-cell box is drawn separately in screen space (see Render),
+// since it shouldn't tile across the wallpaper.
+func (g *Grid) populateSelectionLayer(aliveInfos map[int]*organism.Info) {
+	layer := g.layers[layerSelection]
+	layer.Clear()
+
 	selID := g.simulation.GetSelected()
 
 	if g.selectMode == selectMostSuccessful {
@@ -503,37 +622,107 @@ func (g *Grid) renderSelectionBoxes(viewportImage *ebiten.Image) {
 			if id == selID {
 				continue // drawn last in bright colour
 			}
-			if info := g.simulation.GetOrganismInfoByID(id); info != nil {
-				g.renderSelectionBox(info.Location, viewportImage, successfulColor)
+			if info, ok := aliveInfos[id]; ok {
+				g.stampSelectionBox(layer, info.Location, successfulColor)
 			}
 		}
 	} else if selID >= 0 {
-		if node := g.simulation.GetOrganismTreeNode(selID); node != nil {
-			descColor := fadedForeground(0x40)
-			var walk func(n *organism.DescendantNode)
-			walk = func(n *organism.DescendantNode) {
-				n.ForEachChild(func(child *organism.DescendantNode) {
-					// In replay mode the loaded tree records the entire
-					// run — child.EndCycle reflects death at the final
-					// cycle, not the cycle we're currently viewing. Treat
-					// "alive right now" as "the live organism map still
-					// has this ID" so descendants who are currently alive
-					// but will die later are still highlighted.
-					if info := g.simulation.GetOrganismInfoByID(child.ID); info != nil {
-						g.renderSelectionBox(info.Location, viewportImage, descColor)
-					}
-					walk(child)
-				})
+		descColor := fadedForeground(0x40)
+		currentCycle := g.simulation.Cycle()
+
+		// Rebuild the descendant set when selection changed or the
+		// playhead left the cached window.
+		c := g.descHighlight
+		if c == nil || c.selID != selID || currentCycle < c.fromCycle || currentCycle > c.toCycle {
+			from := currentCycle
+			to := currentCycle + descHighlightBufferCycles
+			g.descHighlight = &descHighlightCache{
+				selID:     selID,
+				fromCycle: from,
+				toCycle:   to,
+				ids:       g.buildDescendantHighlightSet(selID, from, to),
 			}
-			walk(node)
+			c = g.descHighlight
+		}
+
+		// Iterate the smaller of the two sets so the per-render cost
+		// is O(min(live, descendants)).
+		if len(c.ids) > 0 {
+			if len(c.ids) <= len(aliveInfos) {
+				for id := range c.ids {
+					if info, ok := aliveInfos[id]; ok {
+						g.stampSelectionBox(layer, info.Location, descColor)
+					}
+				}
+			} else {
+				for id, info := range aliveInfos {
+					if _, ok := c.ids[id]; ok {
+						g.stampSelectionBox(layer, info.Location, descColor)
+					}
+				}
+			}
 		}
 	}
 
 	if selID >= 0 {
-		if info := g.simulation.GetOrganismInfoByID(selID); info != nil {
-			g.renderSelectionBox(info.Location, viewportImage, themedForeground())
+		if info, ok := aliveInfos[selID]; ok {
+			g.stampSelectionBox(layer, info.Location, themedForeground())
 		}
 	}
+}
+
+// stampSelectionBox draws a single tinted copy of selectionBoxImg onto
+// the selection layer at the given world cell. ColorScale handles the
+// alpha tint, so the same source bitmap covers every selection
+// variant.
+func (g *Grid) stampSelectionBox(layer *ebiten.Image, point utils.Point, col color.Color) {
+	us := g.unitSize()
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(point.X*us), float64(point.Y*us))
+	r, gv, b, a := col.RGBA()
+	op.ColorScale.Scale(float32(r)/0xffff, float32(gv)/0xffff, float32(b)/0xffff, float32(a)/0xffff)
+	layer.DrawImage(g.selectionBoxImg, op)
+}
+
+// buildDescendantHighlightSet walks selID's descendant subtree once
+// and returns the set of node IDs that are alive at any cycle in
+// [fromCycle, toCycle]. Used to populate descHighlight; callers don't
+// hit this code on every render — only when the cache is invalid
+// (selection change or playhead crossed the window boundary).
+//
+// Two prunes keep the walk bounded for very old selections:
+//   - StartCycle > toCycle: subtree not yet born by window's end.
+//     Children always have StartCycle >= parent.StartCycle, so the
+//     entire subtree is irrelevant.
+//   - AllBranchesDeadCycle != 0 && < fromCycle: every node in this
+//     subtree died strictly before the window opens; no descendant
+//     could be alive in the window.
+//
+// A node N is alive somewhere in [fromCycle, toCycle] iff
+// N.StartCycle <= toCycle AND (N.EndCycle == 0 OR N.EndCycle >= fromCycle).
+func (g *Grid) buildDescendantHighlightSet(selID, fromCycle, toCycle int) map[int]struct{} {
+	set := make(map[int]struct{})
+	root := g.simulation.GetTreeNodeByID(selID)
+	if root == nil {
+		return set
+	}
+	var walk func(n *organism.DescendantNode)
+	walk = func(n *organism.DescendantNode) {
+		n.ForEachChild(func(child *organism.DescendantNode) {
+			if child.StartCycle > toCycle {
+				return
+			}
+			if child.AllBranchesDeadCycle != 0 && child.AllBranchesDeadCycle < fromCycle {
+				return
+			}
+			if child.EndCycle == 0 || child.EndCycle >= fromCycle {
+				set[child.ID] = struct{}{}
+			}
+			walk(child)
+		})
+	}
+	walk(root)
+	return set
 }
 
 // RenderOverlayText draws the mode label and hover-info text directly onto
@@ -574,22 +763,17 @@ func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
 	text.Draw(screen, infoText, resources.FontSourceCodePro10, screenX, screenY, fg)
 }
 
-// ViewMode returns the current grid view mode
-func (g *Grid) ViewMode() mode {
-	return g.viewMode
-}
+// ShowPh reports whether the pH layer is currently being drawn.
+func (g *Grid) ShowPh() bool { return g.showPh }
 
-// ChangeViewMode switches to the next mode listed in viewModes
-func (g *Grid) ChangeViewMode() {
-	g.viewMode = viewModes[(int(g.viewMode)+1)%len(viewModes)]
-	g.doRefresh = true
-}
+// ShowFood reports whether the food layer is currently being drawn.
+func (g *Grid) ShowFood() bool { return g.showFood }
 
-// UpdateAutoSelect switches to the next auto select mode listed in selectModes
-func (g *Grid) UpdateAutoSelect() {
-	g.selectMode = selectModes[(int(g.selectMode)+1)%(len(selectModes)-1)]
-	g.doRefresh = true
-}
+// ShowOrganisms reports whether the organism layer is currently drawn.
+func (g *Grid) ShowOrganisms() bool { return g.showOrganisms }
+
+// OrgColor reports the active organism colour mode.
+func (g *Grid) OrgColor() mode { return g.orgColor }
 
 func (g *Grid) SetManualSelection() {
 	g.selectMode = selectManual
@@ -601,12 +785,11 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 }
 
 // renderHoverCellBox draws a single hover-cell outline at the cursor's
-// actual viewport position. Unlike renderSelectionBox (which paints
-// the box at every wallpaper-tiled copy of the world), the hover
-// cursor is a UI element that should appear once, where the cursor is.
-// The cell origin in viewport coords accounts for the camera's
-// sub-cell offset — cells in a tiled view don't generally align to
-// viewport pixel 0.
+// actual viewport position. Unlike per-organism selection highlights,
+// which live on a tiled world layer, the hover cursor is a UI element
+// that should appear once where the cursor is. The cell origin in
+// viewport coords accounts for the camera's sub-cell offset — cells
+// in a tiled view don't generally align to viewport pixel 0.
 func (g *Grid) renderHoverCellBox(img *ebiten.Image, col color.Color) {
 	mx, my := ebiten.CursorPosition()
 	// Convert from screen pixels to viewport pixels (the same image
@@ -627,46 +810,6 @@ func (g *Grid) renderHoverCellBox(img *ebiten.Image, col color.Color) {
 	ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
 	ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
 	ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
-}
-
-func (g *Grid) renderSelectionBox(point utils.Point, img *ebiten.Image, col color.Color) {
-	us := float64(g.unitSize())
-	wpw := float64(g.Camera.WorldPixelWidth())
-	wph := float64(g.Camera.WorldPixelHeight())
-	vw := float64(g.Camera.ViewportW)
-	vh := float64(g.Camera.ViewportH)
-	camPxX := g.Camera.NormalizedX() * us
-	camPxY := g.Camera.NormalizedY() * us
-
-	// In-world pixel coords of the selected cell.
-	worldX := float64(point.X) * us
-	worldY := float64(point.Y) * us
-
-	// Walk every visible tile of the wallpaper-tiled world and draw a
-	// box on each one that contains the cell. xStart / yStart are the
-	// leftmost/topmost tile origins straddling viewport coord 0.
-	xStart := -camPxX
-	for xStart > 0 {
-		xStart -= wpw
-	}
-	yStart := -camPxY
-	for yStart > 0 {
-		yStart -= wph
-	}
-
-	for ox := xStart; ox < vw; ox += wpw {
-		for oy := yStart; oy < vh; oy += wph {
-			x0, y0 := ox+worldX, oy+worldY
-			x1, y1 := x0+us, y0+us
-			if x1 < 0 || y1 < 0 || x0 > vw || y0 > vh {
-				continue
-			}
-			ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
-			ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
-			ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
-			ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
-		}
-	}
 }
 
 func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
@@ -735,8 +878,11 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	}
 
 	organismColor := info.Color
-	if g.viewMode == phEffectsOnlyMode {
-		organismColor = PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, config.MaxOrganismPhGrowthEffect()))
+	switch g.orgColor {
+	case orgColorPhEffect:
+		organismColor = phEffectColor(info.PhPositive, info.PhNegative)
+	case orgColorHealth:
+		organismColor = healthColor(info.Health, info.Size)
 	}
 
 	// Defaults used when animation state is unavailable or the organism has

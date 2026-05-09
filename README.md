@@ -41,7 +41,6 @@ Initial organisms are generated with random values for several 'genetic' traits 
   * **SpawnHealth -** _the initial health given to a spawned child, which is also subtracted from the parent's health_
   * **MinHealthToSpawn -** _the minimum health required by the parent to spawn a new child (never less than SpawnHealth)_
   * **MinCyclesBetweenSpawns -** _the minimum number of cycles that must pass before the organism can produce another child_
-  * **ChanceToMutateDecisionTree -** _The chance of the organism passing a mutated version of its decision tree onto each spawned child_
   * **IdealPh -** _The middle of the organism's ph tolerance range_
   * **PhTolerance -** _The absolute ph distance the organism can go from its ideal ph without adverse effects. (eg. An ideal ph of 3 and ph tolerance of 1 provide a tolerance zone of 2-4 ph)_
   * **PhEffect -** _the positive or negative factor the organism's growth has on the ph level of its location)_

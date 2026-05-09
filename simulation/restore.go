@@ -125,16 +125,12 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 
 func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *organism.Organism {
 	traits := organism.Traits{
-		OrganismColor:              colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
-		MaxSize:                    rec.MaxSize,
-		SpawnHealth:                rec.SpawnHealth,
-		MinHealthToSpawn:           rec.MinHealthToSpawn,
-		MinCyclesBetweenSpawns:     int(rec.MinCyclesBetweenSpawns),
-		ChanceToMutateDecisionTree: rec.ChanceToMutateDecisionTree,
-		IdealPh:                    rec.IdealPh,
-		PhTolerance:                rec.PhTolerance,
-		PhGrowthEffect:             rec.PhGrowthEffect,
-		MaxLifespan:                int(rec.MaxLifespan),
+		OrganismColor:          colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
+		MaxSize:                rec.MaxSize,
+		SpawnHealth:            rec.SpawnHealth,
+		MinHealthToSpawn:       rec.MinHealthToSpawn,
+		MinCyclesBetweenSpawns: int(rec.MinCyclesBetweenSpawns),
+		IdealPh:                rec.IdealPh,
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)
@@ -145,6 +141,8 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
 		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
 		int(rec.OriginalAncestorID),
-		traits, tree, d.Action(rec.CurrentAction), api,
+		traits, tree, d.Action(rec.CurrentAction),
+		int(rec.AttackTotal), int(rec.AttackHits),
+		rec.PhPositive, rec.PhNegative, api,
 	)
 }

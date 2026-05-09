@@ -7,7 +7,6 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux/graph/ph"
-	"github.com/Zebbeni/protozoa/ux/graph/pheffect"
 	"github.com/Zebbeni/protozoa/ux/graph/population"
 )
 
@@ -18,8 +17,6 @@ type Mode int
 
 const (
 	ModePopulation Mode = iota
-	ModePopulationPhEffect
-	ModePhEffect
 	ModePh
 )
 
@@ -79,8 +76,6 @@ func NewGraph(sim *s.Simulation) *Graph {
 	}
 
 	g.renderers[ModePopulation] = population.NewRenderer(population.TraitColor, nil, 0)
-	g.renderers[ModePopulationPhEffect] = population.NewRenderer(population.PhEffectNodeColor, nil, 0)
-	g.renderers[ModePhEffect] = pheffect.NewRenderer()
 	g.renderers[ModePh] = ph.NewRenderer()
 
 	return g
@@ -123,6 +118,27 @@ func (g *Graph) ShowSelected() bool {
 }
 
 // Mode returns the currently-displayed graph mode.
+// Invalidate clears every cached renderer image so the next Render
+// call rebuilds from scratch. Used when an external setting (e.g. the
+// pH colour scheme) shifts the colour mapping for already-painted
+// bars.
+func (g *Graph) Invalidate() {
+	for _, r := range g.renderers {
+		r.Reset()
+	}
+	for _, r := range g.selRenderers {
+		r.Reset()
+	}
+	for k := range g.images {
+		delete(g.images, k)
+	}
+	for k := range g.selImages {
+		delete(g.selImages, k)
+	}
+	g.currentBarCount = 0
+	g.selBarCount = 0
+}
+
 func (g *Graph) Mode() Mode {
 	return g.mode
 }
@@ -210,8 +226,6 @@ func (g *Graph) updateSelection() bool {
 			startBar := g.selStartCycle / c.PopulationUpdateInterval()
 
 			g.selRenderers[ModePopulation] = population.NewRenderer(population.TraitColor, root, startBar)
-			g.selRenderers[ModePopulationPhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
-			g.selRenderers[ModePhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
 		}
 	}
 	return true

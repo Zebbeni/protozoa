@@ -31,13 +31,14 @@ func loadDefaultGlobalsFromDisk(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// hasWasTravelled reports whether any node in the tree is marked as
-// having been visited by chooseAction. Probes via Tree.PrintLines so
-// we don't need access to the unexported Node fields directly.
-func hasWasTravelled(n *d.Node) bool {
+// hasUsedLastCycle reports whether any node in the tree is marked as
+// having been visited on the most recent chooseAction. Probes via
+// Tree.PrintLines so we don't need access to the unexported Node
+// fields directly.
+func hasUsedLastCycle(n *d.Node) bool {
 	tree := &d.Tree{Node: n}
 	for _, line := range tree.PrintLines() {
-		if line.WasTravelled {
+		if line.UsedLastCycle {
 			return true
 		}
 	}
@@ -334,12 +335,12 @@ func TestDecisionTreeFlagsRestoredAfterSnapshot(t *testing.T) {
 		if tree == nil {
 			continue
 		}
-		if hasWasTravelled(tree.Node) {
+		if hasUsedLastCycle(tree.Node) {
 			withFlags++
 		}
 	}
 	if withFlags == 0 {
-		t.Errorf("after restore, no organism has WasTravelled flags set on its decision tree")
+		t.Errorf("after restore, no organism has UsedLastCycle flags set on its decision tree")
 	}
 }
 

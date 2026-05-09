@@ -19,10 +19,16 @@ type Node struct {
 	mutex sync.Mutex
 }
 
-// PrintLine represents a single line of decision tree output with metadata.
+// PrintLine represents a single line of decision tree output with
+// metadata. UsedLastCycle is true for nodes on the path chooseAction
+// took on the most recent cycle. WasTravelled is the lifetime-
+// cumulative flag — true for any node ever visited. The panel renders
+// a three-tier highlight: brightest for the current path, mid-tone
+// for ever-travelled-but-not-this-cycle, dim for never-visited.
 type PrintLine struct {
-	Text         string
-	WasTravelled bool
+	Text          string
+	UsedLastCycle bool
+	WasTravelled  bool
 }
 
 // NodeFromAction creates a simple Node object from an Action type
@@ -127,7 +133,7 @@ func (n *Node) printLines(indent string, first, last bool) []PrintLine {
 	if n.UsedLastCycle {
 		lineText += " ◀◀"
 	}
-	lines := []PrintLine{{Text: lineText, WasTravelled: n.WasTravelled}}
+	lines := []PrintLine{{Text: lineText, UsedLastCycle: n.UsedLastCycle, WasTravelled: n.WasTravelled}}
 	if n.IsCondition() {
 		lines = append(lines, n.YesNode.printLines(newIndent, false, false)...)
 		lines = append(lines, n.NoNode.printLines(newIndent, false, true)...)

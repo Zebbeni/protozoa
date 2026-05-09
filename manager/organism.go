@@ -20,9 +20,8 @@ import (
 type HistoryType int
 
 const (
-	HistoryPopulation      HistoryType = iota // cycle : ancestorId : livingDescendantsCount
-	HistoryPhEffect                           // cycle : effectBucket : organismCount
-	HistoryPhDistribution                     // cycle : phBucket : gridCellCount
+	HistoryPopulation     HistoryType = iota // cycle : ancestorId : livingDescendantsCount
+	HistoryPhDistribution                    // cycle : phBucket : gridCellCount
 )
 
 // OrganismManager contains 2D array of booleans showing if organism present
@@ -43,10 +42,20 @@ type OrganismManager struct {
 	mostChildren     int
 	mostTraveledId   int
 	mostTraveledDist int
+	mostAggressiveId   int
+	mostAggressiveHits int
 
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
+	// descendantNodeIndex maps every node ID (alive or dead) to its
+	// DescendantNode for O(1) lookup. Populated alongside descendantTrees
+	// (RestoreDescendantTrees seeds it from the loaded payload; spawn
+	// paths append to it as new organisms are born). Without this,
+	// GetTreeNodeByID for a dead organism would walk every tree from its
+	// root every call — quadratic in tree size when called per render
+	// frame from the descendant-highlight code.
+	descendantNodeIndex map[int]*organism.DescendantNode
 	// mostSuccessful is the precomputed set of IDs whose descendant tree
 	// node has AllBranchesDeadCycle == 0 (lineage survives to end) or
 	// equal to the maximum AllBranchesDeadCycle across the loaded tree.
@@ -86,9 +95,9 @@ func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 		organismIds:            make([]int, 0, c.MaxOrganisms()),
 		originalAncestorColors: make(map[int]color.Color),
 		descendantTrees:        make(map[int]*organism.DescendantNode),
+		descendantNodeIndex:    make(map[int]*organism.DescendantNode),
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
-			HistoryPhEffect:       make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
 		},
 	}
@@ -145,6 +154,17 @@ func (m *OrganismManager) updateOrganismActions() {
 		}
 		o.UpdateStats()
 		o.UpdateAction()
+		// Promote to ActSpawn only if the organism is eligible AND
+		// the grid actually has room for a child. Doing this at
+		// decide time (rather than the old "always promote, fall
+		// back at resolve" approach) keeps the request map aligned
+		// with what will run and removes any out-of-order side
+		// effects later in the cycle.
+		if o.ShouldSpawn() {
+			if _, _, ok := m.getChildSpawnLocation(o); ok {
+				o.PromoteToSpawn()
+			}
+		}
 		m.updateRequestMapTo(o, &m.requestManager)
 		m.organismIds = append(m.organismIds, o.ID)
 	}
@@ -161,6 +181,8 @@ func (m *OrganismManager) resetInterestingStats() {
 	m.mostChildren = -1
 	m.mostTraveledId = -1
 	m.mostTraveledDist = -1
+	m.mostAggressiveId = -1
+	m.mostAggressiveHits = -1
 }
 
 func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
@@ -175,6 +197,10 @@ func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
 	if o.TraveledDist > m.mostTraveledDist || o.TraveledDist == m.mostTraveledDist && o.ID < m.mostTraveledId {
 		m.mostTraveledDist = o.TraveledDist
 		m.mostTraveledId = o.ID
+	}
+	if o.AttackHits > m.mostAggressiveHits || (o.AttackHits == m.mostAggressiveHits && o.ID < m.mostAggressiveId) {
+		m.mostAggressiveHits = o.AttackHits
+		m.mostAggressiveId = o.ID
 	}
 }
 
@@ -231,28 +257,12 @@ func (m *OrganismManager) updateHistory() {
 	start := time.Now()
 
 	populationMap := make(map[int]int32)
-	phEffectDist := make(map[int]int32)
-	maxEffect := c.MaxOrganismPhGrowthEffect()
-	numBuckets := 10
-
 	for _, o := range m.organisms {
 		populationMap[o.OriginalAncestorID]++
-
-		// bucket phEffect from [-maxEffect, +maxEffect] into numBuckets bands
-		effect := o.TraitsRef().PhGrowthEffect
-		normalized := (effect + maxEffect) / (2 * maxEffect) // [0, 1]
-		bucket := int(normalized * float64(numBuckets))
-		if bucket < 0 {
-			bucket = 0
-		} else if bucket >= numBuckets {
-			bucket = numBuckets - 1
-		}
-		phEffectDist[bucket]++
 	}
 
 	m.historyMutex.Lock()
 	m.history[HistoryPopulation][cycle] = populationMap
-	m.history[HistoryPhEffect][cycle] = phEffectDist
 	m.historyMutex.Unlock()
 
 	// compute pH distribution and average across grid cells using 0.5 pH-wide buckets
@@ -300,6 +310,14 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		effect := m.calculateAttackEffect(o)
 		target := o.Location.Add(o.Direction)
 		rm.AddHealthEffectRequest(target, effect)
+		// Track attack stats: every attack counts toward AttackTotal,
+		// and only those landing on a real organism count as a hit.
+		// Checked at decision-time so "in front of you when you decided
+		// to attack" is the criterion the user described.
+		o.AttackTotal++
+		if m.isOrganismAtLocation(target) {
+			o.AttackHits++
+		}
 	}
 }
 
@@ -370,10 +388,6 @@ func (m *OrganismManager) addUpdatedPoint(point utils.Point) {
 	m.api.AddOrganismUpdate(point)
 }
 
-func (m *OrganismManager) applyOrganismPhGrowthEffect(o *organism.Organism) {
-	m.api.AddPhChangeAtPoint(o.Location, o.TraitsRef().PhGrowthEffect*o.Size)
-}
-
 func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
 	m.organismIds = append(m.organismIds, o.ID)
 }
@@ -392,15 +406,13 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 		// creating a duplicate, so the population graph isn't double-counted.
 		node, exists := m.descendantTrees[id]
 		if !exists {
-			traits := o.Traits()
-			sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
 			node = &organism.DescendantNode{
-				ID:            id,
-				Color:         o.Color(),
-				PhEffectColor: organism.ComputePhEffectColor(sv),
-				StartCycle:    m.api.Cycle(),
+				ID:         id,
+				Color:      o.Color(),
+				StartCycle: m.api.Cycle(),
 			}
 			m.descendantTrees[id] = node
+			m.descendantNodeIndex[id] = node
 		}
 		o.TreeNode = node
 
@@ -442,18 +454,16 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 		})
 	}
 	if node == nil {
-		traits := o.Traits()
-		sv := organism.PhEffectSpectrumValue(traits.PhGrowthEffect, c.MaxOrganismPhGrowthEffect())
 		node = &organism.DescendantNode{
-			ID:            id,
-			Color:         o.Color(),
-			PhEffectColor: organism.ComputePhEffectColor(sv),
-			StartCycle:    m.api.Cycle(),
+			ID:         id,
+			Color:      o.Color(),
+			StartCycle: m.api.Cycle(),
 		}
 		if parent.TreeNode != nil {
 			parent.TreeNode.AddChild(node)
 		}
 	}
+	m.descendantNodeIndex[id] = node
 	o.TreeNode = node
 
 	m.registerNewOrganism(o, id)
@@ -502,11 +512,36 @@ func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
 	m.ancestorMutex.Unlock()
 }
 
-// returns a random point and whether it is empty
+// getRandomSpawnLocation returns a random empty grid point with at
+// least one empty cardinal neighbour. Retries up to maxSpawnAttempts —
+// a single try used to fail silently when InitialFood was high enough
+// that the first random pick collided with food, and the entire
+// simulation would end at cycle -1 because no initial organism got
+// placed. The neighbour check avoids spawning a chemosynthesiser fully
+// walled in by food, which can't reproduce and ends the run early.
 func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
-	point := utils.GetRandomPoint(m.rng, c.GridUnitsWide(), c.GridUnitsHigh())
-	isEmpty := m.isGridLocationEmpty(point)
-	return point, isEmpty
+	const maxSpawnAttempts = 1000
+	for i := 0; i < maxSpawnAttempts; i++ {
+		point := utils.GetRandomPoint(m.rng, c.GridUnitsWide(), c.GridUnitsHigh())
+		if m.isGridLocationEmpty(point) && m.hasEmptyNeighbor(point) {
+			return point, true
+		}
+	}
+	return utils.Point{}, false
+}
+
+// hasEmptyNeighbor reports whether at least one of point's four
+// cardinal neighbours is empty (no wall, food, or organism). Used to
+// pick initial spawn locations that aren't fully boxed in.
+func (m *OrganismManager) hasEmptyNeighbor(point utils.Point) bool {
+	direction := utils.Point{X: 0, Y: -1}
+	for i := 0; i < 4; i++ {
+		if m.isGridLocationEmpty(point.Add(direction)) {
+			return true
+		}
+		direction = direction.Left()
+	}
+	return false
 }
 
 // getChildSpawnLocation returns an empty cell adjacent to the parent and the
@@ -597,6 +632,18 @@ func (m *OrganismManager) GetOrganismTreeNode(id int) *organism.DescendantNode {
 	return nil
 }
 
+// GetTreeNodeByID returns the DescendantNode for the given ID — alive
+// or dead — in O(1) via descendantNodeIndex. Used by UI render paths
+// like the descendant-highlight walk that runs every frame.
+func (m *OrganismManager) GetTreeNodeByID(id int) *organism.DescendantNode {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+	if o, ok := m.organisms[id]; ok {
+		return o.TreeNode
+	}
+	return m.descendantNodeIndex[id]
+}
+
 // GetOrganismInfoAtPoint returns the Organism Info at the given point
 // (nil if none). The fast path is the organismIDGrid lookup; a slower
 // fallback scans m.organisms by Location so a stray grid/organisms
@@ -673,6 +720,15 @@ func (m *OrganismManager) GetMostChildrenId() int {
 // GetMostTraveledId returns the id of the most traveled organism
 func (m *OrganismManager) GetMostTraveledId() int {
 	return m.mostTraveledId
+}
+
+// GetMostAggressiveId returns the id of the organism with the most
+// attack hits (attacks that landed on a target organism). -1 if none.
+func (m *OrganismManager) GetMostAggressiveId() int {
+	if m.mostAggressiveHits <= 0 {
+		return -1
+	}
+	return m.mostAggressiveId
 }
 
 // mostSuccessfulSet returns the set of "most successful" tree node IDs.
@@ -824,20 +880,20 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	traits := o.TraitsRef()
 	phEffect := 0.0
+	tolerance := c.PhTolerance()
 	// Subtract health if organism is too far away from its ideal ph
 	phDist := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
-	if phDist > traits.PhTolerance {
-		phEffect = (phDist - traits.PhTolerance) * c.HealthChangePerUnhealthyPh()
+	if phDist > tolerance {
+		phEffect = (phDist - tolerance) * c.HealthChangePerUnhealthyPh()
 	}
 	// Add effects due to attack (not related to organism size)
 	healthEffects := m.requestManager.GetHealthEffects(o.Location)
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
 
-	// Lifespan enforcement: if the global max-lifespan is enabled
-	// (MaxMaxLifespan > 0), force health to 0 once the organism reaches
-	// its trait-defined lifespan. removeIfDead runs later in the same
-	// cycle and cleans up as usual.
-	if c.MaxMaxLifespan() > 0 && traits.MaxLifespan > 0 && o.Age >= traits.MaxLifespan {
+	// Lifespan enforcement: when MaxLifespan > 0 every organism dies
+	// at that age. removeIfDead runs later in the same cycle and cleans
+	// up as usual.
+	if maxLifespan := c.MaxLifespan(); maxLifespan > 0 && o.Age >= maxLifespan {
 		o.Health = 0
 	}
 }
@@ -860,10 +916,16 @@ func (m *OrganismManager) applyIdle(o *organism.Organism) {
 func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 	traits := o.TraitsRef()
 	ph := m.api.GetPhAtPoint(o.Location)
-	chemoTolerance := traits.PhTolerance * c.ChemosynthesisTolerance()
+	chemoTolerance := c.PhTolerance() * c.ChemosynthesisTolerance()
 	if math.Abs(traits.IdealPh-ph) < chemoTolerance {
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
 		o.ChemoFailed = false
+		// Successful chemo pushes local pH down, scaled by organism
+		// size — bigger organisms acidify faster. Accumulate the
+		// magnitude on the organism for the per-organism tinting.
+		delta := c.ChemoPhEffectPerSize() * o.Size
+		m.api.AddPhChangeAtPoint(o.Location, -delta)
+		o.PhNegative += delta
 	} else {
 		m.applyHealthChange(o, c.HealthChangeFromFailedChemosynthesis()*o.Size)
 		o.ChemoFailed = true
@@ -875,8 +937,6 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 	o.ApplyHealthChange(amount)
 	if o.Size > prevSize {
 		m.addUpdatedPoint(o.Location)
-		// Organism growth affects ph
-		m.applyOrganismPhGrowthEffect(o)
 	}
 }
 
@@ -927,6 +987,12 @@ func (m *OrganismManager) applySpawn(o *organism.Organism) {
 		m.applyHealthChange(o, o.HealthCostToReproduce())
 		o.Children++
 	}
+	// SpawnChildOrganism can still fail here despite the decide-phase
+	// "has empty neighbour" check (e.g. a higher-ID organism with the
+	// same target won the position-request priority), but the
+	// trapped-organism case the user reported is handled at decide
+	// time now: organisms without an empty neighbour resolve through
+	// their tree-picked action with real side effects, not ActSpawn.
 }
 
 func (m *OrganismManager) applyEat(o *organism.Organism) {
@@ -941,6 +1007,14 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	o.EatFailed = amountToEat <= 0
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
 	m.applyHealthChange(o, amountToEat)
+	if amountToEat > 0 {
+		// Successful eating pushes local pH up, scaled by amount eaten.
+		// Accumulate the magnitude on the organism for the per-organism
+		// tinting.
+		delta := c.EatingPhEffectPerFood() * amountToEat
+		m.api.AddPhChangeAtPoint(target, delta)
+		o.PhPositive += delta
+	}
 }
 
 func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils.Point) float64 {
@@ -1000,15 +1074,15 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 	return fmt.Sprintf("\n      ID: %10d   |         InitialHealth: %4d"+
 		"\n     Age: %10d   |      MinHealthToSpawn: %4d"+
 		"\nChildren: %10d   |      MinCyclesToSpawn: %4d"+
-		"\nAncestor: %10d   |  "+
-		"\n  Health: %10.2f   |   ChanceToMutateTree:  %4.2f"+
+		"\nAncestor: %10d"+
+		"\n  Health: %10.2f"+
 		"\n    CalcAndUpdateSize: %10.2f   |              MaxSize:  %4.2f"+
 		"\n  Tree:\n%s",
 		o.ID, int(o.InitialHealth()),
 		o.Age, int(o.MinHealthToSpawn()),
 		o.Children, o.MinCyclesBetweenSpawns(),
 		o.OriginalAncestorID,
-		o.Health, o.ChanceToMutateDecisionTree(),
+		o.Health,
 		o.Size, o.MaxSize(),
 		o.GetDecisionTreeCopy().Print())
 }
