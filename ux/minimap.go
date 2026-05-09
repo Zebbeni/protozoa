@@ -9,7 +9,6 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
-	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
@@ -248,8 +247,6 @@ func (m *Minimap) renderInBackground(showPh, showOrgs bool, orgColor mode) {
 	bgG := byte(tbG * 255)
 	bgB := byte(tbB * 255)
 
-	maxPhEffect := config.MaxOrganismPhGrowthEffect()
-
 	buf := make([]byte, 4*m.width*m.height)
 
 	for py := 0; py < m.height; py++ {
@@ -273,7 +270,7 @@ func (m *Minimap) renderInBackground(showPh, showOrgs bool, orgColor mode) {
 			if showOrgs {
 				if info := m.simulation.GetOrganismInfoAtPoint(point); info != nil {
 					if phEffectTint {
-						col := PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, maxPhEffect))
+						col := phEffectColor(info.PhPositive, info.PhNegative)
 						r = byte(col.R * 255)
 						g = byte(col.G * 255)
 						b = byte(col.B * 255)

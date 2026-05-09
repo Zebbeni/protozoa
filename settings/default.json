@@ -21,14 +21,11 @@
   "max_initial_ph": 8.0,
   "min_ideal_ph": 1.5,
   "max_ideal_ph": 8.5,
-  "min_ph_tolerance_range": 0.5,
-  "max_ph_tolerance_range": 1.0,
+  "ph_tolerance": 0.75,
   "chemosynthesis_tolerance": 0.25,
-  "max_organism_ph_growth_effect": 0.05,
-  "max_ph_effect_change": 0.002,
-  "min_max_lifespan": 500,
-  "max_max_lifespan": 10000,
-  "max_max_lifespan_change": 10,
+  "chemosynthesis_ph_effect_per_size": 0.0005,
+  "eating_ph_effect_per_food": 0.02,
+  "max_lifespan": 5000,
   "ph_diffuse_factor": 0.5,
   "ph_increment_to_display": 0.25,
 
@@ -57,6 +54,6 @@
   "health_change_from_spawning": -0.2,
   "health_change_from_idle": -0.01,
   "health_change_inflicted_by_attack": -10.0,
-  "health_change_per_unhealthy_ph": -0.5,
+  "health_change_per_unhealthy_ph": -0.1,
   "theme": "dark"
 }

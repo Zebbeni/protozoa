@@ -589,7 +589,6 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organ
 				Size:      frame.Size,
 				Action:    frame.Action,
 				Color:     frame.Color,
-				PhEffect:  frame.PhEffect,
 			}
 			g.renderOrganism(synth, organismsImage)
 		}
@@ -881,7 +880,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	organismColor := info.Color
 	switch g.orgColor {
 	case orgColorPhEffect:
-		organismColor = PhEffectColor(organism.PhEffectSpectrumValue(info.PhEffect, config.MaxOrganismPhGrowthEffect()))
+		organismColor = phEffectColor(info.PhPositive, info.PhNegative)
 	case orgColorHealth:
 		organismColor = healthColor(info.Health, info.Size)
 	}

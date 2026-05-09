@@ -7,7 +7,6 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/ux/graph/ph"
-	"github.com/Zebbeni/protozoa/ux/graph/pheffect"
 	"github.com/Zebbeni/protozoa/ux/graph/population"
 )
 
@@ -18,8 +17,6 @@ type Mode int
 
 const (
 	ModePopulation Mode = iota
-	ModePopulationPhEffect
-	ModePhEffect
 	ModePh
 )
 
@@ -79,8 +76,6 @@ func NewGraph(sim *s.Simulation) *Graph {
 	}
 
 	g.renderers[ModePopulation] = population.NewRenderer(population.TraitColor, nil, 0)
-	g.renderers[ModePopulationPhEffect] = population.NewRenderer(population.PhEffectNodeColor, nil, 0)
-	g.renderers[ModePhEffect] = pheffect.NewRenderer()
 	g.renderers[ModePh] = ph.NewRenderer()
 
 	return g
@@ -231,8 +226,6 @@ func (g *Graph) updateSelection() bool {
 			startBar := g.selStartCycle / c.PopulationUpdateInterval()
 
 			g.selRenderers[ModePopulation] = population.NewRenderer(population.TraitColor, root, startBar)
-			g.selRenderers[ModePopulationPhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
-			g.selRenderers[ModePhEffect] = population.NewRenderer(population.PhEffectNodeColor, root, startBar)
 		}
 	}
 	return true

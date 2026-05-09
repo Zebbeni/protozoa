@@ -19,7 +19,12 @@ type Info struct {
 	Age          int
 	Children     int
 	TraveledDist int // lifetime grid-unit travel count
-	PhEffect     float64
+	// PhPositive / PhNegative are lifetime cumulative magnitudes the
+	// organism has pushed pH up (eating) and down (chemosynthesis).
+	// Both are non-negative; the renderer derives a tint from the
+	// imbalance between them.
+	PhPositive float64
+	PhNegative float64
 	// AttackTotal is the lifetime count of attack-action cycles.
 	// AttackHits is the subset that landed on an organism in the target
 	// cell at the moment of the attack.

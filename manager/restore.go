@@ -51,12 +51,11 @@ func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodR
 	}
 }
 
-// RestoreHistory injects pre-built pH distribution and effect history into the OrganismManager.
+// RestoreHistory injects pre-built pH distribution history into the OrganismManager.
 func (m *OrganismManager) RestoreHistory(payload *checkpoint.HistoryPayload) {
 	m.historyMutex.Lock()
 	defer m.historyMutex.Unlock()
 	m.history[HistoryPhDistribution] = payload.PhDistribution
-	m.history[HistoryPhEffect] = payload.PhEffect
 }
 
 // RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
@@ -191,8 +190,6 @@ func recordToNode(rec checkpoint.DescendantNodeRecord, parent *organism.Descenda
 	node := &organism.DescendantNode{
 		ID:                   int(rec.ID),
 		Color:                colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
-		PhEffectColor:        colorful.Color{R: float64(rec.PhEffectColorR), G: float64(rec.PhEffectColorG), B: float64(rec.PhEffectColorB)},
-		PhGrowthEffect:       rec.PhGrowthEffect,
 		StartCycle:           startCycle,
 		EndCycle:             int(rec.EndCycle),
 		AllBranchesDeadCycle: int(rec.AllBranchesDeadCycle),
@@ -236,7 +233,6 @@ func RestoreOrganismManager(
 		descendantNodeIndex:    make(map[int]*organism.DescendantNode),
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
-			HistoryPhEffect:       make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
 		},
 	}

@@ -167,7 +167,6 @@ type Frame struct {
 	Action       decision.Action
 	Color        colorful.Color
 	Size         float64
-	PhEffect     float64
 	Dying        bool
 	// ChemoFailed is true when the organism attempted chemosynthesis but
 	// was outside its pH tolerance range (no health gained). Routed
@@ -293,7 +292,6 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Action:       action,
 			Color:        info.Color,
 			Size:         info.Size,
-			PhEffect:     info.PhEffect,
 			ChemoFailed:  info.ChemoFailed,
 			EatFailed:    info.EatFailed,
 		}
@@ -309,7 +307,6 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Action:       pre.Action,
 			Color:        pre.Color,
 			Size:         pre.Size,
-			PhEffect:     pre.PhEffect,
 			Dying:        true,
 		}
 	}

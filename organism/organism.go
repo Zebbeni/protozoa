@@ -34,6 +34,14 @@ type Organism struct {
 	AttackTotal int
 	AttackHits  int
 
+	// PhPositive / PhNegative are the lifetime cumulative magnitudes
+	// of pH the organism has pushed *up* (eating) and *down* (chemo)
+	// at its surrounding cells. Both values are non-negative; the
+	// renderer derives a colour from max/min and which one is larger
+	// to tint organisms by their net behavioural pH effect.
+	PhPositive float64
+	PhNegative float64
+
 	traits Traits
 
 	decisionTree *d.Tree
@@ -129,7 +137,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
 	traits Traits, tree *d.Tree, action d.Action,
-	attackTotal, attackHits int, api LookupAPI) *Organism {
+	attackTotal, attackHits int, phPositive, phNegative float64, api LookupAPI) *Organism {
 	return &Organism{
 		ID:                   id,
 		Age:                  age,
@@ -146,6 +154,8 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		action:               action,
 		AttackTotal:          attackTotal,
 		AttackHits:           attackHits,
+		PhPositive:           phPositive,
+		PhNegative:           phNegative,
 		lookupAPI:            api,
 	}
 }
@@ -163,7 +173,8 @@ func (o *Organism) Info() *Info {
 		Age:           o.Age,
 		Children:      o.Children,
 		TraveledDist:  o.TraveledDist,
-		PhEffect:      o.traits.PhGrowthEffect,
+		PhPositive:    o.PhPositive,
+		PhNegative:    o.PhNegative,
 		ChemoFailed:   o.ChemoFailed,
 		EatFailed:     o.EatFailed,
 		BornThisCycle: o.BornThisCycle,
@@ -187,24 +198,32 @@ func (o *Organism) UpdateStats() {
 	o.BornThisCycle = false
 }
 
-// UpdateAction runs on each cycle, occasionally changing the current decision
-// tree before running it to determine its next action.
-//
-// chooseAction is called every cycle even when the sim is about to
-// override the result with ActSpawn, so the tree's UsedLastCycle markers
-// stay populated for the panel's decision-tree display. Without this,
-// spawn cycles would leave every node at UsedLastCycle=false (cleared
-// by UpdateStats and never re-set) and the panel would show no ◀◀
-// arrows at all.
+// UpdateAction picks the decision tree's action and stores it on
+// the organism. Spawn promotion happens at the manager level (which
+// can verify against the live grid that a child can fit) — keeping
+// it out of here means a "wants to spawn but trapped" organism
+// resolves through the tree's actual choice, with the request map
+// and side effects matching what will run.
 func (o *Organism) UpdateAction() {
-	chosen := o.chooseAction(o.decisionTree.Node)
-	if o.shouldSpawn() {
-		o.CyclesSinceLastSpawn = 0
-		o.action = d.ActSpawn
-		return
-	}
-	o.action = chosen
+	o.action = o.chooseAction(o.decisionTree.Node)
 }
+
+// PromoteToSpawn is called by the manager during the decide phase
+// when an organism is eligible to spawn AND the grid has room for a
+// child. Sets the action to ActSpawn and resets the spawn cooldown.
+// Trapped organisms (no empty neighbour) skip this call and keep
+// their tree-picked action.
+func (o *Organism) PromoteToSpawn() {
+	o.action = d.ActSpawn
+	o.CyclesSinceLastSpawn = 0
+}
+
+// ShouldSpawn reports whether the organism currently meets the
+// per-organism preconditions for reproducing: enough cycles since
+// its last spawn, enough health to bear the spawn cost, and
+// global-population headroom. Doesn't check whether the grid has
+// room for a child; the manager pairs this with getChildSpawnLocation.
+func (o *Organism) ShouldSpawn() bool { return o.shouldSpawn() }
 
 func (o *Organism) shouldSpawn() bool {
 	if o.CyclesSinceLastSpawn < o.MinCyclesBetweenSpawns() {
@@ -386,7 +405,7 @@ func (o *Organism) isOrganismRight() bool {
 }
 
 func (o *Organism) isHealthyPhHere() bool {
-	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, o.Traits().PhTolerance)
+	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.PhTolerance())
 }
 
 func (o *Organism) isHealthierPhAhead() bool {

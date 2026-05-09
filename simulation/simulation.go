@@ -452,13 +452,6 @@ func (s *Simulation) GetDescendantTrees() map[int]*organism.DescendantNode {
 	return s.organismManager.GetDescendantTrees()
 }
 
-// RebuildPhEffectColors walks every descendant tree and recomputes
-// PhEffectColor from each node's stored PhGrowthEffect. Used by the UI
-// when the user switches the pH colour scheme.
-func (s *Simulation) RebuildPhEffectColors() {
-	s.organismManager.RebuildPhEffectColors()
-}
-
 // GetAncestorsSorted returns a list of all original ancestor IDs in order
 func (s *Simulation) GetAncestorsSorted() []int {
 	ancestors := s.organismManager.GetAncestors()
@@ -479,6 +472,11 @@ func (s *Simulation) GetDeadCount() int {
 // GetFoodItems returns a map of all food items in the grid
 func (s *Simulation) GetFoodItems() map[utils.Point]*food.Item {
 	return s.foodManager.GetFoodItems()
+}
+
+// FoodCount returns the total number of food items currently on the grid.
+func (s *Simulation) FoodCount() int {
+	return s.foodManager.FoodCount()
 }
 
 // CheckOrganismAtPoint returns the result of running a check against any

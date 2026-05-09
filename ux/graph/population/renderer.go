@@ -31,8 +31,7 @@ func popGraphCeiling(peak int) int {
 // NodeColorFunc selects which color to use from a DescendantNode
 type NodeColorFunc func(node *organism.DescendantNode) color.Color
 
-func TraitColor(node *organism.DescendantNode) color.Color        { return node.Color }
-func PhEffectNodeColor(node *organism.DescendantNode) color.Color { return node.PhEffectColor }
+func TraitColor(node *organism.DescendantNode) color.Color { return node.Color }
 
 // Renderer renders a population bar graph using a descendant tree walk.
 type Renderer struct {

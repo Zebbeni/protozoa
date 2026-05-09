@@ -10,7 +10,6 @@ import (
 	"golang.org/x/image/font"
 
 	"github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/resources"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
@@ -108,10 +107,67 @@ func PhValueColor(ph float64) (float32, float32, float32, float32) {
 	return gh.PhValueColor(ph)
 }
 
-// PhEffectColor maps a normalized spectrum value [0, 1] to a color.
-// 0 = most negative effect (green/acid), 0.5 = neutral, 1 = most positive (pink/base)
-func PhEffectColor(spectrumValue float64) colorful.Color {
-	return organism.ComputePhEffectColor(spectrumValue)
+// phEffectMaxRatio defines where the pH-effect tint hits the saturated
+// acid/base extreme: a 10×-or-greater imbalance between an organism's
+// positive and negative cumulative pH contributions.
+const phEffectMaxRatio = 10.0
+
+// phEffectSpectrum maps an organism's lifetime cumulative positive and
+// negative pH contributions onto a [0, 1] spectrum where 0 is full
+// acid (negative-dominant), 0.5 is neutral, and 1 is full base
+// (positive-dominant). The intensity from neutral grows as the larger
+// magnitude approaches phEffectMaxRatio× the smaller; equal magnitudes
+// or both-zero collapse to 0.5.
+func phEffectSpectrum(positive, negative float64) float64 {
+	switch {
+	case positive == 0 && negative == 0:
+		return 0.5
+	case positive == 0:
+		return 0
+	case negative == 0:
+		return 1
+	}
+	if positive > negative {
+		ratio := positive / negative
+		intensity := (ratio - 1) / (phEffectMaxRatio - 1)
+		if intensity > 1 {
+			intensity = 1
+		}
+		return 0.5 + 0.5*intensity
+	}
+	ratio := negative / positive
+	intensity := (ratio - 1) / (phEffectMaxRatio - 1)
+	if intensity > 1 {
+		intensity = 1
+	}
+	return 0.5 - 0.5*intensity
+}
+
+// phEffectColor returns the grid-tint colour for an organism with the
+// given cumulative pH contributions. Mirrors ComputePhEffectColor's
+// old behaviour: blends to background at neutral, toward the active
+// scheme's acid/base hue at the extremes.
+func phEffectColor(positive, negative float64) colorful.Color {
+	spec := phEffectSpectrum(positive, negative)
+	acidHue, baseHue := config.PhEffectHueRange()
+	hue := acidHue + (baseHue-acidHue)*spec
+	dist := spec - 0.5
+	if dist < 0 {
+		dist = -dist
+	}
+	sat := 0.5 + dist
+	light := dist
+	if config.IsLightTheme() {
+		light = 1 - dist
+	}
+	col := colorful.HSLuv(hue, sat, light)
+	bgR, bgG, bgB := config.ThemeBackgroundRGB()
+	weight := dist * 2
+	return colorful.Color{
+		R: weight*col.R + (1-weight)*bgR,
+		G: weight*col.G + (1-weight)*bgG,
+		B: weight*col.B + (1-weight)*bgB,
+	}
 }
 
 // greenRedColor maps t in [0, 1] onto the green→red HSLuv spectrum:
@@ -189,19 +245,19 @@ func phIdealTextColor(idealPh float64) color.Color {
 	}
 }
 
-// phEffectTextColor returns a text colour for the PH EFFECT stat. At
-// neutral (effect == 0) it returns the themed foreground so the value
-// reads as normal text; magnitude shifts the colour toward the active
-// pH colour scheme's acid/base extremes. Saturation is high and the
-// blend ramps via sqrt so even mid-range values show a clear tint.
-func phEffectTextColor(phEffect, maxEffect float64) color.Color {
-	spec := organism.PhEffectSpectrumValue(phEffect, maxEffect)
+// phEffectTextColor returns a text colour for the PH EFFECT stat
+// based on an organism's cumulative positive/negative pH
+// contributions. At balanced (or both zero) it returns the themed
+// foreground; an imbalance shifts the colour toward the active pH
+// colour scheme's acid (negative-dominant) or base (positive-
+// dominant) extreme. The blend ramps via sqrt so a mid-range
+// imbalance shows a clear tint.
+func phEffectTextColor(positive, negative float64) color.Color {
+	spec := phEffectSpectrum(positive, negative)
 	dist := spec - 0.5
 	if dist < 0 {
 		dist = -dist
 	}
-	// sqrt ramp: weight 0.25 → 0.5 blend, so smaller magnitudes
-	// already show a noticeable tint instead of staying near-foreground.
 	weight := math.Sqrt(dist * 2)
 
 	acidHue, baseHue := config.PhEffectHueRange()
@@ -213,7 +269,6 @@ func phEffectTextColor(phEffect, maxEffect float64) color.Color {
 	}
 	accent := colorful.HSLuv(hue, sat, light)
 
-	// Foreground at neutral: white on dark, near-black on light.
 	fgR, fgG, fgB := 1.0, 1.0, 1.0
 	if config.IsLightTheme() {
 		fgR, fgG, fgB = 30.0/255.0, 30.0/255.0, 35.0/255.0
@@ -244,4 +299,26 @@ func boundString(face font.Face, s string) image.Rectangle {
 // for layout offsets.
 func textAdvance(face font.Face, s string) int {
 	return font.MeasureString(face, s).Round()
+}
+
+// shiftRGB returns c with each colour channel shifted by delta and
+// clamped to [0, 255]. Positive delta lightens, negative darkens.
+// Alpha is preserved. Used by buttons and other chrome to derive
+// hover/pressed tints from a single base colour.
+func shiftRGB(c color.RGBA, delta int) color.RGBA {
+	clamp := func(v int) uint8 {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return uint8(v)
+	}
+	return color.RGBA{
+		R: clamp(int(c.R) + delta),
+		G: clamp(int(c.G) + delta),
+		B: clamp(int(c.B) + delta),
+		A: c.A,
+	}
 }

@@ -47,8 +47,8 @@ type SnapshotPayload struct {
 //   - IDs, Age, TraveledDist, OriginalAncestorID: uint32 — sims don't
 //     produce more than ~4 billion organisms, and gob encodes uint32
 //     in 1–5 bytes via varint.
-//   - Children, MinCyclesBetweenSpawns, CyclesSinceLastSpawn,
-//     MaxLifespan: uint16 — bounded by config & biology.
+//   - Children, MinCyclesBetweenSpawns, CyclesSinceLastSpawn:
+//     uint16 — bounded by config & biology.
 //   - Locations: uint16 — supports grid sizes up to 65535×65535.
 //   - Direction: int8 — only ever -1, 0, +1.
 //   - CurrentAction: uint8 — Action enum has well under 256 values.
@@ -77,9 +77,11 @@ type OrganismRecord struct {
 	MinHealthToSpawn       float64
 	MinCyclesBetweenSpawns uint16
 	IdealPh                float64
-	PhTolerance            float64
-	PhGrowthEffect         float64
-	MaxLifespan            uint16
+
+	// PhPositive / PhNegative are lifetime cumulative magnitudes the
+	// organism has pushed pH up (eating) or down (chemosynthesis).
+	PhPositive float64
+	PhNegative float64
 
 	// Decision tree as serialized string
 	DecisionTree  string
@@ -136,11 +138,10 @@ type FoodChangeRecord struct {
 	Value uint16
 }
 
-// HistoryPayload stores the complete pH distribution and pH effect history,
+// HistoryPayload stores the complete pH distribution history,
 // serialized once at the end of a simulation run.
 type HistoryPayload struct {
 	PhDistribution map[int]map[int]int32 // cycle -> bucket -> count
-	PhEffect       map[int]map[int]int32 // cycle -> bucket -> count
 }
 
 // DescendantTreesPayload contains the full descendant trees, serialized once
@@ -156,15 +157,11 @@ type DescendantTreeRecord struct {
 }
 
 // DescendantNodeRecord is the serializable form of a DescendantNode.
-// PhGrowthEffect is persisted so a pH-colour-scheme switch on replay
-// can rebuild each node's PhEffectColor from the original source value.
 type DescendantNodeRecord struct {
-	ID                                             uint32
-	ColorR, ColorG, ColorB                         float32
-	PhEffectColorR, PhEffectColorG, PhEffectColorB float32
-	PhGrowthEffect                                 float64
-	StartCycle                                     uint32
-	EndCycle                                       uint32
-	AllBranchesDeadCycle                           uint32
-	Children                                       []DescendantNodeRecord
+	ID                     uint32
+	ColorR, ColorG, ColorB float32
+	StartCycle             uint32
+	EndCycle               uint32
+	AllBranchesDeadCycle   uint32
+	Children               []DescendantNodeRecord
 }

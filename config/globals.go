@@ -48,14 +48,11 @@ func MaximumInitialSpawnHealth() float64     { return constants.MaximumInitialSp
 func MaxInitialCyclesBetweenSpawns() int     { return constants.MaxInitialCyclesBetweenSpawns }
 func MinIdealPh() float64                    { return constants.MinIdealPh }
 func MaxIdealPh() float64                    { return constants.MaxIdealPh }
-func MinPhToleranceRange() float64           { return constants.MinPhToleranceRange }
-func MaxPhToleranceRange() float64           { return constants.MaxPhToleranceRange }
+func PhTolerance() float64                   { return constants.PhTolerance }
 func ChemosynthesisTolerance() float64       { return constants.ChemosynthesisTolerance }
-func MaxOrganismPhGrowthEffect() float64     { return constants.MaxOrganismPhGrowthEffect }
-func MaxPhEffectChange() float64             { return constants.MaxPhEffectChange }
-func MinMaxLifespan() int                    { return constants.MinMaxLifespan }
-func MaxMaxLifespan() int                    { return constants.MaxMaxLifespan }
-func MaxMaxLifespanChange() int              { return constants.MaxMaxLifespanChange }
+func ChemoPhEffectPerSize() float64          { return constants.ChemoPhEffectPerSize }
+func EatingPhEffectPerFood() float64         { return constants.EatingPhEffectPerFood }
+func MaxLifespan() int                       { return constants.MaxLifespan }
 func PhIncrementToDisplay() float64          { return constants.PhIncrementToDisplay }
 func PhDiffuseFactor() float64               { return constants.PhDiffuseFactor }
 func UsePools() bool                         { return constants.UsePools }
@@ -231,20 +228,28 @@ type Globals struct {
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`
-	MinPhToleranceRange           float64 `json:"min_ph_tolerance_range"`
-	MaxPhToleranceRange           float64 `json:"max_ph_tolerance_range"`
-	// ChemosynthesisTolerance multiplies an organism's PhTolerance to
-	// define the pH window in which chemosynthesis succeeds. Values
-	// below 1 narrow chemo-viable pH relative to the organism's
-	// general survival tolerance; values above 1 widen it.
+	// PhTolerance is the absolute pH distance every organism can sit
+	// from its IdealPh without taking unhealthy-pH damage. Global
+	// rather than per-organism — variation between organisms now comes
+	// from IdealPh alone.
+	PhTolerance                   float64 `json:"ph_tolerance"`
+	// ChemosynthesisTolerance multiplies PhTolerance to define the pH
+	// window in which chemosynthesis succeeds. Values below 1 narrow
+	// chemo-viable pH relative to general survival tolerance; values
+	// above 1 widen it.
 	ChemosynthesisTolerance       float64 `json:"chemosynthesis_tolerance"`
-	MaxOrganismPhGrowthEffect     float64 `json:"max_organism_ph_growth_effect"`
-	MaxPhEffectChange             float64 `json:"max_ph_effect_change"`
-	// Max lifespan (in cycles) range and mutation step. Set
-	// MaxMaxLifespan to 0 to disable lifespan-based death entirely.
-	MinMaxLifespan       int     `json:"min_max_lifespan"`
-	MaxMaxLifespan       int     `json:"max_max_lifespan"`
-	MaxMaxLifespanChange int     `json:"max_max_lifespan_change"`
+	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize *
+	// organism.Size on each successful chemo cycle. Eating pushes the
+	// local pH up by EatingPhEffectPerFood * food_amount_eaten on each
+	// successful eat. Replaces the old per-organism PhGrowthEffect
+	// trait — same overall mechanic (organisms shape their environment)
+	// but driven by what they actually do, not what they're born with.
+	ChemoPhEffectPerSize  float64 `json:"chemosynthesis_ph_effect_per_size"`
+	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
+	// MaxLifespan is the global lifespan cap (in cycles) every organism
+	// dies at when reached. Set to 0 to disable lifespan-based death
+	// entirely.
+	MaxLifespan          int     `json:"max_lifespan"`
 	MinChangeToPh        float64 `json:"min_change_to_ph"`
 	MaxChangeToPh        float64 `json:"max_change_to_ph"`
 	PhIncrementToDisplay float64 `json:"ph_increment_to_display"`

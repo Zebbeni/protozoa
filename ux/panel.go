@@ -295,9 +295,6 @@ var graphModeButtons = [...]graphModeButton{
 	{label: "POP (all)", mode: graph.ModePopulation, showSelected: false},
 	{label: "POP (sel)", mode: graph.ModePopulation, showSelected: true},
 	{label: "PH HIST", mode: graph.ModePh, showSelected: false},
-	{label: "EFF (all)", mode: graph.ModePopulationPhEffect, showSelected: false},
-	{label: "EFF (sel)", mode: graph.ModePopulationPhEffect, showSelected: true},
-	{label: "EFF HIST", mode: graph.ModePhEffect, showSelected: false},
 }
 
 const (
@@ -359,13 +356,6 @@ func graphModeLabel(mode graph.Mode, showSelected bool) string {
 			return "POPULATION (SELECTED)"
 		}
 		return "POPULATION HISTORY"
-	case graph.ModePopulationPhEffect:
-		if showSelected {
-			return "PH EFFECT POP (SELECTED)"
-		}
-		return "PH EFFECT POPULATION"
-	case graph.ModePhEffect:
-		return "PH EFFECT HISTORY"
 	case graph.ModePh:
 		return "PH DISTRIBUTION"
 	}
@@ -519,12 +509,8 @@ func (p *Panel) handlePhColorButtonClick(mx, my int) bool {
 				return true
 			}
 			config.SetPhColorScheme(r.scheme)
-			// Repaint baked-in node tints (pop graph, pH-effect view
-			// in pop graph) from each node's stored PhGrowthEffect.
-			p.simulation.RebuildPhEffectColors()
-			// Force every cached graph image to rebuild on the next
-			// render so the pH histogram and pH-effect history pick
-			// up the new palette.
+			// Force cached graph images to rebuild so the pH
+			// histogram picks up the new palette.
 			if p.graph != nil {
 				p.graph.Invalidate()
 			}
@@ -1115,8 +1101,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 	label := graphModeLabel(graphMode, p.graphShowSelected)
 
 	// Append selected organism ID to sub-tree population titles.
-	if p.graphShowSelected && p.graph.HasSelection() &&
-		(graphMode == graph.ModePopulation || graphMode == graph.ModePopulationPhEffect) {
+	if p.graphShowSelected && p.graph.HasSelection() && graphMode == graph.ModePopulation {
 		label = fmt.Sprintf("%s (ORG ID: %d)", label, p.simulation.GetSelected())
 	}
 
@@ -1154,7 +1139,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) {
 	}
 
 	// Draw start cycle label for selected sub-tree graphs
-	if p.graph.HasSelection() && (graphMode == graph.ModePopulation || graphMode == graph.ModePopulationPhEffect) {
+	if p.graph.HasSelection() && graphMode == graph.ModePopulation {
 		startCycle := p.graph.SelectedStartCycle()
 		if startCycle >= 0 {
 			cycleLabel := fmt.Sprintf("cycle %d", startCycle)
@@ -1367,7 +1352,8 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	if dim {
 		ageVal = fmt.Sprintf("%d (dead)", info.Age)
 	}
-	phTolVal := fmt.Sprintf("%1.1f-%1.1f", traits.IdealPh-traits.PhTolerance, traits.IdealPh+traits.PhTolerance)
+	tolerance := config.PhTolerance()
+	phTolVal := fmt.Sprintf("%1.1f-%1.1f", traits.IdealPh-tolerance, traits.IdealPh+tolerance)
 	col1 := fmt.Sprintf("%-*s %*s", col1LabelW, "HEALTH:", col1ValueW, healthVal)
 	col1 += fmt.Sprintf("\n%-*s %*s", col1LabelW, "AGE:", col1ValueW, ageVal)
 	col1 += fmt.Sprintf("\n%-*s %*d", col1LabelW, "CHILDREN:", col1ValueW, info.Children)
@@ -1377,7 +1363,9 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	sizeVal := fmt.Sprintf("%5.2f", info.Size)
 	spawnVal := fmt.Sprintf("%5.2f", traits.MinHealthToSpawn)
 	attacksVal := fmt.Sprintf("%d/%d", info.AttackHits, info.AttackTotal)
-	phEffVal := fmt.Sprintf("%+1.5f", traits.PhGrowthEffect)
+	// Net cumulative pH push: positive = base-leaning (eating-driven),
+	// negative = acid-leaning (chemo-driven).
+	phEffVal := fmt.Sprintf("%+.2f", info.PhPositive-info.PhNegative)
 	col2 := fmt.Sprintf("%-*s %*s", col2LabelW, "SIZE:", col2ValueW, sizeVal)
 	col2 += fmt.Sprintf("\n%-*s %*s", col2LabelW, "SPAWN HP:", col2ValueW, spawnVal)
 	col2 += fmt.Sprintf("\n%-*s %*s", col2LabelW, "HITS/ATK:", col2ValueW, attacksVal)
@@ -1408,10 +1396,11 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 		phTolY := statsTextY + 4*statsLineHeight
 		text.Draw(panelImage, phTolOver, r.FontSourceCodePro12, col1ValueX, phTolY, phIdealTextColor(traits.IdealPh))
 
-		// PH EFFECT — col 2 line 3
+		// PH EFFECT — col 2 line 3 — colour derived from the
+		// positive/negative imbalance ratio, not the displayed net.
 		phEffOver := fmt.Sprintf("%*s", col2ValueW, phEffVal)
 		phEffY := statsTextY + 3*statsLineHeight
-		text.Draw(panelImage, phEffOver, r.FontSourceCodePro12, col2ValueX, phEffY, phEffectTextColor(traits.PhGrowthEffect, config.MaxOrganismPhGrowthEffect()))
+		text.Draw(panelImage, phEffOver, r.FontSourceCodePro12, col2ValueX, phEffY, phEffectTextColor(info.PhPositive, info.PhNegative))
 	}
 
 	offsetY := statsBottom + 6

@@ -131,9 +131,6 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		MinHealthToSpawn:       rec.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: int(rec.MinCyclesBetweenSpawns),
 		IdealPh:                rec.IdealPh,
-		PhTolerance:            rec.PhTolerance,
-		PhGrowthEffect:         rec.PhGrowthEffect,
-		MaxLifespan:            int(rec.MaxLifespan),
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)
@@ -145,6 +142,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
 		int(rec.OriginalAncestorID),
 		traits, tree, d.Action(rec.CurrentAction),
-		int(rec.AttackTotal), int(rec.AttackHits), api,
+		int(rec.AttackTotal), int(rec.AttackHits),
+		rec.PhPositive, rec.PhNegative, api,
 	)
 }
