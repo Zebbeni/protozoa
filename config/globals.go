@@ -40,6 +40,8 @@ func InitialDecisionTreeMutations() int      { return constants.InitialDecisionT
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
 func ChanceToGainFeature() float64        { return constants.ChanceToGainFeature }
 func ChanceToLoseFeature() float64        { return constants.ChanceToLoseFeature }
+func StingDamagePercent() float64         { return constants.StingDamagePercent }
+func StingCostPercent() float64           { return constants.StingCostPercent }
 func MinOrganisms() int                      { return constants.MinOrganisms }
 func MaxOrganisms() int                      { return constants.MaxOrganisms }
 func GrowthFactor() float64                  { return constants.GrowthFactor }
@@ -238,6 +240,17 @@ type Globals struct {
 	// a sibling — without this the population saturates at the same
 	// leaf set in every tree and physiological diversity vanishes.
 	ChanceToLoseFeature float64 `json:"chance_to_lose_feature"`
+	// StingDamagePercent scales per-cell damage of ActSting relative
+	// to ActAttack's per-target damage. 0.4 → each of the 4 adjacent
+	// cells takes 40% of an attack's hit, so a sting on a 4-cell
+	// crowd deals 160% of an attack's total but a sting at empty
+	// air deals 0.
+	StingDamagePercent float64 `json:"sting_damage_percent"`
+	// StingCostPercent scales ActSting's health cost relative to
+	// ActAttack's cost (also size-scaled). 0.65 keeps it cheap enough
+	// that a 1-target sting is still worse than an attack, but
+	// crowd-stinging stays viable.
+	StingCostPercent float64 `json:"sting_cost_percent"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`

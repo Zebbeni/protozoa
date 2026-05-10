@@ -51,6 +51,7 @@ const (
 	ActHunker
 	ActFlare
 	ActHide
+	ActBurrow
 )
 
 // Define slices
@@ -107,5 +108,6 @@ var (
 		ActHunker:                 "Hunker",
 		ActFlare:                  "Flare",
 		ActHide:                   "Hide",
+		ActBurrow:                 "Burrow",
 	}
 )

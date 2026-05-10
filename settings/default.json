@@ -37,6 +37,8 @@
   "chance_to_mutate_decision_tree": 0.5,
   "chance_to_gain_feature": 0.10,
   "chance_to_lose_feature": 0.05,
+  "sting_damage_percent": 0.4,
+  "sting_cost_percent": 0.65,
   "max_decision_tree_size": 32,
 
   "max_organisms": 50000,

@@ -8,6 +8,7 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -115,11 +116,18 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 			traits.Features.AllowedConditions(),
 		)
 	}
+	// SpawnHealthMult is the parent's investment-in-offspring tradeoff:
+	// scaling the parent's InitialHealth before assigning it to the
+	// child means features that buff or nerf reproduction take effect
+	// at the spawn site without needing to rewrite the child's
+	// SpawnHealth trait (which still drift-mutates independently and
+	// becomes the basis for the grandchild).
+	startHealth := o.InitialHealth() * o.Tradeoffs().SpawnHealthMult
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
-		Health:               o.InitialHealth(),
-		Size:                 o.InitialHealth(),
+		Health:               startHealth,
+		Size:                 startHealth,
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
@@ -328,6 +336,16 @@ func (o *Organism) RebuildDecisionPath() {
 func (o Organism) Traits() Traits    { return o.traits }
 func (o *Organism) TraitsRef() *Traits { return &o.traits }
 
+// Tradeoffs returns the organism's combined passive Tradeoffs from
+// every feature it currently holds. Computed on demand from the
+// feature bitmask; cheap (12-feature iteration) and called from a few
+// per-cycle hot paths (chemo, move, attack, size-compare). If
+// profiling ever shows this in the hot loop, cache on the organism
+// at construction — features are immutable for a given organism.
+func (o *Organism) Tradeoffs() physiology.Tradeoffs {
+	return o.traits.Features.Combined()
+}
+
 // InitialHealth returns the health an organism and its children start life with
 func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }
 
@@ -433,7 +451,11 @@ func (o *Organism) isAgeMultipleOfTen() bool {
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.Size > o.Size
+		// Use the OTHER organism's perceived size (Size + Tradeoffs.PerceivedSizeAdd)
+		// so features like Spikes can make their bearer look bigger
+		// than they are to a sensing neighbour. The observer's own
+		// size is the raw value — they know themselves accurately.
+		return x != nil && x.Size+x.Tradeoffs().PerceivedSizeAdd > o.Size
 	})
 }
 

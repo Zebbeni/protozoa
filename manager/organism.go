@@ -318,6 +318,23 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		if m.isOrganismAtLocation(target) {
 			o.AttackHits++
 		}
+	case d.ActSting:
+		// Sting is an area-of-effect attack hitting all 4 cardinal
+		// neighbours with reduced per-cell damage. AttackTotal
+		// increments once per sting cycle (consistent with attack as
+		// an action count), AttackHits increments per occupied
+		// adjacent cell — a 4-target sting can credit up to 4 hits in
+		// one cycle, so the hits/total stat properly rewards stingers
+		// that find crowds.
+		stingEffect := m.calculateStingEffect(o)
+		o.AttackTotal++
+		for _, offset := range utils.Directions {
+			target := o.Location.Add(offset)
+			rm.AddHealthEffectRequest(target, stingEffect)
+			if m.isOrganismAtLocation(target) {
+				o.AttackHits++
+			}
+		}
 	}
 }
 
@@ -879,11 +896,14 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 		m.applySpawn(o)
 	case d.ActIdle:
 		m.applyIdle(o)
-	case d.ActSting, d.ActDig, d.ActHunker, d.ActFlare, d.ActHide:
-		// Physiology-gated actions whose semantics arrive in Slice 6c.
-		// Until then they pay the idle cost — the gating Tradeoffs
-		// (chemo penalty for carrying the feature) already apply, so
-		// there's no free lunch from picking an unimplemented action.
+	case d.ActSting:
+		m.applySting(o)
+	case d.ActDig, d.ActBurrow, d.ActHunker, d.ActFlare, d.ActHide:
+		// Physiology-gated actions whose semantics arrive in later
+		// Slice 6c sub-pieces. Until then they pay the idle cost —
+		// the gating Tradeoffs (chemo penalty for carrying the
+		// feature) already apply, so there's no free lunch from
+		// picking an unimplemented action.
 		m.applyIdle(o)
 	}
 }
@@ -897,8 +917,11 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	if phDist > tolerance {
 		phEffect = (phDist - tolerance) * c.HealthChangePerUnhealthyPh()
 	}
-	// Add effects due to attack (not related to organism size)
-	healthEffects := m.requestManager.GetHealthEffects(o.Location)
+	// Add effects due to attack (not related to organism size).
+	// AttackDamageTakenMult is the defender's tradeoff: shells reduce
+	// incoming damage, etc. healthEffects is already negative for
+	// damage, so multiplying scales magnitude proportionally.
+	healthEffects := m.requestManager.GetHealthEffects(o.Location) * o.Tradeoffs().AttackDamageTakenMult
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
 
 	// Lifespan enforcement: when MaxLifespan > 0 every organism dies
@@ -929,7 +952,10 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 	ph := m.api.GetPhAtPoint(o.Location)
 	chemoTolerance := c.PhTolerance() * c.ChemosynthesisTolerance()
 	if math.Abs(traits.IdealPh-ph) < chemoTolerance {
-		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
+		// ChemoEfficiencyMult is the dominant chemo tradeoff: most
+		// non-base features carry a small chemo penalty so adopting
+		// new physiology costs the lineage some self-feeding rate.
+		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size*o.Tradeoffs().ChemoEfficiencyMult)
 		o.ChemoFailed = false
 		// Successful chemo pushes local pH down, scaled by organism
 		// size — bigger organisms acidify faster. Accumulate the
@@ -957,7 +983,30 @@ func (m *OrganismManager) applyAttack(o *organism.Organism) {
 }
 
 func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
-	return c.HealthChangeInflictedByAttack() * o.Size
+	// AttackDamageDealtMult is the attacker's tradeoff: Fangs deals
+	// more damage, the defender's AttackDamageTakenMult is applied
+	// separately on the receive side in applyCycleHealthChanges.
+	return c.HealthChangeInflictedByAttack() * o.Size * o.Tradeoffs().AttackDamageDealtMult
+}
+
+// calculateStingEffect returns the per-cell damage that a sting
+// inflicts on each of its 4 adjacent targets. Same attacker-side
+// AttackDamageDealtMult applies; the defender-side mult applies on
+// the receive side. StingDamagePercent < 1.0 keeps each individual
+// cell strictly weaker than an attack — the niche is in volume.
+func (m *OrganismManager) calculateStingEffect(o *organism.Organism) float64 {
+	return c.HealthChangeInflictedByAttack() * o.Size * c.StingDamagePercent() * o.Tradeoffs().AttackDamageDealtMult
+}
+
+// applySting pays the size-scaled health cost of stinging — damage
+// to neighbours is delivered through the request manager (added in
+// updateRequestMap during decide) and applied on the defender's
+// applyCycleHealthChanges pass. StingCostPercent < 1.0 makes a
+// single sting strictly cheaper than an attack, balancing the
+// across-the-board reduction in per-target damage.
+func (m *OrganismManager) applySting(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size*c.StingCostPercent())
 }
 
 // deathHealthEpsilon is the smallest Health value that still counts as
@@ -1037,7 +1086,9 @@ func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils
 }
 
 func (m *OrganismManager) applyMove(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromMoving()*o.Size)
+	// MoveCostMult: Cilia makes movement cheaper, Shell/Spikes make
+	// it more expensive (dragging mass through the world).
+	m.applyHealthChange(o, c.HealthChangeFromMoving()*o.Size*o.Tradeoffs().MoveCostMult)
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isMatchingPositionRequest(targetPoint, o.ID) == false {

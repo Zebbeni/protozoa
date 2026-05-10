@@ -738,6 +738,8 @@ func (cs *ConfigScreen) buildSections() {
 		{title: "— PHYSIOLOGY —", fields: []configField{
 			field("Chance to Gain Feature", "chance_to_gain_feature"),
 			field("Chance to Lose Feature", "chance_to_lose_feature"),
+			field("Sting Damage %", "sting_damage_percent"),
+			field("Sting Cost %", "sting_cost_percent"),
 		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
 			field("Chemosynthesis", "health_change_from_chemosynthesis"),

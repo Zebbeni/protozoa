@@ -206,6 +206,7 @@ func init() {
 	codeToNodeType[int(ActHunker)] = ActHunker
 	codeToNodeType[int(ActFlare)] = ActFlare
 	codeToNodeType[int(ActHide)] = ActHide
+	codeToNodeType[int(ActBurrow)] = ActBurrow
 }
 
 // Deserialize parses a serialized tree string back into a Node tree.

@@ -302,7 +302,11 @@ var Specs = map[Feature]Spec{
 	},
 	FeatTusks: {
 		Name: "Tusks", Tree: TreeTeeth, Parent: FeatTeeth,
-		UnlocksActions: []decision.Action{decision.ActDig},
+		// Tusks unlock both ActDig (remove food/walls ahead) and
+		// ActBurrow (add walls left/right). The two actions form
+		// complementary niches — diggers carve corridors, burrowers
+		// build shelters.
+		UnlocksActions: []decision.Action{decision.ActDig, decision.ActBurrow},
 		Tradeoffs: Tradeoffs{
 			ChemoEfficiencyMult:   0.92,
 			MoveCostMult:          1.10,
