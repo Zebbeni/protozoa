@@ -40,6 +40,17 @@ const (
 	IsAgeMultipleOfTwo
 	IsAgeMultipleOfTen
 	ActIdle Action = iota
+	// Trait-tree placeholder actions. Their semantics are wired up in
+	// a later slice — until then the action handler treats them as
+	// no-ops. They are intentionally NOT added to the legacy Actions
+	// slice; the allowed-action pool is computed per-organism from its
+	// feature set (see physiology package). These constants exist so
+	// the physiology Specs registry can reference them.
+	ActSting
+	ActDig
+	ActHunker
+	ActFlare
+	ActHide
 )
 
 // Define slices
@@ -91,5 +102,10 @@ var (
 		IsHealthierPhAhead:        "IsHealthierPhAhead",
 		IsAgeMultipleOfTwo:        "IsAgeMultipleOfTwo",
 		IsAgeMultipleOfTen:        "IsAgeMultipleOfTen",
+		ActSting:                  "Sting",
+		ActDig:                    "Dig",
+		ActHunker:                 "Hunker",
+		ActFlare:                  "Flare",
+		ActHide:                   "Hide",
 	}
 )

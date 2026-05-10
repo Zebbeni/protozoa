@@ -77,6 +77,10 @@ type OrganismRecord struct {
 	MinHealthToSpawn       float64
 	MinCyclesBetweenSpawns uint16
 	IdealPh                float64
+	// Features is the bitmask of evolved physiological features
+	// (physiology.Set is a uint64). Stored verbatim — no migration
+	// from pre-physiology snapshots; old .pzr files won't decode.
+	Features uint64
 
 	// PhPositive / PhNegative are lifetime cumulative magnitudes the
 	// organism has pushed pH up (eating) or down (chemosynthesis).

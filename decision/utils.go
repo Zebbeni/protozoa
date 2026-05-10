@@ -16,14 +16,18 @@ func (n *Node) CalcAndUpdateSize() int {
 	return n.size
 }
 
-// GetRandomCondition returns a random Condition from the Conditions array
-func GetRandomCondition(rng *simrand.RNG) Condition {
-	return Conditions[rng.Intn(len(Conditions))]
+// GetRandomCondition returns a random Condition drawn from the supplied
+// allowed pool. The caller computes the pool from the organism's feature
+// set (see physiology.Set.AllowedConditions) so that mutation can only
+// produce nodes the organism has evolved the physiology to support.
+func GetRandomCondition(rng *simrand.RNG, allowed []Condition) Condition {
+	return allowed[rng.Intn(len(allowed))]
 }
 
-// GetRandomAction returns a random Action from the Actions array
-func GetRandomAction(rng *simrand.RNG) Action {
-	return Actions[rng.Intn(len(Actions))]
+// GetRandomAction returns a random Action drawn from the supplied
+// allowed pool. See GetRandomCondition for how the pool is built.
+func GetRandomAction(rng *simrand.RNG, allowed []Action) Action {
+	return allowed[rng.Intn(len(allowed))]
 }
 
 // isAction returns true if the object passed in is an Action

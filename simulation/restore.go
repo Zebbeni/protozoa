@@ -9,6 +9,7 @@ import (
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 	"github.com/lucasb-eyer/go-colorful"
@@ -131,6 +132,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		MinHealthToSpawn:       rec.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: int(rec.MinCyclesBetweenSpawns),
 		IdealPh:                rec.IdealPh,
+		Features:               physiology.Set(rec.Features),
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)

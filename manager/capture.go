@@ -205,6 +205,7 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		MinHealthToSpawn:       traits.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: uint16(traits.MinCyclesBetweenSpawns),
 		IdealPh:                traits.IdealPh,
+		Features:               uint64(traits.Features),
 		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
 		CurrentAction:          uint8(o.Action()),
 		AttackTotal:            uint32(o.AttackTotal),

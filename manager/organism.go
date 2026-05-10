@@ -849,31 +849,42 @@ func (m *OrganismManager) DeadCount() int {
 }
 
 func (m *OrganismManager) applyAction(o *organism.Organism) {
-	switch o.Action() {
+	action := o.Action()
+	// Junk-DNA fallback: a decision tree node may pick an action the
+	// organism no longer has the physiology to resolve (e.g. the tree
+	// kept ActMove from an ancestor but the lineage has since lost
+	// FeatCilia). Re-route those to applyIdle and rewrite o.Action so
+	// the renderer's sprite matches actual behaviour rather than
+	// reporting the unrealisable intent. Re-gaining the feature later
+	// naturally reactivates the original action.
+	if !o.Traits().Features.ActionAvailable(action) {
+		o.SetAction(d.ActIdle)
+		m.applyIdle(o)
+		return
+	}
+	switch action {
 	case d.ActChemosynthesis:
 		m.applyChemosynthesis(o)
-		break
 	case d.ActAttack:
 		m.applyAttack(o)
-		break
 	case d.ActEat:
 		m.applyEat(o)
-		break
 	case d.ActMove:
 		m.applyMove(o)
-		break
 	case d.ActTurnLeft:
 		m.applyLeftTurn(o)
-		break
 	case d.ActTurnRight:
 		m.applyRightTurn(o)
-		break
 	case d.ActSpawn:
 		m.applySpawn(o)
-		break
 	case d.ActIdle:
 		m.applyIdle(o)
-		break
+	case d.ActSting, d.ActDig, d.ActHunker, d.ActFlare, d.ActHide:
+		// Physiology-gated actions whose semantics arrive in Slice 6c.
+		// Until then they pay the idle cost — the gating Tradeoffs
+		// (chemo penalty for carrying the feature) already apply, so
+		// there's no free lunch from picking an unimplemented action.
+		m.applyIdle(o)
 	}
 }
 

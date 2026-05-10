@@ -3,6 +3,7 @@ package ux
 import (
 	"fmt"
 	"image/color"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/replay"
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
@@ -1404,6 +1406,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	}
 
 	offsetY := statsBottom + 6
+	offsetY = p.renderFeatures(panelImage, traits.Features, dim, selectedXOffset, offsetY) + 6
 
 	offsetY = p.renderDetailTabs(panelImage, offsetY)
 	offsetY += 14
@@ -1415,9 +1418,45 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	default:
 		p.descRowRects = nil
 		p.showParentRect = nil
-		offsetY = p.renderDecisionTreeTab(panelImage, decisionTree, dim, offsetY)
+		offsetY = p.renderDecisionTreeTab(panelImage, decisionTree, traits.Features, dim, offsetY)
 	}
 	return offsetY
+}
+
+// renderFeatures draws a small block summarising the organism's
+// evolved physiology: one row per modality tree showing the held
+// root → advanced path, or a dash for trees the organism hasn't
+// entered. Always renders the same number of rows so the detail
+// tabs below don't shift as features are gained.
+func (p *Panel) renderFeatures(panelImage *ebiten.Image, features physiology.Set, dim bool, x, y int) int {
+	col := themedForeground()
+	if dim {
+		col = themedForegroundDim()
+	}
+	dimCol := themedForegroundDim()
+
+	lineH := r.FontSourceCodePro12.Metrics().Height.Round()
+	cur := y + lineH
+	text.Draw(panelImage, "FEATURES:", r.FontSourceCodePro12, x, cur, col)
+	cur += lineH
+
+	for _, tree := range physiology.AllTrees {
+		path := features.Path(tree)
+		label := fmt.Sprintf("  %-10s ", tree.Name()+":")
+		text.Draw(panelImage, label, r.FontSourceCodePro12, x, cur, col)
+		valueX := x + textAdvance(r.FontSourceCodePro12, label)
+		if len(path) == 0 {
+			text.Draw(panelImage, "—", r.FontSourceCodePro12, valueX, cur, dimCol)
+		} else {
+			names := make([]string, len(path))
+			for i, f := range path {
+				names[i] = physiology.Specs[f].Name
+			}
+			text.Draw(panelImage, strings.Join(names, " → "), r.FontSourceCodePro12, valueX, cur, col)
+		}
+		cur += lineH
+	}
+	return cur
 }
 
 // renderPortrait draws an animated 96x96 spotlight of the selected
@@ -1614,7 +1653,14 @@ func (p *Panel) renderDetailTabs(panelImage *ebiten.Image, topY int) int {
 //
 // When dim==true the organism is dead and the cached tree's per-cycle
 // flags are stale; everything collapses to the dim foreground.
-func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.Tree, dim bool, topY int) int {
+//
+// Nodes whose action / condition is gated by a feature the organism
+// doesn't currently hold are rendered with a horizontal strikethrough
+// so the user can see "junk DNA" the lineage is still carrying. When
+// such a gated node is also on the current path, its line colour is
+// replaced by a muted red — a clear visual signal that the tree
+// picked a node which fell back to idle / false this cycle.
+func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.Tree, features physiology.Set, dim bool, topY int) int {
 	activeColor := themedForeground()
 	// Travelled nodes keep the original "dim" tone so they read as
 	// noticeably distinct from never-visited branches.
@@ -1629,19 +1675,50 @@ func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.
 		color.RGBA{R: 50, G: 50, B: 55, A: 255},
 		color.RGBA{R: 205, G: 205, B: 215, A: 255},
 	)
-	lineHeight := r.FontSourceCodePro10.Metrics().Height.Round()
+	// Muted red for gated nodes on the active path — the organism
+	// chose this node but couldn't actually use it.
+	gatedActiveColor := chrome(
+		color.RGBA{R: 180, G: 70, B: 70, A: 255},
+		color.RGBA{R: 200, G: 90, B: 90, A: 255},
+	)
+	face := r.FontSourceCodePro10
+	lineHeight := face.Metrics().Height.Round()
+	// Strike line sits roughly through the x-height middle: half the
+	// ascent above the baseline, then nudged down a couple of pixels
+	// so it crosses the visual centre of lowercase glyphs rather than
+	// floating high on the cap line.
+	strikeOffset := face.Metrics().Ascent.Round()/2 - 2
 	offsetY := topY
 	for _, line := range decisionTree.PrintLines() {
+		gated := false
+		switch nt := line.NodeType.(type) {
+		case d.Action:
+			gated = !features.ActionAvailable(nt)
+		case d.Condition:
+			gated = !features.ConditionAvailable(nt)
+		}
+
 		var clr color.Color = dimColor
 		if !dim {
 			switch {
+			case line.UsedLastCycle && gated:
+				clr = gatedActiveColor
 			case line.UsedLastCycle:
 				clr = activeColor
 			case line.WasTravelled:
 				clr = travelledColor
 			}
 		}
-		text.Draw(panelImage, line.Text, r.FontSourceCodePro10, selectedXOffset, offsetY, clr)
+		text.Draw(panelImage, line.Text, face, selectedXOffset, offsetY, clr)
+		if gated {
+			labelStart := selectedXOffset + textAdvance(face, line.Prefix)
+			labelEnd := selectedXOffset + textAdvance(face, line.Text)
+			y := float64(offsetY - strikeOffset)
+			ebitenutil.DrawLine(panelImage,
+				float64(labelStart), y,
+				float64(labelEnd), y,
+				clr)
+		}
 		offsetY += lineHeight
 	}
 	return offsetY

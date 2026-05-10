@@ -25,10 +25,22 @@ type Node struct {
 // cumulative flag — true for any node ever visited. The panel renders
 // a three-tier highlight: brightest for the current path, mid-tone
 // for ever-travelled-but-not-this-cycle, dim for never-visited.
+//
+// NodeType carries the underlying decision.Action or decision.Condition
+// so the panel can ask the physiology layer whether the node is
+// currently gated (the organism's lineage has lost the feature that
+// unlocked it) and render gated nodes with a strikethrough — visible
+// "junk DNA" that the organism is carrying but cannot use.
+//
+// Prefix is the tree-drawing portion of Text (indent + ├─/└─); the
+// panel uses textAdvance(Prefix) and textAdvance(Text) to bound the
+// strikethrough so the line-drawing characters stay clean.
 type PrintLine struct {
 	Text          string
+	Prefix        string
 	UsedLastCycle bool
 	WasTravelled  bool
+	NodeType      interface{}
 }
 
 // NodeFromAction creates a simple Node object from an Action type
@@ -133,7 +145,13 @@ func (n *Node) printLines(indent string, first, last bool) []PrintLine {
 	if n.UsedLastCycle {
 		lineText += " ◀◀"
 	}
-	lines := []PrintLine{{Text: lineText, UsedLastCycle: n.UsedLastCycle, WasTravelled: n.WasTravelled}}
+	lines := []PrintLine{{
+		Text:          lineText,
+		Prefix:        prefix,
+		UsedLastCycle: n.UsedLastCycle,
+		WasTravelled:  n.WasTravelled,
+		NodeType:      n.NodeType,
+	}}
 	if n.IsCondition() {
 		lines = append(lines, n.YesNode.printLines(newIndent, false, false)...)
 		lines = append(lines, n.NoNode.printLines(newIndent, false, true)...)
@@ -165,24 +183,6 @@ func (n *Node) print(indent string, first, last bool) string {
 	return toPrint
 }
 
-func (n *Node) accumulateActionWeights(weight float64, weights map[Action]float64) {
-	if n.IsAction() {
-		weights[n.NodeType.(Action)] += weight
-		return
-	}
-	n.YesNode.accumulateActionWeights(weight/2, weights)
-	n.NoNode.accumulateActionWeights(weight/2, weights)
-}
-
-func (n *Node) accumulateConditionWeights(weight float64, weights map[Condition]float64) {
-	if n.IsAction() {
-		return
-	}
-	weights[n.NodeType.(Condition)] += weight
-	n.YesNode.accumulateConditionWeights(weight/2, weights)
-	n.NoNode.accumulateConditionWeights(weight/2, weights)
-}
-
 // intToNodeType maps a serialized int code back to an Action or Condition.
 // Built once at init from the Actions and Conditions arrays.
 var codeToNodeType map[int]interface{}
@@ -197,6 +197,15 @@ func init() {
 	}
 	// ActSpawn isn't in Actions array but can appear in serialized trees
 	codeToNodeType[int(ActSpawn)] = ActSpawn
+	// Trait-tree placeholder actions: not in Actions array (selection
+	// is feature-gated, not by random pick from the global slice), but
+	// must round-trip through serialization once trees start to contain
+	// them in later slices.
+	codeToNodeType[int(ActSting)] = ActSting
+	codeToNodeType[int(ActDig)] = ActDig
+	codeToNodeType[int(ActHunker)] = ActHunker
+	codeToNodeType[int(ActFlare)] = ActFlare
+	codeToNodeType[int(ActHide)] = ActHide
 }
 
 // Deserialize parses a serialized tree string back into a Node tree.

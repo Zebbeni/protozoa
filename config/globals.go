@@ -38,6 +38,8 @@ func MinSpawnHealth() float64                { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64         { return constants.MaxSpawnHealthPercent }
 func InitialDecisionTreeMutations() int      { return constants.InitialDecisionTreeMutations }
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
+func ChanceToGainFeature() float64        { return constants.ChanceToGainFeature }
+func ChanceToLoseFeature() float64        { return constants.ChanceToLoseFeature }
 func MinOrganisms() int                      { return constants.MinOrganisms }
 func MaxOrganisms() int                      { return constants.MaxOrganisms }
 func GrowthFactor() float64                  { return constants.GrowthFactor }
@@ -225,6 +227,17 @@ type Globals struct {
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
 	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
 	ChanceToMutateDecisionTree float64 `json:"chance_to_mutate_decision_tree"`
+	// ChanceToGainFeature is the per-spawn probability that a child
+	// gains one new physiological feature (drawn uniformly at random
+	// from those whose prerequisites the parent already meets).
+	ChanceToGainFeature float64 `json:"chance_to_gain_feature"`
+	// ChanceToLoseFeature is the per-spawn probability that a child
+	// loses the deepest feature from one of its non-empty modality
+	// trees (drawn uniformly at random across non-empty trees). Lets
+	// lineages back out of a branch so descendants can re-grow down
+	// a sibling — without this the population saturates at the same
+	// leaf set in every tree and physiological diversity vanishes.
+	ChanceToLoseFeature float64 `json:"chance_to_lose_feature"`
 	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
 	MinIdealPh                    float64 `json:"min_ideal_ph"`
 	MaxIdealPh                    float64 `json:"max_ideal_ph"`

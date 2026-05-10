@@ -35,6 +35,8 @@
 
   "initial_organism_decision_tree_mutations": 0,
   "chance_to_mutate_decision_tree": 0.5,
+  "chance_to_gain_feature": 0.10,
+  "chance_to_lose_feature": 0.05,
   "max_decision_tree_size": 32,
 
   "max_organisms": 50000,

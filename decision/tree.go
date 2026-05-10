@@ -41,14 +41,18 @@ func (t *Tree) CopyTree() *Tree {
 	return tree
 }
 
-// MutateTree copies a root Tree, makes changes to the full tree, and returns
-func MutateTree(rng *simrand.RNG, original *Tree) *Tree {
+// MutateTree copies a root Tree, makes changes to the full tree, and
+// returns the mutated copy. The allowed pools constrain mutation to
+// actions/conditions the organism's physiology supports — typically
+// derived from the spawning organism's feature set via
+// physiology.Set.AllowedActions / AllowedConditions.
+func MutateTree(rng *simrand.RNG, original *Tree, allowedActions []Action, allowedConditions []Condition) *Tree {
 	tree := original.CopyTree()
-	tree.mutate(rng)
+	tree.mutate(rng, allowedActions, allowedConditions)
 	return tree
 }
 
-func (t *Tree) mutate(rng *simrand.RNG) {
+func (t *Tree) mutate(rng *simrand.RNG, allowedActions []Action, allowedConditions []Condition) {
 	allSubNodes := t.getNodes()
 	idx := rng.Intn(len(allSubNodes))
 	isRoot := idx == 0
@@ -59,16 +63,16 @@ func (t *Tree) mutate(rng *simrand.RNG) {
 	if node.IsAction() {
 		if isRoot || (rng.Intn(2) == 0 && t.size <= maxTreeSize-2) {
 			originalAction := node.NodeType.(Action)
-			node.NodeType = GetRandomCondition(rng)
+			node.NodeType = GetRandomCondition(rng, allowedConditions)
 			if rng.Intn(2) == 0 {
-				node.YesNode = NodeFromAction(GetRandomAction(rng))
+				node.YesNode = NodeFromAction(GetRandomAction(rng, allowedActions))
 				node.NoNode = NodeFromAction(originalAction)
 			} else {
 				node.YesNode = NodeFromAction(originalAction)
-				node.NoNode = NodeFromAction(GetRandomAction(rng))
+				node.NoNode = NodeFromAction(GetRandomAction(rng, allowedActions))
 			}
 		} else {
-			node.NodeType = GetRandomAction(rng)
+			node.NodeType = GetRandomAction(rng, allowedActions)
 		}
 	} else {
 		randInt := rng.Intn(3)
@@ -80,7 +84,7 @@ func (t *Tree) mutate(rng *simrand.RNG) {
 			node = node.NoNode
 			break
 		default:
-			node.NodeType = GetRandomCondition(rng)
+			node.NodeType = GetRandomCondition(rng, allowedConditions)
 			break
 		}
 	}
@@ -101,18 +105,4 @@ func (t *Tree) Print() string {
 // PrintLines returns structured line data for rendering with per-line styling.
 func (t *Tree) PrintLines() []PrintLine {
 	return t.printLines("", true, false)
-}
-
-// ActionWeights returns the weighted probability distribution over actions.
-func (t *Tree) ActionWeights() map[Action]float64 {
-	weights := make(map[Action]float64)
-	t.Node.accumulateActionWeights(1.0, weights)
-	return weights
-}
-
-// ConditionWeights returns the weighted distribution over conditions.
-func (t *Tree) ConditionWeights() map[Condition]float64 {
-	weights := make(map[Condition]float64)
-	t.Node.accumulateConditionWeights(1.0, weights)
-	return weights
 }

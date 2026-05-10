@@ -75,11 +75,12 @@ type Organism struct {
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits(rng)
+	allowedActions := traits.Features.AllowedActions()
+	allowedConditions := traits.Features.AllowedConditions()
 	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
-		decisionTree = d.MutateTree(rng, decisionTree)
+		decisionTree = d.MutateTree(rng, decisionTree, allowedActions, allowedConditions)
 	}
-	traits.OrganismColor = d.TreeColor(decisionTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -109,9 +110,11 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
 	if rng.Float64() < c.ChanceToMutateDecisionTree() {
-		inheritedTree = d.MutateTree(rng, inheritedTree)
+		inheritedTree = d.MutateTree(rng, inheritedTree,
+			traits.Features.AllowedActions(),
+			traits.Features.AllowedConditions(),
+		)
 	}
-	traits.OrganismColor = d.TreeColor(inheritedTree)
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -256,6 +259,14 @@ func (o *Organism) chooseAction(node *d.Node) d.Action {
 }
 
 func (o *Organism) isConditionTrue(cond interface{}) bool {
+	// Junk-DNA fallback for conditions: a tree node may probe a
+	// condition the organism no longer has the sensor for (e.g. an
+	// IsBiggerOrganismAhead test inherited after losing FeatFeelers).
+	// Treat those as false so the No branch is taken — re-gaining the
+	// feature reactivates the test naturally.
+	if c, ok := cond.(d.Condition); ok && !o.traits.Features.ConditionAvailable(c) {
+		return false
+	}
 	switch cond {
 	case d.CanMove:
 		return o.canMove()

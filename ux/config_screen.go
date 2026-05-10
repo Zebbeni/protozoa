@@ -735,6 +735,10 @@ func (cs *ConfigScreen) buildSections() {
 			field("Chance to Mutate", "chance_to_mutate_decision_tree"),
 			field("Max Tree Size", "max_decision_tree_size"),
 		}},
+		{title: "— PHYSIOLOGY —", fields: []configField{
+			field("Chance to Gain Feature", "chance_to_gain_feature"),
+			field("Chance to Lose Feature", "chance_to_lose_feature"),
+		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
 			field("Chemosynthesis", "health_change_from_chemosynthesis"),
 			field("Failed Chemosynthesis", "health_change_from_failed_chemosynthesis"),
