@@ -83,7 +83,7 @@ func (m *FoodManager) GetFoodItems() map[utils.Point]*food.Item {
 }
 
 func (m *FoodManager) removeFood(point utils.Point, value int) {
-	if value <= 0 || point.IsWall() {
+	if value <= 0 || m.api.IsWallAtPoint(point) {
 		return
 	}
 
@@ -106,7 +106,7 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 }
 
 func (m *FoodManager) addFood(point utils.Point, value int) {
-	if value <= 0 || point.IsWall() {
+	if value <= 0 || m.api.IsWallAtPoint(point) {
 		return
 	}
 

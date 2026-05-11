@@ -207,6 +207,9 @@ func init() {
 	codeToNodeType[int(ActFlare)] = ActFlare
 	codeToNodeType[int(ActHide)] = ActHide
 	codeToNodeType[int(ActBurrow)] = ActBurrow
+	codeToNodeType[int(IsWallAhead)] = IsWallAhead
+	codeToNodeType[int(IsWallLeft)] = IsWallLeft
+	codeToNodeType[int(IsWallRight)] = IsWallRight
 }
 
 // Deserialize parses a serialized tree string back into a Node tree.

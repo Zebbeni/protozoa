@@ -38,6 +38,7 @@ type SnapshotPayload struct {
 	CurrentPhMap  [][]float64
 	PreviousPhMap [][]float64
 	FoodItems     []FoodRecord
+	Walls         []WallRecord
 	Ancestors     []AncestorRecord
 }
 
@@ -90,6 +91,11 @@ type OrganismRecord struct {
 	// Decision tree as serialized string
 	DecisionTree  string
 	CurrentAction uint8
+	// Status is the resolved outcome of the organism's most recent
+	// cycle (see organism.Status). Snapshotting it is load-bearing
+	// for the Dying/Decaying terminal sequence — restoring a dying
+	// organism with Status zeroed would resurrect them.
+	Status uint8
 
 	// Lifetime attack counters used by the "MOST AGGRESSIVE"
 	// highlight and the "Attacks: hits/total" display.
@@ -101,6 +107,16 @@ type OrganismRecord struct {
 type FoodRecord struct {
 	X, Y  uint16
 	Value uint16
+}
+
+// WallRecord is the serializable form of one wall cell — its
+// location and strength. Strength is always in [1, MaxWallStrength];
+// a 0-strength wall is not stored (the WallManager removes the entry
+// entirely when strength drops to 0, so restoring an empty cell from
+// snapshot just means no wall, same as fresh state).
+type WallRecord struct {
+	X, Y     uint16
+	Strength uint8
 }
 
 // AncestorRecord stores an ancestor's ID and color.

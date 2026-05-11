@@ -19,49 +19,135 @@ func GetCurrentGlobals() *Globals {
 	return constants
 }
 
-func GridUnitsWide() int                     { return constants.GridUnitsWide }
-func GridUnitsHigh() int                     { return constants.GridUnitsHigh }
-func ScreenWidth() int                       { return constants.ScreenWidth }
-func ScreenHeight() int                      { return constants.ScreenHeight }
-func PopulationUpdateInterval() int          { return constants.PopulationUpdateInterval }
-func InitialOrganisms() int                  { return constants.InitialOrganisms }
-func InitialFood() int                       { return constants.InitialFood }
-func ChanceToAddFoodItem() float64           { return constants.ChanceToAddFoodItem }
-func MaxFoodValue() int                      { return constants.MaxFoodValue }
-func MinFoodValue() int                      { return constants.MinFoodValue }
-func MinPh() float64                         { return constants.MinPh }
-func MaxPh() float64                         { return constants.MaxPh }
-func MinInitialPh() float64                  { return constants.MinInitialPh }
-func MaxInitialPh() float64                  { return constants.MaxInitialPh }
-func MaxCyclesBetweenSpawns() int            { return constants.MaxCyclesBetweenSpawns }
-func MinSpawnHealth() float64                { return constants.MinSpawnHealth }
-func MaxSpawnHealthPercent() float64         { return constants.MaxSpawnHealthPercent }
-func InitialDecisionTreeMutations() int      { return constants.InitialDecisionTreeMutations }
+// Accessors are grouped by config-screen section so adding a new
+// knob slots into the right neighbourhood for readability. Section
+// order matches default.json's grouping and the editor's section
+// list (see ux/config_screen.go).
+
+// --- Simulation ---
+func Seed() int { return constants.Seed }
+
+// --- Display ---
+func GridUnitsWide() int { return constants.GridUnitsWide }
+func GridUnitsHigh() int { return constants.GridUnitsHigh }
+func ScreenWidth() int   { return constants.ScreenWidth }
+func ScreenHeight() int  { return constants.ScreenHeight }
+
+// --- Environment ---
+func InitialOrganisms() int        { return constants.InitialOrganisms }
+func InitialFood() int             { return constants.InitialFood }
+func ChanceToAddFoodItem() float64 { return constants.ChanceToAddFoodItem }
+func MinFoodValue() int            { return constants.MinFoodValue }
+func MaxFoodValue() int            { return constants.MaxFoodValue }
+
+// --- pH ---
+func MinPh() float64                   { return constants.MinPh }
+func MaxPh() float64                   { return constants.MaxPh }
+func MinInitialPh() float64            { return constants.MinInitialPh }
+func MaxInitialPh() float64            { return constants.MaxInitialPh }
+func MinIdealPh() float64              { return constants.MinIdealPh }
+func MaxIdealPh() float64              { return constants.MaxIdealPh }
+func PhTolerance() float64             { return constants.PhTolerance }
+func ChemosynthesisTolerance() float64 { return constants.ChemosynthesisTolerance }
+func ChemoPhEffectPerSize() float64    { return constants.ChemoPhEffectPerSize }
+func EatingPhEffectPerFood() float64   { return constants.EatingPhEffectPerFood }
+func PhDiffuseFactor() float64         { return constants.PhDiffuseFactor }
+func PhIncrementToDisplay() float64    { return constants.PhIncrementToDisplay }
+
+// --- Organisms ---
+func MinOrganisms() int                  { return constants.MinOrganisms }
+func MaxOrganisms() int                  { return constants.MaxOrganisms }
+func GrowthFactor() float64              { return constants.GrowthFactor }
+func MaximumMaxSize() float64            { return constants.MaximumMaxSize }
+func MinimumMaxSize() float64            { return constants.MinimumMaxSize }
+func MaximumInitialSize() float64        { return constants.MaximumInitialSize }
+func MaximumInitialSpawnHealth() float64 { return constants.MaximumInitialSpawnHealth }
+func MaxCyclesBetweenSpawns() int        { return constants.MaxCyclesBetweenSpawns }
+func MaxInitialCyclesBetweenSpawns() int { return constants.MaxInitialCyclesBetweenSpawns }
+func MinSpawnHealth() float64            { return constants.MinSpawnHealth }
+func MaxSpawnHealthPercent() float64     { return constants.MaxSpawnHealthPercent }
+func MaxLifespan() int                   { return constants.MaxLifespan }
+
+// --- Decision Trees ---
+func InitialDecisionTreeMutations() int   { return constants.InitialDecisionTreeMutations }
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
-func ChanceToGainFeature() float64        { return constants.ChanceToGainFeature }
-func ChanceToLoseFeature() float64        { return constants.ChanceToLoseFeature }
-func StingDamagePercent() float64         { return constants.StingDamagePercent }
-func StingCostPercent() float64           { return constants.StingCostPercent }
-func MinOrganisms() int                      { return constants.MinOrganisms }
-func MaxOrganisms() int                      { return constants.MaxOrganisms }
-func GrowthFactor() float64                  { return constants.GrowthFactor }
-func MaximumMaxSize() float64                { return constants.MaximumMaxSize }
-func MinimumMaxSize() float64                { return constants.MinimumMaxSize }
-func MaximumInitialSize() float64            { return constants.MaximumInitialSize }
-func MaximumInitialSpawnHealth() float64     { return constants.MaximumInitialSpawnHealth }
-func MaxInitialCyclesBetweenSpawns() int     { return constants.MaxInitialCyclesBetweenSpawns }
-func MinIdealPh() float64                    { return constants.MinIdealPh }
-func MaxIdealPh() float64                    { return constants.MaxIdealPh }
-func PhTolerance() float64                   { return constants.PhTolerance }
-func ChemosynthesisTolerance() float64       { return constants.ChemosynthesisTolerance }
-func ChemoPhEffectPerSize() float64          { return constants.ChemoPhEffectPerSize }
-func EatingPhEffectPerFood() float64         { return constants.EatingPhEffectPerFood }
-func MaxLifespan() int                       { return constants.MaxLifespan }
-func PhIncrementToDisplay() float64          { return constants.PhIncrementToDisplay }
-func PhDiffuseFactor() float64               { return constants.PhDiffuseFactor }
-func UsePools() bool                         { return constants.UsePools }
-func PoolWidth() int                         { return constants.PoolWidth }
-func PoolHeight() int                        { return constants.PoolHeight }
+func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize }
+
+// --- Health Changes ---
+// Per-action costs/gains paid by the actor; size-scaled at the apply
+// site. Signed: negative = cost, positive = gain (only chemo today).
+func HealthChangeFromChemosynthesis() float64 { return constants.HealthChangeFromChemosynthesis }
+func HealthChangeFromFailedChemosynthesis() float64 {
+	return constants.HealthChangeFromFailedChemosynthesis
+}
+func HealthChangeFromIdle() float64          { return constants.HealthChangeFromIdle }
+func HealthChangeFromTurning() float64       { return constants.HealthChangeFromTurning }
+func HealthChangeFromMoving() float64        { return constants.HealthChangeFromMoving }
+func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFromEatingAttempt }
+func HealthChangeFromSpawning() float64      { return constants.HealthChangeFromSpawning }
+func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
+func HealthChangeFromStinging() float64      { return constants.HealthChangeFromStinging }
+func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
+func HealthChangeFromBurrowing() float64     { return constants.HealthChangeFromBurrowing }
+func HealthChangeFromHunkering() float64     { return constants.HealthChangeFromHunkering }
+func HealthChangeFromFlaring() float64       { return constants.HealthChangeFromFlaring }
+func HealthChangeFromHiding() float64        { return constants.HealthChangeFromHiding }
+
+// Damage delivered to targets — size-scaled, always negative.
+func HealthChangeInflictedByAttack() float64 { return constants.HealthChangeInflictedByAttack }
+func HealthChangeInflictedBySting() float64  { return constants.HealthChangeInflictedBySting }
+
+// Environmental health changes.
+func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
+
+// --- Physiology ---
+func ChanceToGainFeature() float64   { return constants.ChanceToGainFeature }
+func ChanceToLoseFeature() float64   { return constants.ChanceToLoseFeature }
+func HunkerDamageTakenMult() float64 { return constants.HunkerDamageTakenMult }
+func FlareDamageDealtMult() float64  { return constants.FlareDamageDealtMult }
+func FlarePerceivedSizeAdd() float64 { return constants.FlarePerceivedSizeAdd }
+func WallStrengthDeltaSmall() int    { return constants.WallStrengthDeltaSmall }
+func WallStrengthDeltaMedium() int   { return constants.WallStrengthDeltaMedium }
+func WallStrengthDeltaLarge() int    { return constants.WallStrengthDeltaLarge }
+
+// Per-feature passive tradeoffs. Each feature contributes its own
+// set; only the deepest-held feature in each tree applies (body-type
+// exclusivity — see physiology.Set.Combined). Unitless multipliers
+// default to 1.0 (no effect); the additive modifier defaults to 0.
+
+// Flagellae tree
+func FlagellaeChemoEfficiencyMult() float64 { return constants.FlagellaeChemoEfficiencyMult }
+func CiliaChemoEfficiencyMult() float64     { return constants.CiliaChemoEfficiencyMult }
+func CiliaMoveCostMult() float64            { return constants.CiliaMoveCostMult }
+func StingerChemoEfficiencyMult() float64   { return constants.StingerChemoEfficiencyMult }
+
+// Sensors tree
+func AntennaeChemoEfficiencyMult() float64 { return constants.AntennaeChemoEfficiencyMult }
+func FeelersChemoEfficiencyMult() float64  { return constants.FeelersChemoEfficiencyMult }
+func TastersChemoEfficiencyMult() float64  { return constants.TastersChemoEfficiencyMult }
+
+// Defense tree
+func ShellChemoEfficiencyMult() float64      { return constants.ShellChemoEfficiencyMult }
+func ShellMoveCostMult() float64             { return constants.ShellMoveCostMult }
+func ShellDamageTakenMult() float64          { return constants.ShellDamageTakenMult }
+func SpikesChemoEfficiencyMult() float64     { return constants.SpikesChemoEfficiencyMult }
+func SpikesMoveCostMult() float64            { return constants.SpikesMoveCostMult }
+func SpikesDamageTakenMult() float64         { return constants.SpikesDamageTakenMult }
+func SpikesDamageDealtMult() float64         { return constants.SpikesDamageDealtMult }
+func SpikesPerceivedSizeAdd() float64        { return constants.SpikesPerceivedSizeAdd }
+func CamouflageChemoEfficiencyMult() float64 { return constants.CamouflageChemoEfficiencyMult }
+func CamouflageMoveCostMult() float64        { return constants.CamouflageMoveCostMult }
+func CamouflageDamageTakenMult() float64     { return constants.CamouflageDamageTakenMult }
+
+// Teeth tree
+func TeethChemoEfficiencyMult() float64 { return constants.TeethChemoEfficiencyMult }
+func FangsChemoEfficiencyMult() float64 { return constants.FangsChemoEfficiencyMult }
+func FangsDamageDealtMult() float64     { return constants.FangsDamageDealtMult }
+func TusksChemoEfficiencyMult() float64 { return constants.TusksChemoEfficiencyMult }
+func TusksMoveCostMult() float64        { return constants.TusksMoveCostMult }
+
+// --- Statistics ---
+func PopulationUpdateInterval() int { return constants.PopulationUpdateInterval }
 
 // Theme returns the active GUI theme name. Recognised values: "dark",
 // "light". Anything else falls back to dark behaviour at render time.
@@ -173,52 +259,68 @@ func SetTheme(theme string) {
 		constants.Theme = "dark"
 	}
 }
-func HealthChangeFromChemosynthesis() float64 { return constants.HealthChangeFromChemosynthesis }
-func HealthChangeFromFailedChemosynthesis() float64 {
-	return constants.HealthChangeFromFailedChemosynthesis
-}
-func HealthChangeFromTurning() float64        { return constants.HealthChangeFromTurning }
-func HealthChangeFromMoving() float64         { return constants.HealthChangeFromMoving }
-func HealthChangeFromEatingAttempt() float64  { return constants.HealthChangeFromEatingAttempt }
-func HealthChangeFromAttacking() float64      { return constants.HealthChangeFromAttacking }
-func HealthChangeFromSpawning() float64       { return constants.HealthChangeFromSpawning }
-func HealthChangeFromIdle() float64           { return constants.HealthChangeFromIdle }
-func HealthChangeInflictedByAttack() float64  { return constants.HealthChangeInflictedByAttack }
-
-func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
-func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize }
-func Seed() int                           { return constants.Seed }
-
 type Globals struct {
+	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
+	// or the time-based default chosen by the runner". Editable via
+	// the config screen so wasm builds (no CLI) can pick a seed.
+	// Fields grouped by config-screen section. New knobs should be
+	// added under the matching section so default.json stays
+	// readable and the editor and source stay aligned.
+
+	// --- Simulation ---
 	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
 	// or the time-based default chosen by the runner". Editable via
 	// the config screen so wasm builds (no CLI) can pick a seed.
 	Seed int `json:"seed"`
 
-	// Drawing parameters
-	GridUnitsWide int `json:"grid_units_wide"`
-	GridUnitsHigh int `json:"grid_units_high"`
-	ScreenWidth   int `json:"screen_width"`
-	ScreenHeight  int `json:"screen_height"`
+	// --- Display ---
+	GridUnitsWide int    `json:"grid_units_wide"`
+	GridUnitsHigh int    `json:"grid_units_high"`
+	ScreenWidth   int    `json:"screen_width"`
+	ScreenHeight  int    `json:"screen_height"`
+	// GUI theme: "light" or "dark". Controls the window background
+	// and selects between <theme>-prefixed sprite sheets.
+	Theme string `json:"theme"`
+	// PhColorScheme: "green-pink" (default) or "blue-orange". Drives
+	// the pH grid layer, organism PH-effect tints, panel pH stat
+	// colours, and the pH/PhEffect graphs. Blue-orange is friendlier
+	// to red-green colour blindness.
+	PhColorScheme string `json:"ph_color_scheme"`
 
-	// Statistics parameters
-	PopulationUpdateInterval int `json:"population_update_interval"`
-
-	// Environment parameters
+	// --- Environment ---
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
-	MaxFoodValue        int     `json:"max_food_value"`
 	MinFoodValue        int     `json:"min_food_value"`
-	MinPh               float64 `json:"min_ph"`
-	MaxPh               float64 `json:"max_ph"`
-	MinInitialPh        float64 `json:"min_initial_ph"`
-	MaxInitialPh        float64 `json:"max_initial_ph"`
+	MaxFoodValue        int     `json:"max_food_value"`
 
-	// Organism parameters
-	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
-	MinSpawnHealth                float64 `json:"min_spawn_health"`
-	MaxSpawnHealthPercent         float64 `json:"max_spawn_health_percent"`
+	// --- pH ---
+	MinPh        float64 `json:"min_ph"`
+	MaxPh        float64 `json:"max_ph"`
+	MinInitialPh float64 `json:"min_initial_ph"`
+	MaxInitialPh float64 `json:"max_initial_ph"`
+	MinIdealPh   float64 `json:"min_ideal_ph"`
+	MaxIdealPh   float64 `json:"max_ideal_ph"`
+	// PhTolerance is the absolute pH distance every organism can sit
+	// from its IdealPh without taking unhealthy-pH damage. Global
+	// rather than per-organism — variation between organisms now
+	// comes from IdealPh alone.
+	PhTolerance float64 `json:"ph_tolerance"`
+	// ChemosynthesisTolerance multiplies PhTolerance to define the
+	// pH window in which chemosynthesis succeeds. Values below 1
+	// narrow chemo-viable pH relative to general survival tolerance;
+	// values above 1 widen it.
+	ChemosynthesisTolerance float64 `json:"chemosynthesis_tolerance"`
+	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize
+	// * organism.Size on each successful chemo cycle. Eating pushes
+	// the local pH up by EatingPhEffectPerFood * food_amount_eaten
+	// on each successful eat.
+	ChemoPhEffectPerSize  float64 `json:"chemosynthesis_ph_effect_per_size"`
+	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
+	PhDiffuseFactor       float64 `json:"ph_diffuse_factor"`
+	PhIncrementToDisplay  float64 `json:"ph_increment_to_display"`
+
+	// --- Organisms ---
 	MinOrganisms                  int     `json:"min_organisms"`
 	MaxOrganisms                  int     `json:"max_organisms"`
 	GrowthFactor                  float64 `json:"growth_factor"`
@@ -226,9 +328,47 @@ type Globals struct {
 	MinimumMaxSize                float64 `json:"minimum_max_size"`
 	MaximumInitialSize            float64 `json:"maximum_initial_size"`
 	MaximumInitialSpawnHealth     float64 `json:"maximum_initial_spawn_health"`
+	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
-	InitialDecisionTreeMutations  int     `json:"initial_organism_decision_tree_mutations"`
-	ChanceToMutateDecisionTree float64 `json:"chance_to_mutate_decision_tree"`
+	MinSpawnHealth                float64 `json:"min_spawn_health"`
+	MaxSpawnHealthPercent         float64 `json:"max_spawn_health_percent"`
+	// MaxLifespan is the global lifespan cap (in cycles) every
+	// organism dies at when reached. Set to 0 to disable lifespan-
+	// based death entirely.
+	MaxLifespan int `json:"max_lifespan"`
+
+	// --- Decision Trees ---
+	InitialDecisionTreeMutations int     `json:"initial_organism_decision_tree_mutations"`
+	ChanceToMutateDecisionTree   float64 `json:"chance_to_mutate_decision_tree"`
+	MaxDecisionTreeSize          int     `json:"max_decision_tree_size"`
+
+	// --- Health Changes ---
+	// HealthChange* values follow a single naming convention:
+	//   - HealthChangeFrom<Action> — size-scaled health delta the
+	//     actor pays (negative cost) or gains (positive). One per
+	//     action.
+	//   - HealthChangeInflictedBy<Action> — size-scaled damage
+	//     delivered to targets (always negative).
+	//   - HealthChangePer<Source> — environmental health delta.
+	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`
+	HealthChangeFromFailedChemosynthesis float64 `json:"health_change_from_failed_chemosynthesis"`
+	HealthChangeFromIdle                 float64 `json:"health_change_from_idle"`
+	HealthChangeFromTurning              float64 `json:"health_change_from_turning"`
+	HealthChangeFromMoving               float64 `json:"health_change_from_moving"`
+	HealthChangeFromEatingAttempt        float64 `json:"health_change_from_eating_attempt"`
+	HealthChangeFromSpawning             float64 `json:"health_change_from_spawning"`
+	HealthChangeFromAttacking            float64 `json:"health_change_from_attacking"`
+	HealthChangeFromStinging             float64 `json:"health_change_from_stinging"`
+	HealthChangeFromDigging              float64 `json:"health_change_from_digging"`
+	HealthChangeFromBurrowing            float64 `json:"health_change_from_burrowing"`
+	HealthChangeFromHunkering            float64 `json:"health_change_from_hunkering"`
+	HealthChangeFromFlaring              float64 `json:"health_change_from_flaring"`
+	HealthChangeFromHiding               float64 `json:"health_change_from_hiding"`
+	HealthChangeInflictedByAttack        float64 `json:"health_change_inflicted_by_attack"`
+	HealthChangeInflictedBySting         float64 `json:"health_change_inflicted_by_sting"`
+	HealthChangePerCycleUnhealthyPh      float64 `json:"health_change_per_unhealthy_ph"`
+
+	// --- Physiology ---
 	// ChanceToGainFeature is the per-spawn probability that a child
 	// gains one new physiological feature (drawn uniformly at random
 	// from those whose prerequisites the parent already meets).
@@ -240,71 +380,59 @@ type Globals struct {
 	// a sibling — without this the population saturates at the same
 	// leaf set in every tree and physiological diversity vanishes.
 	ChanceToLoseFeature float64 `json:"chance_to_lose_feature"`
-	// StingDamagePercent scales per-cell damage of ActSting relative
-	// to ActAttack's per-target damage. 0.4 → each of the 4 adjacent
-	// cells takes 40% of an attack's hit, so a sting on a 4-cell
-	// crowd deals 160% of an attack's total but a sting at empty
-	// air deals 0.
-	StingDamagePercent float64 `json:"sting_damage_percent"`
-	// StingCostPercent scales ActSting's health cost relative to
-	// ActAttack's cost (also size-scaled). 0.65 keeps it cheap enough
-	// that a 1-target sting is still worse than an attack, but
-	// crowd-stinging stays viable.
-	StingCostPercent float64 `json:"sting_cost_percent"`
-	MaxDecisionTreeSize           int     `json:"max_decision_tree_size"`
-	MinIdealPh                    float64 `json:"min_ideal_ph"`
-	MaxIdealPh                    float64 `json:"max_ideal_ph"`
-	// PhTolerance is the absolute pH distance every organism can sit
-	// from its IdealPh without taking unhealthy-pH damage. Global
-	// rather than per-organism — variation between organisms now comes
-	// from IdealPh alone.
-	PhTolerance                   float64 `json:"ph_tolerance"`
-	// ChemosynthesisTolerance multiplies PhTolerance to define the pH
-	// window in which chemosynthesis succeeds. Values below 1 narrow
-	// chemo-viable pH relative to general survival tolerance; values
-	// above 1 widen it.
-	ChemosynthesisTolerance       float64 `json:"chemosynthesis_tolerance"`
-	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize *
-	// organism.Size on each successful chemo cycle. Eating pushes the
-	// local pH up by EatingPhEffectPerFood * food_amount_eaten on each
-	// successful eat. Replaces the old per-organism PhGrowthEffect
-	// trait — same overall mechanic (organisms shape their environment)
-	// but driven by what they actually do, not what they're born with.
-	ChemoPhEffectPerSize  float64 `json:"chemosynthesis_ph_effect_per_size"`
-	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
-	// MaxLifespan is the global lifespan cap (in cycles) every organism
-	// dies at when reached. Set to 0 to disable lifespan-based death
-	// entirely.
-	MaxLifespan          int     `json:"max_lifespan"`
-	MinChangeToPh        float64 `json:"min_change_to_ph"`
-	MaxChangeToPh        float64 `json:"max_change_to_ph"`
-	PhIncrementToDisplay float64 `json:"ph_increment_to_display"`
-	PhDiffuseFactor      float64 `json:"ph_diffuse_factor"`
-	UsePools             bool    `json:"use_pools"`
-	PoolWidth            int     `json:"pool_width"`
-	PoolHeight           int     `json:"pool_height"`
+	// Posture-state modifiers applied during the cycle an organism
+	// is in the matching posture. Multipliers default to 1.0 = no
+	// effect; the additive modifier is a signed delta.
+	HunkerDamageTakenMult float64 `json:"hunker_damage_taken_mult"`
+	FlareDamageDealtMult  float64 `json:"flare_damage_dealt_mult"`
+	FlarePerceivedSizeAdd float64 `json:"flare_perceived_size_add"`
+	// WallStrengthDeltaSmall/Medium/Large set how much wall strength
+	// a single dig or burrow action adds or removes, bucketed by the
+	// organism's size class (thirds of MaximumMaxSize).
+	WallStrengthDeltaSmall  int `json:"wall_strength_delta_small"`
+	WallStrengthDeltaMedium int `json:"wall_strength_delta_medium"`
+	WallStrengthDeltaLarge  int `json:"wall_strength_delta_large"`
 
-	// GUI theme: "light" or "dark". Controls the window background and
-	// selects between <theme>-prefixed sprite sheets.
-	Theme string `json:"theme"`
+	// Per-feature passive Tradeoffs. Body-type exclusivity means
+	// only the deepest-held feature in each tree contributes — see
+	// physiology.Set.Combined. Multipliers default to 1.0; additive
+	// modifiers default to 0. Fields kept in feature-then-aspect
+	// order so the source layout mirrors default.json and the
+	// settings editor's per-tree subsections.
 
-	// PhColorScheme: "green-pink" (default) or "blue-orange". Drives
-	// the pH grid layer, organism PH-effect tints, panel pH stat
-	// colours, and the pH/PhEffect graphs. Blue-orange is friendlier
-	// to red-green colour blindness.
-	PhColorScheme string `json:"ph_color_scheme"`
+	// Flagellae tree
+	FlagellaeChemoEfficiencyMult float64 `json:"flagellae_chemo_efficiency_mult"`
+	CiliaChemoEfficiencyMult     float64 `json:"cilia_chemo_efficiency_mult"`
+	CiliaMoveCostMult            float64 `json:"cilia_move_cost_mult"`
+	StingerChemoEfficiencyMult   float64 `json:"stinger_chemo_efficiency_mult"`
 
-	// Health parameters (percent of organism size)
-	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`
-	HealthChangeFromFailedChemosynthesis float64 `json:"health_change_from_failed_chemosynthesis"`
-	HealthChangeFromTurning              float64 `json:"health_change_from_turning"`
-	HealthChangeFromMoving          float64 `json:"health_change_from_moving"`
-	HealthChangeFromEatingAttempt   float64 `json:"health_change_from_eating_attempt"`
-	HealthChangeFromAttacking       float64 `json:"health_change_from_attacking"`
-	HealthChangeFromSpawning        float64 `json:"health_change_from_spawning"`
-	HealthChangeFromIdle            float64 `json:"health_change_from_idle"`
-	HealthChangeInflictedByAttack   float64 `json:"health_change_inflicted_by_attack"`
-	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
+	// Sensors tree
+	AntennaeChemoEfficiencyMult float64 `json:"antennae_chemo_efficiency_mult"`
+	FeelersChemoEfficiencyMult  float64 `json:"feelers_chemo_efficiency_mult"`
+	TastersChemoEfficiencyMult  float64 `json:"tasters_chemo_efficiency_mult"`
+
+	// Defense tree
+	ShellChemoEfficiencyMult      float64 `json:"shell_chemo_efficiency_mult"`
+	ShellMoveCostMult             float64 `json:"shell_move_cost_mult"`
+	ShellDamageTakenMult          float64 `json:"shell_damage_taken_mult"`
+	SpikesChemoEfficiencyMult     float64 `json:"spikes_chemo_efficiency_mult"`
+	SpikesMoveCostMult            float64 `json:"spikes_move_cost_mult"`
+	SpikesDamageTakenMult         float64 `json:"spikes_damage_taken_mult"`
+	SpikesDamageDealtMult         float64 `json:"spikes_damage_dealt_mult"`
+	SpikesPerceivedSizeAdd        float64 `json:"spikes_perceived_size_add"`
+	CamouflageChemoEfficiencyMult float64 `json:"camouflage_chemo_efficiency_mult"`
+	CamouflageMoveCostMult        float64 `json:"camouflage_move_cost_mult"`
+	CamouflageDamageTakenMult     float64 `json:"camouflage_damage_taken_mult"`
+
+	// Teeth tree
+	TeethChemoEfficiencyMult float64 `json:"teeth_chemo_efficiency_mult"`
+	FangsChemoEfficiencyMult float64 `json:"fangs_chemo_efficiency_mult"`
+	FangsDamageDealtMult     float64 `json:"fangs_damage_dealt_mult"`
+	TusksChemoEfficiencyMult float64 `json:"tusks_chemo_efficiency_mult"`
+	TusksMoveCostMult        float64 `json:"tusks_move_cost_mult"`
+
+	// --- Statistics ---
+	PopulationUpdateInterval int `json:"population_update_interval"`
 }
 
 func LoadFile(filePath string) io.Reader {

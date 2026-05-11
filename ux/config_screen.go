@@ -42,10 +42,16 @@ type configField struct {
 	textOnly bool
 }
 
-// configSection groups fields under a heading
+// configSection groups fields under a heading. Sections are
+// collapsible: clicking the header toggles `collapsed`, and when
+// collapsed only the header row renders (fields are skipped and
+// don't contribute to contentHeight). All sections start collapsed
+// so the editor opens to a navigable overview rather than a wall
+// of values.
 type configSection struct {
-	title  string
-	fields []configField
+	title     string
+	fields    []configField
+	collapsed bool
 }
 
 // ConfigScreen is the pre-simulation config editor UI. Used either as
@@ -230,12 +236,15 @@ func (cs *ConfigScreen) Update() bool {
 // contentHeight returns the total pixel height of all sections, fields,
 // inter-section gaps, and the START SIMULATION button — i.e. the full
 // scrollable extent. Computed from the static section/field counts so
-// it matches what Draw lays out.
+// it matches what Draw lays out. Collapsed sections contribute only
+// their header row.
 func (cs *ConfigScreen) contentHeight() int {
 	h := cfgHeaderHeight
 	for _, section := range cs.sections {
 		h += cfgRowHeight + 4 // header
-		h += len(section.fields) * cfgRowHeight
+		if !section.collapsed {
+			h += len(section.fields) * cfgRowHeight
+		}
 		h += 6 // gap between sections
 	}
 	if !cs.embedded {
@@ -286,18 +295,28 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 	rowIdx := 0
 
 	for _, section := range cs.sections {
-		// Section header
+		// Section header: prefix with ▼ when expanded, ▶ when
+		// collapsed so the user can see at a glance which sections
+		// have visible fields below them.
 		if y+cfgRowHeight > clipTop && y < clipBottom {
-			text.Draw(screen, section.title, r.FontSourceCodePro12, panelX, y+12, color.RGBA{R: 180, G: 180, B: 255, A: 255})
+			marker := "▶" // ▶
+			if !section.collapsed {
+				marker = "▼" // ▼
+			}
+			text.Draw(screen, marker+" "+section.title, r.FontSourceCodePro12, panelX, y+12, color.RGBA{R: 180, G: 180, B: 255, A: 255})
 		}
 		y += cfgRowHeight + 4
 
-		for _, field := range section.fields {
-			if y+cfgRowHeight > clipTop && y < clipBottom {
-				cs.drawRow(screen, panelX, y, rowIdx, field)
+		if section.collapsed {
+			rowIdx += len(section.fields)
+		} else {
+			for _, field := range section.fields {
+				if y+cfgRowHeight > clipTop && y < clipBottom {
+					cs.drawRow(screen, panelX, y, rowIdx, field)
+				}
+				y += cfgRowHeight
+				rowIdx++
 			}
-			y += cfgRowHeight
-			rowIdx++
 		}
 		y += 6 // gap between sections
 	}
@@ -457,8 +476,26 @@ func (cs *ConfigScreen) handleClick() {
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
 	rowIdx := 0
 
-	for _, section := range cs.sections {
-		y += cfgRowHeight + 4 // section header
+	for i := range cs.sections {
+		section := &cs.sections[i]
+		// Header hitbox: clicking anywhere across the full panel
+		// width on the header row toggles the section's collapsed
+		// state. Use a generous vertical band so the click feels
+		// forgiving.
+		headerY := y
+		if my >= headerY && my < headerY+cfgRowHeight+4 && mx >= panelX && mx < panelX+panelW {
+			section.collapsed = !section.collapsed
+			cs.selectedRow = -1
+			cs.editingValue = ""
+			return
+		}
+		y += cfgRowHeight + 4
+
+		if section.collapsed {
+			rowIdx += len(section.fields)
+			y += 6
+			continue
+		}
 		for _, field := range section.fields {
 			if my >= y-2 && my < y+cfgRowHeight-2 {
 				// Check if clicked on slider area (skipped for text-only fields)
@@ -637,6 +674,14 @@ func (cs *ConfigScreen) getSliderRange(field configField) (float64, float64) {
 		initial = fv.Float()
 	}
 
+	// Chemo efficiency multipliers represent "fraction of base chemo
+	// rate" — semantically bounded to [0, 1]. A 1.0 value means no
+	// penalty; 0 means the feature can't chemosynthesise at all.
+	// Bounding here prevents the slider from suggesting values >1
+	// that would be a buff rather than a tradeoff.
+	if strings.HasSuffix(field.jsonTag, "_chemo_efficiency_mult") {
+		return 0, 1
+	}
 	// For health change values that can be negative
 	if strings.Contains(field.jsonTag, "health_change") {
 		absMax := math.Max(math.Abs(initial)*3, 1)
@@ -735,31 +780,87 @@ func (cs *ConfigScreen) buildSections() {
 			field("Chance to Mutate", "chance_to_mutate_decision_tree"),
 			field("Max Tree Size", "max_decision_tree_size"),
 		}},
-		{title: "— PHYSIOLOGY —", fields: []configField{
-			field("Chance to Gain Feature", "chance_to_gain_feature"),
-			field("Chance to Lose Feature", "chance_to_lose_feature"),
-			field("Sting Damage %", "sting_damage_percent"),
-			field("Sting Cost %", "sting_cost_percent"),
-		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
+			// Per-action costs/gains paid by the actor. All values
+			// are signed absolute deltas (typically size-scaled at
+			// the apply site); convention is negative = cost,
+			// positive = gain. One row per action.
 			field("Chemosynthesis", "health_change_from_chemosynthesis"),
 			field("Failed Chemosynthesis", "health_change_from_failed_chemosynthesis"),
+			field("Idle", "health_change_from_idle"),
 			field("Turning", "health_change_from_turning"),
 			field("Moving", "health_change_from_moving"),
 			field("Eating Attempt", "health_change_from_eating_attempt"),
-			field("Attacking", "health_change_from_attacking"),
 			field("Spawning", "health_change_from_spawning"),
-			field("Idle", "health_change_from_idle"),
+			field("Attacking", "health_change_from_attacking"),
+			field("Stinging", "health_change_from_stinging"),
+			field("Digging", "health_change_from_digging"),
+			field("Burrowing", "health_change_from_burrowing"),
+			field("Hunkering", "health_change_from_hunkering"),
+			field("Flaring", "health_change_from_flaring"),
+			field("Hiding", "health_change_from_hiding"),
+			// Damage delivered to targets (signed, always negative).
 			field("Inflicted by Attack", "health_change_inflicted_by_attack"),
+			field("Inflicted by Sting", "health_change_inflicted_by_sting"),
+			// Environmental health changes.
 			field("Per Unhealthy pH Cycle", "health_change_per_unhealthy_ph"),
 		}},
-		{title: "— POOLS —", fields: []configField{
-			field("Use Pools", "use_pools"),
-			field("Pool Width", "pool_width"),
-			field("Pool Height", "pool_height"),
+		{title: "— PHYSIOLOGY —", fields: []configField{
+			// Feature-evolution rates.
+			field("Chance to Gain Feature", "chance_to_gain_feature"),
+			field("Chance to Lose Feature", "chance_to_lose_feature"),
+			// Posture-state modifiers — multipliers (unitless,
+			// 1.0 = no effect) and additive deltas applied during
+			// the cycle an organism holds the matching posture.
+			field("Hunker Damage Taken Mult", "hunker_damage_taken_mult"),
+			field("Flare Damage Dealt Mult", "flare_damage_dealt_mult"),
+			field("Flare Perceived Size +", "flare_perceived_size_add"),
+			// Per-size-class wall strength delta for dig / burrow.
+			field("Wall Strength Delta (S)", "wall_strength_delta_small"),
+			field("Wall Strength Delta (M)", "wall_strength_delta_medium"),
+			field("Wall Strength Delta (L)", "wall_strength_delta_large"),
+		}},
+		{title: "— CHEMO EFFICIENCY —", fields: []configField{
+			// Grouped together because every feature has one and
+			// they're easier to balance side-by-side than scattered
+			// across per-tree sections.
+			field("Flagellae", "flagellae_chemo_efficiency_mult"),
+			field("Cilia", "cilia_chemo_efficiency_mult"),
+			field("Stinger", "stinger_chemo_efficiency_mult"),
+			field("Antennae", "antennae_chemo_efficiency_mult"),
+			field("Feelers", "feelers_chemo_efficiency_mult"),
+			field("Tasters", "tasters_chemo_efficiency_mult"),
+			field("Shell", "shell_chemo_efficiency_mult"),
+			field("Spikes", "spikes_chemo_efficiency_mult"),
+			field("Camouflage", "camouflage_chemo_efficiency_mult"),
+			field("Teeth", "teeth_chemo_efficiency_mult"),
+			field("Fangs", "fangs_chemo_efficiency_mult"),
+			field("Tusks", "tusks_chemo_efficiency_mult"),
+		}},
+		{title: "— FLAGELLAE TREE —", fields: []configField{
+			field("Cilia Move Cost", "cilia_move_cost_mult"),
+		}},
+		{title: "— DEFENSE TREE —", fields: []configField{
+			field("Shell Move Cost", "shell_move_cost_mult"),
+			field("Shell Damage Taken", "shell_damage_taken_mult"),
+			field("Spikes Move Cost", "spikes_move_cost_mult"),
+			field("Spikes Damage Taken", "spikes_damage_taken_mult"),
+			field("Spikes Damage Dealt", "spikes_damage_dealt_mult"),
+			field("Spikes Perceived Size +", "spikes_perceived_size_add"),
+			field("Camouflage Move Cost", "camouflage_move_cost_mult"),
+			field("Camouflage Damage Taken", "camouflage_damage_taken_mult"),
+		}},
+		{title: "— TEETH TREE —", fields: []configField{
+			field("Fangs Damage Dealt", "fangs_damage_dealt_mult"),
+			field("Tusks Move Cost", "tusks_move_cost_mult"),
 		}},
 		{title: "— STATISTICS —", fields: []configField{
 			field("Population Update Interval", "population_update_interval"),
 		}},
+	}
+	// Sections collapsed by default — the editor opens to a list of
+	// section headers that the user can expand as they need.
+	for i := range cs.sections {
+		cs.sections[i].collapsed = true
 	}
 }

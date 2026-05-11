@@ -208,6 +208,7 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		Features:               uint64(traits.Features),
 		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
 		CurrentAction:          uint8(o.Action()),
+		Status:                 uint8(o.Status),
 		AttackTotal:            uint32(o.AttackTotal),
 		AttackHits:             uint32(o.AttackHits),
 		PhPositive:             o.PhPositive,

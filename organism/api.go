@@ -18,6 +18,7 @@ type LookupAPI interface {
 	GetFoodAtPoint(point utils.Point) (*food.Item, bool)
 	GetPhAtPoint(point utils.Point) float64
 	GetPhMap() [][]float64
+	IsWallAtPoint(point utils.Point) bool
 	OrganismCount() int
 	Cycle() int
 	GetSelected() int
@@ -35,6 +36,13 @@ type ChangeAPI interface {
 	// AddOrganismUpdate adds a point to the update map of noteworthy locations
 	// affected by organism activity
 	AddOrganismUpdate(point utils.Point)
+	// AddWallStrength adjusts the wall strength at a point. Positive delta
+	// burrows, negative digs. Returns the resulting strength clamped to
+	// [0, MaxWallStrength]. Reaching 0 removes the wall from the grid.
+	AddWallStrength(point utils.Point, delta int) int
+	// AddWallUpdate flags a wall cell as dirty so the renderer repaints
+	// it on the next incremental refresh.
+	AddWallUpdate(point utils.Point)
 }
 
 // API provides functions needed to lookup and make changes to world objects

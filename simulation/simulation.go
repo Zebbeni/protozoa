@@ -29,6 +29,7 @@ type Simulation struct {
 	organismManager    *manager.OrganismManager
 	foodManager        *manager.FoodManager
 	environmentManager *manager.EnvironmentManager
+	wallManager        *manager.WallManager
 	updateManager      *manager.UpdateManager
 
 	// Checkpoint recording (nil if not recording)
@@ -74,6 +75,7 @@ func NewSimulation(options *config.Options) *Simulation {
 		isPaused: false,
 	}
 	sim.updateManager = manager.NewUpdateManager()
+	sim.wallManager = manager.NewWallManager()
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
 	sim.foodManager = manager.NewFoodManager(sim, rng)
 	sim.organismManager = manager.NewOrganismManager(sim, rng)
@@ -155,6 +157,7 @@ func (s *Simulation) CaptureSnapshot() *checkpoint.SnapshotPayload {
 		CurrentPhMap:          currentPh,
 		PreviousPhMap:         previousPh,
 		FoodItems:             s.foodManager.CaptureFoodRecords(),
+		Walls:                 captureWallRecords(s.wallManager),
 		Ancestors:             s.organismManager.CaptureAncestors(),
 	}
 }
@@ -329,6 +332,19 @@ func (s *Simulation) AddPhUpdate(point utils.Point) {
 // AddFoodUpdate registers that a point's food value was changed by a noteworthy amount
 func (s *Simulation) AddFoodUpdate(point utils.Point) {
 	s.updateManager.AddFoodUpdate(point)
+}
+
+// AddWallUpdate registers that a point's wall strength was changed,
+// so the renderer redraws it on the next incremental pass.
+func (s *Simulation) AddWallUpdate(point utils.Point) {
+	s.updateManager.AddWallUpdate(point)
+}
+
+// GetUpdatedWallPoints returns the set of wall cells changed since
+// the last refresh — used by the grid renderer to repaint only dirty
+// cells in the walls layer.
+func (s *Simulation) GetUpdatedWallPoints() map[utils.Point]bool {
+	return s.updateManager.GetUpdatedWallPoints()
 }
 
 // GetUpdatedFoodPoints returns a map of all points recently updated by the
@@ -534,9 +550,48 @@ func (s *Simulation) GetPhMap() [][]float64 {
 	return s.environmentManager.GetPhMap()
 }
 
-// GetWalls returns all points in the environment that contain a wall
-func (s *Simulation) GetWalls() []utils.Point {
-	return s.environmentManager.GetWalls()
+// GetWalls returns the current map of wall locations to strengths.
+// The renderer iterates this every full refresh; the snapshot capture
+// path also reads it.
+func (s *Simulation) GetWalls() map[utils.Point]int {
+	return s.wallManager.GetWalls()
+}
+
+// IsWallAtPoint reports whether a wall is currently present at p.
+// Routed through the WallManager — replaces the legacy stateless
+// utils.IsWall function that derived walls from pool coordinates.
+func (s *Simulation) IsWallAtPoint(p utils.Point) bool {
+	return s.wallManager.IsWallAtPoint(p)
+}
+
+// GetWallStrengthAtPoint returns the wall's strength at p, or 0 if
+// no wall is present.
+func (s *Simulation) GetWallStrengthAtPoint(p utils.Point) int {
+	return s.wallManager.GetWallStrengthAtPoint(p)
+}
+
+// AddWallStrength adjusts the wall at p by delta, clamped to
+// [0, MaxWallStrength]. Positive deltas burrow, negative dig.
+// Returns the resulting strength after clamping.
+func (s *Simulation) AddWallStrength(p utils.Point, delta int) int {
+	return s.wallManager.AddWallStrength(p, delta)
+}
+
+// captureWallRecords converts the WallManager's wall map into the
+// snapshot-friendly slice of WallRecords. Map iteration order is
+// unspecified, but the restore path keys back by Point, so the
+// snapshot itself doesn't need to be order-stable.
+func captureWallRecords(wm *manager.WallManager) []checkpoint.WallRecord {
+	walls := wm.GetWalls()
+	out := make([]checkpoint.WallRecord, 0, len(walls))
+	for p, s := range walls {
+		out = append(out, checkpoint.WallRecord{
+			X:        uint16(p.X),
+			Y:        uint16(p.Y),
+			Strength: uint8(s),
+		})
+	}
+	return out
 }
 
 // GetPhAtPoint returns the current Ph of the environment at a given location

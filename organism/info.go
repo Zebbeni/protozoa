@@ -30,17 +30,12 @@ type Info struct {
 	// cell at the moment of the attack.
 	AttackTotal int
 	AttackHits  int
-	// ChemoFailed is true when the organism's most recent
-	// chemosynthesis action was outside its pH tolerance range and
-	// produced no health gain. Only meaningful when Action ==
-	// ActChemosynthesis; stale values on other actions are ignored by
-	// the renderer.
-	ChemoFailed bool
-	// EatFailed is true when the organism's most recent eat action
-	// hit an empty cell (no food consumed). Only meaningful when
-	// Action == ActEat; stale on other actions and ignored by the
-	// renderer in that case.
-	EatFailed bool
+	// Status is the resolved outcome of the most recent cycle —
+	// what the action did, how it turned out, and whether the
+	// organism is currently in a posture mode (Hunker/Flare/Hide)
+	// or its terminal Dying/Decaying sequence. Replaces the older
+	// ChemoFailed / EatFailed / Posture fields.
+	Status Status
 	// BornThisCycle is true for exactly the cycle on which the
 	// organism was spawned. The animation layer uses it to synthesise
 	// a birth Frame (2-cell move from the parent's cell into the

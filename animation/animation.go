@@ -97,69 +97,55 @@ const (
 // AllAnimations lists every Animation value, for resource preloading.
 var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimEatFail, AnimChemo, AnimChemoFail, AnimDie}
 
-// ForAction maps a resolved decision.Action to the Animation sheet that
-// should play during its cycle transition. This is the position-agnostic
-// default; for cases where the result of the action matters (e.g. a move
-// that didn't change position because the path was blocked), use ForFrame.
-func ForAction(a decision.Action) Animation {
-	switch a {
-	case decision.ActMove:
+// ForStatus maps a resolved organism.Status to the Animation sheet
+// that should play during its cycle transition. The mapping is 1:1
+// — every status has its own animation and vice versa, so no
+// outcome-flag plumbing or special-casing in the renderer.
+func ForStatus(s organism.Status) Animation {
+	switch s {
+	case organism.StatusMoveSuccess:
 		return AnimMove
-	case decision.ActAttack:
+	case organism.StatusMoveBlocked:
+		return AnimBlocked
+	case organism.StatusAttacking, organism.StatusStinging:
 		return AnimAttack
-	case decision.ActEat:
+	case organism.StatusEatSuccess:
 		return AnimEat
-	case decision.ActTurnLeft:
+	case organism.StatusEatFailed:
+		return AnimEatFail
+	case organism.StatusTurnLeft:
 		return AnimTurnLeft
-	case decision.ActTurnRight:
+	case organism.StatusTurnRight:
 		return AnimTurnRight
-	case decision.ActChemosynthesis:
+	case organism.StatusChemoSuccess:
 		return AnimChemo
-	case decision.ActIdle:
-		return AnimIdle
+	case organism.StatusChemoFailed:
+		return AnimChemoFail
+	case organism.StatusDying:
+		return AnimDie
 	default:
+		// Status values without dedicated animations yet (Spawning,
+		// Digging, Burrowing, Hunkering, Flaring, Hiding) fall back
+		// to AnimIdle. Add cases here as sprites land.
 		return AnimIdle
 	}
 }
 
-// ForFrame picks the Animation for a Frame, accounting for outcomes that
-// aren't visible from the action alone:
-//
-//   - Dying frames (the organism died this cycle) always play AnimDie,
-//     overriding whatever their last action was.
-//   - A Move whose FromLocation equals its ToLocation is a blocked move —
-//     the organism tried to advance but couldn't — and gets AnimBlocked
-//     so we don't play the 2-cell travel sprite in place.
-//   - A Chemosynthesis action whose ChemoFailed flag is set (organism
-//     was outside its pH tolerance range and gained no health) plays
-//     AnimChemoFail instead of AnimChemo.
-//   - An Eat action whose EatFailed flag is set (no food in the target
-//     cell) plays AnimEatFail instead of AnimEat.
+// ForFrame picks the Animation for a Frame. With Status-based
+// dispatch this is just a thin wrapper over ForStatus.
 func ForFrame(f Frame) Animation {
-	if f.Dying {
-		return AnimDie
-	}
-	if f.Action == decision.ActMove && f.FromLocation == f.ToLocation {
-		return AnimBlocked
-	}
-	if f.Action == decision.ActChemosynthesis && f.ChemoFailed {
-		return AnimChemoFail
-	}
-	if f.Action == decision.ActEat && f.EatFailed {
-		return AnimEatFail
-	}
-	return ForAction(f.Action)
+	return ForStatus(f.Status)
 }
 
 // Frame captures everything the renderer needs to animate one organism's
 // transition from its pre-cycle state to its current state. Populated by
 // State.AfterUpdate; consumed by the grid renderer.
 //
-// Dying is true for organisms that existed before the most recent cycle
-// but are gone afterwards. Their FromLocation / Direction / Size / Color
-// are the snapshot from just before death, and ForFrame forces AnimDie on
-// them regardless of their last action. These frames only live for one
-// cycle — the next AfterUpdate rebuilds Frames and drops them.
+// Status drives the animation choice via ForStatus — outcomes that used
+// to require separate Dying / ChemoFailed / EatFailed flags now flow
+// through the unified enum. Dying organisms are kept on the grid for
+// one cycle (Status = Dying) so their death animation plays naturally
+// before finalizeDeaths replaces them with food.
 type Frame struct {
 	FromLocation utils.Point
 	ToLocation   utils.Point
@@ -167,15 +153,7 @@ type Frame struct {
 	Action       decision.Action
 	Color        colorful.Color
 	Size         float64
-	Dying        bool
-	// ChemoFailed is true when the organism attempted chemosynthesis but
-	// was outside its pH tolerance range (no health gained). Routed
-	// through ForFrame to pick AnimChemoFail instead of AnimChemo.
-	ChemoFailed bool
-	// EatFailed is true when the organism attempted to eat but the
-	// target cell had no food (no health gained). Routed through
-	// ForFrame to pick AnimEatFail instead of AnimEat.
-	EatFailed bool
+	Status       organism.Status
 }
 
 // State holds the current animation batch and cycle timing. One instance per
@@ -285,6 +263,14 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 				from = pre.Location
 			}
 		}
+		// Newborns synthesize an inbound "move from parent" frame
+		// (see the BornThisCycle case above); their Status is
+		// freshly StatusIdle but we override to StatusMoveSuccess
+		// here so ForStatus picks AnimMove for the birth animation.
+		status := info.Status
+		if info.BornThisCycle {
+			status = organism.StatusMoveSuccess
+		}
 		frames[id] = Frame{
 			FromLocation: from,
 			ToLocation:   info.Location,
@@ -292,24 +278,14 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Action:       action,
 			Color:        info.Color,
 			Size:         info.Size,
-			ChemoFailed:  info.ChemoFailed,
-			EatFailed:    info.EatFailed,
+			Status:       status,
 		}
 	}
-	for id, pre := range s.preSnap {
-		if _, alive := infos[id]; alive {
-			continue
-		}
-		frames[id] = Frame{
-			FromLocation: pre.Location,
-			ToLocation:   pre.Location,
-			Direction:    pre.Direction,
-			Action:       pre.Action,
-			Color:        pre.Color,
-			Size:         pre.Size,
-			Dying:        true,
-		}
-	}
+	// Note: with the dying lifecycle, organisms that took lethal
+	// damage stay in `infos` with Status = Dying for one more cycle
+	// before finalizeDeaths removes them — so we no longer need
+	// a preSnap-based fallback to synthesize Dying frames. The
+	// death animation runs naturally on the live frame's Status.
 	s.Frames = frames
 	s.cycleStart = s.cycleStart.Add(s.CycleDuration())
 

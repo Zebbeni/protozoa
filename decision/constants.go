@@ -52,6 +52,14 @@ const (
 	ActFlare
 	ActHide
 	ActBurrow
+	// Wall-perception conditions unlocked by FeatFeelers. The
+	// `Condition = iota` reassignment retypes subsequent untyped
+	// entries from Action (inherited from ActIdle) back to Condition.
+	// Tail-appended so all pre-existing serialized Action/Condition
+	// values stay stable.
+	IsWallAhead Condition = iota
+	IsWallLeft
+	IsWallRight
 )
 
 // Define slices
@@ -109,5 +117,8 @@ var (
 		ActFlare:                  "Flare",
 		ActHide:                   "Hide",
 		ActBurrow:                 "Burrow",
+		IsWallAhead:               "If Wall Ahead",
+		IsWallLeft:                "If Wall Left",
+		IsWallRight:               "If Wall Right",
 	}
 )

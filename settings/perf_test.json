@@ -27,10 +27,6 @@
   "ph_diffuse_factor": 0.5,
   "ph_increment_to_display": 0.1,
 
-  "use_pools": false,
-  "pool_width": 20,
-  "pool_height": 20,
-
   "initial_organism_decision_tree_mutations": 0,
   "chance_to_mutate_decision_tree": 0.5,
   "max_decision_tree_size": 32,

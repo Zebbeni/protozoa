@@ -38,7 +38,9 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.previousPhMap[x] = make([]float64, gridH)
 		m.currentPhMap[x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
-			// Start all locations at neutral ph
+			// Start all locations at neutral ph. Walls don't exist
+			// at sim start (they only appear via ActBurrow); the pH
+			// map is uniform until that happens.
 			val := (c.MaxInitialPh() + c.MinInitialPh()) / 2.0
 			m.previousPhMap[x][y] = val
 			m.currentPhMap[x][y] = val
@@ -53,23 +55,6 @@ func (m *EnvironmentManager) Update() {
 
 func (m *EnvironmentManager) GetPhMap() [][]float64 {
 	return m.currentPhMap
-}
-
-func (m *EnvironmentManager) GetWalls() []utils.Point {
-	if c.UsePools() == false {
-		return []utils.Point{}
-	}
-
-	max := (c.GridUnitsWide() / c.PoolWidth()) * (c.GridUnitsHigh() / c.PoolHeight())
-	points := make([]utils.Point, 0, max)
-	for x := 0; x < c.GridUnitsWide(); x++ {
-		for y := 0; y < c.GridUnitsHigh(); y++ {
-			if utils.IsWall(x, y) {
-				points = append(points, utils.Point{X: x, Y: y})
-			}
-		}
-	}
-	return points
 }
 
 // GetPhAtPoint returns the current pH level of the environment at a given point
@@ -136,13 +121,20 @@ func (m *EnvironmentManager) updatePrevCurrentPhMaps() {
 
 // simulate diffusion of ph across the environment by adjusting each
 // ph value toward its neighbors' values.
-// Also, while iterating, calculates average ph in environment
+// Also, while iterating, calculates average ph in environment.
+//
+// Walls trap the pH value at their cell: the wall's value is held
+// constant (carried forward from previousPhMap) and the cell's pH is
+// excluded from the neighbour average of its non-wall neighbours.
+// When the wall is later destroyed (strength → 0 via ActDig), the
+// trapped value just re-enters the diffusion average naturally on
+// the next cycle. No special unfreeze step needed.
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
 	diffFactor := c.PhDiffuseFactor()
 
 	adjPh := func(x, y int) (float64, bool) {
-		return m.previousPhMap[x][y], !utils.IsWall(x, y)
+		return m.previousPhMap[x][y], !m.api.IsWallAtPoint(utils.Point{X: x, Y: y})
 	}
 
 	// return average of all diffuse-able adjacent points
@@ -165,21 +157,11 @@ func (m *EnvironmentManager) diffusePhLevels() {
 			avgPh += ph
 			neighbors++
 		}
+		if neighbors == 0 {
+			// Completely walled in — keep current value untouched.
+			return m.previousPhMap[x][y]
+		}
 		return avgPh / float64(neighbors)
-	}
-
-	// return average ph of all adjacent points (even if in walls)
-	avgAdjPhAll := func(x, y int) float64 {
-		avgPh := 0.0
-		ph, _ := adjPh(x, (y+1)%gridH)
-		avgPh += ph
-		ph, _ = adjPh(x, (y+gridH-1)%gridH)
-		avgPh += ph
-		ph, _ = adjPh((x+1)%gridW, y)
-		avgPh += ph
-		ph, _ = adjPh((x+gridW-1)%gridW, y)
-		avgPh += ph
-		return avgPh / 4.0
 	}
 
 	totalPh := 0.0
@@ -192,11 +174,12 @@ func (m *EnvironmentManager) diffusePhLevels() {
 			prevVal := m.previousPhMap[x][y]
 			totalPh += prevVal
 
-			// Just set wall ph to the average of its neighbors
-			// (doesn't really affect anything but appearance, since we don't
-			// diffuse this value back to the rest of the environment
-			if utils.IsWall(x, y) {
-				m.setPhAtPoint(utils.Point{X: x, Y: y}, avgAdjPhAll(x, y))
+			// Wall cells freeze their pH at the value they had when
+			// the wall appeared — propagate the prevMap value
+			// verbatim. Removal of the wall lets it rejoin diffusion
+			// naturally the next cycle.
+			if m.api.IsWallAtPoint(utils.Point{X: x, Y: y}) {
+				m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal)
 				continue
 			}
 

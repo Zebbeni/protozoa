@@ -83,29 +83,27 @@ func OpenReader(path string) (*Reader, error) {
 	// Sections begin right after the header
 	sectionsStart, _ := file.Seek(0, io.SeekCurrent)
 
-	// Read snapshot index from footer.
-	// Footer: [int64 indexOffset][int32 indexCount]
-	footerSize := int64(8 + 4)
-	if _, err := file.Seek(-footerSize, io.SeekEnd); err != nil {
+	// Look up the file's total size; needed for both the fast-path
+	// footer validation and the fallback section scan.
+	fileSize, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
 		file.Close()
-		return nil, fmt.Errorf("failed to seek to footer: %w", err)
+		return nil, fmt.Errorf("failed to seek to end of file: %w", err)
 	}
 
-	var indexOffset int64
-	var indexCount int32
-	binary.Read(file, binary.LittleEndian, &indexOffset)
-	binary.Read(file, binary.LittleEndian, &indexCount)
-
-	// Read snapshot index
-	if _, err := file.Seek(indexOffset, io.SeekStart); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to seek to index: %w", err)
-	}
-
-	var index []SnapshotEntry
-	if err := gob.NewDecoder(file).Decode(&index); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to read snapshot index: %w", err)
+	// Try the fast path first: read the footer at the end of the
+	// file and seek to the snapshot index. A cleanly-closed file
+	// has a valid footer pointing at the index gob blob.
+	index, indexOffset, ok := tryReadFooterIndex(file, fileSize)
+	if !ok {
+		// Footer is missing or garbage — happens when the writer
+		// process was killed mid-run (Ctrl+C, OS kill, crash, the
+		// app window closing before CloseRecorder ran). Recover by
+		// scanning sections forward from sectionsStart, picking up
+		// every SectionSnapshot we find. This loses any sections
+		// that were partially written when the kill happened, but
+		// any whole snapshot before that point still loads.
+		index, indexOffset = scanSectionsForIndex(file, sectionsStart, fileSize)
 	}
 
 	return &Reader{
@@ -116,6 +114,100 @@ func OpenReader(path string) (*Reader, error) {
 		sectionsStart: sectionsStart,
 		indexOffset:   indexOffset,
 	}, nil
+}
+
+// tryReadFooterIndex attempts the fast-path: read the 12-byte footer
+// at the end of the file, validate the offsets, and gob-decode the
+// snapshot index it points at. Returns (index, indexOffset, true) on
+// success, or zeros + false if anything looks off so the caller can
+// fall back to scanning.
+func tryReadFooterIndex(file readerBacking, fileSize int64) ([]SnapshotEntry, int64, bool) {
+	const footerSize = int64(8 + 4)
+	if fileSize < footerSize {
+		return nil, 0, false
+	}
+	if _, err := file.Seek(-footerSize, io.SeekEnd); err != nil {
+		return nil, 0, false
+	}
+	var indexOffset int64
+	var indexCount int32
+	if err := binary.Read(file, binary.LittleEndian, &indexOffset); err != nil {
+		return nil, 0, false
+	}
+	if err := binary.Read(file, binary.LittleEndian, &indexCount); err != nil {
+		return nil, 0, false
+	}
+	// Sanity-check before trusting the offset — the writer never
+	// emits a footer with offsets outside the file, so anything
+	// outside is the "no footer was written" garbage case.
+	if indexOffset <= 0 || indexOffset >= fileSize-footerSize || indexCount < 0 {
+		return nil, 0, false
+	}
+	if _, err := file.Seek(indexOffset, io.SeekStart); err != nil {
+		return nil, 0, false
+	}
+	var index []SnapshotEntry
+	if err := gob.NewDecoder(file).Decode(&index); err != nil {
+		return nil, 0, false
+	}
+	return index, indexOffset, true
+}
+
+// scanSectionsForIndex walks sections from sectionsStart forward,
+// rebuilding the snapshot index from whatever sections are present
+// and valid. Used as a fallback when the footer is missing or
+// corrupt (writer killed before Close()). Returns the recovered
+// index and the offset where it would have started — for the
+// recovered case this is just fileSize, since there is no on-disk
+// index.
+func scanSectionsForIndex(file readerBacking, sectionsStart, fileSize int64) ([]SnapshotEntry, int64) {
+	var index []SnapshotEntry
+	if _, err := file.Seek(sectionsStart, io.SeekStart); err != nil {
+		return index, fileSize
+	}
+	for {
+		offset, err := file.Seek(0, io.SeekCurrent)
+		if err != nil || offset >= fileSize {
+			break
+		}
+		// Section header: [type:1][cycle:int32][compLen:int32][uncompLen:int32]
+		const headerSize = int64(1 + 4 + 4 + 4)
+		if offset+headerSize > fileSize {
+			break
+		}
+		var sectionType byte
+		var cycle, compLen, uncompLen int32
+		if err := binary.Read(file, binary.LittleEndian, &sectionType); err != nil {
+			break
+		}
+		if err := binary.Read(file, binary.LittleEndian, &cycle); err != nil {
+			break
+		}
+		if err := binary.Read(file, binary.LittleEndian, &compLen); err != nil {
+			break
+		}
+		if err := binary.Read(file, binary.LittleEndian, &uncompLen); err != nil {
+			break
+		}
+		// Validate the section header before trusting compLen: a
+		// half-written section would have garbage values here, and
+		// blindly seeking compLen bytes forward could march off the
+		// end of the file or skip into actual data.
+		if compLen < 0 || uncompLen < 0 || offset+headerSize+int64(compLen) > fileSize {
+			break
+		}
+		if sectionType == SectionSnapshot {
+			index = append(index, SnapshotEntry{
+				Cycle:      int(cycle),
+				FileOffset: offset,
+			})
+		}
+		// Skip past the compressed payload to the next section.
+		if _, err := file.Seek(int64(compLen), io.SeekCurrent); err != nil {
+			break
+		}
+	}
+	return index, fileSize
 }
 
 func (r *Reader) SectionsStart() int64 { return r.sectionsStart }

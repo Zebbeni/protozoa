@@ -8,6 +8,7 @@
 package physiology
 
 import (
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/decision"
 )
 
@@ -131,9 +132,8 @@ func noEffect() Tradeoffs {
 }
 
 // Spec describes one feature: which modality tree it lives in, the
-// Parent feature it descends from, what decision-tree actions and
-// conditions it adds to the organism's allowed pool, and the passive
-// tradeoffs of carrying it.
+// Parent feature it descends from, and what decision-tree actions
+// and conditions it adds to the organism's allowed pool.
 //
 // Tree roots set Parent = FeatNone. All other features list their
 // immediate ancestor; the children-of relation is computed at init
@@ -141,18 +141,23 @@ func noEffect() Tradeoffs {
 // is implicit — Eligible only ever exposes the children of an
 // organism's current deepest-held feature in each tree, so once
 // either Cilia or Stinger has been gained, the other is unreachable.
+//
+// Tradeoffs are NOT stored on Spec — they live in config so the user
+// can tune every per-feature penalty / benefit from default.json or
+// the in-game settings editor. See tradeoffsFor() below for the
+// feature → Tradeoffs lookup.
 type Spec struct {
 	Name              string
 	Tree              Tree
 	Parent            Feature
 	UnlocksActions    []decision.Action
 	UnlocksConditions []decision.Condition
-	Tradeoffs         Tradeoffs
 }
 
-// Specs is the registry of all features. Tradeoff numbers here are
-// first-pass placeholders to give Slice 6 something concrete to wire;
-// expect them to be tuned once the simulation can be observed.
+// Specs is the registry of all features — names, tree placement,
+// parent linkage, and the actions/conditions each unlocks. Passive
+// tradeoff values live in config (see tradeoffsFor) so they're
+// user-tunable from default.json or the in-game settings editor.
 var Specs = map[Feature]Spec{
 	// --- Flagellae tree ---
 	FeatFlagellae: {
@@ -160,36 +165,15 @@ var Specs = map[Feature]Spec{
 		UnlocksActions: []decision.Action{
 			decision.ActTurnLeft, decision.ActTurnRight,
 		},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.97,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatCilia: {
 		Name: "Cilia", Tree: TreeFlagellae, Parent: FeatFlagellae,
 		UnlocksActions:    []decision.Action{decision.ActMove},
 		UnlocksConditions: []decision.Condition{decision.CanMove},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.95,
-			MoveCostMult:          0.85,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatStinger: {
 		Name: "Stinger", Tree: TreeFlagellae, Parent: FeatFlagellae,
 		UnlocksActions: []decision.Action{decision.ActSting},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.92,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 
 	// --- Sensors tree ---
@@ -199,28 +183,19 @@ var Specs = map[Feature]Spec{
 			decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight,
 			decision.IsOrganismAhead, decision.IsOrganismLeft, decision.IsOrganismRight,
 		},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.97,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatFeelers: {
 		Name: "Feelers", Tree: TreeSensors, Parent: FeatAntennae,
-		// Wall-detection conditions and additional organism-relative
-		// awareness conditions will be added alongside Slice 6 when
-		// their semantics are wired up.
+		// Feelers unlocks size-comparison and wall-detection. The
+		// three IsWall* conditions sense burrowed terrain in the
+		// organism's three forward-facing cardinal directions —
+		// useful for nest-builders and pack hunters working around
+		// obstacles.
 		UnlocksConditions: []decision.Condition{
 			decision.IsBiggerOrganismAhead,
-		},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.95,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
+			decision.IsWallAhead,
+			decision.IsWallLeft,
+			decision.IsWallRight,
 		},
 	},
 	FeatTasters: {
@@ -232,73 +207,30 @@ var Specs = map[Feature]Spec{
 		UnlocksConditions: []decision.Condition{
 			decision.IsHealthierPhAhead,
 		},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.95,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 
 	// --- Defense tree ---
 	FeatShell: {
 		Name: "Shell", Tree: TreeDefense, Parent: FeatNone,
 		UnlocksActions: []decision.Action{decision.ActHunker},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.85,
-			MoveCostMult:          1.20,
-			AttackDamageTakenMult: 0.70,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatSpikes: {
 		Name: "Spikes", Tree: TreeDefense, Parent: FeatShell,
 		UnlocksActions: []decision.Action{decision.ActFlare},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.85,
-			MoveCostMult:          1.25,
-			AttackDamageTakenMult: 0.70,
-			AttackDamageDealtMult: 1.20,
-			SpawnHealthMult:       1.0,
-			PerceivedSizeAdd:      1.0,
-		},
 	},
 	FeatCamouflage: {
 		Name: "Camouflage", Tree: TreeDefense, Parent: FeatShell,
 		UnlocksActions: []decision.Action{decision.ActHide},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.85,
-			MoveCostMult:          1.20,
-			AttackDamageTakenMult: 0.70,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 
 	// --- Teeth tree ---
 	FeatTeeth: {
 		Name: "Teeth", Tree: TreeTeeth, Parent: FeatNone,
 		UnlocksActions: []decision.Action{decision.ActEat},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.95,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatFangs: {
 		Name: "Fangs", Tree: TreeTeeth, Parent: FeatTeeth,
 		UnlocksActions: []decision.Action{decision.ActAttack},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.92,
-			MoveCostMult:          1.0,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.20,
-			SpawnHealthMult:       1.0,
-		},
 	},
 	FeatTusks: {
 		Name: "Tusks", Tree: TreeTeeth, Parent: FeatTeeth,
@@ -307,14 +239,54 @@ var Specs = map[Feature]Spec{
 		// complementary niches — diggers carve corridors, burrowers
 		// build shelters.
 		UnlocksActions: []decision.Action{decision.ActDig, decision.ActBurrow},
-		Tradeoffs: Tradeoffs{
-			ChemoEfficiencyMult:   0.92,
-			MoveCostMult:          1.10,
-			AttackDamageTakenMult: 1.0,
-			AttackDamageDealtMult: 1.0,
-			SpawnHealthMult:       1.0,
-		},
 	},
+}
+
+// tradeoffsFor returns the resolved passive Tradeoffs for a single
+// feature, reading the values live from config so the user can tune
+// each per-feature penalty / benefit without recompiling. Aspects
+// the feature doesn't affect stay at their identity (mult 1.0,
+// additive 0).
+func tradeoffsFor(f Feature) Tradeoffs {
+	out := noEffect()
+	switch f {
+	case FeatFlagellae:
+		out.ChemoEfficiencyMult = config.FlagellaeChemoEfficiencyMult()
+	case FeatCilia:
+		out.ChemoEfficiencyMult = config.CiliaChemoEfficiencyMult()
+		out.MoveCostMult = config.CiliaMoveCostMult()
+	case FeatStinger:
+		out.ChemoEfficiencyMult = config.StingerChemoEfficiencyMult()
+	case FeatAntennae:
+		out.ChemoEfficiencyMult = config.AntennaeChemoEfficiencyMult()
+	case FeatFeelers:
+		out.ChemoEfficiencyMult = config.FeelersChemoEfficiencyMult()
+	case FeatTasters:
+		out.ChemoEfficiencyMult = config.TastersChemoEfficiencyMult()
+	case FeatShell:
+		out.ChemoEfficiencyMult = config.ShellChemoEfficiencyMult()
+		out.MoveCostMult = config.ShellMoveCostMult()
+		out.AttackDamageTakenMult = config.ShellDamageTakenMult()
+	case FeatSpikes:
+		out.ChemoEfficiencyMult = config.SpikesChemoEfficiencyMult()
+		out.MoveCostMult = config.SpikesMoveCostMult()
+		out.AttackDamageTakenMult = config.SpikesDamageTakenMult()
+		out.AttackDamageDealtMult = config.SpikesDamageDealtMult()
+		out.PerceivedSizeAdd = config.SpikesPerceivedSizeAdd()
+	case FeatCamouflage:
+		out.ChemoEfficiencyMult = config.CamouflageChemoEfficiencyMult()
+		out.MoveCostMult = config.CamouflageMoveCostMult()
+		out.AttackDamageTakenMult = config.CamouflageDamageTakenMult()
+	case FeatTeeth:
+		out.ChemoEfficiencyMult = config.TeethChemoEfficiencyMult()
+	case FeatFangs:
+		out.ChemoEfficiencyMult = config.FangsChemoEfficiencyMult()
+		out.AttackDamageDealtMult = config.FangsDamageDealtMult()
+	case FeatTusks:
+		out.ChemoEfficiencyMult = config.TusksChemoEfficiencyMult()
+		out.MoveCostMult = config.TusksMoveCostMult()
+	}
+	return out
 }
 
 // Always-available actions, regardless of feature set. A base
@@ -536,17 +508,27 @@ func (s Set) Loseable() []Feature {
 	return out
 }
 
-// Combined returns the sum of every feature's passive Tradeoffs in s.
-// Multipliers compose multiplicatively; additive deltas compose
-// additively. A base organism (empty set) returns the identity:
-// all multipliers 1.0, all additive deltas 0.
+// Combined returns the resolved passive Tradeoffs for s. For every
+// tree only the deepest-held feature contributes — earlier ancestors
+// in the same tree are the lineage that led there, not stacking
+// layers. Cilia is "a cilia body", not "Flagellae plus Cilia"; Fangs
+// is "a fanged body", not "Teeth plus Fangs"; etc.
+//
+// Actions and Conditions still inherit through the full tree path —
+// a Cilia organism can still Turn because Flagellae unlocked it.
+// AllowedActions / AllowedConditions handle that separately by
+// walking every held feature in the bitmask.
+//
+// Per-feature Tradeoffs values come from config (see tradeoffsFor)
+// so every penalty / benefit is user-tunable without recompiling.
 func (s Set) Combined() Tradeoffs {
 	out := noEffect()
-	for _, f := range All {
-		if !s.Has(f) {
+	for _, tree := range AllTrees {
+		deepest := s.Deepest(tree)
+		if deepest == FeatNone {
 			continue
 		}
-		t := Specs[f].Tradeoffs
+		t := tradeoffsFor(deepest)
 		out.ChemoEfficiencyMult *= t.ChemoEfficiencyMult
 		out.MoveCostMult *= t.MoveCostMult
 		out.AttackDamageTakenMult *= t.AttackDamageTakenMult

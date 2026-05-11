@@ -52,6 +52,7 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 	}
 
 	sim.updateManager = manager.NewUpdateManager()
+	sim.wallManager = restoreWalls(snap)
 	sim.environmentManager = restoreEnvironment(sim, snap)
 	sim.foodManager = restoreFood(sim, rng, snap)
 	sim.organismManager = restoreOrganisms(sim, rng, snap)
@@ -72,6 +73,7 @@ func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 	s.rng = rng
 	s.cycle = snap.Cycle
 	s.updateManager = manager.NewUpdateManager()
+	s.wallManager = restoreWalls(snap)
 	s.environmentManager = restoreEnvironment(s, snap)
 	s.foodManager = restoreFood(s, rng, snap)
 	s.organismManager = restoreOrganisms(s, rng, snap)
@@ -94,6 +96,16 @@ func rebuildDecisionPaths(s *Simulation) {
 
 func restoreEnvironment(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.EnvironmentManager {
 	return manager.RestoreEnvironmentManager(sim, snap.CurrentPhMap, snap.PreviousPhMap)
+}
+
+func restoreWalls(snap *checkpoint.SnapshotPayload) *manager.WallManager {
+	wm := manager.NewWallManager()
+	walls := make(map[utils.Point]int, len(snap.Walls))
+	for _, w := range snap.Walls {
+		walls[utils.Point{X: int(w.X), Y: int(w.Y)}] = int(w.Strength)
+	}
+	wm.Restore(walls)
+	return wm
 }
 
 func restoreFood(sim *Simulation, rng *simrand.RNG, snap *checkpoint.SnapshotPayload) *manager.FoodManager {
@@ -143,7 +155,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
 		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
 		int(rec.OriginalAncestorID),
-		traits, tree, d.Action(rec.CurrentAction),
+		traits, tree, d.Action(rec.CurrentAction), organism.Status(rec.Status),
 		int(rec.AttackTotal), int(rec.AttackHits),
 		rec.PhPositive, rec.PhNegative, api,
 	)

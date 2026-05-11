@@ -13,6 +13,44 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
+// Status is the resolved outcome of an organism's most recent
+// cycle: the action it ran AND how that action turned out. Values
+// are mutually exclusive (one action per cycle). Set by the apply*
+// handlers at the end of the cycle's resolve phase; consumed by
+// renderers, sensors, and damage code; reset to StatusIdle by
+// UpdateStats at the start of the next cycle.
+//
+// Maps 1:1 to animations via animation.ForStatus — adding a new
+// status means adding a new animation, no extra outcome-flag plumbing.
+//
+// StatusDying is a one-cycle terminal state: markDying flags a
+// freshly-dead organism, the organism sticks around for that single
+// cycle so AnimDie plays (visually morphing into food at its end),
+// and finalizeDeaths removes the organism at the start of the next
+// cycle, replacing it with food.
+type Status int
+
+const (
+	StatusIdle Status = iota
+	StatusChemoSuccess
+	StatusChemoFailed
+	StatusEatSuccess
+	StatusEatFailed
+	StatusMoveSuccess
+	StatusMoveBlocked
+	StatusTurnLeft
+	StatusTurnRight
+	StatusAttacking
+	StatusStinging
+	StatusSpawning
+	StatusDigging
+	StatusBurrowing
+	StatusHunkering
+	StatusFlaring
+	StatusHiding
+	StatusDying // one cycle after lethal damage — AnimDie plays, then finalizeDeaths replaces with food
+)
+
 type Organism struct {
 	ID                   int
 	Age                  int
@@ -47,18 +85,14 @@ type Organism struct {
 
 	decisionTree *d.Tree
 	action       d.Action
-	// ChemoFailed is set each cycle the organism performs
-	// chemosynthesis: true when the pH at its location fell outside
-	// its tolerance range (no health gained), false when it succeeded.
-	// Stale between non-chemo cycles; renderer only consults it when
-	// action == ActChemosynthesis.
-	ChemoFailed bool
-	// EatFailed is set each cycle the organism performs ActEat: true
-	// when the cell ahead held no food (the eat attempt cost health
-	// but produced none), false when food was actually consumed.
-	// Stale between non-eat cycles; renderer only consults it when
-	// action == ActEat.
-	EatFailed bool
+	// Status is the resolved outcome of the most recent apply* pass
+	// — see the Status enum. Set by every action handler, consumed
+	// by renderers (via animation.ForStatus) and by sensor / damage
+	// code that needs to know "what posture is this organism in?"
+	// (Hunker / Flare / Hide). Reset to StatusIdle by UpdateStats
+	// at the start of the next cycle, except for the Dying /
+	// Decaying terminal sequence which finalizeDeaths advances.
+	Status Status
 	// BornThisCycle is set to true in NewChild so the animation layer
 	// can build a birth Frame (2-cell move from the parent's cell into
 	// the child's cell). Cleared by UpdateStats at the start of the
@@ -147,7 +181,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 // Restore creates an organism from fully specified state (for checkpoint restore).
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
-	traits Traits, tree *d.Tree, action d.Action,
+	traits Traits, tree *d.Tree, action d.Action, status Status,
 	attackTotal, attackHits int, phPositive, phNegative float64, api LookupAPI) *Organism {
 	return &Organism{
 		ID:                   id,
@@ -163,6 +197,7 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		traits:               traits,
 		decisionTree:         tree,
 		action:               action,
+		Status:               status,
 		AttackTotal:          attackTotal,
 		AttackHits:           attackHits,
 		PhPositive:           phPositive,
@@ -186,8 +221,7 @@ func (o *Organism) Info() *Info {
 		TraveledDist:  o.TraveledDist,
 		PhPositive:    o.PhPositive,
 		PhNegative:    o.PhNegative,
-		ChemoFailed:   o.ChemoFailed,
-		EatFailed:     o.EatFailed,
+		Status:        o.Status,
 		BornThisCycle: o.BornThisCycle,
 		AttackTotal:   o.AttackTotal,
 		AttackHits:    o.AttackHits,
@@ -207,6 +241,13 @@ func (o *Organism) UpdateStats() {
 	// replayed. Newborns aren't in the organism iteration on their
 	// spawn cycle, so they don't see this until the cycle after.
 	o.BornThisCycle = false
+	// Status is consumed within the cycle that sets it (every
+	// apply* handler stamps the outcome). Reset to Idle here so
+	// it doesn't leak into the next cycle. StatusDying is managed
+	// by finalizeDeaths instead — it doesn't reach UpdateStats
+	// because dying organisms short-circuit at the top of the
+	// resolve loop and are removed at the next cycle's start.
+	o.Status = StatusIdle
 }
 
 // UpdateAction picks the decision tree's action and stores it on
@@ -304,6 +345,12 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isAgeMultipleOfTwo()
 	case d.IsAgeMultipleOfTen:
 		return o.isAgeMultipleOfTen()
+	case d.IsWallAhead:
+		return o.isWallAhead()
+	case d.IsWallLeft:
+		return o.isWallAtPoint(o.Location.Add(o.Direction.Left()))
+	case d.IsWallRight:
+		return o.isWallAtPoint(o.Location.Add(o.Direction.Right()))
 	}
 	return false
 }
@@ -451,22 +498,40 @@ func (o *Organism) isAgeMultipleOfTen() bool {
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		// Use the OTHER organism's perceived size (Size + Tradeoffs.PerceivedSizeAdd)
-		// so features like Spikes can make their bearer look bigger
-		// than they are to a sensing neighbour. The observer's own
-		// size is the raw value — they know themselves accurately.
-		return x != nil && x.Size+x.Tradeoffs().PerceivedSizeAdd > o.Size
+		// Hidden organisms are invisible to sensor conditions for
+		// the cycle they spent on ActHide. Use the OTHER organism's
+		// perceived size (Size + passive Tradeoffs.PerceivedSizeAdd
+		// + active FlarePerceivedSizeAdd when flaring) so Spikes /
+		// Flare can make their bearer look bigger to a sensing
+		// neighbour.
+		return x != nil && x.Status != StatusHiding && x.Size+x.perceivedSizeBonus() > o.Size
 	})
+}
+
+// perceivedSizeBonus returns the passive feature contribution plus
+// the per-cycle Flare bonus when applicable. Pulled out so other
+// "what does this look like to a sensor" checks can reuse the same
+// composition.
+func (o *Organism) perceivedSizeBonus() float64 {
+	bonus := o.Tradeoffs().PerceivedSizeAdd
+	if o.Status == StatusFlaring {
+		bonus += c.FlarePerceivedSizeAdd()
+	}
+	return bonus
 }
 
 func (o *Organism) isOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil
+		// Hidden organisms read as absent to sensor conditions for
+		// the cycle they spent on ActHide. The manager's grid still
+		// holds them — physical contact (blind attacks, blocked
+		// moves) is unaffected.
+		return x != nil && x.Status != StatusHiding
 	})
 }
 
 func (o *Organism) isWallAtPoint(p utils.Point) bool {
-	return p.IsWall()
+	return o.lookupAPI.IsWallAtPoint(p)
 }
 
 func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool {

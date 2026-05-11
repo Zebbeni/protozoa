@@ -71,12 +71,13 @@ type Grid struct {
 	mouseHoverLocation utils.Point
 	mouseOnGrid        bool
 	doRefresh          bool
-	// showPh / showFood / showOrganisms toggle their respective layers
+	// showPh / showFood / showOrganisms / showWalls toggle their respective layers
 	// independently of the organism colour mode. orgColor decides how
 	// organisms are tinted when shown.
 	showPh        bool
 	showFood      bool
 	showOrganisms bool
+	showWalls     bool
 	orgColor      mode
 	selectMode    mode
 	clearImg   *ebiten.Image
@@ -156,6 +157,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 		showPh:        true,
 		showFood:      true,
 		showOrganisms: true,
+		showWalls:     true,
 		orgColor:      orgColorTrue,
 		selectMode:    selectOldest,
 	}
@@ -346,7 +348,9 @@ func (g *Grid) Render() *ebiten.Image {
 		envScale := g.Camera.SpriteScale()
 		drawLayer(g.layers[layerEnv], envScale, envScale, ebiten.FilterNearest)
 	}
-	drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
+	if g.showWalls {
+		drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
+	}
 	if g.showFood {
 		drawLayer(g.layers[layerFood], 1, 1, ebiten.FilterNearest)
 	}
@@ -435,12 +439,26 @@ func (g *Grid) rebuildEnvLayer(envImage *ebiten.Image) {
 
 func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
 	if refresh {
-		wallPoints := g.simulation.GetWalls()
-		for _, wallPoint := range wallPoints {
-			g.renderWall(wallsImage, wallPoint)
+		// Walls are now dynamic — they appear via ActBurrow and
+		// disappear via ActDig. On full refresh, iterate the entire
+		// strength map and render each cell with brightness scaled
+		// to its current strength (low strength → faint, max → full).
+		for point, strength := range g.simulation.GetWalls() {
+			g.renderWallAt(wallsImage, point, strength)
+		}
+		return
+	}
+	// Incremental: only repaint cells dig/burrow flagged this cycle.
+	// Clear first so a strength-7 cell that dropped to strength-2
+	// (or 0) doesn't read as the old value blended underneath.
+	for point := range g.simulation.GetUpdatedWallPoints() {
+		us := g.unitSize()
+		x, y := float64(point.X*us), float64(point.Y*us)
+		g.clearSquare(wallsImage, x, y)
+		if strength := g.simulation.GetWallStrengthAtPoint(point); strength > 0 {
+			g.renderWallAt(wallsImage, point, strength)
 		}
 	}
-	// Walls are static — nothing to do on incremental frames
 }
 
 // renderPhValue updates the 2N×2N pixel region of envImage that depends
@@ -574,25 +592,11 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organ
 	// Synthesise an Info from the frame and feed it through the normal
 	// renderer so the sprite pipeline (role selection, rotation, colour
 	// tint) stays unified between live and dying organisms.
-	if g.animState != nil {
-		for id, frame := range g.animState.Frames {
-			if _, alive := organismInfo[id]; alive {
-				continue
-			}
-			if !frame.Dying {
-				continue
-			}
-			synth := &organism.Info{
-				ID:        id,
-				Location:  frame.FromLocation,
-				Direction: frame.Direction,
-				Size:      frame.Size,
-				Action:    frame.Action,
-				Color:     frame.Color,
-			}
-			g.renderOrganism(synth, organismsImage)
-		}
-	}
+	// With the dying lifecycle, dying organisms stay in
+	// organismInfo with Status = Dying / Decaying for two cycles
+	// before finalizeDeaths removes them, so the renderer no
+	// longer needs a separate pass to synthesize dying frames
+	// for organisms that vanished from the manager.
 }
 
 // populateSelectionLayer redraws the selection-box layer in world
@@ -746,10 +750,10 @@ func (g *Grid) RenderOverlayText(screen *ebiten.Image) {
 	if info := g.simulation.GetOrganismInfoAtPoint(g.mouseHoverLocation); info != nil {
 		infoText += fmt.Sprintf("\nORG: %d", info.ID)
 		infoText += fmt.Sprintf("\nSIZE: %.0f", info.Size)
-	} else {
-		if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
-			infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
-		}
+	} else if strength := g.simulation.GetWallStrengthAtPoint(g.mouseHoverLocation); strength > 0 {
+		infoText += fmt.Sprintf("\nWALL: %d", strength)
+	} else if foodItem, exists := g.simulation.GetFoodAtPoint(g.mouseHoverLocation); exists {
+		infoText += fmt.Sprintf("\nFOOD: %d", foodItem.Value)
 	}
 	infoText += fmt.Sprintf("\nPOINT: %v", g.mouseHoverLocation)
 
@@ -844,11 +848,29 @@ func foodRoleForValue(value int) resources.ImageRole {
 	}
 }
 
-func (g *Grid) renderWall(wallsImage *ebiten.Image, point utils.Point) {
+// wallRoleForStrength maps a wall's current strength to one of the
+// three sprite-tier roles. Buckets mirror what the user authored
+// in the .aseprite source:
+//   1-2 → weak,  3-5 → medium,  6-7 → strong.
+// Strengths outside [1, MaxWallStrength] are clamped — the renderer
+// only ever calls this with strength > 0 (a 0-strength wall isn't
+// kept in the WallManager), but the bounds keep this honest.
+func wallRoleForStrength(strength int) resources.ImageRole {
+	switch {
+	case strength <= 2:
+		return resources.RoleWallWeak
+	case strength <= 5:
+		return resources.RoleWallMedium
+	default:
+		return resources.RoleWallStrong
+	}
+}
+
+func (g *Grid) renderWallAt(wallsImage *ebiten.Image, point utils.Point, strength int) {
 	us := g.unitSize()
 	x := float64(point.X) * float64(us)
 	y := float64(point.Y) * float64(us)
-	sprite := resources.Sprite(resources.RoleBox, animation.AnimIdle, 0)
+	sprite := resources.Sprite(wallRoleForStrength(strength), animation.AnimIdle, 0)
 	g.drawStaticSprite(wallsImage, x, y, sprite, wallColor)
 }
 
@@ -891,7 +913,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	gridX := float64(info.Location.X)
 	gridY := float64(info.Location.Y)
 	direction := info.Direction
-	anim := animation.ForAction(info.Action)
+	anim := animation.ForStatus(info.Status)
 	frameIdx := 0
 
 	if g.animState != nil {

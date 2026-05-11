@@ -329,6 +329,7 @@ const (
 	displayOrganisms displayToggleKind = iota
 	displayPh
 	displayFood
+	displayWalls
 )
 
 var displayToggles = [...]struct {
@@ -338,6 +339,7 @@ var displayToggles = [...]struct {
 	{label: "ORGANISMS", kind: displayOrganisms},
 	{label: "PH", kind: displayPh},
 	{label: "FOOD", kind: displayFood},
+	{label: "WALLS", kind: displayWalls},
 }
 
 var orgColorButtons = [...]struct {
@@ -555,6 +557,8 @@ func (p *Panel) renderDisplay(panelImage *ebiten.Image, yOff int) {
 			active = p.grid.showPh
 		case displayFood:
 			active = p.grid.showFood
+		case displayWalls:
+			active = p.grid.showWalls
 		}
 		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
 		rects = append(rects, displayBtnHitbox{
@@ -575,6 +579,8 @@ func (p *Panel) handleDisplayButtonClick(mx, my int) bool {
 				p.grid.showPh = !p.grid.showPh
 			case displayFood:
 				p.grid.showFood = !p.grid.showFood
+			case displayWalls:
+				p.grid.showWalls = !p.grid.showWalls
 			}
 			p.grid.doRefresh = true
 			return true
@@ -1490,7 +1496,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 	// Live organisms get the action's animation and a frame index
 	// driven by playback. Dead organisms (dim) freeze on frame 0 of
 	// their last action so the portrait reads as a snapshot.
-	anim := animation.ForAction(info.Action)
+	anim := animation.ForStatus(info.Status)
 	frameIdx := 0
 	direction := info.Direction
 	if !dim && p.grid.animState != nil {

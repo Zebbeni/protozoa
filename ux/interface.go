@@ -176,18 +176,24 @@ func (i *Interface) handleKeyboard() {
 		i.syncReplaySpeedToZoom()
 	}
 
-	// Pan via arrow keys (continuous while held)
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		i.grid.Camera.Pan(-panSpeed, 0)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		i.grid.Camera.Pan(panSpeed, 0)
-	}
+	// Vertical pan stays on up/down (continuous while held).
 	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
 		i.grid.Camera.Pan(0, -panSpeed)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
 		i.grid.Camera.Pan(0, panSpeed)
+	}
+
+	// In replay mode, left / right step the timeline (one cycle
+	// per press). Outside replay there's no timeline to step, so
+	// the keys are silently inert rather than re-bound to pan.
+	if i.replayCtrl != nil {
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
+			i.replayCtrl.StepBackward()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
+			i.replayCtrl.StepForward()
+		}
 	}
 }
 

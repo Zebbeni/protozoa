@@ -6,4 +6,5 @@ import "github.com/Zebbeni/protozoa/utils"
 type API interface {
 	Cycle() int
 	AddPhUpdate(p utils.Point)
+	IsWallAtPoint(p utils.Point) bool
 }

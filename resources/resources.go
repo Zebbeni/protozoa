@@ -57,7 +57,11 @@ const (
 	RoleFoodSmall
 	RoleFoodMedium
 	RoleFoodLarge
-	RoleBox // walls
+	// Wall sprites by strength tier — see ux/grid.go's
+	// wallRoleForStrength for the strength → role mapping.
+	RoleWallWeak
+	RoleWallMedium
+	RoleWallStrong
 )
 
 // FrameSet holds one slice of per-frame sprites per Animation kind.
@@ -183,7 +187,14 @@ func initImages() {
 		baseMedium := loadOrGenerateFilled(path+"square_medium.png", size, max(2, size*2/3))
 		baseLarge := loadOrGenerateFilled(path+"square_large.png", size, size)
 
-		box := generateBoxImage(size)
+		// Walls are authored as three strength tiers per resolution;
+		// the grid renderer picks between them based on the wall's
+		// current strength as a fraction of MaxWallStrength. Each
+		// tier falls back to a generated box-outline at the right
+		// pixel size when its PNG hasn't been drawn yet.
+		wallWeak := loadOrGenerateBox(path+"wall_weak.png", size)
+		wallMedium := loadOrGenerateBox(path+"wall_medium.png", size)
+		wallStrong := loadOrGenerateBox(path+"wall_strong.png", size)
 		// Food is authored as three size tiers per resolution; the grid
 		// renderer picks between them based on the food item's value as a
 		// fraction of MaxFoodValue. Circle fallbacks match the organism
@@ -207,10 +218,12 @@ func initImages() {
 		}
 
 		ZoomImages[i] = map[ImageRole]FrameSet{
-			RoleFoodSmall:  staticFrames(foodSmall),
-			RoleFoodMedium: staticFrames(foodMedium),
-			RoleFoodLarge:  staticFrames(foodLarge),
-			RoleBox:        staticFrames(box),
+			RoleFoodSmall:    staticFrames(foodSmall),
+			RoleFoodMedium:   staticFrames(foodMedium),
+			RoleFoodLarge:    staticFrames(foodLarge),
+			RoleWallWeak:     staticFrames(wallWeak),
+			RoleWallMedium:   staticFrames(wallMedium),
+			RoleWallStrong:   staticFrames(wallStrong),
 		}
 		for role, base := range bases {
 			ZoomImages[i][role] = loadOrganismFrames(path, role, base, size, orgFrames)
@@ -240,6 +253,19 @@ func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Imag
 		return loadImage(fullPath)
 	}
 	return generateCircle(totalSize, diameter)
+}
+
+// loadOrGenerateBox is the same pattern for box-outline fallbacks
+// (walls). All three wall strength tiers fall back to the same
+// generated box at the right pixel size when the PNG hasn't been
+// drawn yet; the renderer's strength → tier mapping still picks
+// between them so the distinct sprites can land later without code
+// changes.
+func loadOrGenerateBox(fullPath string, totalSize int) *ebiten.Image {
+	if assetExists(fullPath) {
+		return loadImage(fullPath)
+	}
+	return generateBoxImage(totalSize)
 }
 
 // loadOrganismFrames builds the FrameSet for one organism role at one zoom.

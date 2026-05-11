@@ -138,6 +138,13 @@ func (m *OrganismManager) Update() {
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
 
+	// Drain any organisms that finished their dying cycle in the
+	// previous tick. finalizeDeaths advances Dying → Decaying and
+	// removes Decaying ones (dropping food at their cell). Runs
+	// before sort/UpdateStats so removed organisms don't appear in
+	// this cycle's iteration order.
+	m.finalizeDeaths()
+
 	// Collect IDs in deterministic sorted order
 	ids := make([]int, 0, len(m.organisms))
 	for k := range m.organisms {
@@ -149,6 +156,14 @@ func (m *OrganismManager) updateOrganismActions() {
 	m.requestManager.ClearMaps()
 	for _, id := range ids {
 		o := m.organisms[id]
+		// Dying organisms are frozen — no decisions, no requests,
+		// no stats updates. They sit on the grid for the cycle
+		// transition that runs the death animation; finalizeDeaths
+		// removes them at the start of the next cycle.
+		if o.Status == organism.StatusDying {
+			m.organismIds = append(m.organismIds, o.ID)
+			continue
+		}
 		if o.Action() == d.ActAttack {
 			m.addUpdatedPoint(o.Location)
 		}
@@ -217,8 +232,27 @@ func (m *OrganismManager) resolveOrganismActions() {
 		}
 
 		t0 := time.Now()
+		// Dying organisms skip the resolve loop entirely —
+		// finalizeDeaths drives their removal at the start of the
+		// next cycle, not the per-organism applyCycleHealthChanges
+		// / applyAction path. Without this guard, applyCycleHealthChanges
+		// would push their health further negative and the post-action
+		// markDyingIfDead call would no-op on an already-dying organism.
+		if o.Status == organism.StatusDying {
+			continue
+		}
 		m.applyCycleHealthChanges(o)
 		t1 := time.Now()
+		// If health-change just killed the organism, skip its
+		// action this cycle. markDyingIfDead returns true when it
+		// flagged the organism dying; we leave the apply loop here
+		// rather than running a stale action.
+		if m.markDyingIfDead(o) {
+			t2 := time.Now()
+			accHealth += t1.Sub(t0)
+			accDead += t2.Sub(t1)
+			continue
+		}
 		if o.Action() == d.ActSpawn {
 			m.applySpawn(o)
 			t2 := time.Now()
@@ -229,7 +263,9 @@ func (m *OrganismManager) resolveOrganismActions() {
 			m.applyAction(o)
 		}
 		t2 := time.Now()
-		m.removeIfDead(o)
+		// Post-action death check: an action like Attack with
+		// extreme cost could drop the organism below the threshold.
+		m.markDyingIfDead(o)
 		m.updateInterestingStats(o)
 		t3 := time.Now()
 
@@ -596,7 +632,7 @@ func initializeGrid() [][]int {
 }
 
 func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
-	return !point.IsWall() && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+	return !m.api.IsWallAtPoint(point) && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
 }
 
 func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
@@ -898,13 +934,16 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 		m.applyIdle(o)
 	case d.ActSting:
 		m.applySting(o)
-	case d.ActDig, d.ActBurrow, d.ActHunker, d.ActFlare, d.ActHide:
-		// Physiology-gated actions whose semantics arrive in later
-		// Slice 6c sub-pieces. Until then they pay the idle cost —
-		// the gating Tradeoffs (chemo penalty for carrying the
-		// feature) already apply, so there's no free lunch from
-		// picking an unimplemented action.
-		m.applyIdle(o)
+	case d.ActDig:
+		m.applyDig(o)
+	case d.ActBurrow:
+		m.applyBurrow(o)
+	case d.ActHunker:
+		m.applyHunker(o)
+	case d.ActFlare:
+		m.applyFlare(o)
+	case d.ActHide:
+		m.applyHide(o)
 	}
 }
 
@@ -918,10 +957,16 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 		phEffect = (phDist - tolerance) * c.HealthChangePerUnhealthyPh()
 	}
 	// Add effects due to attack (not related to organism size).
-	// AttackDamageTakenMult is the defender's tradeoff: shells reduce
-	// incoming damage, etc. healthEffects is already negative for
-	// damage, so multiplying scales magnitude proportionally.
-	healthEffects := m.requestManager.GetHealthEffects(o.Location) * o.Tradeoffs().AttackDamageTakenMult
+	// AttackDamageTakenMult is the defender's passive tradeoff:
+	// shells reduce incoming damage, etc. HunkerDamageTakenMult is
+	// the per-cycle active modifier — multiplied on top when the
+	// defender chose ActHunker this cycle. healthEffects is already
+	// negative for damage, so multiplying scales magnitude.
+	damageMult := o.Tradeoffs().AttackDamageTakenMult
+	if o.Status == organism.StatusHunkering {
+		damageMult *= c.HunkerDamageTakenMult()
+	}
+	healthEffects := m.requestManager.GetHealthEffects(o.Location) * damageMult
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
 
 	// Lifespan enforcement: when MaxLifespan > 0 every organism dies
@@ -938,6 +983,7 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 // applied separately by applyCycleHealthChanges.
 func (m *OrganismManager) applyIdle(o *organism.Organism) {
 	m.applyHealthChange(o, c.HealthChangeFromIdle()*o.Size)
+	o.Status = organism.StatusIdle
 }
 
 // add a positive health change if organism attempts chemosynthesis in a
@@ -956,7 +1002,7 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 		// non-base features carry a small chemo penalty so adopting
 		// new physiology costs the lineage some self-feeding rate.
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size*o.Tradeoffs().ChemoEfficiencyMult)
-		o.ChemoFailed = false
+		o.Status = organism.StatusChemoSuccess
 		// Successful chemo pushes local pH down, scaled by organism
 		// size — bigger organisms acidify faster. Accumulate the
 		// magnitude on the organism for the per-organism tinting.
@@ -965,7 +1011,7 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 		o.PhNegative += delta
 	} else {
 		m.applyHealthChange(o, c.HealthChangeFromFailedChemosynthesis()*o.Size)
-		o.ChemoFailed = true
+		o.Status = organism.StatusChemoFailed
 	}
 }
 
@@ -980,33 +1026,146 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 func (m *OrganismManager) applyAttack(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
 	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size)
+	o.Status = organism.StatusAttacking
 }
 
 func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
-	// AttackDamageDealtMult is the attacker's tradeoff: Fangs deals
-	// more damage, the defender's AttackDamageTakenMult is applied
-	// separately on the receive side in applyCycleHealthChanges.
-	return c.HealthChangeInflictedByAttack() * o.Size * o.Tradeoffs().AttackDamageDealtMult
+	// AttackDamageDealtMult is the attacker's passive tradeoff
+	// (Fangs etc.). FlareDamageDealtMult is the per-cycle active
+	// modifier — multiplied on top when the attacker chose ActFlare
+	// this cycle. Defender's AttackDamageTakenMult and any active
+	// HunkerDamageTakenMult are applied on the receive side in
+	// applyCycleHealthChanges.
+	mult := o.Tradeoffs().AttackDamageDealtMult
+	if o.Status == organism.StatusFlaring {
+		mult *= c.FlareDamageDealtMult()
+	}
+	return c.HealthChangeInflictedByAttack() * o.Size * mult
 }
 
 // calculateStingEffect returns the per-cell damage that a sting
-// inflicts on each of its 4 adjacent targets. Same attacker-side
-// AttackDamageDealtMult applies; the defender-side mult applies on
-// the receive side. StingDamagePercent < 1.0 keeps each individual
-// cell strictly weaker than an attack — the niche is in volume.
+// inflicts on each of its 4 adjacent targets. Uses its own absolute
+// damage value (HealthChangeInflictedBySting) — typically smaller
+// than a single attack so the niche is in volume, not per-target
+// punch. Same attacker-side AttackDamageDealtMult applies; the
+// defender-side mult applies on the receive side. Flare boosts
+// sting damage symmetrically with single-target attack.
 func (m *OrganismManager) calculateStingEffect(o *organism.Organism) float64 {
-	return c.HealthChangeInflictedByAttack() * o.Size * c.StingDamagePercent() * o.Tradeoffs().AttackDamageDealtMult
+	mult := o.Tradeoffs().AttackDamageDealtMult
+	if o.Status == organism.StatusFlaring {
+		mult *= c.FlareDamageDealtMult()
+	}
+	return c.HealthChangeInflictedBySting() * o.Size * mult
+}
+
+// sizeStrengthDelta returns the amount of wall strength a digger or
+// burrower of the given Size adds or removes per action, looked up
+// from the WallStrengthDelta* config knobs. Bracket cutoffs match
+// the renderer's thirds-of-MaximumMaxSize bins so the size class an
+// organism reads as visually maps 1:1 to the strength delta it does.
+func sizeStrengthDelta(size float64) int {
+	maxSize := c.MaximumMaxSize()
+	switch {
+	case size < maxSize*(1.0/3.0):
+		return c.WallStrengthDeltaSmall()
+	case size < maxSize*(2.0/3.0):
+		return c.WallStrengthDeltaMedium()
+	default:
+		return c.WallStrengthDeltaLarge()
+	}
+}
+
+// applyDig resolves ActDig: pays the attack-equivalent cost, then
+// removes either the wall or the food in front of the organism.
+// Wall: strength -= size delta (clamped at 0; the WallManager removes
+// the entry when it hits 0). Food: deleted outright — the digger
+// doesn't eat, just clears terrain. Empty cell in front: cost paid,
+// no effect.
+func (m *OrganismManager) applyDig(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromDigging()*o.Size)
+	o.Status = organism.StatusDigging
+
+	target := o.Location.Add(o.Direction)
+	delta := sizeStrengthDelta(o.Size)
+	if m.api.IsWallAtPoint(target) {
+		m.api.AddWallStrength(target, -delta)
+		m.api.AddWallUpdate(target)
+		return
+	}
+	// Fallback: if no wall, dig will scoop out food at that cell.
+	if item, ok := m.api.GetFoodAtPoint(target); ok && item != nil {
+		m.api.RemoveFoodAtPoint(target, item.Value)
+	}
+}
+
+// applyBurrow resolves ActBurrow: pays the attack-equivalent cost,
+// then independently tries to add wall strength to the cells on the
+// organism's left and right (relative to its facing). Each side:
+//   - organism present  → skip (no wall placed, no food destroyed)
+//   - food present      → food deleted, wall placed
+//   - wall present      → strength += delta (clamped at MaxWallStrength)
+//   - empty cell        → new wall created at delta strength
+func (m *OrganismManager) applyBurrow(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromBurrowing()*o.Size)
+	o.Status = organism.StatusBurrowing
+
+	delta := sizeStrengthDelta(o.Size)
+	for _, side := range []utils.Point{
+		o.Location.Add(o.Direction.Left()),
+		o.Location.Add(o.Direction.Right()),
+	} {
+		if m.isOrganismAtLocation(side) {
+			continue
+		}
+		if item, ok := m.api.GetFoodAtPoint(side); ok && item != nil {
+			m.api.RemoveFoodAtPoint(side, item.Value)
+		}
+		m.api.AddWallStrength(side, delta)
+		m.api.AddWallUpdate(side)
+	}
 }
 
 // applySting pays the size-scaled health cost of stinging — damage
 // to neighbours is delivered through the request manager (added in
 // updateRequestMap during decide) and applied on the defender's
-// applyCycleHealthChanges pass. StingCostPercent < 1.0 makes a
-// single sting strictly cheaper than an attack, balancing the
-// across-the-board reduction in per-target damage.
+// applyCycleHealthChanges pass.
 func (m *OrganismManager) applySting(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
-	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size*c.StingCostPercent())
+	m.applyHealthChange(o, c.HealthChangeFromStinging()*o.Size)
+	o.Status = organism.StatusStinging
+}
+
+// applyHunker raises the organism's defensive posture for this
+// cycle: pays the cost and sets Status = StatusHunkering, which
+// applyCycleHealthChanges consults to scale incoming damage by an
+// additional HunkerDamageTakenMult.
+func (m *OrganismManager) applyHunker(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromHunkering()*o.Size)
+	o.Status = organism.StatusHunkering
+}
+
+// applyFlare extends spikes for this cycle: pays the cost and sets
+// Status = StatusFlaring, which calculateAttackEffect consults to
+// boost outgoing damage and isBiggerOrganismAtPoint consults to add
+// to the organism's perceived size.
+func (m *OrganismManager) applyFlare(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromFlaring()*o.Size)
+	o.Status = organism.StatusFlaring
+}
+
+// applyHide goes invisible for this cycle: pays the cost and sets
+// Status = StatusHiding. Other organisms' sensor-conditioned
+// CheckOrganismAtPoint lookups treat the hidden cell as empty, but
+// the manager's grid integrity is unaffected — a blind attack still
+// lands.
+func (m *OrganismManager) applyHide(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	m.applyHealthChange(o, c.HealthChangeFromHiding()*o.Size)
+	o.Status = organism.StatusHiding
 }
 
 // deathHealthEpsilon is the smallest Health value that still counts as
@@ -1018,28 +1177,68 @@ func (m *OrganismManager) applySting(o *organism.Organism) {
 // cycles.
 const deathHealthEpsilon = 0.005
 
-func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
+// markDyingIfDead transitions an organism into the dying state when
+// its health drops below the alive threshold. The organism stays on
+// the grid for one more cycle (rendered as AnimDie via Status); the
+// descendant tree node is marked dead immediately so lineage stats
+// reflect death-time accurately rather than one-cycle-later. Food
+// drop and grid removal are deferred to finalizeDeaths.
+//
+// Returns true when the organism is in (or just entered) the dying
+// state — i.e. "do not run further apply logic for it". Returns
+// false when the organism is healthy.
+func (m *OrganismManager) markDyingIfDead(o *organism.Organism) bool {
+	if o.Status == organism.StatusDying {
+		return true
+	}
 	if o.Health > deathHealthEpsilon {
 		return false
 	}
-
 	if o.TreeNode != nil {
 		o.TreeNode.MarkDead(m.api.Cycle())
 	}
+	o.Status = organism.StatusDying
+	m.addUpdatedPoint(o.Location)
+	return true
+}
 
+// finalizeDeaths removes the dying organisms at the start of every
+// cycle: capture their (location, size) for the food drop, then
+// clear the grid cell, delete from the organism map, and add food.
+// Runs before sort/UpdateStats so removed organisms don't appear in
+// the cycle's iteration order. The death animation has already
+// played during the prior cycle transition, and the death sprite is
+// designed to morph cleanly into the food sprite.
+func (m *OrganismManager) finalizeDeaths() {
+	type drop struct {
+		id   int
+		loc  utils.Point
+		size int
+	}
+	var drops []drop
+	for _, o := range m.organisms {
+		if o.Status != organism.StatusDying {
+			continue
+		}
+		drops = append(drops, drop{id: o.ID, loc: o.Location, size: int(o.Size)})
+	}
+	if len(drops) == 0 {
+		return
+	}
 	m.gridMutex.Lock()
 	m.organismMutex.Lock()
-
-	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
-	delete(m.organisms, o.ID)
-
+	for _, dr := range drops {
+		m.organismIDGrid[dr.loc.X][dr.loc.Y] = -1
+		delete(m.organisms, dr.id)
+	}
 	m.gridMutex.Unlock()
 	m.organismMutex.Unlock()
-
-	m.api.AddFoodAtPoint(o.Location, int(o.Size))
-	m.addUpdatedPoint(o.Location)
-
-	return true
+	// AddFoodAtPoint takes the food-manager lock; do it outside
+	// the grid/organism critical section.
+	for _, dr := range drops {
+		m.api.AddFoodAtPoint(dr.loc, dr.size)
+		m.addUpdatedPoint(dr.loc)
+	}
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {
@@ -1047,6 +1246,7 @@ func (m *OrganismManager) applySpawn(o *organism.Organism) {
 		m.applyHealthChange(o, o.HealthCostToReproduce())
 		o.Children++
 	}
+	o.Status = organism.StatusSpawning
 	// SpawnChildOrganism can still fail here despite the decide-phase
 	// "has empty neighbour" check (e.g. a higher-ID organism with the
 	// same target won the position-request priority), but the
@@ -1064,16 +1264,18 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	// than exists at a given point, but this seems preferable right now to denying
 	// the eat request altogether or coming up with some perfect way to divvy it up.
 	amountToEat := m.calculateValueToEat(o, target)
-	o.EatFailed = amountToEat <= 0
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
 	m.applyHealthChange(o, amountToEat)
 	if amountToEat > 0 {
+		o.Status = organism.StatusEatSuccess
 		// Successful eating pushes local pH up, scaled by amount eaten.
 		// Accumulate the magnitude on the organism for the per-organism
 		// tinting.
 		delta := c.EatingPhEffectPerFood() * amountToEat
 		m.api.AddPhChangeAtPoint(target, delta)
 		o.PhPositive += delta
+	} else {
+		o.Status = organism.StatusEatFailed
 	}
 }
 
@@ -1092,6 +1294,7 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isMatchingPositionRequest(targetPoint, o.ID) == false {
+		o.Status = organism.StatusMoveBlocked
 		return
 	}
 
@@ -1106,18 +1309,21 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 	m.gridMutex.Unlock()
 
 	o.Location = targetPoint
+	o.Status = organism.StatusMoveSuccess
 }
 
 func (m *OrganismManager) applyRightTurn(o *organism.Organism) {
 	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size)
 
 	o.Direction = o.Direction.Right()
+	o.Status = organism.StatusTurnRight
 }
 
 func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
 	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size)
 
 	o.Direction = o.Direction.Left()
+	o.Status = organism.StatusTurnLeft
 }
 
 // GetAllOrganismInfo returns a map of all organisms' Info
