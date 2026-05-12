@@ -2,6 +2,7 @@ package organism
 
 import (
 	"github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/utils"
 	"github.com/lucasb-eyer/go-colorful"
 )
@@ -41,4 +42,8 @@ type Info struct {
 	// a birth Frame (2-cell move from the parent's cell into the
 	// child's cell) without needing to carry the parent's location.
 	BornThisCycle bool
+	// Features is the organism's evolved physiology bitmask. The
+	// high-res sprite renderer reads this to pick the body variant
+	// (defense tree) and feature overlays (other trees) to composite.
+	Features physiology.Set
 }

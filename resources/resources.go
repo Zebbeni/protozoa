@@ -13,6 +13,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/physiology"
 )
 
 // animationFileName is the filename stem used for per-action spritesheet PNGs
@@ -71,6 +72,151 @@ const (
 // walls) only populate AnimIdle and only ever need one frame.
 type FrameSet map[animation.Animation][]*ebiten.Image
 
+// Layer identifies one drawable spritesheet layer for an organism role,
+// matching the Aseprite layer names that the export lua script writes
+// PNG files for. Low-res organism sprites (4x4 / 8x8) only populate
+// LayerBody; high-res organism sprites (16x16+) populate a single body
+// variant (picked from the defense tree) and additional overlay layers
+// (one per non-defense feature tree's deepest-held feature).
+//
+// Food and wall roles also store their (single) sprite under LayerBody
+// so every (role, layer) lookup goes through the same code path.
+type Layer int
+
+const (
+	// LayerBody is the single-layer slot used by low-res organism
+	// sprites, food, and walls. High-res organism sprites do not
+	// populate LayerBody; they use the body-variant + overlay layers
+	// below.
+	LayerBody Layer = iota
+
+	// Body variants — mutually exclusive. One is always drawn first
+	// when rendering a high-res organism; the choice is driven by
+	// the defense tree (Shell/Spikes/Camouflage), with FeatNone in
+	// that tree mapping to LayerBodyBasic.
+	LayerBodyBasic
+	LayerBodyShell
+	LayerBodySpikes
+	LayerBodyCamouflage
+
+	// Feature overlays — additive. Drawn on top of the body in the
+	// canonical order below; a high-res organism draws the overlay
+	// corresponding to the deepest-held feature in each non-defense
+	// tree (Flagellae, Sensors, Teeth).
+	LayerFlagellae
+	LayerCilia
+	LayerStinger
+	LayerAntennae
+	LayerFeelers
+	LayerTasters
+	LayerTeeth
+	LayerFangs
+	LayerTusks
+)
+
+// layerFilenamePrefix maps each Layer to the filename prefix the lua
+// export script writes for it, e.g. body_basic_small_attack.png →
+// {LayerBodyBasic, RoleOrganismSmall, AnimAttack}. LayerBody has no
+// prefix because the low-res "only one applicable layer" naming rule
+// in the export script drops the layer prefix entirely (e.g.
+// small_attack.png).
+var layerFilenamePrefix = map[Layer]string{
+	LayerBody:           "",
+	LayerBodyBasic:      "body_basic",
+	LayerBodyShell:      "body_shell",
+	LayerBodySpikes:     "body_spikes",
+	LayerBodyCamouflage: "body_camouflage",
+	LayerFlagellae:      "flagellae",
+	LayerCilia:          "cilia",
+	LayerStinger:        "stinger",
+	LayerAntennae:       "antennae",
+	LayerFeelers:        "feelers",
+	LayerTasters:        "tasters",
+	LayerTeeth:          "teeth",
+	LayerFangs:          "fangs",
+	LayerTusks:          "tusks",
+}
+
+// featureOverlayLayer maps each non-defense feature to its overlay
+// Layer. Defense features map to body variants instead — see
+// bodyVariantLayer. Only the deepest-held feature in each non-defense
+// tree contributes an overlay (mirroring physiology.Combined's per-tree
+// "one ancestor, not stacked" semantics), so deeper features in the
+// same tree replace shallower ones rather than stacking on top.
+var featureOverlayLayer = map[physiology.Feature]Layer{
+	physiology.FeatFlagellae: LayerFlagellae,
+	physiology.FeatCilia:     LayerCilia,
+	physiology.FeatStinger:   LayerStinger,
+	physiology.FeatAntennae:  LayerAntennae,
+	physiology.FeatFeelers:   LayerFeelers,
+	physiology.FeatTasters:   LayerTasters,
+	physiology.FeatTeeth:     LayerTeeth,
+	physiology.FeatFangs:     LayerFangs,
+	physiology.FeatTusks:     LayerTusks,
+}
+
+// bodyVariantLayer returns the body-variant Layer for an organism with
+// the given physiology — driven by the defense tree's deepest-held
+// feature (Shell/Spikes/Camouflage), falling back to LayerBodyBasic
+// when the organism hasn't evolved into the defense tree.
+func bodyVariantLayer(features physiology.Set) Layer {
+	switch features.Deepest(physiology.TreeDefense) {
+	case physiology.FeatShell:
+		return LayerBodyShell
+	case physiology.FeatSpikes:
+		return LayerBodySpikes
+	case physiology.FeatCamouflage:
+		return LayerBodyCamouflage
+	default:
+		return LayerBodyBasic
+	}
+}
+
+// appendOverlay appends the overlay layer for the deepest-held feature
+// in tree to out, or leaves out unchanged if the organism hasn't entered
+// the tree (no overlay) or the deepest feature has no mapping (e.g.
+// defense features, which drive bodyVariantLayer instead).
+func appendOverlay(out []Layer, features physiology.Set, tree physiology.Tree) []Layer {
+	deepest := features.Deepest(tree)
+	if deepest == physiology.FeatNone {
+		return out
+	}
+	if layer, ok := featureOverlayLayer[deepest]; ok {
+		out = append(out, layer)
+	}
+	return out
+}
+
+// OrganismLayersFor returns the ordered list of layers a high-res
+// renderer should draw for an organism with the given physiology, from
+// bottom to top:
+//  1. Flagellae overlay  (Flagellae / Cilia / Stinger)
+//  2. Teeth overlay      (Teeth / Fangs / Tusks)
+//  3. Body variant       (basic / Shell / Spikes / Camouflage)
+//  4. Sensors overlay    (Antennae / Feelers / Tasters)
+//
+// Locomotion sits underneath so the body covers wherever the limbs meet
+// the silhouette; teeth sit under the body so they read as protruding
+// from the mouth rather than floating in front of it; sensors sit on
+// top because antennae and feelers are intended to be visible above
+// every body / armour variant.
+func OrganismLayersFor(features physiology.Set) []Layer {
+	out := make([]Layer, 0, 4)
+	out = appendOverlay(out, features, physiology.TreeFlagellae)
+	out = appendOverlay(out, features, physiology.TreeTeeth)
+	out = append(out, bodyVariantLayer(features))
+	out = appendOverlay(out, features, physiology.TreeSensors)
+	return out
+}
+
+// LayeredFrames holds per-layer FrameSets for one role. Low-res roles
+// (organisms at 4x4 / 8x8, plus food and walls at every resolution)
+// only populate LayerBody. High-res organism roles populate every
+// body variant + overlay Layer for which a PNG exists on disk; layers
+// without a PNG are simply absent from the map (the renderer skips
+// them via SpriteLayer's nil return).
+type LayeredFrames map[Layer]FrameSet
+
 var (
 	FontInversionz40    font.Face
 	FontSourceCodePro12 font.Face
@@ -81,12 +227,12 @@ var (
 	PauseButton *ebiten.Image
 
 	// Images is the active sprite set (set by SelectZoom), keyed by role.
-	Images map[ImageRole]FrameSet
+	Images map[ImageRole]LayeredFrames
 )
 
-// ZoomImages holds sprite sets for the 3 native sprite sizes
-// (0=4x4, 1=8x8, 2=16x16).
-var ZoomImages [3]map[ImageRole]FrameSet
+// ZoomImages holds sprite sets for the 4 native sprite sizes
+// (0=4x4, 1=8x8, 2=16x16, 3=32x32).
+var ZoomImages [4]map[ImageRole]LayeredFrames
 
 // currentZoom tracks which ZoomImages entry is active. Persisted across
 // calls to initImages so reloads (e.g. theme toggling) keep pointing at
@@ -117,11 +263,15 @@ func ReloadImages() {
 	initImages()
 }
 
-// Sprite returns the sprite image for a given role/animation/frame,
-// defaulting to AnimIdle when the requested animation has no frames and
-// cycling within the available frames when frame >= len.
+// Sprite returns the default sprite image for a given role/animation/
+// frame — the LayerBody entry at low-res, falling back to LayerBodyBasic
+// at high-res (where physiology-driven layer compositing normally drives
+// rendering). Defaults to AnimIdle when the requested animation has no
+// frames and cycles within the available frames when frame >= len. Used
+// by call sites that don't carry a physiology bitmask (animation test
+// screen, food / wall draws via static frames, fallback callers).
 func Sprite(role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
-	return spriteFromSet(Images, role, anim, frame)
+	return spriteFromSet(Images, role, defaultLayer(Images, role), anim, frame)
 }
 
 // SpriteAtZoom is like Sprite but reads from a specific sprite-set
@@ -132,11 +282,49 @@ func SpriteAtZoom(level int, role ImageRole, anim animation.Animation, frame int
 	if level < 0 || level >= len(ZoomImages) {
 		return nil
 	}
-	return spriteFromSet(ZoomImages[level], role, anim, frame)
+	images := ZoomImages[level]
+	return spriteFromSet(images, role, defaultLayer(images, role), anim, frame)
 }
 
-func spriteFromSet(images map[ImageRole]FrameSet, role ImageRole, anim animation.Animation, frame int) *ebiten.Image {
-	set, ok := images[role]
+// SpriteLayer returns the sprite image for a specific role/layer/anim/
+// frame in the active zoom set, or nil if no PNG was loaded for that
+// layer (which is the normal case for layers an organism's physiology
+// doesn't unlock). Used by the high-res organism renderer to stamp one
+// layer at a time per-organism based on its physiology.
+func SpriteLayer(role ImageRole, layer Layer, anim animation.Animation, frame int) *ebiten.Image {
+	return spriteFromSet(Images, role, layer, anim, frame)
+}
+
+// SpriteLayerAtZoom is like SpriteLayer but reads from a specific
+// sprite-set level regardless of which zoom is currently active. Used
+// by the panel's selected-organism portrait, which always renders from
+// the 16x16 set.
+func SpriteLayerAtZoom(level int, role ImageRole, layer Layer, anim animation.Animation, frame int) *ebiten.Image {
+	if level < 0 || level >= len(ZoomImages) {
+		return nil
+	}
+	return spriteFromSet(ZoomImages[level], role, layer, anim, frame)
+}
+
+// defaultLayer picks the layer Sprite() should read from for the given
+// role: LayerBody when populated (low-res organism, food, wall), else
+// LayerBodyBasic (high-res organism fallback when no physiology is
+// available at the call site).
+func defaultLayer(images map[ImageRole]LayeredFrames, role ImageRole) Layer {
+	if layers, ok := images[role]; ok {
+		if _, has := layers[LayerBody]; has {
+			return LayerBody
+		}
+	}
+	return LayerBodyBasic
+}
+
+func spriteFromSet(images map[ImageRole]LayeredFrames, role ImageRole, layer Layer, anim animation.Animation, frame int) *ebiten.Image {
+	layers, ok := images[role]
+	if !ok {
+		return nil
+	}
+	set, ok := layers[layer]
 	if !ok {
 		return nil
 	}
@@ -163,8 +351,8 @@ func initImages() {
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	dirs := [3]string{"4x4", "8x8", "16x16"}
-	sizes := [3]int{4, 8, 16}
+	dirs := [4]string{"4x4", "8x8", "16x16", "32x32"}
+	sizes := [4]int{4, 8, 16, 32}
 
 	// Light vs dark theme uses separate sprite directories so artists
 	// can keep two parallel sets — same Lua export script, different
@@ -217,16 +405,22 @@ func initImages() {
 			RoleOrganismLarge:  baseLarge,
 		}
 
-		ZoomImages[i] = map[ImageRole]FrameSet{
-			RoleFoodSmall:    staticFrames(foodSmall),
-			RoleFoodMedium:   staticFrames(foodMedium),
-			RoleFoodLarge:    staticFrames(foodLarge),
-			RoleWallWeak:     staticFrames(wallWeak),
-			RoleWallMedium:   staticFrames(wallMedium),
-			RoleWallStrong:   staticFrames(wallStrong),
+		ZoomImages[i] = map[ImageRole]LayeredFrames{
+			RoleFoodSmall:  {LayerBody: staticFrames(foodSmall)},
+			RoleFoodMedium: {LayerBody: staticFrames(foodMedium)},
+			RoleFoodLarge:  {LayerBody: staticFrames(foodLarge)},
+			RoleWallWeak:   {LayerBody: staticFrames(wallWeak)},
+			RoleWallMedium: {LayerBody: staticFrames(wallMedium)},
+			RoleWallStrong: {LayerBody: staticFrames(wallStrong)},
 		}
+		// Low-res (4x4 / 8x8) authors a single unvaried `body` layer per
+		// organism role; high-res (16x16+) authors mutually-exclusive
+		// body variants and additive feature overlays. The cutoff is
+		// 16 because that's where Aseprite art has enough pixels for
+		// the silhouette differences to read.
+		highRes := size >= 16
 		for role, base := range bases {
-			ZoomImages[i][role] = loadOrganismFrames(path, role, base, size, orgFrames)
+			ZoomImages[i][role] = loadOrganismLayers(path, role, base, size, orgFrames, highRes)
 		}
 	}
 
@@ -268,41 +462,90 @@ func loadOrGenerateBox(fullPath string, totalSize int) *ebiten.Image {
 	return generateBoxImage(totalSize)
 }
 
-// loadOrganismFrames builds the FrameSet for one organism role at one zoom.
-// For each Animation it tries to load a per-action spritesheet at
-// "<path>/<role>_<action>.png" (e.g. "small_move.png"). If present it's
-// sliced into orgFrames frames; each frame's width is derived from the
-// sheet (total width / orgFrames) so multi-cell sheets (e.g. 128x16 move
-// sheets depicting a 2-cell journey) work without per-action configuration.
-//
-// A sheet authored too narrow for the expected frame count (typically a
-// static single-frame asset placed where a multi-frame sheet was
-// expected) gets repeated rather than sliced — splitting an 8x8 sheet
-// into "two 4x8 frames" used to render the sprite at half-width and
-// look like a cropped enlargement.
-//
-// If no sheet file exists at all, falls back to repeating the base
-// role sprite.
-func loadOrganismFrames(path string, role ImageRole, base *ebiten.Image, frameSize, orgFrames int) FrameSet {
-	set := make(FrameSet, len(animation.AllAnimations))
+// loadOrganismLayers builds the LayeredFrames for one organism role at
+// one zoom. At low-res (highRes == false) the artist authors a single
+// `body` layer per role + action and the export script writes filenames
+// without a layer prefix (e.g. small_move.png) — that single sheet is
+// loaded into LayerBody. At high-res the artist authors one PNG per
+// (layer, role, action) triple (e.g. body_basic_small_move.png,
+// flagellae_small_move.png) and each Layer with a PNG on disk gets its
+// own FrameSet; layers without PNGs are simply omitted so the renderer
+// only stamps art the artist drew. The base role sprite (or its
+// generated fallback) backstops the body slot when no per-action sheet
+// is present, so missing art degrades to a flat shape rather than to
+// nothing.
+func loadOrganismLayers(path string, role ImageRole, base *ebiten.Image, frameSize, orgFrames int, highRes bool) LayeredFrames {
+	out := make(LayeredFrames)
+	if !highRes {
+		out[LayerBody] = loadAnimSheets(path, "", role, base, frameSize, orgFrames)
+		return out
+	}
+	// High-res: try every Layer except LayerBody (which is the low-res
+	// single-layer slot and isn't authored at this resolution). Layers
+	// with no PNGs at all are skipped; LayerBodyBasic in particular is
+	// also backstopped with the base sprite so missing default-body
+	// art still draws something rather than nothing.
+	for layer, prefix := range layerFilenamePrefix {
+		if layer == LayerBody {
+			continue
+		}
+		var layerBase *ebiten.Image
+		if layer == LayerBodyBasic {
+			layerBase = base
+		}
+		set := loadAnimSheets(path, prefix, role, layerBase, frameSize, orgFrames)
+		if set != nil {
+			out[layer] = set
+		}
+	}
+	return out
+}
+
+// loadAnimSheets builds a FrameSet for one (layer-prefix, role) pair.
+// Filenames are "<prefix>_<role>_<action>.png" when prefix is non-empty,
+// or "<role>_<action>.png" when prefix is "" (the low-res single-layer
+// naming rule). Sheets narrower than orgFrames cells are treated as
+// static and repeated. When fallback is non-nil, animations whose sheet
+// is missing fall back to repeating it (used so the default body layer
+// still renders when the artist hasn't drawn a per-action sheet yet).
+// When fallback is nil, missing-sheet animations are simply absent from
+// the returned FrameSet — and if no animation has a sheet at all, the
+// function returns nil so the caller can omit the layer entirely.
+func loadAnimSheets(path, prefix string, role ImageRole, fallback *ebiten.Image, frameSize, orgFrames int) FrameSet {
 	roleName := organismRoleName[role]
+	if roleName == "" {
+		return nil
+	}
+	set := make(FrameSet, len(animation.AllAnimations))
+	loaded := false
 	for _, anim := range animation.AllAnimations {
 		animName := animationFileName[anim]
-		sheetPath := path + roleName + "_" + animName + ".png"
-		if roleName == "" || animName == "" || !assetExists(sheetPath) {
-			set[anim] = repeatSprite(base, orgFrames)
+		if animName == "" {
+			continue
+		}
+		var sheetPath string
+		if prefix == "" {
+			sheetPath = path + roleName + "_" + animName + ".png"
+		} else {
+			sheetPath = path + prefix + "_" + roleName + "_" + animName + ".png"
+		}
+		if !assetExists(sheetPath) {
+			if fallback != nil {
+				set[anim] = repeatSprite(fallback, orgFrames)
+				loaded = true
+			}
 			continue
 		}
 		sheet := loadImage(sheetPath)
 		if sheet.Bounds().Dx() < orgFrames*frameSize {
-			// Sheet is narrower than orgFrames × cell width — author
-			// intended a single static frame. Repeat it so each frame
-			// slot points at the full image instead of slicing into
-			// invalid sub-frames.
 			set[anim] = repeatSprite(sheet, orgFrames)
-			continue
+		} else {
+			set[anim] = sliceSheet(sheet, orgFrames)
 		}
-		set[anim] = sliceSheet(sheet, orgFrames)
+		loaded = true
+	}
+	if !loaded {
+		return nil
 	}
 	return set
 }

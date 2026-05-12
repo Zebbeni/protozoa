@@ -1508,8 +1508,6 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 		frameIdx = p.grid.animState.SpriteFrameIndex(4)
 	}
 
-	sprite := r.SpriteAtZoom(2, role, anim, frameIdx)
-
 	// Centre the base cell at the portrait centre. Multi-cell xl
 	// sprites extend up from the base in their authored orientation;
 	// drawAnimatedSprite rotates around the base anchor, so the
@@ -1519,7 +1517,24 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 	const scale = float64(portraitScale)
 	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
 	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
-	drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
+	// Portrait is always the 16x16 (high-res) set, so iterate the
+	// physiology-driven layers like the grid renderer does. Falls
+	// back to the bare default sprite when nothing in that organism's
+	// layer list has a PNG on disk yet.
+	layers := r.OrganismLayersFor(info.Features)
+	stampedAny := false
+	for _, layer := range layers {
+		sprite := r.SpriteLayerAtZoom(2, role, layer, anim, frameIdx)
+		if sprite == nil {
+			continue
+		}
+		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
+		stampedAny = true
+	}
+	if !stampedAny {
+		sprite := r.SpriteAtZoom(2, role, anim, frameIdx)
+		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
+	}
 
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(x), float64(y))

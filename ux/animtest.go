@@ -16,6 +16,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -36,9 +37,11 @@ var hotReloadDirs = []string{
 	"resources/images/grid_light/4x4",
 	"resources/images/grid_light/8x8",
 	"resources/images/grid_light/16x16",
+	"resources/images/grid_light/32x32",
 	"resources/images/grid_dark/4x4",
 	"resources/images/grid_dark/8x8",
 	"resources/images/grid_dark/16x16",
+	"resources/images/grid_dark/32x32",
 }
 
 // AnimationTest is a standalone ebiten.Game for previewing every organism
@@ -47,14 +50,20 @@ var hotReloadDirs = []string{
 // inspect each sprite sheet visually. Zoom and a small color palette let
 // them change the sprite set and tint.
 type AnimationTest struct {
-	spriteSet int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites
+	spriteSet int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites, 3 = 32x32 sprites
 	unitSize  int // pixels per cell before GridDisplayScale
 	color     colorful.Color
 	palette   []colorful.Color
 	swatches  []swatchRect
-	startTime time.Time
-	windowW   int
-	windowH   int
+	// features is the physiology bitmask used to drive the layered
+	// render at 16x16 / 32x32. Updated by clicks on featureButtons.
+	// 4x4 / 8x8 fall back to the bare single-layer sprite — their art
+	// has no overlays to composite.
+	features       physiology.Set
+	featureButtons []featureButton
+	startTime      time.Time
+	windowW        int
+	windowH        int
 
 	// Pan offset applied to the matrix (labels + sprites). Color picker and
 	// hint line stay anchored to the window. Held as float64 so arrow-key
@@ -71,6 +80,90 @@ type AnimationTest struct {
 type swatchRect struct {
 	x, y, w, h int
 	color      colorful.Color
+}
+
+// featureButton is one option in the feature-toggle bar. Clicking it
+// rebuilds AnimationTest.features by clearing every bit in `tree` and
+// then setting the bits along `path` (the root → leaf walk of the
+// chosen branch). An empty `path` selects "none" for the tree.
+type featureButton struct {
+	x, y, w, h int
+	label      string
+	tree       physiology.Tree
+	path       []physiology.Feature
+}
+
+// featureTreeRows defines the feature-toggle UI: one row per modality
+// tree, in the same top-to-bottom order the renderer stacks them. Each
+// row's options are the "none" option plus every node along the tree's
+// branches, in physiology.All declaration order. The first non-empty
+// path becomes the default selection for organisms-as-drawn-here so
+// the matrix renders something interesting out of the box.
+var featureTreeRows = []struct {
+	label   string
+	tree    physiology.Tree
+	options []featureRowOption
+}{
+	{
+		label: "BODY",
+		tree:  physiology.TreeDefense,
+		options: []featureRowOption{
+			{"BASIC", nil},
+			{"SHELL", []physiology.Feature{physiology.FeatShell}},
+			{"SPIKES", []physiology.Feature{physiology.FeatShell, physiology.FeatSpikes}},
+			{"CAMO", []physiology.Feature{physiology.FeatShell, physiology.FeatCamouflage}},
+		},
+	},
+	{
+		label: "FLAG",
+		tree:  physiology.TreeFlagellae,
+		options: []featureRowOption{
+			{"NONE", nil},
+			{"FLAGELLAE", []physiology.Feature{physiology.FeatFlagellae}},
+			{"CILIA", []physiology.Feature{physiology.FeatFlagellae, physiology.FeatCilia}},
+			{"STINGER", []physiology.Feature{physiology.FeatFlagellae, physiology.FeatStinger}},
+		},
+	},
+	{
+		label: "SENS",
+		tree:  physiology.TreeSensors,
+		options: []featureRowOption{
+			{"NONE", nil},
+			{"ANTENNAE", []physiology.Feature{physiology.FeatAntennae}},
+			{"FEELERS", []physiology.Feature{physiology.FeatAntennae, physiology.FeatFeelers}},
+			{"TASTERS", []physiology.Feature{physiology.FeatAntennae, physiology.FeatTasters}},
+		},
+	},
+	{
+		label: "TEETH",
+		tree:  physiology.TreeTeeth,
+		options: []featureRowOption{
+			{"NONE", nil},
+			{"TEETH", []physiology.Feature{physiology.FeatTeeth}},
+			{"FANGS", []physiology.Feature{physiology.FeatTeeth, physiology.FeatFangs}},
+			{"TUSKS", []physiology.Feature{physiology.FeatTeeth, physiology.FeatTusks}},
+		},
+	},
+}
+
+type featureRowOption struct {
+	label string
+	path  []physiology.Feature
+}
+
+// setFeatureBranch replaces every bit of tree in s with the bits along
+// path. Used by feature-button clicks so each click is a complete
+// per-tree pick rather than an additive toggle.
+func setFeatureBranch(s physiology.Set, tree physiology.Tree, path []physiology.Feature) physiology.Set {
+	for _, f := range physiology.All {
+		if physiology.Specs[f].Tree == tree {
+			s = s.Without(f)
+		}
+	}
+	for _, f := range path {
+		s = s.With(f)
+	}
+	return s
 }
 
 // demoCell pairs a role with an animation to preview.
@@ -220,6 +313,15 @@ func (a *AnimationTest) Update() error {
 			}
 		}
 		if !picked {
+			for _, b := range a.featureButtons {
+				if mx >= b.x && mx < b.x+b.w && my >= b.y && my < b.y+b.h {
+					a.features = setFeatureBranch(a.features, b.tree, b.path)
+					picked = true
+					break
+				}
+			}
+		}
+		if !picked {
 			a.dragging = true
 			a.lastDragPos = image.Pt(mx, my)
 		}
@@ -249,7 +351,8 @@ func (a *AnimationTest) Draw(screen *ebiten.Image) {
 	resources.SelectZoom(a.spriteSet)
 
 	a.drawColorPicker(screen)
-	a.drawMatrix(screen, frameIdx)
+	featureBarBottom := a.drawFeatureBar(screen)
+	a.drawMatrix(screen, frameIdx, featureBarBottom)
 	a.drawHint(screen)
 }
 
@@ -270,7 +373,7 @@ func (a *AnimationTest) zoomIn() {
 	order := []struct {
 		spriteSet, unitSize int
 	}{
-		{0, 4}, {1, 8}, {2, 16}, {2, 32}, {2, 48},
+		{0, 4}, {1, 8}, {2, 16}, {3, 32},
 	}
 	for i, step := range order {
 		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
@@ -287,7 +390,7 @@ func (a *AnimationTest) zoomOut() {
 	order := []struct {
 		spriteSet, unitSize int
 	}{
-		{0, 4}, {1, 8}, {2, 16}, {2, 32}, {2, 48},
+		{0, 4}, {1, 8}, {2, 16}, {3, 32},
 	}
 	for i, step := range order {
 		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
@@ -334,23 +437,94 @@ func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) {
 	}
 }
 
+// drawFeatureBar paints four labeled rows of selectable feature options
+// below the colour picker, one per modality tree. Each option is a small
+// box with its label; the currently-selected option in each row gets a
+// thin foreground-colour border (mirroring the swatch-selected marker).
+// Hitboxes are recorded into a.featureButtons for click handling.
+// Returns the y-pixel below the bar so the matrix can anchor under it.
+func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image) int {
+	const (
+		barLeft       = 12
+		rowTopPx      = 44 // just below the colour swatches (12 + 24 + 8 pad)
+		rowH          = 22
+		labelW        = 60
+		btnH          = 18
+		btnPad        = 6 // x-padding inside button around label
+		btnGap        = 4
+		selBorder     = 2
+		btnRadiusPad  = 2 // tiny vertical offset of label inside btn
+	)
+	a.featureButtons = a.featureButtons[:0]
+	fg := themedForeground()
+	for ri, row := range featureTreeRows {
+		y := rowTopPx + ri*rowH
+		text.Draw(screen, row.label+":", resources.FontSourceCodePro10, barLeft, y+rowH-7, fg)
+		x := barLeft + labelW
+		for _, opt := range row.options {
+			lblW := boundString(resources.FontSourceCodePro10, opt.label).Dx()
+			btnW := lblW + 2*btnPad
+			ebitenutil.DrawRect(screen, float64(x), float64(y), float64(btnW), float64(btnH), themedButtonBackground())
+			text.Draw(screen, opt.label, resources.FontSourceCodePro10, x+btnPad, y+btnH-5+btnRadiusPad, fg)
+			if a.matchesRowSelection(row.tree, opt.path) {
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y-selBorder),
+					float64(btnW+2*selBorder), float64(selBorder), fg)
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y+btnH),
+					float64(btnW+2*selBorder), float64(selBorder), fg)
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y),
+					float64(selBorder), float64(btnH), fg)
+				ebitenutil.DrawRect(screen, float64(x+btnW), float64(y),
+					float64(selBorder), float64(btnH), fg)
+			}
+			a.featureButtons = append(a.featureButtons, featureButton{
+				x: x, y: y, w: btnW, h: btnH,
+				label: opt.label, tree: row.tree, path: opt.path,
+			})
+			x += btnW + btnGap
+		}
+	}
+	return rowTopPx + len(featureTreeRows)*rowH
+}
+
+// themedButtonBackground returns the colour used to fill feature
+// buttons. A subtle tint so the click target is visible against either
+// theme background without competing with the row label.
+func themedButtonBackground() color.Color {
+	if config.IsLightTheme() {
+		return color.RGBA{R: 220, G: 220, B: 220, A: 255}
+	}
+	return color.RGBA{R: 40, G: 40, B: 40, A: 255}
+}
+
+// matchesRowSelection reports whether a.features currently matches the
+// given path inside tree — i.e. the deepest-held feature in tree is the
+// last entry in path (or both are empty, the "none" case). Used to
+// highlight the selected button in each feature-bar row.
+func (a *AnimationTest) matchesRowSelection(tree physiology.Tree, path []physiology.Feature) bool {
+	deepest := a.features.Deepest(tree)
+	if len(path) == 0 {
+		return deepest == physiology.FeatNone
+	}
+	return deepest == path[len(path)-1]
+}
+
 // drawMatrix lays out the (4 directions × 3 sizes) × N-animation grid,
 // plus row and column labels. Each column reserves 3 grid-cells of width
 // and each row reserves 2 grid-cells of height to accommodate 2-cell
-// sprites (move, attack) and their rotated extensions. The matrixTopPx
+// sprites (move, attack) and their rotated extensions. matrixTopPx
 // leaves a full cell of clearance above the first row so north-extending
 // sprites in that row don't paint over the column headers.
 //
 // The pan offset (panX, panY) shifts everything matrix-related — sprites,
 // row labels, column headers — so the user can scroll around when zoomed
 // in. UI chrome (color picker, hint line) stays anchored.
-func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int) {
+func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int, chromeBottom int) {
 	cell := a.cellPixelSize()
 	colW := cell * 3
 	rowH := cell * 2
 
 	const matrixLeftPx = 120
-	matrixTopPx := 60 + int(cell) // reserve one cell of space for N extensions in the first row
+	matrixTopPx := chromeBottom + 12 + int(cell) // reserve one cell of space for N extensions in the first row
 
 	leftPx := float64(matrixLeftPx) + a.panX
 	topPx := float64(matrixTopPx) + a.panY
@@ -383,6 +557,11 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int) {
 // 2-cell spritesheet; rotation applied via drawAnimatedSprite handles
 // orientation. Below minOrganismAnimationUnitSize we pin to frame 0 so
 // the demo matches what the live grid renders at the same zoom.
+//
+// Iterates the same OrganismLayersFor + SpriteLayer path the grid
+// renderer uses, so the feature-toggle selections preview correctly at
+// 16x16 / 32x32. At 4x4 / 8x8 every layered lookup misses and we fall
+// back to resources.Sprite (single LayerBody).
 func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 	role resources.ImageRole, anim animation.Animation, direction utils.Point, frameIdx int) {
 
@@ -393,8 +572,20 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 		frameIdx = 0
 	}
 
-	sprite := resources.Sprite(role, anim, frameIdx)
-	drawAnimatedSprite(screen, x, y, sprite, direction, a.color, cellSize, scale)
+	layers := resources.OrganismLayersFor(a.features)
+	stampedAny := false
+	for _, layer := range layers {
+		sprite := resources.SpriteLayer(role, layer, anim, frameIdx)
+		if sprite == nil {
+			continue
+		}
+		drawAnimatedSprite(screen, x, y, sprite, direction, a.color, cellSize, scale)
+		stampedAny = true
+	}
+	if !stampedAny {
+		sprite := resources.Sprite(role, anim, frameIdx)
+		drawAnimatedSprite(screen, x, y, sprite, direction, a.color, cellSize, scale)
+	}
 }
 
 func (a *AnimationTest) drawHint(screen *ebiten.Image) {

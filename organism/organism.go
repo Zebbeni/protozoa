@@ -225,6 +225,7 @@ func (o *Organism) Info() *Info {
 		BornThisCycle: o.BornThisCycle,
 		AttackTotal:   o.AttackTotal,
 		AttackHits:    o.AttackHits,
+		Features:      o.traits.Features,
 	}
 }
 

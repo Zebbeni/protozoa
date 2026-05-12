@@ -957,8 +957,29 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		}
 	}
 
-	sprite := resources.Sprite(role, anim, frameIdx)
-	g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
+	// High-res sprite sets are layered: one body variant + a feature
+	// overlay per non-defense tree, picked from the organism's
+	// physiology. Low-res sets have a single LayerBody layer per role,
+	// so OrganismLayersFor's body-variant choice naturally collapses
+	// to a single absent-LayerBody lookup that misses and falls back
+	// to the default sprite via the Sprite fallback path below.
+	layers := resources.OrganismLayersFor(info.Features)
+	stampedAny := false
+	for _, layer := range layers {
+		sprite := resources.SpriteLayer(role, layer, anim, frameIdx)
+		if sprite == nil {
+			continue
+		}
+		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
+		stampedAny = true
+	}
+	if !stampedAny {
+		// Low-res path (only LayerBody is authored, so the layered
+		// lookup above finds nothing) and the missing-art fallback
+		// for high-res organisms with no LayerBodyBasic PNG.
+		sprite := resources.Sprite(role, anim, frameIdx)
+		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
+	}
 }
 
 // animatedCellPosition returns the organism's grid-unit anchor for the
