@@ -17,6 +17,11 @@ type Info struct {
 	Action     decision.Action
 	AncestorID int
 	Color      colorful.Color
+	// SecondaryColor tints feature overlays in the high-res renderer
+	// (flagellae / teeth / sensors). Inherited and mutated alongside
+	// Color; view-mode overrides (pH, health) leave it unused since
+	// those modes paint the whole organism with one derived colour.
+	SecondaryColor colorful.Color
 	Age          int
 	Children     int
 	TraveledDist int // lifetime grid-unit travel count

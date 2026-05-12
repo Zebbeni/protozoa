@@ -155,6 +155,19 @@ var featureOverlayLayer = map[physiology.Feature]Layer{
 	physiology.FeatTusks:     LayerTusks,
 }
 
+// IsBodyLayer reports whether the given Layer is a body silhouette
+// (LayerBody at low-res, or one of the LayerBody* variants at high-res)
+// as opposed to a feature overlay. Used by renderers that tint body
+// and overlay layers with different per-organism colours.
+func IsBodyLayer(layer Layer) bool {
+	switch layer {
+	case LayerBody, LayerBodyBasic, LayerBodyShell, LayerBodySpikes, LayerBodyCamouflage:
+		return true
+	default:
+		return false
+	}
+}
+
 // bodyVariantLayer returns the body-variant Layer for an organism with
 // the given physiology — driven by the defense tree's deepest-held
 // feature (Shell/Spikes/Camouflage), falling back to LayerBodyBasic

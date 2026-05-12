@@ -89,6 +89,22 @@ func fillThemeBackground(screen *ebiten.Image) {
 	screen.Fill(themeBackgroundColor())
 }
 
+// fillPhExtremeBackground paints the screen with the colour the grid
+// env layer would draw at the given pH — the fully-saturated target
+// from config.PhTargetColorRGB, since the blend weight at MinPh / MaxPh
+// is 1.0 (no theme background mixed in). Used by the animation-test
+// background-toggle hotkey so sprites can be previewed against the
+// extreme env-tints.
+func fillPhExtremeBackground(screen *ebiten.Image, ph float64) {
+	r, g, b := config.PhTargetColorRGB(ph)
+	screen.Fill(color.RGBA{
+		R: uint8(r * 255),
+		G: uint8(g * 255),
+		B: uint8(b * 255),
+		A: 255,
+	})
+}
+
 // setTheme switches to the named theme and reloads images so any
 // theme-keyed assets (e.g. grid_light vs grid_dark sprite directories)
 // pick up the change. No-op when the theme is already active.

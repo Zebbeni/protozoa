@@ -3,6 +3,7 @@ package resources
 import (
 	"embed"
 	"io/fs"
+	"os"
 )
 
 // assetsFS is the asset filesystem the resource loaders read from.
@@ -16,6 +17,17 @@ var assetsFS fs.FS
 // access.
 func UseEmbeddedAssets(efs embed.FS) {
 	assetsFS = efs
+}
+
+// UseDirAssets repoints the asset loaders at a live directory on disk
+// (rooted at `root`, typically the project working directory). Used by
+// the animation-test mode so editing a sprite PNG and pressing the
+// reload hotkey (or letting the mtime poller fire) actually picks up
+// the new bytes instead of re-reading the embedded copy baked into the
+// binary at build time. Must be called after UseEmbeddedAssets to take
+// effect — and before any ReloadImages call that should hit disk.
+func UseDirAssets(root string) {
+	assetsFS = os.DirFS(root)
 }
 
 // assetExists reports whether the given path resolves to a regular file

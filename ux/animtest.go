@@ -50,20 +50,26 @@ var hotReloadDirs = []string{
 // inspect each sprite sheet visually. Zoom and a small color palette let
 // them change the sprite set and tint.
 type AnimationTest struct {
-	spriteSet int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites, 3 = 32x32 sprites
-	unitSize  int // pixels per cell before GridDisplayScale
-	color     colorful.Color
-	palette   []colorful.Color
-	swatches  []swatchRect
+	spriteSet      int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites, 3 = 32x32 sprites
+	unitSize       int // pixels per cell before GridDisplayScale
+	color          colorful.Color
+	secondaryColor colorful.Color
+	palette        []colorful.Color
+	swatches       []swatchRect
 	// features is the physiology bitmask used to drive the layered
 	// render at 16x16 / 32x32. Updated by clicks on featureButtons.
 	// 4x4 / 8x8 fall back to the bare single-layer sprite — their art
 	// has no overlays to composite.
 	features       physiology.Set
 	featureButtons []featureButton
-	startTime      time.Time
-	windowW        int
-	windowH        int
+	// bgMode selects the background fill: 0 = theme, 1 = low-pH tint,
+	// 2 = high-pH tint. The pH options match what the grid env layer
+	// paints at MinPh / MaxPh, so the artist can preview how sprites
+	// read against the most-saturated environment backgrounds.
+	bgMode    int
+	startTime time.Time
+	windowW   int
+	windowH   int
 
 	// Pan offset applied to the matrix (labels + sprites). Color picker and
 	// hint line stay anchored to the window. Held as float64 so arrow-key
@@ -80,6 +86,10 @@ type AnimationTest struct {
 type swatchRect struct {
 	x, y, w, h int
 	color      colorful.Color
+	// secondary distinguishes which colour slot the swatch sets. The
+	// two rows draw from the same palette but click to different
+	// AnimationTest fields (body vs feature overlay tint).
+	secondary bool
 }
 
 // featureButton is one option in the feature-toggle bar. Clicking it
@@ -230,11 +240,12 @@ func NewAnimationTest() *AnimationTest {
 		colorful.HSLuv(0, 0, 0.85),      // near-white
 	}
 	a := &AnimationTest{
-		spriteSet: 2,
-		unitSize:  16,
-		color:     palette[0],
-		palette:   palette,
-		startTime: time.Now(),
+		spriteSet:      2,
+		unitSize:       16,
+		color:          palette[0],
+		secondaryColor: palette[2], // yellow — visibly different from primary so the split is obvious by default
+		palette:        palette,
+		startTime:      time.Now(),
 	}
 	// Seed the hot-reload watermark so we don't reload on the very first
 	// tick just because we hadn't scanned yet.
@@ -298,6 +309,23 @@ func (a *AnimationTest) Update() error {
 			setTheme("dark")
 		}
 	}
+	// R force-reloads every sprite sheet from disk. The mtime poller
+	// catches saves automatically, but R is the explicit "I know I
+	// changed something, refresh now" path — useful when the polling
+	// settle delay slows down a tight art-iterate loop, or when the
+	// mtime check missed a change (touched but identical-content save).
+	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		resources.ReloadImages()
+		if t, ok := latestSpriteMTime(); ok {
+			a.lastMaxMTime = t
+		}
+	}
+	// B cycles the background through theme → low-pH → high-pH and back
+	// so the artist can preview sprites against the most-saturated
+	// env-layer fills without firing up the full sim.
+	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
+		a.bgMode = (a.bgMode + 1) % 3
+	}
 
 	// Mouse input: click on a swatch picks a color; click-and-drag anywhere
 	// else pans the matrix. Swatch check happens first so clicks on
@@ -307,7 +335,11 @@ func (a *AnimationTest) Update() error {
 		picked := false
 		for _, s := range a.swatches {
 			if mx >= s.x && mx < s.x+s.w && my >= s.y && my < s.y+s.h {
-				a.color = s.color
+				if s.secondary {
+					a.secondaryColor = s.color
+				} else {
+					a.color = s.color
+				}
 				picked = true
 				break
 			}
@@ -341,7 +373,18 @@ func (a *AnimationTest) Update() error {
 func (a *AnimationTest) Draw(screen *ebiten.Image) {
 	// Match the replay viewer's background — dark mode clears to
 	// transparent black, light mode fills with the configured light bg.
-	fillThemeBackground(screen)
+	// The B hotkey overrides this with the env layer's MinPh / MaxPh
+	// fill so the artist can read sprites against the extreme cell
+	// tints (weight=1 at the bounds, so the env blend collapses to the
+	// pH target colour with no theme background mixed in).
+	switch a.bgMode {
+	case 1:
+		fillPhExtremeBackground(screen, config.MinPh())
+	case 2:
+		fillPhExtremeBackground(screen, config.MaxPh())
+	default:
+		fillThemeBackground(screen)
+	}
 
 	elapsed := time.Since(a.startTime)
 	_, frameIdx := animation.LoopProgress(elapsed, zoomSpriteFrameCounts[a.spriteSet])
@@ -350,8 +393,8 @@ func (a *AnimationTest) Draw(screen *ebiten.Image) {
 	// main renderer isn't running so we own this global in demo mode.
 	resources.SelectZoom(a.spriteSet)
 
-	a.drawColorPicker(screen)
-	featureBarBottom := a.drawFeatureBar(screen)
+	pickerBottom := a.drawColorPicker(screen)
+	featureBarBottom := a.drawFeatureBar(screen, pickerBottom)
 	a.drawMatrix(screen, frameIdx, featureBarBottom)
 	a.drawHint(screen)
 }
@@ -403,38 +446,58 @@ func (a *AnimationTest) zoomOut() {
 	}
 }
 
-// drawColorPicker paints palette swatches along the top of the window and
-// records their hitboxes for click handling.
-func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) {
+// drawColorPicker paints two rows of palette swatches: the first sets
+// the body (primary) tint, the second sets the feature-overlay
+// (secondary) tint. Returns the y-pixel below the picker so the feature
+// bar can anchor under it. Hitboxes are recorded with a `secondary`
+// flag so the click handler knows which slot to update.
+func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) int {
 	const (
 		padding   = 12
+		labelW    = 60
 		swatchW   = 36
 		swatchH   = 24
 		gap       = 6
+		rowGap    = 8
 		selBorder = 2
 	)
 	a.swatches = a.swatches[:0]
-	x := padding
-	y := padding
-	for _, c := range a.palette {
-		r, g, b, _ := c.RGBA()
-		rect := swatchRect{x: x, y: y, w: swatchW, h: swatchH, color: c}
-		ebitenutil.DrawRect(screen, float64(x), float64(y), float64(swatchW), float64(swatchH),
-			color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255})
-		if c == a.color {
-			// thin white border to mark the selected swatch
-			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y-selBorder),
-				float64(swatchW+2*selBorder), float64(selBorder), themedForeground())
-			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y+swatchH),
-				float64(swatchW+2*selBorder), float64(selBorder), themedForeground())
-			ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y),
-				float64(selBorder), float64(swatchH), themedForeground())
-			ebitenutil.DrawRect(screen, float64(x+swatchW), float64(y),
-				float64(selBorder), float64(swatchH), themedForeground())
-		}
-		a.swatches = append(a.swatches, rect)
-		x += swatchW + gap
+	rows := []struct {
+		label     string
+		selected  colorful.Color
+		secondary bool
+	}{
+		{"BODY", a.color, false},
+		{"FEATS", a.secondaryColor, true},
 	}
+	fg := themedForeground()
+	y := padding
+	for _, row := range rows {
+		text.Draw(screen, row.label+":", resources.FontSourceCodePro10, padding, y+swatchH-7, fg)
+		x := padding + labelW
+		for _, c := range a.palette {
+			r, g, b, _ := c.RGBA()
+			ebitenutil.DrawRect(screen, float64(x), float64(y), float64(swatchW), float64(swatchH),
+				color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255})
+			if c == row.selected {
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y-selBorder),
+					float64(swatchW+2*selBorder), float64(selBorder), fg)
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y+swatchH),
+					float64(swatchW+2*selBorder), float64(selBorder), fg)
+				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y),
+					float64(selBorder), float64(swatchH), fg)
+				ebitenutil.DrawRect(screen, float64(x+swatchW), float64(y),
+					float64(selBorder), float64(swatchH), fg)
+			}
+			a.swatches = append(a.swatches, swatchRect{
+				x: x, y: y, w: swatchW, h: swatchH,
+				color: c, secondary: row.secondary,
+			})
+			x += swatchW + gap
+		}
+		y += swatchH + rowGap
+	}
+	return y
 }
 
 // drawFeatureBar paints four labeled rows of selectable feature options
@@ -443,10 +506,9 @@ func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) {
 // thin foreground-colour border (mirroring the swatch-selected marker).
 // Hitboxes are recorded into a.featureButtons for click handling.
 // Returns the y-pixel below the bar so the matrix can anchor under it.
-func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image) int {
+func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image, topPx int) int {
 	const (
 		barLeft       = 12
-		rowTopPx      = 44 // just below the colour swatches (12 + 24 + 8 pad)
 		rowH          = 22
 		labelW        = 60
 		btnH          = 18
@@ -458,7 +520,7 @@ func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image) int {
 	a.featureButtons = a.featureButtons[:0]
 	fg := themedForeground()
 	for ri, row := range featureTreeRows {
-		y := rowTopPx + ri*rowH
+		y := topPx + ri*rowH
 		text.Draw(screen, row.label+":", resources.FontSourceCodePro10, barLeft, y+rowH-7, fg)
 		x := barLeft + labelW
 		for _, opt := range row.options {
@@ -483,7 +545,7 @@ func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image) int {
 			x += btnW + btnGap
 		}
 	}
-	return rowTopPx + len(featureTreeRows)*rowH
+	return topPx + len(featureTreeRows)*rowH
 }
 
 // themedButtonBackground returns the colour used to fill feature
@@ -579,7 +641,11 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 		if sprite == nil {
 			continue
 		}
-		drawAnimatedSprite(screen, x, y, sprite, direction, a.color, cellSize, scale)
+		col := a.secondaryColor
+		if resources.IsBodyLayer(layer) {
+			col = a.color
+		}
+		drawAnimatedSprite(screen, x, y, sprite, direction, col, cellSize, scale)
 		stampedAny = true
 	}
 	if !stampedAny {
@@ -589,7 +655,7 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 }
 
 func (a *AnimationTest) drawHint(screen *ebiten.Image) {
-	hint := "wheel / + / - : zoom   |   drag or arrows : pan   |   home : recentre   |   t : toggle theme   |   sheet edits hot-reload"
+	hint := "wheel / + / - : zoom   |   drag or arrows : pan   |   home : recentre   |   t : toggle theme   |   b : cycle bg (theme / low pH / high pH)   |   r : reload sprites   |   sheet edits hot-reload"
 	hintCol := color.RGBA{R: 230, G: 230, B: 230, A: 255}
 	if config.IsLightTheme() {
 		hintCol = color.RGBA{R: 40, G: 40, B: 40, A: 255}

@@ -467,6 +467,13 @@ func RunSimulation(opts *c.Options) {
 	ensureCheckpointPath(opts)
 
 	if opts.AnimationTest {
+		// Repoint sprite loads at the live filesystem so reload (R key
+		// or the mtime poller) sees on-disk edits instead of the
+		// embedded bytes the binary was built with. Reload after the
+		// switch so the initial paint already reflects any disk edits
+		// made since the binary was built.
+		resources.UseDirAssets(".")
+		resources.ReloadImages()
 		ebiten.SetWindowResizable(true)
 		ebiten.SetWindowSize(900, 960)
 		ebiten.SetScreenClearedEveryFrame(true)

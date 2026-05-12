@@ -18,7 +18,13 @@ import (
 // ChemoPhEffectPerSize / EatingPhEffectPerFood), PhTolerance, MaxLifespan.
 type Traits struct {
 	OrganismColor colorful.Color
-	MaxSize       float64
+	// SecondaryColor tints high-res feature overlays (flagellae /
+	// teeth / sensors) while OrganismColor tints the body variant.
+	// Inherited and mutated alongside the primary so the two-tone
+	// look stays a family trait. At low-res (single-layer sprites)
+	// SecondaryColor isn't used because nothing is drawn over the body.
+	SecondaryColor colorful.Color
+	MaxSize        float64
 	SpawnHealth   float64
 	// MinHealthToSpawn: the minimum health needed in order to spawn
 	MinHealthToSpawn       float64
@@ -41,6 +47,7 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
 	return Traits{
 		OrganismColor:          newRandomColor(rng),
+		SecondaryColor:         newRandomColor(rng),
 		MaxSize:                maxSize,
 		SpawnHealth:            spawnHealth,
 		MinHealthToSpawn:       minHealthToSpawn,
@@ -59,9 +66,12 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 	minHealthToSpawn := mutateFloat(rng, t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	idealPh := mutateFloat(rng, t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
 	features := mutateFeatures(rng, t.Features)
-	color := mutateColor(rng, t.OrganismColor, features != t.Features)
+	featuresChanged := features != t.Features
+	color := mutateColor(rng, t.OrganismColor, featuresChanged)
+	secondary := mutateColor(rng, t.SecondaryColor, featuresChanged)
 	return Traits{
 		OrganismColor:          color,
+		SecondaryColor:         secondary,
 		MaxSize:                maxSize,
 		SpawnHealth:            spawnHealth,
 		MinHealthToSpawn:       minHealthToSpawn,

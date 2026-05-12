@@ -1528,7 +1528,11 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 		if sprite == nil {
 			continue
 		}
-		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
+		col := info.SecondaryColor
+		if r.IsBodyLayer(layer) {
+			col = info.Color
+		}
+		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, col, float64(cellSize), scale)
 		stampedAny = true
 	}
 	if !stampedAny {

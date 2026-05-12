@@ -899,12 +899,21 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		role = resources.RoleOrganismLarge
 	}
 
-	organismColor := info.Color
+	// Per-layer colour: by default body uses the primary OrganismColor
+	// and overlays (flagellae / teeth / sensors) use the SecondaryColor
+	// so two-tone family identities read at a glance. View-mode
+	// overrides (pH effect, health) are diagnostic views that should
+	// paint the whole organism uniformly — they collapse secondary to
+	// the same derived colour as primary.
+	bodyColor := info.Color
+	overlayColor := info.SecondaryColor
 	switch g.orgColor {
 	case orgColorPhEffect:
-		organismColor = phEffectColor(info.PhPositive, info.PhNegative)
+		bodyColor = phEffectColor(info.PhPositive, info.PhNegative)
+		overlayColor = bodyColor
 	case orgColorHealth:
-		organismColor = healthColor(info.Health, info.Size)
+		bodyColor = healthColor(info.Health, info.Size)
+		overlayColor = bodyColor
 	}
 
 	// Defaults used when animation state is unavailable or the organism has
@@ -970,15 +979,21 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		if sprite == nil {
 			continue
 		}
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
+		col := overlayColor
+		if resources.IsBodyLayer(layer) {
+			col = bodyColor
+		}
+		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, col)
 		stampedAny = true
 	}
 	if !stampedAny {
 		// Low-res path (only LayerBody is authored, so the layered
 		// lookup above finds nothing) and the missing-art fallback
-		// for high-res organisms with no LayerBodyBasic PNG.
+		// for high-res organisms with no LayerBodyBasic PNG. Both
+		// represent "the body of the organism" so they use the
+		// primary colour, not secondary.
 		sprite := resources.Sprite(role, anim, frameIdx)
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, organismColor)
+		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, bodyColor)
 	}
 }
 
