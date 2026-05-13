@@ -52,11 +52,13 @@ the right number of frames per export:
 | 4x4 | first 1 frame |
 | 8x8 | first 2 frames |
 | 16x16 | first 4 frames |
-| 32x32 | first 8 frames |
+| 32x32 | first 4 frames |
 
-A tag with fewer frames than a slice demands is clamped — the animation
-just plays however many you drew, in place of the full count. Useful
-when you're prototyping: start every tag at 1 frame, expand to 8 later.
+32x32 doesn't add more frames than 16x16 — the extra resolution buys
+detail per frame, not more animation steps. A tag with fewer frames
+than a slice demands is clamped — the animation just plays however
+many you drew, in place of the full count. Useful when you're
+prototyping: start every tag at 1 frame, expand to 4 later.
 
 Tag names — `<action>` for 1-cell, `<action>_xl` for 2-cell, plus a
 single `base` tag for static art:
@@ -225,7 +227,7 @@ visibility are untouched.
 A sprite file with these slices, tags, and layers:
 
 - Slices: `small_4`, `small_16`, `food_small_16_static`, `wall_weak_16_static`, `wall_medium_16_static`, `wall_strong_16_static`
-- Tags: `idle` (4 frames), `move` (8 frames), `attack` (8 frames), `base` (1 frame)
+- Tags: `idle` (4 frames), `move` (4 frames), `attack` (4 frames), `base` (1 frame)
 - Layers: `background` (preview), `body`, `body_basic`, `body_shell`,
   `body_spikes`, `body_camouflage`, `flagellae`, `cilia`, `stinger`,
   `antennae`, `feelers`, `tasters`, `teeth`, `fangs`, `tusks`, `food`, `wall`

@@ -155,13 +155,19 @@ var featureOverlayLayer = map[physiology.Feature]Layer{
 	physiology.FeatTusks:     LayerTusks,
 }
 
-// IsBodyLayer reports whether the given Layer is a body silhouette
-// (LayerBody at low-res, or one of the LayerBody* variants at high-res)
-// as opposed to a feature overlay. Used by renderers that tint body
-// and overlay layers with different per-organism colours.
-func IsBodyLayer(layer Layer) bool {
+// UsesPrimaryColor reports whether the given Layer should be tinted
+// with the organism's primary colour (true) or secondary colour
+// (false). Body silhouettes always use primary; among overlays, the
+// sensors group (antennae / feelers / tasters) also uses primary so
+// the organism reads as one colour-coordinated creature with the
+// motor / teeth overlays providing the contrasting accent. Used by
+// every renderer that walks OrganismLayersFor and applies per-layer
+// tints (grid, panel portrait, animation test).
+func UsesPrimaryColor(layer Layer) bool {
 	switch layer {
-	case LayerBody, LayerBodyBasic, LayerBodyShell, LayerBodySpikes, LayerBodyCamouflage:
+	case LayerBody,
+		LayerBodyBasic, LayerBodyShell, LayerBodySpikes, LayerBodyCamouflage,
+		LayerAntennae, LayerFeelers, LayerTasters:
 		return true
 	default:
 		return false
@@ -404,12 +410,17 @@ func initImages() {
 		foodMedium := loadOrGenerateCircle(path+"food_medium.png", size, max(2, size*2/3))
 		foodLarge := loadOrGenerateCircle(path+"food_large.png", size, size)
 
-		// Frames per cycle scale with resolution (1 / 2 / 4 at 4 / 8 / 16).
+		// Frames per cycle scale with resolution: 4x4 → 1, 8x8 → 2,
+		// 16x16 and 32x32 → 4. 32x32 doesn't add more frames than
+		// 16x16 — the extra resolution buys per-frame detail, not more
+		// animation steps. Must match zoomSpriteFrameCounts in ux/camera.go.
 		// Missing per-action sheets fall back to repeating the base sprite
 		// so all frame slots render the same image (harmless).
 		orgFrames := size / 4
 		if orgFrames < 1 {
 			orgFrames = 1
+		} else if orgFrames > 4 {
+			orgFrames = 4
 		}
 
 		bases := map[ImageRole]*ebiten.Image{

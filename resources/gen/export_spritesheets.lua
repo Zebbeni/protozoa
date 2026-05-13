@@ -29,18 +29,18 @@
 -- ============================================================
 --   <action>                — animated, ONE tag per action regardless
 --                              of resolution. Author the tag with
---                              enough frames for the highest-res slice
---                              you intend to export — at 32x32 that's
---                              8 frames. The script slices off the
---                              right number of frames per export:
---                                4x4  → first 1 frame
---                                8x8  → first 2 frames
+--                              up to 4 frames — that's the cap for the
+--                              two highest-res slices. The script
+--                              slices off the right number of frames
+--                              per export:
+--                                4x4   → first 1 frame
+--                                8x8   → first 2 frames
 --                                16x16 → first 4 frames
---                                32x32 → first 8 frames
+--                                32x32 → first 4 frames
 --                              A tag with fewer frames than the slice
---                              asks for is clamped, so a 4-frame tag
---                              still works for 32x32 (animation just
---                              plays the 4 frames in place of 8).
+--                              asks for is clamped, so a 2-frame tag
+--                              still works at higher res (animation just
+--                              plays the 2 frames in place of 4).
 --   <action>_xl             — 2-cell variant, same frame-slicing rule.
 --   base                    — single-frame, pairs only with _static slices.
 --
@@ -556,12 +556,17 @@ for _, sl in ipairs(slices) do
                             local fn = resDir .. sep .. outName
                             -- Frame range: each resolution takes the
                             -- first (res/4) frames from the tag's
-                            -- range. Static (base) tags have
+                            -- range, capped at 4. 32x32 takes the same
+                            -- 4 frames as 16x16 — the higher resolution
+                            -- buys detail per frame, not more animation
+                            -- steps. Static (base) tags have
                             -- fromFrame == toFrame so the math
                             -- collapses to a single frame.
                             local framesNeeded = sl.res / 4
                             if framesNeeded < 1 then
                                 framesNeeded = 1
+                            elseif framesNeeded > 4 then
+                                framesNeeded = 4
                             end
                             local exportFrom = t.fromFrame
                             local exportTo   = t.fromFrame + framesNeeded - 1

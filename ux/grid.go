@@ -980,7 +980,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 			continue
 		}
 		col := overlayColor
-		if resources.IsBodyLayer(layer) {
+		if resources.UsesPrimaryColor(layer) {
 			col = bodyColor
 		}
 		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, col)

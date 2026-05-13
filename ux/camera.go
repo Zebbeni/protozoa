@@ -40,11 +40,14 @@ var zoomSpriteSet = [4]int{0, 1, 2, 3}
 // zoomSpriteSizes is the native pixel size per sprite set.
 var zoomSpriteSizes = [4]int{4, 8, 16, 32}
 
-// zoomSpriteFrameCounts is the per-cycle frame count per sprite set —
-// resolution / 4. Authored sprite sheets contain this many frames per
-// animation tag; the renderer divides animation.State.Progress()
-// proportionally across them (see animation.SpriteFrameIndex).
-var zoomSpriteFrameCounts = [4]int{1, 2, 4, 8}
+// zoomSpriteFrameCounts is the per-cycle frame count per sprite set.
+// Caps at BaseFramesPerCycle (4): 4x4 → 1, 8x8 → 2, 16x16 and 32x32 → 4.
+// 32x32 doesn't add more frames than 16x16 — the extra resolution buys
+// detail per frame, not more animation steps. Authored sprite sheets
+// contain this many frames per animation tag; the renderer divides
+// animation.State.Progress() proportionally across them (see
+// animation.SpriteFrameIndex).
+var zoomSpriteFrameCounts = [4]int{1, 2, 4, 4}
 
 // SpriteSet returns the sprite set index (0-3) for the current zoom level.
 func (cam *Camera) SpriteSet() int {
@@ -52,7 +55,7 @@ func (cam *Camera) SpriteSet() int {
 }
 
 // SpriteFrameCount returns the per-cycle sprite frame count for the
-// active sprite set (1 at 4x4, 2 at 8x8, 4 at 16x16, 8 at 32x32).
+// active sprite set (1 at 4x4, 2 at 8x8, 4 at 16x16 and 32x32).
 func (cam *Camera) SpriteFrameCount() int {
 	return zoomSpriteFrameCounts[cam.SpriteSet()]
 }

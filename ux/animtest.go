@@ -1,6 +1,7 @@
 package ux
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -46,12 +47,10 @@ var hotReloadDirs = []string{
 
 // AnimationTest is a standalone ebiten.Game for previewing every organism
 // animation in isolation. No simulation runs; a fixed matrix of demo cells
-// (3 sizes × N animations) loops the same animation forever so the user can
-// inspect each sprite sheet visually. Zoom and a small color palette let
-// them change the sprite set and tint.
+// (4 zoom levels × 3 sizes × N animations) loops the same animation forever
+// so the user can inspect every sprite sheet visually without zooming. A
+// small color palette lets them change the body/feature tints.
 type AnimationTest struct {
-	spriteSet      int // 0 = 4x4 sprites, 1 = 8x8 sprites, 2 = 16x16 sprites, 3 = 32x32 sprites
-	unitSize       int // pixels per cell before GridDisplayScale
 	color          colorful.Color
 	secondaryColor colorful.Color
 	palette        []colorful.Color
@@ -81,6 +80,30 @@ type AnimationTest struct {
 	// Hot-reload state.
 	lastMaxMTime time.Time // newest mtime observed on the last successful scan
 	nextPollAt   time.Time // wall-clock moment for the next scan
+
+	// cellHits records the screen rect and (zoom, role, anim) tuple for
+	// every matrix cell drawn this frame. The Update click handler walks
+	// this list to dispatch GIF exports — populated fresh each Draw so
+	// pan offsets are accounted for naturally.
+	cellHits []cellHit
+
+	// lastExport* are the brief overlay message shown after an export
+	// click. lastExportTime gates the message so it fades on its own.
+	lastExportMsg  string
+	lastExportTime time.Time
+}
+
+// cellHit is the click-target metadata for one matrix cell. Stored per
+// Draw and consulted in Update so click-to-export resolves directly to
+// the tuple drawMatrix already iterates.
+type cellHit struct {
+	x, y, w, h int
+	role       resources.ImageRole
+	roleLabel  string
+	anim       animation.Animation
+	animLabel  string
+	spriteSet  int
+	nativeCell int
 }
 
 type swatchRect struct {
@@ -193,23 +216,11 @@ var demoRoles = []struct {
 	{resources.RoleOrganismLarge, "LARGE"},
 }
 
-// demoDirections is the direction ordering of the matrix rows. The order
-// is chosen so vertically-extending 2-cell sprites (NORTH extends up,
-// SOUTH extends down) don't collide across row boundaries — in particular
-// we avoid a "SOUTH row immediately above a NORTH row" transition because
-// those two would extend into each other. EAST→SOUTH→WEST→NORTH keeps
-// every transition either horizontal-to-anything or vertical-to-
-// horizontal, and only stacks NORTH rows at the bottom (each N row
-// extends into its predecessor's empty buffer, not into a sprite).
-var demoDirections = []struct {
-	label string
-	point utils.Point
-}{
-	{"E", utils.Point{X: 1, Y: 0}},
-	{"S", utils.Point{X: 0, Y: 1}},
-	{"W", utils.Point{X: -1, Y: 0}},
-	{"N", utils.Point{X: 0, Y: -1}},
-}
+// demoDirection is the orientation every preview sprite is drawn in.
+// East lets 2-cell sprites extend rightwards within their column without
+// reaching into the row above or below. Direction cycling isn't supported
+// because per-row vertical extension would collide with adjacent rows.
+var demoDirection = utils.Point{X: 1, Y: 0}
 
 // demoAnimations is the column ordering (left to right).
 var demoAnimations = []demoCell{
@@ -240,8 +251,6 @@ func NewAnimationTest() *AnimationTest {
 		colorful.HSLuv(0, 0, 0.85),      // near-white
 	}
 	a := &AnimationTest{
-		spriteSet:      2,
-		unitSize:       16,
 		color:          palette[0],
 		secondaryColor: palette[2], // yellow — visibly different from primary so the split is obvious by default
 		palette:        palette,
@@ -261,24 +270,18 @@ func (a *AnimationTest) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
 }
 
-// Update handles zoom (wheel + / -), color-swatch clicks, and polls the
-// sprite directories so sheet edits hot-reload into the running preview.
+// Update handles wheel/arrow-key panning, color-swatch and feature-button
+// clicks, and polls the sprite directories so sheet edits hot-reload into
+// the running preview.
 func (a *AnimationTest) Update() error {
 	a.pollHotReload()
 
-	// Wheel zoom
+	// Mouse wheel pans vertically — the matrix now stacks every zoom level
+	// at once, so it's typically taller than the window. Wheel-up scrolls
+	// the matrix DOWN (panY increases) so the user sees content above,
+	// matching the conventional scroll direction.
 	if _, wy := ebiten.Wheel(); wy != 0 {
-		if wy > 0 {
-			a.zoomIn()
-		} else {
-			a.zoomOut()
-		}
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
-		a.zoomIn()
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
-		a.zoomOut()
+		a.panY += wy * 24
 	}
 
 	// Arrow-key panning. Held keys accumulate — speed is in screen pixels
@@ -354,6 +357,20 @@ func (a *AnimationTest) Update() error {
 			}
 		}
 		if !picked {
+			for _, h := range a.cellHits {
+				if mx >= h.x && mx < h.x+h.w && my >= h.y && my < h.y+h.h {
+					if fpath, err := a.exportCellGif(h); err != nil {
+						a.lastExportMsg = "EXPORT FAILED: " + err.Error()
+					} else {
+						a.lastExportMsg = "SAVED: " + fpath
+					}
+					a.lastExportTime = time.Now()
+					picked = true
+					break
+				}
+			}
+		}
+		if !picked {
 			a.dragging = true
 			a.lastDragPos = image.Pt(mx, my)
 		}
@@ -387,63 +404,22 @@ func (a *AnimationTest) Draw(screen *ebiten.Image) {
 	}
 
 	elapsed := time.Since(a.startTime)
-	_, frameIdx := animation.LoopProgress(elapsed, zoomSpriteFrameCounts[a.spriteSet])
-
-	// Switch the active resource set to match the demo's spriteSet — the
-	// main renderer isn't running so we own this global in demo mode.
-	resources.SelectZoom(a.spriteSet)
-
 	pickerBottom := a.drawColorPicker(screen)
 	featureBarBottom := a.drawFeatureBar(screen, pickerBottom)
-	a.drawMatrix(screen, frameIdx, featureBarBottom)
+	a.drawMatrix(screen, elapsed, featureBarBottom)
 	a.drawHint(screen)
+	a.drawExportOverlay(screen)
 }
 
-// scale is the final pixel scale from sprite-native pixels to screen pixels.
-// Mirrors the main grid's spriteScale * GridDisplayScale composition so the
-// preview matches what the live renderer produces.
-func (a *AnimationTest) scale() float64 {
-	spriteSize := zoomSpriteSizes[a.spriteSet]
-	return float64(a.unitSize) / float64(spriteSize) * float64(GridDisplayScale)
-}
-
-// cellPixelSize returns the on-screen size of one grid cell in this preview.
-func (a *AnimationTest) cellPixelSize() float64 {
-	return float64(a.unitSize) * float64(GridDisplayScale)
-}
-
-func (a *AnimationTest) zoomIn() {
-	order := []struct {
-		spriteSet, unitSize int
-	}{
-		{0, 4}, {1, 8}, {2, 16}, {3, 32},
+// drawExportOverlay paints a short-lived banner above the hint line when
+// the user just clicked a matrix cell to export. The 4-second window is
+// long enough to read the saved path but short enough that it doesn't
+// linger across a flurry of exports.
+func (a *AnimationTest) drawExportOverlay(screen *ebiten.Image) {
+	if a.lastExportMsg == "" || time.Since(a.lastExportTime) > 4*time.Second {
+		return
 	}
-	for i, step := range order {
-		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
-			if i+1 < len(order) {
-				a.spriteSet = order[i+1].spriteSet
-				a.unitSize = order[i+1].unitSize
-			}
-			return
-		}
-	}
-}
-
-func (a *AnimationTest) zoomOut() {
-	order := []struct {
-		spriteSet, unitSize int
-	}{
-		{0, 4}, {1, 8}, {2, 16}, {3, 32},
-	}
-	for i, step := range order {
-		if step.spriteSet == a.spriteSet && step.unitSize == a.unitSize {
-			if i-1 >= 0 {
-				a.spriteSet = order[i-1].spriteSet
-				a.unitSize = order[i-1].unitSize
-			}
-			return
-		}
-	}
+	text.Draw(screen, a.lastExportMsg, resources.FontSourceCodePro10, 12, a.windowH-30, themedForeground())
 }
 
 // drawColorPicker paints two rows of palette swatches: the first sets
@@ -570,67 +546,93 @@ func (a *AnimationTest) matchesRowSelection(tree physiology.Tree, path []physiol
 	return deepest == path[len(path)-1]
 }
 
-// drawMatrix lays out the (4 directions × 3 sizes) × N-animation grid,
-// plus row and column labels. Each column reserves 3 grid-cells of width
-// and each row reserves 2 grid-cells of height to accommodate 2-cell
-// sprites (move, attack) and their rotated extensions. matrixTopPx
-// leaves a full cell of clearance above the first row so north-extending
-// sprites in that row don't paint over the column headers.
+// drawMatrix lays out the (4 zoom levels × 3 sizes) × N-animation grid,
+// plus row and column labels. Each zoom row renders sprites at that
+// zoom's native cell size, so all four sprite resolutions are visible
+// without switching the active set. Columns align to the largest zoom's
+// 2-cell sprite width so animation columns line up across rows —
+// smaller-zoom rows have horizontal slack inside each column, which
+// trades pack density for legibility.
+//
+// Each row is sized to fit a 1-cell-tall East-facing sprite plus a
+// small inter-row gap; the matrix locks direction to East so there's
+// no need to reserve N/S extension space. matrixTopPx leaves room for
+// the column headers above row 0 — no extra padding for vertical
+// sprite extension.
 //
 // The pan offset (panX, panY) shifts everything matrix-related — sprites,
-// row labels, column headers — so the user can scroll around when zoomed
-// in. UI chrome (color picker, hint line) stays anchored.
-func (a *AnimationTest) drawMatrix(screen *ebiten.Image, frameIdx int, chromeBottom int) {
-	cell := a.cellPixelSize()
-	colW := cell * 3
-	rowH := cell * 2
+// row labels, column headers. UI chrome (color picker, feature bar, hint
+// line) stays anchored.
+func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, chromeBottom int) {
+	const (
+		colGap    = 8  // horizontal gap between animation columns
+		rowGap    = 4  // vertical gap between rows
+		headerGap = 8  // gap between column headers and first row
+	)
 
-	const matrixLeftPx = 120
-	matrixTopPx := chromeBottom + 12 + int(cell) // reserve one cell of space for N extensions in the first row
+	maxNativeCell := zoomSpriteSizes[len(zoomSpriteSizes)-1]
+	maxCellPx := float64(maxNativeCell * GridDisplayScale)
+	colW := maxCellPx*2 + colGap // 2 cells fits the widest East-facing sprite; gap separates columns
+
+	const matrixLeftPx = 140
+	matrixTopPx := chromeBottom + 12 + 16 // chrome padding + ~one header text line above row 0
 
 	leftPx := float64(matrixLeftPx) + a.panX
-	topPx := float64(matrixTopPx) + a.panY
+	rowY := float64(matrixTopPx) + a.panY
 
-	// Column headers drawn above the extension buffer of row 0.
+	fg := themedForeground()
+	a.cellHits = a.cellHits[:0]
+
+	// Column headers anchored just above the first row.
 	for c, demo := range demoAnimations {
 		x := int(leftPx + float64(c)*colW)
-		text.Draw(screen, demo.label, resources.FontSourceCodePro10, x, int(topPx)-int(cell)-8, themedForeground())
+		text.Draw(screen, demo.label, resources.FontSourceCodePro10, x, int(rowY)-headerGap, fg)
 	}
 
-	// Rows: outer = direction, inner = size.
-	rowIdx := 0
-	for _, dir := range demoDirections {
+	// Rows: outer = zoom level (sprite set), inner = size. Each zoom
+	// activates its own resource set before drawing so SpriteLayer
+	// lookups hit that set's images.
+	for zi, nativeCell := range zoomSpriteSizes {
+		cellSize := float64(nativeCell)    // sprite-native px
+		scale := float64(GridDisplayScale) // unit/sprite ratio is 1 at the native pair
+		cellPx := cellSize * scale         // on-screen px per cell at this zoom
+		rowH := cellPx + rowGap            // 1-cell sprite height (East) plus inter-row gap
+		_, frameIdx := animation.LoopProgress(elapsed, zoomSpriteFrameCounts[zi])
+		resources.SelectZoom(zi)
+
 		for _, roleRow := range demoRoles {
-			rowY := topPx + float64(rowIdx)*rowH
-			label := dir.label + " " + roleRow.label
-			text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cell*0.75), themedForeground())
+			label := fmt.Sprintf("%dx%d %s", nativeCell, nativeCell, roleRow.label)
+			text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cellPx*0.75), fg)
 
 			for c, demo := range demoAnimations {
 				drawX := leftPx + float64(c)*colW
-				a.drawDemoSprite(screen, drawX, rowY, roleRow.role, demo.anim, dir.point, frameIdx)
+				a.drawDemoSprite(screen, drawX, rowY, roleRow.role, demoDirection, demo.anim, frameIdx, cellSize, scale, nativeCell)
+				a.cellHits = append(a.cellHits, cellHit{
+					x: int(drawX), y: int(rowY), w: int(colW), h: int(rowH),
+					role: roleRow.role, roleLabel: roleRow.label,
+					anim: demo.anim, animLabel: demo.label,
+					spriteSet: zi, nativeCell: nativeCell,
+				})
 			}
-			rowIdx++
+			rowY += rowH
 		}
 	}
 }
 
-// drawDemoSprite draws one cell of the matrix. All cells paint at their
-// static matrix position — motion (move, attack) lives entirely inside the
-// 2-cell spritesheet; rotation applied via drawAnimatedSprite handles
-// orientation. Below minOrganismAnimationUnitSize we pin to frame 0 so
-// the demo matches what the live grid renders at the same zoom.
+// drawDemoSprite draws one cell of the matrix at the given zoom's native
+// sprite size and scale. Below minOrganismAnimationUnitSize we pin to
+// frame 0 so the demo matches what the live grid renders at the same
+// zoom.
 //
 // Iterates the same OrganismLayersFor + SpriteLayer path the grid
 // renderer uses, so the feature-toggle selections preview correctly at
 // 16x16 / 32x32. At 4x4 / 8x8 every layered lookup misses and we fall
 // back to resources.Sprite (single LayerBody).
 func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
-	role resources.ImageRole, anim animation.Animation, direction utils.Point, frameIdx int) {
+	role resources.ImageRole, direction utils.Point, anim animation.Animation, frameIdx int,
+	cellSize, scale float64, unitSize int) {
 
-	scale := a.scale()
-	cellSize := float64(zoomSpriteSizes[a.spriteSet])
-
-	if a.unitSize < minOrganismAnimationUnitSize {
+	if unitSize < minOrganismAnimationUnitSize {
 		frameIdx = 0
 	}
 
@@ -642,7 +644,7 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 			continue
 		}
 		col := a.secondaryColor
-		if resources.IsBodyLayer(layer) {
+		if resources.UsesPrimaryColor(layer) {
 			col = a.color
 		}
 		drawAnimatedSprite(screen, x, y, sprite, direction, col, cellSize, scale)
@@ -655,7 +657,7 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 }
 
 func (a *AnimationTest) drawHint(screen *ebiten.Image) {
-	hint := "wheel / + / - : zoom   |   drag or arrows : pan   |   home : recentre   |   t : toggle theme   |   b : cycle bg (theme / low pH / high pH)   |   r : reload sprites   |   sheet edits hot-reload"
+	hint := "click cell : export gif   |   wheel / drag / arrows : pan   |   home : recentre   |   t : toggle theme   |   b : cycle bg (theme / low pH / high pH)   |   r : reload sprites   |   sheet edits hot-reload"
 	hintCol := color.RGBA{R: 230, G: 230, B: 230, A: 255}
 	if config.IsLightTheme() {
 		hintCol = color.RGBA{R: 40, G: 40, B: 40, A: 255}

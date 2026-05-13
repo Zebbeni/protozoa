@@ -1529,7 +1529,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 			continue
 		}
 		col := info.SecondaryColor
-		if r.IsBodyLayer(layer) {
+		if r.UsesPrimaryColor(layer) {
 			col = info.Color
 		}
 		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, col, float64(cellSize), scale)
