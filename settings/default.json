@@ -53,7 +53,6 @@
   "health_change_from_attacking": -0.02,
   "health_change_from_stinging": -0.013,
   "health_change_from_digging": -0.02,
-  "health_change_from_burrowing": -0.02,
   "health_change_from_hunkering": -0.01,
   "health_change_from_flaring": -0.016,
   "health_change_from_hiding": -0.012,
@@ -96,6 +95,7 @@
   "fangs_damage_dealt_mult": 1.20,
   "tusks_chemo_efficiency_mult": 1,
   "tusks_move_cost_mult": 1.10,
+  "tusks_damage_dealt_mult": 0.70,
 
   "population_update_interval": 20
 }

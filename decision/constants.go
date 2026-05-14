@@ -51,6 +51,14 @@ const (
 	ActHunker
 	ActFlare
 	ActHide
+	// ActBurrow is a legacy constant. Burrowing no longer exists as
+	// its own action — ActDig now performs the combined dig + side
+	// wall placement that used to require two separate actions. The
+	// iota slot is retained so existing .pzr snapshots still decode
+	// nodes with this code; the action handler routes ActBurrow
+	// through applyDig so legacy trees keep behaving as expected.
+	// Feature.UnlocksActions never lists it, so new mutations can't
+	// pick it.
 	ActBurrow
 	// Wall-perception conditions unlocked by FeatFeelers. The
 	// `Condition = iota` reassignment retypes subsequent untyped

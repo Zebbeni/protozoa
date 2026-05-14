@@ -937,7 +937,13 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 	case d.ActDig:
 		m.applyDig(o)
 	case d.ActBurrow:
-		m.applyBurrow(o)
+		// Legacy ActBurrow: routed to applyDig so any pre-merge
+		// decision tree that still references this code keeps doing
+		// the side-wall placement (now bundled into the combined dig
+		// behaviour). New mutations can't pick ActBurrow because no
+		// feature unlocks it; the constant only survives so old .pzr
+		// snapshots still decode.
+		m.applyDig(o)
 	case d.ActHunker:
 		m.applyHunker(o)
 	case d.ActFlare:
@@ -1075,43 +1081,43 @@ func sizeStrengthDelta(size float64) int {
 	}
 }
 
-// applyDig resolves ActDig: pays the attack-equivalent cost, then
-// removes either the wall or the food in front of the organism.
-// Wall: strength -= size delta (clamped at 0; the WallManager removes
-// the entry when it hits 0). Food: deleted outright — the digger
-// doesn't eat, just clears terrain. Empty cell in front: cost paid,
-// no effect.
+// applyDig resolves ActDig: pays the dig cost, damages any wall (or
+// destroys food) directly in front, AND reinforces / adds walls on
+// both sides. The two effects used to live in separate ActDig and
+// ActBurrow actions; they're combined into a single action so a tusks
+// lineage gets the full terrain-shaping toolkit from one decision.
+//
+// Front cell:
+//   - wall present  → strength -= size delta (clamped at 0; the
+//     WallManager removes the entry when it hits 0)
+//   - food present  → food deleted (the digger doesn't eat, just
+//     clears terrain)
+//   - empty         → nothing happens at the front
+//
+// Side cells (left + right, each treated independently):
+//   - organism present → skip (no wall placed, no food destroyed)
+//   - food present     → food deleted, wall placed
+//   - wall present     → strength += delta (clamped at MaxWallStrength)
+//   - empty cell       → new wall created at delta strength
+//
+// One health cost is paid for the combined action — HealthChangeFromDigging
+// scaled by size. The old, separate HealthChangeFromBurrowing constant
+// is gone since burrowing no longer exists as its own action.
 func (m *OrganismManager) applyDig(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
 	m.applyHealthChange(o, c.HealthChangeFromDigging()*o.Size)
 	o.Status = organism.StatusDigging
 
-	target := o.Location.Add(o.Direction)
 	delta := sizeStrengthDelta(o.Size)
+
+	target := o.Location.Add(o.Direction)
 	if m.api.IsWallAtPoint(target) {
 		m.api.AddWallStrength(target, -delta)
 		m.api.AddWallUpdate(target)
-		return
-	}
-	// Fallback: if no wall, dig will scoop out food at that cell.
-	if item, ok := m.api.GetFoodAtPoint(target); ok && item != nil {
+	} else if item, ok := m.api.GetFoodAtPoint(target); ok && item != nil {
 		m.api.RemoveFoodAtPoint(target, item.Value)
 	}
-}
 
-// applyBurrow resolves ActBurrow: pays the attack-equivalent cost,
-// then independently tries to add wall strength to the cells on the
-// organism's left and right (relative to its facing). Each side:
-//   - organism present  → skip (no wall placed, no food destroyed)
-//   - food present      → food deleted, wall placed
-//   - wall present      → strength += delta (clamped at MaxWallStrength)
-//   - empty cell        → new wall created at delta strength
-func (m *OrganismManager) applyBurrow(o *organism.Organism) {
-	m.addUpdatedPoint(o.Location)
-	m.applyHealthChange(o, c.HealthChangeFromBurrowing()*o.Size)
-	o.Status = organism.StatusBurrowing
-
-	delta := sizeStrengthDelta(o.Size)
 	for _, side := range []utils.Point{
 		o.Location.Add(o.Direction.Left()),
 		o.Location.Add(o.Direction.Right()),

@@ -141,7 +141,14 @@ Compositing order, bottom to top:
 slice stem):
 
 - `food`
-- `wall`
+- `wall_base` — central pile of sediment, always drawn for every wall
+  cell. One per strength tier.
+- `wall_up`, `wall_down`, `wall_left`, `wall_right` — directional
+  connector overlays. The grid renderer composites these on top of
+  `wall_base` when the cell in the matching direction also holds a
+  wall, joining adjacent walls into a single visual. One per
+  strength tier; missing layers simply aren't drawn (the wall stays
+  visually isolated in that direction).
 
 ### Preview-only layers (never exported, even when visible)
 
@@ -161,7 +168,7 @@ slice's stem and resolution:
 | `small`, `medium`, `large` | 4, 8 | `body` |
 | `small`, `medium`, `large` | 16, 32 | `body_basic`, `body_shell`, `body_spikes`, `body_camouflage`, plus all 9 feature overlays |
 | `food_*` | any | `food` |
-| `wall_*` | any | `wall` |
+| `wall_*` | any | `wall_base`, `wall_up`, `wall_down`, `wall_left`, `wall_right` (each exported per strength as `wall_<layer>_<strength>.png`) |
 
 Any other stem is treated as an organism stem.
 

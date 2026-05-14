@@ -234,11 +234,15 @@ var Specs = map[Feature]Spec{
 	},
 	FeatTusks: {
 		Name: "Tusks", Tree: TreeTeeth, Parent: FeatTeeth,
-		// Tusks unlock both ActDig (remove food/walls ahead) and
-		// ActBurrow (add walls left/right). The two actions form
-		// complementary niches — diggers carve corridors, burrowers
-		// build shelters.
-		UnlocksActions: []decision.Action{decision.ActDig, decision.ActBurrow},
+		// Tusks unlock ActDig and ActAttack. ActDig is the combined
+		// terrain-shaping action: it damages the wall (or clears
+		// food) directly in front AND reinforces / adds walls on
+		// both sides — what used to be ActDig + ActBurrow rolled
+		// into one. Attack with tusks is less effective than with
+		// fangs (see TusksDamageDealtMult), but the option means
+		// tusk lineages can still defend themselves without being
+		// forced down the fangs branch.
+		UnlocksActions: []decision.Action{decision.ActDig, decision.ActAttack},
 	},
 }
 
@@ -285,6 +289,7 @@ func tradeoffsFor(f Feature) Tradeoffs {
 	case FeatTusks:
 		out.ChemoEfficiencyMult = config.TusksChemoEfficiencyMult()
 		out.MoveCostMult = config.TusksMoveCostMult()
+		out.AttackDamageDealtMult = config.TusksDamageDealtMult()
 	}
 	return out
 }
@@ -356,20 +361,24 @@ var treeRoots map[Tree]Feature
 // feature that gated a node still present in its inherited decision
 // tree (the "junk DNA" case).
 //
+// The value is a slice because some actions are unlocked by more than
+// one feature (e.g. ActAttack is unlocked by both Fangs and Tusks).
+// Holding ANY of the listed features makes the action available.
+//
 // Actions / conditions not present in either inverse map are treated
 // as base — always available regardless of feature set. That covers
 // the always-on actions (Chemosynthesis, Idle, Spawn) and self-state
 // conditions (health, age, IsHealthyPhHere).
 var (
-	actionRequires    map[decision.Action]Feature
-	conditionRequires map[decision.Condition]Feature
+	actionRequires    map[decision.Action][]Feature
+	conditionRequires map[decision.Condition][]Feature
 )
 
 func init() {
 	childrenOf = make(map[Feature][]Feature)
 	treeRoots = make(map[Tree]Feature)
-	actionRequires = make(map[decision.Action]Feature)
-	conditionRequires = make(map[decision.Condition]Feature)
+	actionRequires = make(map[decision.Action][]Feature)
+	conditionRequires = make(map[decision.Condition][]Feature)
 	for _, f := range All {
 		spec := Specs[f]
 		if spec.Parent == FeatNone {
@@ -378,10 +387,10 @@ func init() {
 			childrenOf[spec.Parent] = append(childrenOf[spec.Parent], f)
 		}
 		for _, a := range spec.UnlocksActions {
-			actionRequires[a] = f
+			actionRequires[a] = append(actionRequires[a], f)
 		}
 		for _, c := range spec.UnlocksConditions {
-			conditionRequires[c] = f
+			conditionRequires[c] = append(conditionRequires[c], f)
 		}
 	}
 }
@@ -390,24 +399,36 @@ func init() {
 // action — true for base actions and for feature-gated actions whose
 // gating feature is held. Used by the action-resolution code to fall
 // back to ActIdle when an inherited decision tree picks an action the
-// organism no longer has the physiology for.
+// organism no longer has the physiology for. When multiple features
+// gate the same action (Fangs and Tusks both unlock Attack), holding
+// any one of them is enough.
 func (s Set) ActionAvailable(a decision.Action) bool {
-	f, gated := actionRequires[a]
+	gating, gated := actionRequires[a]
 	if !gated {
 		return true
 	}
-	return s.Has(f)
+	for _, f := range gating {
+		if s.Has(f) {
+			return true
+		}
+	}
+	return false
 }
 
 // ConditionAvailable mirrors ActionAvailable for conditions. A gated
 // condition that the organism can't currently sense is treated as
 // false at evaluation time — same fallback strategy as actions.
 func (s Set) ConditionAvailable(c decision.Condition) bool {
-	f, gated := conditionRequires[c]
+	gating, gated := conditionRequires[c]
 	if !gated {
 		return true
 	}
-	return s.Has(f)
+	for _, f := range gating {
+		if s.Has(f) {
+			return true
+		}
+	}
+	return false
 }
 
 // Path returns the root-to-leaf list of features the set holds in

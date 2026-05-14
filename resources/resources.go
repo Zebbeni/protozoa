@@ -59,7 +59,11 @@ const (
 	RoleFoodMedium
 	RoleFoodLarge
 	// Wall sprites by strength tier — see ux/grid.go's
-	// wallRoleForStrength for the strength → role mapping.
+	// wallRoleForStrength for the strength → role mapping. Each role
+	// holds multiple Layer slots: LayerWallBase (always present) plus
+	// LayerWallUp / LayerWallDown / LayerWallLeft / LayerWallRight
+	// directional connectors, drawn on top of the base when the
+	// cardinal neighbour also holds a wall.
 	RoleWallWeak
 	RoleWallMedium
 	RoleWallStrong
@@ -112,6 +116,19 @@ const (
 	LayerTeeth
 	LayerFangs
 	LayerTusks
+
+	// Wall layers. Authored as separate Aseprite layers within the
+	// same wall slice so each strength tier exports its own base +
+	// directional connector pieces. The grid renderer draws
+	// LayerWallBase for every wall cell and additionally layers
+	// LayerWallUp / Down / Left / Right when the corresponding
+	// cardinal neighbour also holds a wall, producing a single
+	// connected visual when walls cluster.
+	LayerWallBase
+	LayerWallUp
+	LayerWallDown
+	LayerWallLeft
+	LayerWallRight
 )
 
 // layerFilenamePrefix maps each Layer to the filename prefix the lua
@@ -135,6 +152,11 @@ var layerFilenamePrefix = map[Layer]string{
 	LayerTeeth:          "teeth",
 	LayerFangs:          "fangs",
 	LayerTusks:          "tusks",
+	LayerWallBase:       "wall_base",
+	LayerWallUp:         "wall_up",
+	LayerWallDown:       "wall_down",
+	LayerWallLeft:       "wall_left",
+	LayerWallRight:      "wall_right",
 }
 
 // featureOverlayLayer maps each non-defense feature to its overlay
@@ -399,9 +421,14 @@ func initImages() {
 		// current strength as a fraction of MaxWallStrength. Each
 		// tier falls back to a generated box-outline at the right
 		// pixel size when its PNG hasn't been drawn yet.
-		wallWeak := loadOrGenerateBox(path+"wall_weak.png", size)
-		wallMedium := loadOrGenerateBox(path+"wall_medium.png", size)
-		wallStrong := loadOrGenerateBox(path+"wall_strong.png", size)
+		// Walls are authored as one slice per strength tier (weak /
+		// medium / strong) with separate Aseprite layers per piece
+		// (wall_base + four directional connectors). The lua export
+		// writes each layer to wall_<layer>_<strength>.png so the
+		// loader can pick them up independently.
+		wallWeak := loadWallLayers(path, "weak", size)
+		wallMedium := loadWallLayers(path, "medium", size)
+		wallStrong := loadWallLayers(path, "strong", size)
 		// Food is authored as three size tiers per resolution; the grid
 		// renderer picks between them based on the food item's value as a
 		// fraction of MaxFoodValue. Circle fallbacks match the organism
@@ -433,9 +460,9 @@ func initImages() {
 			RoleFoodSmall:  {LayerBody: staticFrames(foodSmall)},
 			RoleFoodMedium: {LayerBody: staticFrames(foodMedium)},
 			RoleFoodLarge:  {LayerBody: staticFrames(foodLarge)},
-			RoleWallWeak:   {LayerBody: staticFrames(wallWeak)},
-			RoleWallMedium: {LayerBody: staticFrames(wallMedium)},
-			RoleWallStrong: {LayerBody: staticFrames(wallStrong)},
+			RoleWallWeak:   wallWeak,
+			RoleWallMedium: wallMedium,
+			RoleWallStrong: wallStrong,
 		}
 		// Low-res (4x4 / 8x8) authors a single unvaried `body` layer per
 		// organism role; high-res (16x16+) authors mutually-exclusive
@@ -471,6 +498,39 @@ func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Imag
 		return loadImage(fullPath)
 	}
 	return generateCircle(totalSize, diameter)
+}
+
+// loadOrNil returns the loaded image when the asset exists, otherwise
+// nil. Used for sprite slots that should silently no-op when the
+// artist hasn't drawn them yet (wall connectors); spriteFromSet's
+// empty-frames-returns-nil contract then lets renderers skip them.
+func loadOrNil(fullPath string) *ebiten.Image {
+	if assetExists(fullPath) {
+		return loadImage(fullPath)
+	}
+	return nil
+}
+
+// loadWallLayers loads one strength tier's full layered set: the
+// base sprite plus the four directional connectors. The base falls
+// back to a generated box so an unauthored wall is still visible.
+// Connectors load only when the corresponding PNG exists — a missing
+// connector means the renderer just doesn't draw that overlay, so
+// walls without connector art appear as isolated piles regardless of
+// their neighbours.
+//
+// Filename convention mirrors the lua export: wall_<layer>_<strength>.png
+// (e.g. wall_base_medium.png, wall_up_strong.png).
+func loadWallLayers(path, strength string, size int) LayeredFrames {
+	out := make(LayeredFrames)
+	out[LayerWallBase] = staticFrames(loadOrGenerateBox(path+"wall_base_"+strength+".png", size))
+	for _, layer := range []Layer{LayerWallUp, LayerWallDown, LayerWallLeft, LayerWallRight} {
+		fname := path + layerFilenamePrefix[layer] + "_" + strength + ".png"
+		if img := loadOrNil(fname); img != nil {
+			out[layer] = staticFrames(img)
+		}
+	}
+	return out
 }
 
 // loadOrGenerateBox is the same pattern for box-outline fallbacks

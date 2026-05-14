@@ -6,11 +6,13 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// Wall-strength bounds. Walls are added by ActBurrow (positive
-// delta), removed by ActDig (negative delta); a 0-strength wall is
-// removed from the map entirely so IsWallAtPoint returns false.
-// The cap at 7 keeps the strength visualisable as a small set of
-// alpha tiers without making walls indestructibly expensive to dig.
+// Wall-strength bounds. Walls are placed and damaged by ActDig — the
+// digging organism damages the wall in front (negative delta) while
+// reinforcing or creating walls on its left and right (positive
+// delta). A 0-strength wall is removed from the map entirely so
+// IsWallAtPoint returns false. The cap at 7 keeps the strength
+// visualisable as a small set of alpha tiers without making walls
+// indestructibly expensive to dig.
 const (
 	MinWallStrength = 1
 	MaxWallStrength = 7

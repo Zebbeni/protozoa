@@ -533,7 +533,17 @@ func (o *Organism) isOrganismAtPoint(p utils.Point) bool {
 }
 
 func (o *Organism) isWallAtPoint(p utils.Point) bool {
-	return o.lookupAPI.IsWallAtPoint(p)
+	if o.lookupAPI.IsWallAtPoint(p) {
+		return true
+	}
+	// A camouflaged organism reads as a wall to sensor conditions — it
+	// blends into the terrain. Independent of StatusHiding: the visual
+	// disguise is always on (it's the feature, not the action). Hide
+	// additionally cloaks the organism from IsOrganism checks; that
+	// half lives in isOrganismAtPoint via the StatusHiding filter.
+	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
+		return x != nil && x.Traits().Features.Has(physiology.FeatCamouflage)
+	})
 }
 
 func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool {

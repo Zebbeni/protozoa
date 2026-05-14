@@ -795,7 +795,6 @@ func (cs *ConfigScreen) buildSections() {
 			field("Attacking", "health_change_from_attacking"),
 			field("Stinging", "health_change_from_stinging"),
 			field("Digging", "health_change_from_digging"),
-			field("Burrowing", "health_change_from_burrowing"),
 			field("Hunkering", "health_change_from_hunkering"),
 			field("Flaring", "health_change_from_flaring"),
 			field("Hiding", "health_change_from_hiding"),
@@ -853,6 +852,7 @@ func (cs *ConfigScreen) buildSections() {
 		{title: "— TEETH TREE —", fields: []configField{
 			field("Fangs Damage Dealt", "fangs_damage_dealt_mult"),
 			field("Tusks Move Cost", "tusks_move_cost_mult"),
+			field("Tusks Damage Dealt", "tusks_damage_dealt_mult"),
 		}},
 		{title: "— STATISTICS —", fields: []configField{
 			field("Population Update Interval", "population_update_interval"),

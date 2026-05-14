@@ -406,7 +406,9 @@ func (a *AnimationTest) Draw(screen *ebiten.Image) {
 	elapsed := time.Since(a.startTime)
 	pickerBottom := a.drawColorPicker(screen)
 	featureBarBottom := a.drawFeatureBar(screen, pickerBottom)
-	a.drawMatrix(screen, elapsed, featureBarBottom)
+	matrixBottom := a.drawMatrix(screen, elapsed, featureBarBottom)
+	staticBottom := a.drawStaticSection(screen, matrixBottom)
+	a.drawWallDemoSection(screen, staticBottom)
 	a.drawHint(screen)
 	a.drawExportOverlay(screen)
 }
@@ -563,7 +565,7 @@ func (a *AnimationTest) matchesRowSelection(tree physiology.Tree, path []physiol
 // The pan offset (panX, panY) shifts everything matrix-related — sprites,
 // row labels, column headers. UI chrome (color picker, feature bar, hint
 // line) stays anchored.
-func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, chromeBottom int) {
+func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, chromeBottom int) int {
 	const (
 		colGap    = 8  // horizontal gap between animation columns
 		rowGap    = 4  // vertical gap between rows
@@ -616,6 +618,222 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, 
 			}
 			rowY += rowH
 		}
+	}
+	return int(rowY)
+}
+
+// staticDemoRoles is the set of non-organism sprites previewed under
+// the animation matrix: every food size tier and every wall strength
+// tier, in the order the role enum declares them. They're static
+// (single-frame) art, tinted with foodColor / wallColor to match the
+// live grid.
+var staticDemoRoles = []struct {
+	role  resources.ImageRole
+	label string
+}{
+	{resources.RoleFoodSmall, "FOOD S"},
+	{resources.RoleFoodMedium, "FOOD M"},
+	{resources.RoleFoodLarge, "FOOD L"},
+	{resources.RoleWallWeak, "WALL W"},
+	{resources.RoleWallMedium, "WALL M"},
+	{resources.RoleWallStrong, "WALL S"},
+}
+
+// drawStaticSection paints food + wall sprites at every zoom level
+// directly below the animation matrix. One row per zoom; columns are
+// the staticDemoRoles entries side by side. Column widths only need to
+// hold a 1-cell sprite (food / walls don't extend), so the layout is
+// tighter than the matrix above.
+//
+// Sprites use the same per-role tint the live grid applies — the
+// preview shows the exact colour the artist will see in-game, not the
+// user-picked organism palette. Static sprites aren't recorded in
+// cellHits — click-to-export is organism-only for now.
+func (a *AnimationTest) drawStaticSection(screen *ebiten.Image, topPx int) int {
+	const (
+		sectionGap = 24
+		colGap     = 8
+		rowGap     = 4
+		headerGap  = 8
+	)
+
+	fg := themedForeground()
+
+	maxNativeCell := zoomSpriteSizes[len(zoomSpriteSizes)-1]
+	maxCellPx := float64(maxNativeCell * GridDisplayScale)
+	colW := maxCellPx + colGap // 1-cell sprite width + small inter-column gap
+
+	const sectionLeftPx = 140 // align with matrixLeftPx
+	leftPx := float64(sectionLeftPx) + a.panX
+	rowY := float64(topPx+sectionGap) + a.panY
+
+	// Section header above the per-zoom rows.
+	text.Draw(screen, "FOOD & WALLS", resources.FontSourceCodePro10, int(8+a.panX), int(rowY)-headerGap-12, fg)
+
+	// Column headers anchored just above the first row.
+	for c, sr := range staticDemoRoles {
+		x := int(leftPx + float64(c)*colW)
+		text.Draw(screen, sr.label, resources.FontSourceCodePro10, x, int(rowY)-headerGap, fg)
+	}
+
+	for zi, nativeCell := range zoomSpriteSizes {
+		cellSize := float64(nativeCell)
+		scale := float64(GridDisplayScale)
+		cellPx := cellSize * scale
+		rowH := cellPx + rowGap
+
+		label := fmt.Sprintf("%dx%d", nativeCell, nativeCell)
+		text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cellPx*0.75), fg)
+
+		for c, sr := range staticDemoRoles {
+			sprite := resources.SpriteAtZoom(zi, sr.role, animation.AnimIdle, 0)
+			if sprite == nil {
+				continue
+			}
+			drawX := leftPx + float64(c)*colW
+			drawAnimatedSprite(screen, drawX, rowY, sprite, utils.Point{}, a.tintForStaticRole(sr.role), cellSize, scale)
+		}
+		rowY += rowH
+	}
+	return int(rowY)
+}
+
+// tintForStaticRole returns the colour to tint food / wall sprites
+// with — matches the live grid's foodColor / wallColor so the preview
+// is faithful. Walls additionally pick up the pH-tint the live grid
+// would apply when the user has cycled the bg to a non-neutral pH via
+// the B hotkey, so the preview reflects how walls read against each
+// pH extreme. Unknown roles fall back to white (identity tint).
+func (a *AnimationTest) tintForStaticRole(role resources.ImageRole) colorful.Color {
+	switch role {
+	case resources.RoleFoodSmall, resources.RoleFoodMedium, resources.RoleFoodLarge:
+		return foodColor
+	case resources.RoleWallWeak, resources.RoleWallMedium, resources.RoleWallStrong:
+		return wallTintForPh(a.bgPh())
+	}
+	return colorful.Color{R: 1, G: 1, B: 1}
+}
+
+// bgPh maps the B-hotkey bg mode to a pH value to drive sprite tints.
+// bgMode 0 (theme) is treated as neutral pH so walls render at the
+// untinted wallColor — matching how a fresh neutral cell looks in the
+// live grid. bgMode 1 / 2 use the configured pH extremes so the
+// preview matches what the live grid would paint at MinPh / MaxPh.
+func (a *AnimationTest) bgPh() float64 {
+	switch a.bgMode {
+	case 1:
+		return config.MinPh()
+	case 2:
+		return config.MaxPh()
+	default:
+		return (config.MaxPh() + config.MinPh()) / 2.0
+	}
+}
+
+// wallDemoPattern is the wall-strength grid rendered under the FOOD &
+// WALLS section to showcase how the directional connector overlays
+// join adjacent walls. The layout is hand-picked to exercise every
+// neighbour combination at least once:
+//   - isolated pile (no neighbours)
+//   - single-direction connectors (up / down / left / right)
+//   - two-direction corners (UR, UL, DR, DL)
+//   - straight runs (horizontal and vertical)
+//   - T-junctions (3 neighbours)
+//   - cross (all 4 neighbours)
+//
+// Strength is uniform across the grid so the only thing that varies
+// per cell is which connector overlays are stamped on top of the base.
+var wallDemoPattern = [][]int{
+	{4, 0, 4, 4, 4, 0, 4, 0},
+	{4, 4, 4, 4, 4, 4, 4, 0},
+	{0, 0, 4, 0, 4, 0, 0, 4},
+}
+
+// drawWallDemoSection paints wallDemoPattern at every zoom level,
+// directly below the food + wall row. Each cell's connector
+// composition is computed against the pattern itself (not against
+// any real sim) so the demo is self-contained. Tint is driven by the
+// B-hotkey bg mode via wallTintForPh, mirroring the live grid, so
+// the section doubles as a preview of how connector composites read
+// against each pH extreme.
+func (a *AnimationTest) drawWallDemoSection(screen *ebiten.Image, topPx int) int {
+	const (
+		sectionGap    = 24
+		rowGap        = 6
+		headerGap     = 8
+		sectionLeftPx = 140 // align with the other static rows
+	)
+	fg := themedForeground()
+
+	leftPx := float64(sectionLeftPx) + a.panX
+	rowY := float64(topPx+sectionGap) + a.panY
+
+	text.Draw(screen, "WALL CONNECTIONS", resources.FontSourceCodePro10, int(8+a.panX), int(rowY)-headerGap-12, fg)
+
+	rows := len(wallDemoPattern)
+	if rows == 0 {
+		return int(rowY)
+	}
+	cols := len(wallDemoPattern[0])
+	tint := wallTintForPh(a.bgPh())
+
+	for zi, nativeCell := range zoomSpriteSizes {
+		cellSize := float64(nativeCell)
+		scale := float64(GridDisplayScale)
+		cellPx := cellSize * scale
+
+		label := fmt.Sprintf("%dx%d", nativeCell, nativeCell)
+		text.Draw(screen, label, resources.FontSourceCodePro10, int(8+a.panX), int(rowY+cellPx*0.75), fg)
+
+		for gy := 0; gy < rows; gy++ {
+			for gx := 0; gx < cols; gx++ {
+				strength := wallDemoPattern[gy][gx]
+				if strength == 0 {
+					continue
+				}
+				cx := leftPx + float64(gx)*cellPx
+				cy := rowY + float64(gy)*cellPx
+
+				hasUp := gy > 0 && wallDemoPattern[gy-1][gx] > 0
+				hasDown := gy+1 < rows && wallDemoPattern[gy+1][gx] > 0
+				hasLeft := gx > 0 && wallDemoPattern[gy][gx-1] > 0
+				hasRight := gx+1 < cols && wallDemoPattern[gy][gx+1] > 0
+
+				a.stampWallComposite(screen, zi, cx, cy, strength, cellSize, scale, tint, hasUp, hasDown, hasLeft, hasRight)
+			}
+		}
+		rowY += float64(rows)*cellPx + rowGap
+	}
+	return int(rowY)
+}
+
+// stampWallComposite lays one wall cell (base + directional connector
+// overlays) onto target at the given zoom. Mirrors what the live
+// grid renderer does in renderWallAt, but takes neighbour booleans
+// directly rather than querying a simulation — the animation test
+// has no sim and walks a fixed pattern instead.
+func (a *AnimationTest) stampWallComposite(target *ebiten.Image, zoom int, x, y float64, strength int, cellSize, scale float64, tint colorful.Color, hasUp, hasDown, hasLeft, hasRight bool) {
+	role := wallRoleForStrength(strength)
+	if base := resources.SpriteLayerAtZoom(zoom, role, resources.LayerWallBase, animation.AnimIdle, 0); base != nil {
+		drawAnimatedSprite(target, x, y, base, utils.Point{}, tint, cellSize, scale)
+	}
+	for _, c := range []struct {
+		active bool
+		layer  resources.Layer
+	}{
+		{hasUp, resources.LayerWallUp},
+		{hasDown, resources.LayerWallDown},
+		{hasLeft, resources.LayerWallLeft},
+		{hasRight, resources.LayerWallRight},
+	} {
+		if !c.active {
+			continue
+		}
+		sprite := resources.SpriteLayerAtZoom(zoom, role, c.layer, animation.AnimIdle, 0)
+		if sprite == nil {
+			continue
+		}
+		drawAnimatedSprite(target, x, y, sprite, utils.Point{}, tint, cellSize, scale)
 	}
 }
 

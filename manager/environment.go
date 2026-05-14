@@ -39,8 +39,9 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.currentPhMap[x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
 			// Start all locations at neutral ph. Walls don't exist
-			// at sim start (they only appear via ActBurrow); the pH
-			// map is uniform until that happens.
+			// at sim start (they only appear when an organism
+			// performs ActDig and places side walls); the pH map is
+			// uniform until that happens.
 			val := (c.MaxInitialPh() + c.MinInitialPh()) / 2.0
 			m.previousPhMap[x][y] = val
 			m.currentPhMap[x][y] = val

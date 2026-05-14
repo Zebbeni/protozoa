@@ -88,7 +88,6 @@ func HealthChangeFromSpawning() float64      { return constants.HealthChangeFrom
 func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
 func HealthChangeFromStinging() float64      { return constants.HealthChangeFromStinging }
 func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
-func HealthChangeFromBurrowing() float64     { return constants.HealthChangeFromBurrowing }
 func HealthChangeFromHunkering() float64     { return constants.HealthChangeFromHunkering }
 func HealthChangeFromFlaring() float64       { return constants.HealthChangeFromFlaring }
 func HealthChangeFromHiding() float64        { return constants.HealthChangeFromHiding }
@@ -145,6 +144,7 @@ func FangsChemoEfficiencyMult() float64 { return constants.FangsChemoEfficiencyM
 func FangsDamageDealtMult() float64     { return constants.FangsDamageDealtMult }
 func TusksChemoEfficiencyMult() float64 { return constants.TusksChemoEfficiencyMult }
 func TusksMoveCostMult() float64        { return constants.TusksMoveCostMult }
+func TusksDamageDealtMult() float64     { return constants.TusksDamageDealtMult }
 
 // --- Statistics ---
 func PopulationUpdateInterval() int { return constants.PopulationUpdateInterval }
@@ -360,7 +360,6 @@ type Globals struct {
 	HealthChangeFromAttacking            float64 `json:"health_change_from_attacking"`
 	HealthChangeFromStinging             float64 `json:"health_change_from_stinging"`
 	HealthChangeFromDigging              float64 `json:"health_change_from_digging"`
-	HealthChangeFromBurrowing            float64 `json:"health_change_from_burrowing"`
 	HealthChangeFromHunkering            float64 `json:"health_change_from_hunkering"`
 	HealthChangeFromFlaring              float64 `json:"health_change_from_flaring"`
 	HealthChangeFromHiding               float64 `json:"health_change_from_hiding"`
@@ -430,6 +429,7 @@ type Globals struct {
 	FangsDamageDealtMult     float64 `json:"fangs_damage_dealt_mult"`
 	TusksChemoEfficiencyMult float64 `json:"tusks_chemo_efficiency_mult"`
 	TusksMoveCostMult        float64 `json:"tusks_move_cost_mult"`
+	TusksDamageDealtMult     float64 `json:"tusks_damage_dealt_mult"`
 
 	// --- Statistics ---
 	PopulationUpdateInterval int `json:"population_update_interval"`

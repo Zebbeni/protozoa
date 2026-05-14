@@ -70,11 +70,13 @@ const (
 
 	// Portrait window: an animated 96x96 spotlight of the selected
 	// organism's sprite, drawn as the third column to the right of two
-	// stat columns. The 16x16 sprite is scaled 4x (nearest-neighbour)
-	// and centred on its base cell.
+	// stat columns. The 32x32 sprite is scaled 2x (nearest-neighbour)
+	// and centred on its base cell, so the final on-screen sprite is
+	// the same 64px as the previous 16x16-at-4x setup but with double
+	// the source detail.
 	portraitSize       = 96
-	portraitSpriteCell = 16
-	portraitScale      = 4
+	portraitSpriteCell = 32
+	portraitScale      = 2
 	// Asymmetric gaps: a tight 8px between the two stat columns, then
 	// a larger 16px before the portrait so it has visible breathing
 	// room from the column 2 values.
@@ -1504,7 +1506,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 			anim = animation.ForFrame(frame)
 			direction = frame.Direction
 		}
-		// 16x16 sprite set always uses 4 frames per cycle.
+		// High-res sprite sets (16x16 and 32x32) use 4 frames per cycle.
 		frameIdx = p.grid.animState.SpriteFrameIndex(4)
 	}
 
@@ -1517,14 +1519,15 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 	const scale = float64(portraitScale)
 	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
 	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
-	// Portrait is always the 16x16 (high-res) set, so iterate the
-	// physiology-driven layers like the grid renderer does. Falls
-	// back to the bare default sprite when nothing in that organism's
-	// layer list has a PNG on disk yet.
+	// Portrait always renders from the 32x32 (highest-res) set, so
+	// iterate the physiology-driven layers like the grid renderer
+	// does. Falls back to the bare default sprite when nothing in
+	// that organism's layer list has a PNG on disk yet.
+	const portraitZoom = 3 // 0:4x4, 1:8x8, 2:16x16, 3:32x32
 	layers := r.OrganismLayersFor(info.Features)
 	stampedAny := false
 	for _, layer := range layers {
-		sprite := r.SpriteLayerAtZoom(2, role, layer, anim, frameIdx)
+		sprite := r.SpriteLayerAtZoom(portraitZoom, role, layer, anim, frameIdx)
 		if sprite == nil {
 			continue
 		}
@@ -1536,7 +1539,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 		stampedAny = true
 	}
 	if !stampedAny {
-		sprite := r.SpriteAtZoom(2, role, anim, frameIdx)
+		sprite := r.SpriteAtZoom(portraitZoom, role, anim, frameIdx)
 		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
 	}
 

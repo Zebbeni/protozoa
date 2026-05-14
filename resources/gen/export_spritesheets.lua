@@ -75,7 +75,11 @@
 --     Static art (any resolution; paired only with the matching
 --     _static slice stem):
 --       food
---       wall
+--       wall_base   — central pile (always drawn for every wall)
+--       wall_up     — connector overlay shown when the wall has a
+--       wall_down     neighbour in that direction. Drawn on top of
+--       wall_left     wall_base by the grid renderer; absence in
+--       wall_right    the .aseprite file just means no overlay.
 --
 --   Preview-only layers — never exported, even when visible:
 --     background            — backdrop you can use to see how
@@ -260,14 +264,19 @@ end
 -- applicableLayersFor returns the ordered list of layer names that
 -- should produce output for the given slice. Returns nil to mean
 -- "no exports for this slice" (skipped). The mapping is:
---   wall*           → { "wall" }
+--   wall*           → { "wall_base", "wall_up", "wall_down",
+--                        "wall_left", "wall_right" }
 --   food_*          → { "food" }
 --   organism @ <=8  → { "body" }
 --   organism @ >=16 → { body variants ..., feature overlays ... }
 local function applicableLayersFor(slice)
     local stem = slice.stem
     if startsWith(stem, "wall") then
-        return { "wall" }
+        -- Walls export a base sprite plus four directional connector
+        -- overlays. The grid renderer layers them at draw time when
+        -- adjacent cells also hold walls, producing a single
+        -- connected visual.
+        return { "wall_base", "wall_up", "wall_down", "wall_left", "wall_right" }
     end
     if startsWith(stem, "food_") or stem == "food" then
         return { "food" }
@@ -380,7 +389,10 @@ local highResOrganismLayers = {
     "antennae", "feelers", "tasters",
     "teeth", "fangs", "tusks",
 }
-local universalLayers   = { "food", "wall" }
+local universalLayers   = {
+    "food",
+    "wall_base", "wall_up", "wall_down", "wall_left", "wall_right",
+}
 local expectedOrgStems  = { "small", "medium", "large" }
 local expectedFoodStems = { "food_small", "food_medium", "food_large" }
 local expectedWallStems = { "wall_weak", "wall_medium", "wall_strong" }
@@ -502,6 +514,14 @@ end
 
 local function outputFilename(slice, tag, layerName, applicable)
     local stem = safeName(slice.stem)
+    -- Wall special case: stems are wall_<strength> and layers are
+    -- wall_<part>. Output as <layer>_<strength>.png (e.g.
+    -- wall_base_medium.png, wall_up_strong.png) so the loader can
+    -- pair sprites by both axes without parsing a redundant prefix.
+    if startsWith(stem, "wall_") and startsWith(layerName, "wall_") then
+        local strength = string.sub(stem, #"wall_" + 1)
+        return safeName(layerName) .. "_" .. safeName(strength) .. ".png"
+    end
     if #applicable == 1 then
         if slice.isStatic then
             return stem .. ".png"
