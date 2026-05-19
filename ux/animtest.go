@@ -235,6 +235,7 @@ var demoAnimations = []demoCell{
 	{"CHEMO", animation.AnimChemo},
 	{"CHEMO FAIL", animation.AnimChemoFail},
 	{"DIE", animation.AnimDie},
+	{"HIDE", animation.AnimHide},
 }
 
 // NewAnimationTest builds a demo game starting at 16x16 sprites with the

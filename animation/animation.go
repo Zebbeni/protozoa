@@ -92,10 +92,11 @@ const (
 	AnimChemo
 	AnimChemoFail
 	AnimDie
+	AnimHide
 )
 
 // AllAnimations lists every Animation value, for resource preloading.
-var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimEatFail, AnimChemo, AnimChemoFail, AnimDie}
+var AllAnimations = [...]Animation{AnimIdle, AnimMove, AnimBlocked, AnimTurnLeft, AnimTurnRight, AnimAttack, AnimEat, AnimEatFail, AnimChemo, AnimChemoFail, AnimDie, AnimHide}
 
 // ForStatus maps a resolved organism.Status to the Animation sheet
 // that should play during its cycle transition. The mapping is 1:1
@@ -123,10 +124,12 @@ func ForStatus(s organism.Status) Animation {
 		return AnimChemoFail
 	case organism.StatusDying:
 		return AnimDie
+	case organism.StatusHiding:
+		return AnimHide
 	default:
 		// Status values without dedicated animations yet (Spawning,
-		// Digging, Burrowing, Hunkering, Flaring, Hiding) fall back
-		// to AnimIdle. Add cases here as sprites land.
+		// Digging, Burrowing, Hunkering, Flaring) fall back to
+		// AnimIdle. Add cases here as sprites land.
 		return AnimIdle
 	}
 }

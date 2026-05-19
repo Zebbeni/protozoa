@@ -30,6 +30,7 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimChemo:     "chemo",
 	animation.AnimChemoFail: "chemofail",
 	animation.AnimDie:       "die",
+	animation.AnimHide:      "hide",
 }
 
 // organismRoleName maps each organism role to the filename stem used by the

@@ -22,20 +22,24 @@ const (
 	Zoom8  ZoomLevel = 1
 	Zoom16 ZoomLevel = 2
 	Zoom32 ZoomLevel = 3
+	Zoom64 ZoomLevel = 4
 
 	ZoomMin = Zoom4
-	ZoomMax = Zoom32
+	ZoomMax = Zoom64
 )
 
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
-// Each zoom level renders at its own native sprite resolution — 4x4
-// art at 4px cells, 8x8 at 8px, 16x16 at 16px, 32x32 at 32px — so the
-// renderer never has to upscale sprites past 1x.
-var zoomUnitSizes = [4]int{4, 8, 16, 32}
+// Zoom4..Zoom32 render at their own native sprite resolution so the
+// renderer never has to upscale past 1x. Zoom64 reuses the 32x32
+// sprite set scaled 2x — the highest-detail art the project authors
+// without doubling memory for a dedicated 64x sheet.
+var zoomUnitSizes = [5]int{4, 8, 16, 32, 64}
 
 // zoomSpriteSet maps each zoom level to the sprite set index
-// (0=4x4, 1=8x8, 2=16x16, 3=32x32).
-var zoomSpriteSet = [4]int{0, 1, 2, 3}
+// (0=4x4, 1=8x8, 2=16x16, 3=32x32). Zoom64 reuses sprite set 3, so
+// sprites are sampled from the 32x32 sheets and scaled up by
+// SpriteScale to fill the 64px cells.
+var zoomSpriteSet = [5]int{0, 1, 2, 3, 3}
 
 // zoomSpriteSizes is the native pixel size per sprite set.
 var zoomSpriteSizes = [4]int{4, 8, 16, 32}

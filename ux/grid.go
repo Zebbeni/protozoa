@@ -3,19 +3,15 @@ package ux
 import (
 	"fmt"
 	"image/color"
-	"math"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
-	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/instrument"
-	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
@@ -24,8 +20,12 @@ import (
 type mode int
 type layerType int
 
+// Render layers, stacked bottom-to-top in compose order. Each layer's
+// rendering lives in its own file (grid_ph.go, grid_walls.go, etc.);
+// this file only owns the layer-image map, the compose loop, and the
+// helpers shared across layers.
 const (
-	layerEnv layerType = iota
+	layerPh layerType = iota
 	layerWalls
 	layerFood
 	layerOrganisms
@@ -50,17 +50,6 @@ const (
 	selectManual
 )
 
-// minOrganismAnimationUnitSize is the smallest per-cell unit size at which
-// organism sprite animations play. Below this (Zoom4), the renderer pins
-// to frame 0 of the sheet — at tiny sizes per-frame differences are too
-// small to read and the flicker adds more noise than animation.
-const minOrganismAnimationUnitSize = 8
-
-var (
-	foodColor = colorful.HSLuv(35, 0.45, 0.3)
-	wallColor = colorful.HSLuv(0, 0, 0.5)
-)
-
 type Grid struct {
 	simulation *simulation.Simulation
 	Camera     *Camera
@@ -80,21 +69,37 @@ type Grid struct {
 	showWalls     bool
 	orgColor      mode
 	selectMode    mode
-	clearImg   *ebiten.Image
+	clearImg      *ebiten.Image
 	// selectionBoxImg is the source bitmap stamped onto layerSelection
 	// for every highlighted organism. Authored white-on-transparent so
 	// the per-stamp ColorScale can tint to any selection colour.
 	// Rebuilt on zoom change.
 	selectionBoxImg *ebiten.Image
 
+	// phBuffer is the W × H source-of-truth for the pH layer: one
+	// pixel per cell, no border. Updated in place via Set on
+	// incremental changes or WritePixels on full refresh. Acts as the
+	// source for the sub-image draws that build phBordered, so we
+	// never draw an image to itself.
+	phBuffer *ebiten.Image
+
+	// phBordered is the (W+2) × (H+2) scratch image that backs the pH
+	// layer: phBuffer's content plus a 1-pixel wrap-aware border on
+	// every side, stamped in via sub-image draws from phBuffer.
+	// Upscaled into layers[layerPh] with FilterLinear so the GPU
+	// produces the per-pixel gradient blend, including across world
+	// wrap edges (the wallpaper-tile seam disappears). Size is
+	// independent of zoom — only the destination layer grows.
+	phBordered *ebiten.Image
+
 	// Per-phase render timings, refreshed each call to Render(). Surfaced
 	// to the debug overlay so a slow frame can be attributed to a
 	// specific layer or compose pass.
-	timeWalls       time.Duration
-	timeEnv         time.Duration
-	timeFood        time.Duration
-	timeOrganisms   time.Duration
-	timeCompose     time.Duration
+	timeWalls          time.Duration
+	timePh             time.Duration
+	timeFood           time.Duration
+	timeOrganisms      time.Duration
+	timeCompose        time.Duration
 	timeSelectionBoxes time.Duration
 
 	// descHighlight caches the set of descendant IDs to highlight for
@@ -106,29 +111,14 @@ type Grid struct {
 	descHighlight *descHighlightCache
 }
 
-// descHighlightCache is the precomputed answer to "which IDs are
-// descendants of selID and alive somewhere in [fromCycle, toCycle]?"
-// Rebuilt on selection change or when the playhead crosses the window.
-type descHighlightCache struct {
-	selID              int
-	fromCycle, toCycle int
-	ids                map[int]struct{}
-}
-
-// descHighlightBufferCycles is how far ahead of the playhead each
-// rebuild looks. Bigger means fewer rebuilds but a larger walk each
-// time; ~1000 cycles at default speed = a rebuild every several seconds
-// of wall-clock playback, which is barely perceptible.
-const descHighlightBufferCycles = 1000
-
 // RenderTimings is the per-phase breakdown surfaced to the debug
 // overlay. Returned by LastRenderTimings.
 type RenderTimings struct {
-	Walls       time.Duration
-	Env         time.Duration
-	Food        time.Duration
-	Organisms   time.Duration
-	Compose     time.Duration
+	Walls          time.Duration
+	Ph             time.Duration
+	Food           time.Duration
+	Organisms      time.Duration
+	Compose        time.Duration
 	SelectionBoxes time.Duration
 }
 
@@ -136,11 +126,11 @@ type RenderTimings struct {
 // Render() call. Used by the debug overlay; safe to call any time.
 func (g *Grid) LastRenderTimings() RenderTimings {
 	return RenderTimings{
-		Walls:       g.timeWalls,
-		Env:         g.timeEnv,
-		Food:        g.timeFood,
-		Organisms:   g.timeOrganisms,
-		Compose:     g.timeCompose,
+		Walls:          g.timeWalls,
+		Ph:             g.timePh,
+		Food:           g.timeFood,
+		Organisms:      g.timeOrganisms,
+		Compose:        g.timeCompose,
 		SelectionBoxes: g.timeSelectionBoxes,
 	}
 }
@@ -169,7 +159,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 
 func (g *Grid) initLayerImages() {
 	g.layers = map[layerType]*ebiten.Image{
-		layerEnv:       g.newEnvLayer(),
+		layerPh:        g.newBlankLayer(),
 		layerWalls:     g.newBlankLayer(),
 		layerFood:      g.newBlankLayer(),
 		layerOrganisms: g.newBlankLayer(),
@@ -178,47 +168,12 @@ func (g *Grid) initLayerImages() {
 	g.buildSelectionBoxImg()
 }
 
-// buildSelectionBoxImg creates a white outlined-square image at the
-// current unit size, used as the source for every per-organism
-// selection box. Stamping a tinted copy of this image is one DrawImage
-// per highlight; the previous version drew 4 lines × N visible tiles
-// per box, which dominated frames with many highlights at low zoom.
-//
-// Uses 1px-tall / 1px-wide filled rects (not DrawLine) so each side
-// lands on a whole-pixel row/column and the corners overlap cleanly.
-// DrawLine's sub-pixel boundary places y=0 on the row above pixel 0
-// and gets clipped, leaving visible gaps on the top and left.
-func (g *Grid) buildSelectionBoxImg() {
-	us := g.unitSize()
-	img := ebiten.NewImage(us, us)
-	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	usf := float64(us)
-	ebitenutil.DrawRect(img, 0, 0, usf, 1, white)     // top
-	ebitenutil.DrawRect(img, 0, 0, 1, usf, white)     // left
-	ebitenutil.DrawRect(img, 0, usf-1, usf, 1, white) // bottom
-	ebitenutil.DrawRect(img, usf-1, 0, 1, usf, white) // right
-	g.selectionBoxImg = img
-}
-
 func (g *Grid) loadOrganismImages() {
 	resources.SelectZoom(g.Camera.SpriteSet())
 }
 
 func (g *Grid) newBlankLayer() *ebiten.Image {
 	return ebiten.NewImage(g.Camera.WorldPixelWidth(), g.Camera.WorldPixelHeight())
-}
-
-// newEnvLayer creates the environment image at sprite-native resolution
-// per grid cell (4 or 16 px/cell depending on the active sprite set).
-// Each pixel's colour is bilinearly interpolated CPU-side from the four
-// nearest cells' pH values when the cell changes, with wrap-aware
-// neighbour sampling. The viewport compose step uses FilterNearest, so
-// no GPU bilinear pass blurs the result — keeping the gradients smooth
-// without the seam artifact that FilterLinear leaves at the world wrap
-// edge.
-func (g *Grid) newEnvLayer() *ebiten.Image {
-	cell := zoomSpriteSizes[g.Camera.SpriteSet()]
-	return ebiten.NewImage(config.GridUnitsWide()*cell, config.GridUnitsHigh()*cell)
 }
 
 func (g *Grid) unitSize() int {
@@ -244,10 +199,15 @@ func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 	g.doRefresh = true
 }
 
-// Render draws all layers and returns a viewport-sized image.
+// Render paints each layer (pH/walls/food/organisms/selection) into its
+// own off-screen image, then composes a viewport-sized result by tiling
+// the layers as a wallpaper around the camera position. The per-layer
+// rendering logic lives in grid_ph.go, grid_walls.go, grid_food.go,
+// grid_organisms.go, and grid_selection.go — this method is purely the
+// orchestrator.
 func (g *Grid) Render() *ebiten.Image {
 	if g.doRefresh {
-		g.layers[layerEnv] = g.newEnvLayer()
+		g.layers[layerPh] = g.newBlankLayer()
 		g.layers[layerWalls] = g.newBlankLayer()
 		g.layers[layerFood] = g.newBlankLayer()
 		g.layers[layerOrganisms] = g.newBlankLayer()
@@ -259,8 +219,8 @@ func (g *Grid) Render() *ebiten.Image {
 	g.timeWalls = time.Since(t)
 
 	t = time.Now()
-	g.renderEnvironment(g.layers[layerEnv], g.doRefresh)
-	g.timeEnv = time.Since(t)
+	g.renderPh(g.layers[layerPh], g.doRefresh)
+	g.timePh = time.Since(t)
 
 	t = time.Now()
 	g.renderFood(g.layers[layerFood], g.doRefresh)
@@ -324,7 +284,7 @@ func (g *Grid) Render() *ebiten.Image {
 
 	// drawLayer paints the given layer at every tile origin needed to
 	// cover the viewport. scaleX/scaleY scale the layer image up to
-	// world-pixel size where applicable (e.g. the env layer is at
+	// world-pixel size where applicable (e.g. the pH layer is at
 	// sprite-native resolution). filter picks the ebiten sampling mode.
 	drawLayer := func(layer *ebiten.Image, scaleX, scaleY float64, filter ebiten.Filter) {
 		for ox := xStart; ox < vw; ox += wpw {
@@ -341,12 +301,10 @@ func (g *Grid) Render() *ebiten.Image {
 	}
 
 	if g.showPh {
-		// env layer is already at sprite-native resolution with
-		// bilinear-interpolated colours baked in by renderPhValue.
-		// Compose with FilterNearest — the final upscale to display
-		// pixels is purely a sprite-style integer multiplication.
-		envScale := g.Camera.SpriteScale()
-		drawLayer(g.layers[layerEnv], envScale, envScale, ebiten.FilterNearest)
+		// pH layer was upscaled from the bordered scratch into world-
+		// pixel size by renderPh, so it tiles 1:1 here like every other
+		// layer.
+		drawLayer(g.layers[layerPh], 1, 1, ebiten.FilterNearest)
 	}
 	if g.showWalls {
 		drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)
@@ -370,397 +328,6 @@ func (g *Grid) Render() *ebiten.Image {
 
 	g.doRefresh = false
 	return viewportImage
-}
-
-func (g *Grid) renderEnvironment(envImage *ebiten.Image, refresh bool) {
-	if refresh {
-		g.rebuildEnvLayer(envImage)
-		return
-	}
-	updatedPoints := g.simulation.GetUpdatedPhPoints()
-	for point := range updatedPoints {
-		phVal := g.simulation.GetPhAtPoint(point)
-		g.renderPhValue(envImage, point.X, point.Y, phVal)
-	}
-}
-
-// rebuildEnvLayer redraws every pixel of the env layer in one CPU pass,
-// used on full refreshes (initial render, theme change, zoom change).
-// Each pixel is bilinearly interpolated from the four nearest cells'
-// colours with wrap-aware sampling, then uploaded via WritePixels.
-func (g *Grid) rebuildEnvLayer(envImage *ebiten.Image) {
-	N := zoomSpriteSizes[g.Camera.SpriteSet()]
-	W := config.GridUnitsWide()
-	H := config.GridUnitsHigh()
-	imgW := W * N
-	imgH := H * N
-
-	phMap := g.simulation.GetPhMap()
-	cellColors := make([]colorful.Color, W*H)
-	for x := 0; x < W; x++ {
-		for y := 0; y < H; y++ {
-			cellColors[x*H+y] = g.phToColor(phMap[x][y])
-		}
-	}
-
-	buf := make([]byte, 4*imgW*imgH)
-	invN := 1.0 / float64(N)
-	for py := 0; py < imgH; py++ {
-		v := (float64(py)+0.5)*invN - 0.5
-		cy := int(math.Floor(v))
-		fy := v - float64(cy)
-		cy0 := ((cy%H)+H)%H
-		cy1 := ((cy+1)%H+H)%H
-		for px := 0; px < imgW; px++ {
-			u := (float64(px)+0.5)*invN - 0.5
-			cx := int(math.Floor(u))
-			fx := u - float64(cx)
-			cx0 := ((cx%W)+W)%W
-			cx1 := ((cx+1)%W+W)%W
-
-			c00 := cellColors[cx0*H+cy0]
-			c10 := cellColors[cx1*H+cy0]
-			c01 := cellColors[cx0*H+cy1]
-			c11 := cellColors[cx1*H+cy1]
-
-			r := (1-fy)*((1-fx)*c00.R+fx*c10.R) + fy*((1-fx)*c01.R+fx*c11.R)
-			gv := (1-fy)*((1-fx)*c00.G+fx*c10.G) + fy*((1-fx)*c01.G+fx*c11.G)
-			b := (1-fy)*((1-fx)*c00.B+fx*c10.B) + fy*((1-fx)*c01.B+fx*c11.B)
-
-			i := (py*imgW + px) * 4
-			buf[i] = uint8(r * 255)
-			buf[i+1] = uint8(gv * 255)
-			buf[i+2] = uint8(b * 255)
-			buf[i+3] = 255
-		}
-	}
-	envImage.WritePixels(buf)
-}
-
-func (g *Grid) renderWalls(wallsImage *ebiten.Image, refresh bool) {
-	if refresh {
-		// Walls are dynamic — placed and removed by ActDig (which now
-		// damages the wall in front and reinforces walls on either
-		// side in a single action). On full refresh, iterate the entire
-		// strength map and render each cell with brightness scaled
-		// to its current strength (low strength → faint, max → full).
-		for point, strength := range g.simulation.GetWalls() {
-			g.renderWallAt(wallsImage, point, strength)
-		}
-		return
-	}
-	// Incremental repaint covers three triggers:
-	//   1. dig flagged points — wall strength or existence changed
-	//      at that cell
-	//   2. pH-updated points that happen to hold a wall — the wall's
-	//      pH-derived tint needs to follow env drift so the user
-	//      sees the same colour gradient on walls as on the env layer
-	//   3. cardinal neighbours of a (1) point that still hold a
-	//      wall — their connector composition changed when their
-	//      neighbour appeared / disappeared / changed strength,
-	//      so they have to repaint even though nothing happened at
-	//      the neighbour cell itself
-	// Clear before redraw so an old higher strength (or stale tint)
-	// doesn't bleed through under the new sprite.
-	us := g.unitSize()
-	repaint := make(map[utils.Point]bool)
-	// Dig-flagged cells always repaint. Their wall-bearing cardinal
-	// neighbours repaint too — their connector composite includes a
-	// piece pointing at this newly-changed cell.
-	for point := range g.simulation.GetUpdatedWallPoints() {
-		repaint[point] = true
-		for _, c := range wallConnectors {
-			n := point.Add(c.offset)
-			if g.simulation.GetWallStrengthAtPoint(n) > 0 {
-				repaint[n] = true
-			}
-		}
-	}
-	// pH drift only re-tints actual walls — cells without a wall
-	// have nothing on this layer.
-	for point := range g.simulation.GetUpdatedPhPoints() {
-		if g.simulation.GetWallStrengthAtPoint(point) > 0 {
-			repaint[point] = true
-		}
-	}
-	for point := range repaint {
-		x, y := float64(point.X*us), float64(point.Y*us)
-		// Clear first: a dig-removed wall needs its old sprite
-		// gone, and any cell still holding a wall is about to get a
-		// fresh composite that replaces stale connector overlays.
-		g.clearSquare(wallsImage, x, y)
-		if strength := g.simulation.GetWallStrengthAtPoint(point); strength > 0 {
-			g.renderWallAt(wallsImage, point, strength)
-		}
-	}
-}
-
-// renderPhValue updates the 2N×2N pixel region of envImage that depends
-// on cell (gridX, gridY)'s pH value. Pixels are bilinear-interpolated
-// from the cell and its 8 neighbours (wrap-aware), so each cell is
-// flat-coloured at its centre and smoothly transitions to neighbours
-// without any GPU FilterLinear pass — eliminating the seam at world
-// wrap edges.
-//
-// Hue runs acid→base across the range. Saturation grows with distance
-// from neutral pH (mid-pH is grey, extremes are colourful). Lightness
-// flips with the theme so extremes stay high-contrast against the
-// window fill, and the low-sat end blends towards the active theme's
-// background so neutral cells visually disappear into the grid fill
-// (black under dark, white under light).
-func (g *Grid) renderPhValue(envImage *ebiten.Image, gridX, gridY int, phVal float64) {
-	N := zoomSpriteSizes[g.Camera.SpriteSet()]
-	halfN := N / 2
-	W := config.GridUnitsWide()
-	H := config.GridUnitsHigh()
-	imgW := W * N
-	imgH := H * N
-
-	var col [3][3]colorful.Color
-	for dy := -1; dy <= 1; dy++ {
-		for dx := -1; dx <= 1; dx++ {
-			var ph float64
-			if dx == 0 && dy == 0 {
-				ph = phVal
-			} else {
-				wx := ((gridX+dx)%W + W) % W
-				wy := ((gridY+dy)%H + H) % H
-				ph = g.simulation.GetPhAtPoint(utils.Point{X: wx, Y: wy})
-			}
-			col[dy+1][dx+1] = g.phToColor(ph)
-		}
-	}
-
-	startPxX := gridX*N + halfN - N
-	startPxY := gridY*N + halfN - N
-	invN := 1.0 / float64(N)
-
-	for dpy := 0; dpy < 2*N; dpy++ {
-		py := startPxY + dpy
-		v := (float64(py)+0.5)*invN - 0.5
-		cy := int(math.Floor(v))
-		fy := v - float64(cy)
-		iy := cy - (gridY - 1)
-		for dpx := 0; dpx < 2*N; dpx++ {
-			px := startPxX + dpx
-			u := (float64(px)+0.5)*invN - 0.5
-			cx := int(math.Floor(u))
-			fx := u - float64(cx)
-			ix := cx - (gridX - 1)
-
-			c00 := col[iy][ix]
-			c10 := col[iy][ix+1]
-			c01 := col[iy+1][ix]
-			c11 := col[iy+1][ix+1]
-
-			r := (1-fy)*((1-fx)*c00.R+fx*c10.R) + fy*((1-fx)*c01.R+fx*c11.R)
-			gv := (1-fy)*((1-fx)*c00.G+fx*c10.G) + fy*((1-fx)*c01.G+fx*c11.G)
-			b := (1-fy)*((1-fx)*c00.B+fx*c10.B) + fy*((1-fx)*c01.B+fx*c11.B)
-
-			wpx := ((px % imgW) + imgW) % imgW
-			wpy := ((py % imgH) + imgH) % imgH
-			envImage.Set(wpx, wpy, color.RGBA{
-				R: uint8(r * 255), G: uint8(gv * 255), B: uint8(b * 255), A: 255,
-			})
-		}
-	}
-}
-
-// phToColor maps a pH value to its display colour. Extracted from the
-// per-pixel render loop so renderPhValue and rebuildEnvLayer can share
-// the same blend formula.
-func (g *Grid) phToColor(phVal float64) colorful.Color {
-	neutral := (config.MaxPh() + config.MinPh()) / 2.0
-	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
-	weight := 0.0
-	if halfRange > 0 {
-		weight = math.Abs(phVal-neutral) / halfRange
-		if weight > 1 {
-			weight = 1
-		}
-	}
-	bgR, bgG, bgB := config.ThemeBackgroundRGB()
-	tgtR, tgtG, tgtB := config.PhTargetColorRGB(phVal)
-	bg := colorful.Color{R: bgR, G: bgG, B: bgB}
-	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
-	return bg.BlendRgb(target, weight).Clamped()
-}
-
-func (g *Grid) renderFood(foodImage *ebiten.Image, refresh bool) {
-	if refresh {
-		items := g.simulation.GetFoodItems()
-		for _, item := range items {
-			g.renderFoodItem(item, foodImage)
-		}
-	} else {
-		updatedPoints := g.simulation.GetUpdatedFoodPoints()
-		for point := range updatedPoints {
-			us := g.unitSize()
-			x, y := point.X*us, point.Y*us
-			g.clearSquare(foodImage, float64(x), float64(y))
-			if item, exists := g.simulation.GetFoodAtPoint(point); exists {
-				g.renderFoodItem(item, foodImage)
-			}
-		}
-	}
-}
-
-// renderOrganisms fully clears and redraws the organism layer every call.
-//
-// Unlike the other layers (walls, food, env), organisms are animated: we
-// need a fresh draw every render tick so sprites at interpolated positions
-// don't leave trails and so the animation frame index can advance. Clearing
-// unconditionally also means "attack/move animations passing through a
-// neighbour cell" requires no special bookkeeping — both cells are empty
-// on the organism layer each frame, and food/walls below come from their
-// own layers.
-func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organismInfo map[int]*organism.Info) {
-	organismsImage.Clear()
-
-	for _, info := range organismInfo {
-		g.renderOrganism(info, organismsImage)
-	}
-
-	// Dying organisms are gone from GetAllOrganismInfo but their frames
-	// linger in animState.Frames for one cycle so we can play AnimDie.
-	// Synthesise an Info from the frame and feed it through the normal
-	// renderer so the sprite pipeline (role selection, rotation, colour
-	// tint) stays unified between live and dying organisms.
-	// With the dying lifecycle, dying organisms stay in
-	// organismInfo with Status = Dying / Decaying for two cycles
-	// before finalizeDeaths removes them, so the renderer no
-	// longer needs a separate pass to synthesize dying frames
-	// for organisms that vanished from the manager.
-}
-
-// populateSelectionLayer redraws the selection-box layer in world
-// coordinates. Each highlight is a single DrawImage of selectionBoxImg
-// with a per-color tint; the surrounding compose loop handles wallpaper
-// tiling so we don't re-stamp the same box at every visible tile.
-//
-// Tiered styling, brightest last so it overdraws the rest:
-//   - In selectMostSuccessful mode, every currently-living organism on
-//     the most-successful set gets a faded box.
-//   - Otherwise, every living descendant of the selected organism
-//     (resolved through the descendant-highlight cache) gets a faded
-//     box.
-//   - The selected organism itself gets the full themed foreground.
-//
-// The hover-cell box is drawn separately in screen space (see Render),
-// since it shouldn't tile across the wallpaper.
-func (g *Grid) populateSelectionLayer(aliveInfos map[int]*organism.Info) {
-	layer := g.layers[layerSelection]
-	layer.Clear()
-
-	selID := g.simulation.GetSelected()
-
-	if g.selectMode == selectMostSuccessful {
-		successfulColor := fadedForeground(0x40)
-		for _, id := range g.simulation.GetMostSuccessfulIds() {
-			if id == selID {
-				continue // drawn last in bright colour
-			}
-			if info, ok := aliveInfos[id]; ok {
-				g.stampSelectionBox(layer, info.Location, successfulColor)
-			}
-		}
-	} else if selID >= 0 {
-		descColor := fadedForeground(0x40)
-		currentCycle := g.simulation.Cycle()
-
-		// Rebuild the descendant set when selection changed or the
-		// playhead left the cached window.
-		c := g.descHighlight
-		if c == nil || c.selID != selID || currentCycle < c.fromCycle || currentCycle > c.toCycle {
-			from := currentCycle
-			to := currentCycle + descHighlightBufferCycles
-			g.descHighlight = &descHighlightCache{
-				selID:     selID,
-				fromCycle: from,
-				toCycle:   to,
-				ids:       g.buildDescendantHighlightSet(selID, from, to),
-			}
-			c = g.descHighlight
-		}
-
-		// Iterate the smaller of the two sets so the per-render cost
-		// is O(min(live, descendants)).
-		if len(c.ids) > 0 {
-			if len(c.ids) <= len(aliveInfos) {
-				for id := range c.ids {
-					if info, ok := aliveInfos[id]; ok {
-						g.stampSelectionBox(layer, info.Location, descColor)
-					}
-				}
-			} else {
-				for id, info := range aliveInfos {
-					if _, ok := c.ids[id]; ok {
-						g.stampSelectionBox(layer, info.Location, descColor)
-					}
-				}
-			}
-		}
-	}
-
-	if selID >= 0 {
-		if info, ok := aliveInfos[selID]; ok {
-			g.stampSelectionBox(layer, info.Location, themedForeground())
-		}
-	}
-}
-
-// stampSelectionBox draws a single tinted copy of selectionBoxImg onto
-// the selection layer at the given world cell. ColorScale handles the
-// alpha tint, so the same source bitmap covers every selection
-// variant.
-func (g *Grid) stampSelectionBox(layer *ebiten.Image, point utils.Point, col color.Color) {
-	us := g.unitSize()
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(point.X*us), float64(point.Y*us))
-	r, gv, b, a := col.RGBA()
-	op.ColorScale.Scale(float32(r)/0xffff, float32(gv)/0xffff, float32(b)/0xffff, float32(a)/0xffff)
-	layer.DrawImage(g.selectionBoxImg, op)
-}
-
-// buildDescendantHighlightSet walks selID's descendant subtree once
-// and returns the set of node IDs that are alive at any cycle in
-// [fromCycle, toCycle]. Used to populate descHighlight; callers don't
-// hit this code on every render — only when the cache is invalid
-// (selection change or playhead crossed the window boundary).
-//
-// Two prunes keep the walk bounded for very old selections:
-//   - StartCycle > toCycle: subtree not yet born by window's end.
-//     Children always have StartCycle >= parent.StartCycle, so the
-//     entire subtree is irrelevant.
-//   - AllBranchesDeadCycle != 0 && < fromCycle: every node in this
-//     subtree died strictly before the window opens; no descendant
-//     could be alive in the window.
-//
-// A node N is alive somewhere in [fromCycle, toCycle] iff
-// N.StartCycle <= toCycle AND (N.EndCycle == 0 OR N.EndCycle >= fromCycle).
-func (g *Grid) buildDescendantHighlightSet(selID, fromCycle, toCycle int) map[int]struct{} {
-	set := make(map[int]struct{})
-	root := g.simulation.GetTreeNodeByID(selID)
-	if root == nil {
-		return set
-	}
-	var walk func(n *organism.DescendantNode)
-	walk = func(n *organism.DescendantNode) {
-		n.ForEachChild(func(child *organism.DescendantNode) {
-			if child.StartCycle > toCycle {
-				return
-			}
-			if child.AllBranchesDeadCycle != 0 && child.AllBranchesDeadCycle < fromCycle {
-				return
-			}
-			if child.EndCycle == 0 || child.EndCycle >= fromCycle {
-				set[child.ID] = struct{}{}
-			}
-			walk(child)
-		})
-	}
-	walk(root)
-	return set
 }
 
 // RenderOverlayText draws the mode label and hover-info text directly onto
@@ -822,324 +389,6 @@ func (g *Grid) MouseHover(point utils.Point, onGrid bool) {
 	g.mouseOnGrid = onGrid
 }
 
-// renderHoverCellBox draws a single hover-cell outline at the cursor's
-// actual viewport position. Unlike per-organism selection highlights,
-// which live on a tiled world layer, the hover cursor is a UI element
-// that should appear once where the cursor is. The cell origin in
-// viewport coords accounts for the camera's sub-cell offset — cells
-// in a tiled view don't generally align to viewport pixel 0.
-func (g *Grid) renderHoverCellBox(img *ebiten.Image, col color.Color) {
-	mx, my := ebiten.CursorPosition()
-	// Convert from screen pixels to viewport pixels (the same image
-	// space the rest of the grid renders into).
-	vx := float64(mx-panelWidth) / float64(GridDisplayScale)
-	vy := float64(my) / float64(GridDisplayScale)
-	us := float64(g.unitSize())
-	camPxX := g.Camera.NormalizedX() * us
-	camPxY := g.Camera.NormalizedY() * us
-	// World pixel coordinates align to the camera. The cell containing
-	// the cursor has its origin at world-pixel floor((vx+camPx)/us)*us;
-	// translating back into viewport coords subtracts camPx.
-	x0 := math.Floor((vx+camPxX)/us)*us - camPxX
-	y0 := math.Floor((vy+camPxY)/us)*us - camPxY
-	x1 := x0 + us
-	y1 := y0 + us
-	ebitenutil.DrawLine(img, x0, y0, x1, y0, col)
-	ebitenutil.DrawLine(img, x0, y0, x0, y1, col)
-	ebitenutil.DrawLine(img, x0, y1, x1, y1, col)
-	ebitenutil.DrawLine(img, x1, y0, x1, y1, col)
-}
-
-func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
-	us := g.unitSize()
-	x := float64(item.Point.X) * float64(us)
-	y := float64(item.Point.Y) * float64(us)
-	sprite := resources.Sprite(foodRoleForValue(item.Value), animation.AnimIdle, 0)
-	g.drawStaticSprite(img, x, y, sprite, foodColor)
-}
-
-// foodRoleForValue maps a food item's value to one of the three food
-// size-tier sprites. Thirds of MaxFoodValue, matching the organism
-// size-tier split:
-//
-//	value < MaxFoodValue/3     → small
-//	value < 2*MaxFoodValue/3   → medium
-//	else                       → large
-func foodRoleForValue(value int) resources.ImageRole {
-	maxVal := config.MaxFoodValue()
-	if maxVal <= 0 {
-		return resources.RoleFoodMedium
-	}
-	v := float64(value)
-	third := float64(maxVal) / 3.0
-	switch {
-	case v < third:
-		return resources.RoleFoodSmall
-	case v < 2*third:
-		return resources.RoleFoodMedium
-	default:
-		return resources.RoleFoodLarge
-	}
-}
-
-// wallRoleForStrength maps a wall's current strength to one of the
-// three sprite-tier roles. Buckets mirror what the user authored
-// in the .aseprite source:
-//   1-2 → weak,  3-5 → medium,  6-7 → strong.
-// Strengths outside [1, MaxWallStrength] are clamped — the renderer
-// only ever calls this with strength > 0 (a 0-strength wall isn't
-// kept in the WallManager), but the bounds keep this honest.
-func wallRoleForStrength(strength int) resources.ImageRole {
-	switch {
-	case strength <= 2:
-		return resources.RoleWallWeak
-	case strength <= 5:
-		return resources.RoleWallMedium
-	default:
-		return resources.RoleWallStrong
-	}
-}
-
-// renderWallAt composites a wall cell from up to five sprites: the
-// strength-tiered base "pile of sediment" (LayerWallBase) plus one
-// directional connector layer for each cardinal neighbour that also
-// holds a wall. All sprites share the same pH-derived tint so the
-// cell reads as a single object. Connector layers return nil when
-// the artist hasn't authored them yet — the renderer simply skips
-// the overlay and the wall appears as the isolated base.
-func (g *Grid) renderWallAt(wallsImage *ebiten.Image, point utils.Point, strength int) {
-	us := g.unitSize()
-	x := float64(point.X) * float64(us)
-	y := float64(point.Y) * float64(us)
-	tint := g.wallTintAt(point)
-	role := wallRoleForStrength(strength)
-
-	base := resources.SpriteLayer(role, resources.LayerWallBase, animation.AnimIdle, 0)
-	g.drawStaticSprite(wallsImage, x, y, base, tint)
-
-	for _, c := range wallConnectors {
-		if g.simulation.GetWallStrengthAtPoint(point.Add(c.offset)) <= 0 {
-			continue
-		}
-		sprite := resources.SpriteLayer(role, c.layer, animation.AnimIdle, 0)
-		if sprite == nil {
-			continue
-		}
-		g.drawStaticSprite(wallsImage, x, y, sprite, tint)
-	}
-}
-
-// wallConnectors pairs each cardinal-neighbour offset with the layer
-// drawn over the base when that neighbour holds a wall. Order
-// doesn't matter — every connector overlay is composited on the same
-// cell, just additively layered.
-var wallConnectors = []struct {
-	offset utils.Point
-	layer  resources.Layer
-}{
-	{utils.Point{X: 0, Y: -1}, resources.LayerWallUp},
-	{utils.Point{X: 0, Y: 1}, resources.LayerWallDown},
-	{utils.Point{X: -1, Y: 0}, resources.LayerWallLeft},
-	{utils.Point{X: 1, Y: 0}, resources.LayerWallRight},
-}
-
-// wallTintAt is the per-point wrapper used by the live grid. The
-// pH-blending formula itself lives in wallTintForPh so the animation
-// test can share it without going through a Grid / Simulation.
-func (g *Grid) wallTintAt(point utils.Point) colorful.Color {
-	return wallTintForPh(g.simulation.GetPhAtPoint(point))
-}
-
-// wallTintForPh returns wallColor pushed toward the pH-target colour by
-// the same weighted blend the env layer uses, capped at
-// wallPhTintStrength so walls retain enough of their neutral gray to
-// stay visible against an extreme-pH env layer painting the same cell.
-// The blended colour is then brightened in HSLuv lightness by an amount
-// scaled with the pH distance from neutral, so walls stand out more
-// against the saturated env at the extremes. A pH at the neutral
-// midpoint yields exactly wallColor — the appearance the user signed
-// off on for neutral cells (weight 0 → no blend, no brighten).
-func wallTintForPh(ph float64) colorful.Color {
-	neutral := (config.MaxPh() + config.MinPh()) / 2.0
-	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
-	if halfRange <= 0 {
-		return wallColor
-	}
-	weight := math.Abs(ph-neutral) / halfRange
-	if weight > 1 {
-		weight = 1
-	}
-	tgtR, tgtG, tgtB := config.PhTargetColorRGB(ph)
-	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
-	blended := wallColor.BlendRgb(target, weight*wallPhTintStrength).Clamped()
-
-	h, s, l := blended.HSLuv()
-	l = math.Min(1.0, l+weight*wallPhBrightenAdd)
-	return colorful.HSLuv(h, s, l)
-}
-
-// wallPhTintStrength caps how far wallColor blends toward the pH-target
-// colour at the most extreme pH. 1.0 would make walls indistinguishable
-// from the env layer at the same cell; 0.7 keeps a visible gray cast so
-// the wall sprite still reads as wall, not env.
-const wallPhTintStrength = 0.7
-
-// wallPhBrightenAdd is the HSLuv-lightness boost applied at the most
-// extreme pH (weight 1). Scales linearly with weight, so neutral cells
-// get no boost and the brightest walls are at MinPh / MaxPh. Tuned so
-// pH-tinted walls clearly out-bright the env layer that paints the
-// same cell.
-const wallPhBrightenAdd = 0.2
-
-// renderOrganism draws an organism at its animation-interpolated position
-// using the action-specific sprite frame, rotated to face its direction.
-//
-// If we have an animation.Frame for this organism we use its FromLocation →
-// ToLocation pair plus the current Progress() to animate. Without one (newly
-// born organism, fresh seek, first frame before any cycle advance) we fall
-// back to the organism's static Location.
-func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
-	us := float64(g.unitSize())
-
-	// Size-to-role mapping: thirds of MaximumMaxSize.
-	//   small  — below 33%
-	//   medium — 33% to below 66%
-	//   large  — 66% and above
-	maxSize := config.MaximumMaxSize()
-	var role resources.ImageRole
-	switch {
-	case info.Size < maxSize*(1.0/3.0):
-		role = resources.RoleOrganismSmall
-	case info.Size < maxSize*(2.0/3.0):
-		role = resources.RoleOrganismMedium
-	default:
-		role = resources.RoleOrganismLarge
-	}
-
-	// Per-layer colour: by default body uses the primary OrganismColor
-	// and overlays (flagellae / teeth / sensors) use the SecondaryColor
-	// so two-tone family identities read at a glance. View-mode
-	// overrides (pH effect, health) are diagnostic views that should
-	// paint the whole organism uniformly — they collapse secondary to
-	// the same derived colour as primary.
-	bodyColor := info.Color
-	overlayColor := info.SecondaryColor
-	switch g.orgColor {
-	case orgColorPhEffect:
-		bodyColor = phEffectColor(info.PhPositive, info.PhNegative)
-		overlayColor = bodyColor
-	case orgColorHealth:
-		bodyColor = healthColor(info.Health, info.Size)
-		overlayColor = bodyColor
-	}
-
-	// Defaults used when animation state is unavailable or the organism has
-	// no frame yet: render statically at the current location facing its
-	// current direction.
-	gridX := float64(info.Location.X)
-	gridY := float64(info.Location.Y)
-	direction := info.Direction
-	anim := animation.ForStatus(info.Status)
-	frameIdx := 0
-
-	if g.animState != nil {
-		// Animation is entirely sprite-based — the spritesheet paints any
-		// motion between cells. We only gate sprite-frame advancement on
-		// playback speed (skip above 2x) and on-screen unit size (skip
-		// when sprites are too small to read per-frame differences). When
-		// either says "don't animate" we snap to a single frame instead
-		// of cycling.
-		animate := g.animState.AnimatesPosition() && g.unitSize() >= minOrganismAnimationUnitSize
-		if frame, ok := g.animState.Frames[info.ID]; ok {
-			gridX, gridY = animatedCellPosition(frame)
-			direction = frame.Direction
-			// ForFrame, not ForAction, so a move whose position didn't
-			// change falls through to AnimBlocked instead of drawing the
-			// 2-cell travel sprite in place.
-			anim = animation.ForFrame(frame)
-		}
-		if animate {
-			frameIdx = g.animState.SpriteFrameIndex(g.Camera.SpriteFrameCount())
-		} else if g.animState.Speed >= 4 && g.Camera.SpriteFrameCount() > 1 {
-			// At 4x+ speed with multi-frame sprites (currently only the
-			// 16x16 set), the wall-clock window per cycle is too short
-			// to play a real animation — pin every organism to frame 1
-			// so the action reads as a recognisable mid-action pose
-			// instead of either the start state (frame 0) or a frozen
-			// end state.
-			frameIdx = 1
-		} else if isMultiCellAnim(anim) {
-			// Multi-cell (_xl) sprites depict per-frame detail that
-			// matters for visual consistency at cycle boundaries —
-			// move/attack's travel path, eat's crumbs in the adjacent
-			// cell, etc. Without frame advancement we'd stay on frame 0
-			// for the whole cycle, which typically depicts a mid-action
-			// state and snaps backwards when the next cycle begins.
-			// Snap to the last frame instead — the authored end state.
-			frameIdx = g.Camera.SpriteFrameCount() - 1
-			if frameIdx < 0 {
-				frameIdx = 0
-			}
-		}
-	}
-
-	// High-res sprite sets are layered: one body variant + a feature
-	// overlay per non-defense tree, picked from the organism's
-	// physiology. Low-res sets have a single LayerBody layer per role,
-	// so OrganismLayersFor's body-variant choice naturally collapses
-	// to a single absent-LayerBody lookup that misses and falls back
-	// to the default sprite via the Sprite fallback path below.
-	layers := resources.OrganismLayersFor(info.Features)
-	stampedAny := false
-	for _, layer := range layers {
-		sprite := resources.SpriteLayer(role, layer, anim, frameIdx)
-		if sprite == nil {
-			continue
-		}
-		col := overlayColor
-		if resources.UsesPrimaryColor(layer) {
-			col = bodyColor
-		}
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, col)
-		stampedAny = true
-	}
-	if !stampedAny {
-		// Low-res path (only LayerBody is authored, so the layered
-		// lookup above finds nothing) and the missing-art fallback
-		// for high-res organisms with no LayerBodyBasic PNG. Both
-		// represent "the body of the organism" so they use the
-		// primary colour, not secondary.
-		sprite := resources.Sprite(role, anim, frameIdx)
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, bodyColor)
-	}
-}
-
-// animatedCellPosition returns the organism's grid-unit anchor for the
-// current render frame. All motion is painted by the spritesheet itself,
-// so we just anchor at FromLocation — the sprite's base-cell origin.
-//
-// For 2-cell actions (move, attack, eat) this puts the base cell at the
-// source and the extending cell in the direction the organism is
-// facing; single-cell actions have FromLocation == ToLocation so the
-// anchor choice doesn't matter.
-func animatedCellPosition(f animation.Frame) (float64, float64) {
-	return float64(f.FromLocation.X), float64(f.FromLocation.Y)
-}
-
-// isMultiCellAnim reports whether the animation uses a 2-cell (_xl)
-// spritesheet that extends into the cell ahead of the organism. Multi-
-// cell sprites need frame-index handling that differs from 1-cell
-// sprites: without frame advancement we snap to the last frame so the
-// authored end state (shape at top of the 2-cell canvas) is what shows
-// for the whole cycle, not the pre-action start state.
-func isMultiCellAnim(a animation.Animation) bool {
-	switch a {
-	case animation.AnimMove, animation.AnimAttack, animation.AnimEat, animation.AnimEatFail:
-		return true
-	}
-	return false
-}
-
 // drawStaticSprite draws a non-rotated sprite at cell (x, y). Used for
 // food, walls, and other layers that don't animate.
 //
@@ -1162,94 +411,10 @@ func (g *Grid) drawStaticSprite(img *ebiten.Image, x, y float64, spriteImg *ebit
 	img.DrawImage(spriteImg, op)
 }
 
-// drawOrganismSprite draws a sprite rotated to match `direction`, anchored
-// to the organism's base cell, using the grid's current camera zoom.
-func (g *Grid) drawOrganismSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color) {
-	cellSize := float64(zoomSpriteSizes[g.Camera.SpriteSet()])
-	drawAnimatedSprite(img, x, y, spriteImg, direction, col, cellSize, g.Camera.SpriteScale())
-}
-
-// drawAnimatedSprite draws a sprite rotated to face `direction`, anchored to
-// its base cell.
-//
-// Sprites are authored facing -Y (up) and white-on-transparent (optionally
-// with grayscale shading). Colorization is multiplicative via ColorScale:
-// each channel of each pixel is multiplied by the target colour. White
-// pixels become the full target colour; grey pixels become a dimmer
-// version of the same hue (brightness variation in the sheet is
-// preserved); black stays black.
-//
-// Single-cell sprites fill a cellSize x cellSize canvas. Multi-cell
-// sprites use a cellSize x (N*cellSize) canvas where the base cell is the
-// BOTTOM cellSize-tall region and the extending cell(s) sit above it — so
-// the organism travels from bottom to top within the sprite at its
-// default (up-facing) orientation.
-//
-// Positive rotation turns clockwise in ebiten's coordinate system. Up-
-// facing (0, -1) maps to 0 rotation; east (1, 0) to +π/2; south (0, 1) to
-// π; west (-1, 0) to -π/2. Rotation is centred on the base cell (whose
-// centre in sprite-local coords is (cellSize/2, spriteH - cellSize/2)), so
-// the base cell stays pinned at (x, y) and any extending cells swing to
-// align with the facing direction regardless of how tall the sprite is.
-//
-// Shared between the main grid renderer and the standalone animation-test
-// screen so they paint identically.
-func drawAnimatedSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color, cellSize, scale float64) {
-	if spriteImg == nil {
-		return
-	}
-	b := spriteImg.Bounds()
-	spriteH := float64(b.Dy())
-
-	// Base cell sits at the BOTTOM cellSize x cellSize region for multi-
-	// cell (vertical-extending) sprites; for single-cell sprites it's the
-	// whole image. The formula below reduces to (cellSize/2, cellSize/2)
-	// in the single-cell case.
-	anchorX := cellSize / 2
-	anchorY := spriteH - cellSize/2
-
-	// Compensate the final translate so the anchor (base-cell centre) lands
-	// at world (x + cellSize*scale/2, y + cellSize*scale/2) regardless of
-	// sprite height — keeping (x, y) = base-cell top-left.
-	compensateY := (cellSize/2 - anchorY) * scale
-
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(-anchorX, -anchorY)
-	op.GeoM.Rotate(directionAngle(direction))
-	op.GeoM.Translate(anchorX, anchorY)
-	if scale != 1 {
-		op.GeoM.Scale(scale, scale)
-	}
-	op.GeoM.Translate(x, y+compensateY)
-	op.ColorScale.Scale(float32(col.R), float32(col.G), float32(col.B), 1)
-	img.DrawImage(spriteImg, op)
-}
-
-// directionAngle converts a cardinal utils.Point direction into the
-// rotation angle to apply to an up-facing (-Y) sprite.
-//
-// atan2(y, x) treats +X as 0; sprites are authored facing -Y, so we offset
-// by +π/2 to make (0, -1) = no rotation, (1, 0) = +π/2 CW, etc. Non-
-// cardinal points still produce a sensible angle through atan2.
-func directionAngle(d utils.Point) float64 {
-	if d.X == 0 && d.Y == 0 {
-		return 0
-	}
-	return math.Atan2(float64(d.Y), float64(d.X)) + math.Pi/2
-}
-
-
 func (g *Grid) buildClearImg() {
 	us := g.unitSize()
 	g.clearImg = ebiten.NewImage(us, us)
 	g.clearImg.Fill(color.White)
-}
-
-func (g *Grid) drawFill(img *ebiten.Image, x, y float64, col colorful.Color) {
-	us := g.unitSize()
-	ebitenutil.DrawRect(img, x, y, float64(us), float64(us), color.RGBA{
-		R: uint8(col.R * 255), G: uint8(col.G * 255), B: uint8(col.B * 255), A: 255,
-	})
 }
 
 func (g *Grid) clearSquare(img *ebiten.Image, x, y float64) {

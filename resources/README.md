@@ -81,7 +81,7 @@ single `base` tag for static art:
 | `burrow` | StatusBurrowing (pending) |
 | `hunker` | StatusHunkering (pending) |
 | `flare` | StatusFlaring (pending) |
-| `hide` | StatusHiding (pending) |
+| `hide` | StatusHiding |
 | `spawn` | StatusSpawning (pending) |
 | `base` | Static, paired only with `_static` slices |
 
@@ -208,7 +208,7 @@ relevant:
   named in the canonical set that aren't in the file. For each
   resolution that has *any* slice, the script expects the canonical
   organism / food / wall stems at that resolution; for any animated
-  slice it expects the 11 wired animated action tags; for any `_xl`
+  slice it expects the 12 wired animated action tags; for any `_xl`
   slice it expects the matching `_xl` tag variants; for any static
   slice it expects the `base` tag; layer expectations depend on
   which resolutions are in use.
