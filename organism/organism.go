@@ -208,25 +208,25 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 
 func (o *Organism) Info() *Info {
 	return &Info{
-		ID:            o.ID,
-		Health:        o.Health,
-		Location:      o.Location,
-		Direction:     o.Direction,
-		Size:          o.Size,
-		Action:        o.action,
-		AncestorID:    o.OriginalAncestorID,
+		ID:             o.ID,
+		Health:         o.Health,
+		Location:       o.Location,
+		Direction:      o.Direction,
+		Size:           o.Size,
+		Action:         o.action,
+		AncestorID:     o.OriginalAncestorID,
 		Color:          o.traits.OrganismColor,
 		SecondaryColor: o.traits.SecondaryColor,
-		Age:           o.Age,
-		Children:      o.Children,
-		TraveledDist:  o.TraveledDist,
-		PhPositive:    o.PhPositive,
-		PhNegative:    o.PhNegative,
-		Status:        o.Status,
-		BornThisCycle: o.BornThisCycle,
-		AttackTotal:   o.AttackTotal,
-		AttackHits:    o.AttackHits,
-		Features:      o.traits.Features,
+		Age:            o.Age,
+		Children:       o.Children,
+		TraveledDist:   o.TraveledDist,
+		PhPositive:     o.PhPositive,
+		PhNegative:     o.PhNegative,
+		Status:         o.Status,
+		BornThisCycle:  o.BornThisCycle,
+		AttackTotal:    o.AttackTotal,
+		AttackHits:     o.AttackHits,
+		Features:       o.traits.Features,
 	}
 }
 
@@ -382,7 +382,7 @@ func (o *Organism) RebuildDecisionPath() {
 }
 
 // Traits returns an organism's traits
-func (o Organism) Traits() Traits    { return o.traits }
+func (o Organism) Traits() Traits      { return o.traits }
 func (o *Organism) TraitsRef() *Traits { return &o.traits }
 
 // Tradeoffs returns the organism's combined passive Tradeoffs from
@@ -536,13 +536,11 @@ func (o *Organism) isWallAtPoint(p utils.Point) bool {
 	if o.lookupAPI.IsWallAtPoint(p) {
 		return true
 	}
-	// A camouflaged organism reads as a wall to sensor conditions — it
-	// blends into the terrain. Independent of StatusHiding: the visual
-	// disguise is always on (it's the feature, not the action). Hide
-	// additionally cloaks the organism from IsOrganism checks; that
-	// half lives in isOrganismAtPoint via the StatusHiding filter.
+	// A hiding organism reads as a wall to sensor conditions — it blends
+	// into the terrain while in StatusHiding regardless of which feature
+	// unlocked the action.
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.Traits().Features.Has(physiology.FeatCamouflage)
+		return x != nil && x.Status == StatusHiding
 	})
 }
 

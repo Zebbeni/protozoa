@@ -85,12 +85,17 @@ type Grid struct {
 
 	// phBordered is the (W+2) × (H+2) scratch image that backs the pH
 	// layer: phBuffer's content plus a 1-pixel wrap-aware border on
-	// every side, stamped in via sub-image draws from phBuffer.
-	// Upscaled into layers[layerPh] with FilterLinear so the GPU
-	// produces the per-pixel gradient blend, including across world
-	// wrap edges (the wallpaper-tile seam disappears). Size is
-	// independent of zoom — only the destination layer grows.
+	// every side, stamped in via sub-image draws from phBuffer. Its
+	// border lets the gradient blend across world wrap edges so the
+	// wallpaper-tile seam disappears. Size is independent of zoom.
 	phBordered *ebiten.Image
+
+	// phLinear is the intermediate for the pH layer's two-pass
+	// upscale: phBordered scaled phLinearUpscale× with FilterLinear.
+	// A second FilterNearest pass blows this the rest of the way up
+	// into layers[layerPh], so the smooth gradient reads as chunky
+	// pixel blocks. Size is independent of zoom.
+	phLinear *ebiten.Image
 
 	// Per-phase render timings, refreshed each call to Render(). Surfaced
 	// to the debug overlay so a slow frame can be attributed to a

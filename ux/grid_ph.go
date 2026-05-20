@@ -11,20 +11,36 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
+// phLinearUpscale is the fixed factor of the first (FilterLinear)
+// upscale pass. The remaining GridUnitSize/phLinearUpscale factor is
+// then applied with FilterNearest — so the cell-to-cell gradient is
+// only smooth down to phLinearUpscale steps per cell and otherwise
+// reads as chunky pixel blocks. Bigger → smoother, smaller → blockier.
+const phLinearUpscale = 4
+
 // renderPh maintains the W × H pH buffer (one pixel per cell, no
 // border) and stamps it into the (W+2) × (H+2) bordered scratch with
 // sub-image draws — interior, four edges, and four corners. The
 // border source is always the buffer image, never phBordered itself,
-// so there's no self-draw. The bordered scratch is then upscaled into
-// phImage with FilterLinear; the border falls outside phImage's
-// destination bounds and is cropped naturally, leaving a W*S × H*S
-// region with smooth gradients across every world-wrap edge.
+// so there's no self-draw.
+//
+// The bordered scratch is upscaled into phImage in two passes:
+//  1. FilterLinear by phLinearUpscale into phLinear — this is the
+//     only pass that blends, so the gradient is smooth at
+//     phLinearUpscale resolution per cell.
+//  2. FilterNearest by the remaining factor (GridUnitSize /
+//     phLinearUpscale) into phImage — this blows pass 1 up with hard
+//     pixels, quantising the gradient into blocks. The translate
+//     crops the 1-px wrap border (phLinearUpscale px wide in
+//     phLinear, GridUnitSize px wide after pass 2), leaving exactly
+//     W*S × H*S of visible cells.
 func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 	W := config.GridUnitsWide()
 	H := config.GridUnitsHigh()
 	if g.phBordered == nil {
 		g.phBordered = ebiten.NewImage(W+2, H+2)
 		g.phBuffer = ebiten.NewImage(W, H)
+		g.phLinear = ebiten.NewImage((W+2)*phLinearUpscale, (H+2)*phLinearUpscale)
 		refresh = true
 	}
 
@@ -52,12 +68,21 @@ func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 		g.stampPhBorderedFromBuffer()
 	}
 
-	s := float64(g.Camera.GridUnitSize())
+	// Pass 1: linear upscale of the bordered scratch into phLinear.
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterLinear
-	op.GeoM.Scale(s, s)
+	op.GeoM.Scale(phLinearUpscale, phLinearUpscale)
+	g.phLinear.DrawImage(g.phBordered, op)
+
+	// Pass 2: nearest upscale of phLinear into the layer image,
+	// cropping the (phLinearUpscale-px-wide) wrap border.
+	s := float64(g.Camera.GridUnitSize())
+	nearestScale := s / phLinearUpscale
+	op = &ebiten.DrawImageOptions{}
+	op.Filter = ebiten.FilterNearest
+	op.GeoM.Scale(nearestScale, nearestScale)
 	op.GeoM.Translate(-s, -s)
-	phImage.DrawImage(g.phBordered, op)
+	phImage.DrawImage(g.phLinear, op)
 }
 
 // rebuildPhBuffer writes every cell's colour into phBuffer in one
