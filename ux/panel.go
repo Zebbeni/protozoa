@@ -39,7 +39,7 @@ const (
 	graphWidth   = 370
 	graphHeight  = 120
 
-	// statsYOffset positions the single living/dead row below the
+	// statsYOffset positions the single organisms/food/pH row below the
 	// graph + graph-mode buttons. graphYOffset + graph-title (~10) +
 	// graphHeight + buttons-gap (14) + 2 button rows (40) ≈ 260.
 	statsXOffset = padding
@@ -62,21 +62,30 @@ const (
 	orgColorYOffset = displayYOffset + sectionRowHeight + sectionRowGap
 	findMostYOffset = orgColorYOffset + sectionRowHeight + sectionRowGap
 
-	// Selected Statistics section starts below the Find Most row, with
-	// a comfortable gap so it reads as its own section rather than a
-	// fifth row.
+	// HIGHLIGHT is one row per modality tree, each a label plus a
+	// toggle per feature in that tree. Four narrow rows rather than one
+	// strip of twelve buttons so every label fits legibly, and grouping
+	// by tree mirrors how the features are actually organised.
+	highlightYOffset  = findMostYOffset + sectionRowHeight + sectionRowGap
+	highlightRowPitch = sectionRowHeight + sectionRowGap
+	// highlightRowCount must equal len(physiology.AllTrees); an init()
+	// check in this file fails loudly if a tree is ever added without
+	// updating the layout.
+	highlightRowCount = 4
+
+	// Selected Statistics section starts below the highlight rows, with
+	// a comfortable gap so it reads as its own section.
 	selectedXOffset = padding
-	selectedYOffset = findMostYOffset + sectionRowHeight + 28
+	selectedYOffset = highlightYOffset + highlightRowCount*highlightRowPitch + 28
 
 	// Portrait window: an animated 96x96 spotlight of the selected
 	// organism's sprite, drawn as the third column to the right of two
-	// stat columns. The 32x32 sprite is scaled 2x (nearest-neighbour)
-	// and centred on its base cell, so the final on-screen sprite is
-	// the same 64px as the previous 16x16-at-4x setup but with double
-	// the source detail.
+	// stat columns. The 16x16 sprite — the highest resolution the
+	// project authors — is scaled 4x (nearest-neighbour) and centred
+	// on its base cell, for a 64px on-screen sprite.
 	portraitSize       = 96
-	portraitSpriteCell = 32
-	portraitScale      = 2
+	portraitSpriteCell = 16
+	portraitScale      = 4
 	// Asymmetric gaps: a tight 8px between the two stat columns, then
 	// a larger 16px before the portrait so it has visible breathing
 	// room from the column 2 values.
@@ -118,6 +127,7 @@ type Panel struct {
 	// selectButtonRects caches the on-screen hitboxes of the auto-
 	// select buttons in the SELECTIONS section above the graph.
 	selectButtonRects []selectButtonHitbox
+	traitButtonRects  []traitButtonHitbox
 
 	// displayBtnRects caches hitboxes for the GRID DISPLAY toggle row
 	// (ORGANISMS / PH / FOOD).
@@ -234,10 +244,10 @@ type selectButtonHitbox struct {
 }
 
 // displayBtnHitbox associates a GRID DISPLAY toggle button's screen
-// rect with the layer it toggles.
+// rect with the toggle it drives.
 type displayBtnHitbox struct {
 	x, y, w, h int
-	kind       displayToggleKind
+	toggle     displayToggle
 }
 
 // orgColorBtnHitbox associates an ORGANISM COLOR radio button's
@@ -299,6 +309,7 @@ var graphModeButtons = [...]graphModeButton{
 	{label: "POP (all)", mode: graph.ModePopulation, showSelected: false},
 	{label: "POP (sel)", mode: graph.ModePopulation, showSelected: true},
 	{label: "PH HIST", mode: graph.ModePh, showSelected: false},
+	{label: "FOOD", mode: graph.ModeFood, showSelected: false},
 }
 
 const (
@@ -306,6 +317,26 @@ const (
 	graphButtonGap       = 4
 	graphButtonsPerRow   = 3
 )
+
+// traitButtonHitbox associates a HIGHLIGHT toggle's screen rect with
+// the feature it toggles.
+type traitButtonHitbox struct {
+	x, y, w, h int
+	feature    physiology.Feature
+}
+
+// The HIGHLIGHT block reserves vertical space for a fixed number of
+// rows. Adding a modality tree without widening the reservation would
+// silently overlap the Selected Statistics section, so fail at startup
+// instead.
+func init() {
+	if len(physiology.AllTrees) != highlightRowCount {
+		panic(fmt.Sprintf(
+			"panel: highlightRowCount is %d but physiology.AllTrees has %d entries — "+
+				"update the HIGHLIGHT layout constants in ux/panel.go",
+			highlightRowCount, len(physiology.AllTrees)))
+	}
+}
 
 // selectModeButton is one entry in the FIND MOST button strip. With
 // "FIND MOST" as the row title the per-button labels drop the "MOST"
@@ -323,25 +354,48 @@ var selectModeButtons = [...]selectModeButton{
 	{label: "SUCCESSFUL", sel: selectMostSuccessful},
 }
 
-// displayToggleKind tags each button in the GRID DISPLAY toggle row
-// with the layer it controls.
-type displayToggleKind int
-
-const (
-	displayOrganisms displayToggleKind = iota
-	displayPh
-	displayFood
-	displayWalls
-)
-
-var displayToggles = [...]struct {
+// displayToggle is one button in the GRID DISPLAY row. Each entry
+// carries its own read and write accessors for the Grid flag it owns,
+// so adding a layer means adding exactly one table row.
+//
+// The accessors replaced a pair of parallel switch statements — one in
+// renderDisplay deciding whether a button looks active, one in
+// handleDisplayButtonClick doing the toggle. Adding FLOW to only the
+// second of those shipped a button that toggled its layer correctly
+// but never lit up, which is the precise failure a single source of
+// truth per toggle prevents.
+type displayToggle struct {
 	label string
-	kind  displayToggleKind
-}{
-	{label: "ORGANISMS", kind: displayOrganisms},
-	{label: "PH", kind: displayPh},
-	{label: "FOOD", kind: displayFood},
-	{label: "WALLS", kind: displayWalls},
+	get   func(*Grid) bool
+	set   func(*Grid, bool)
+}
+
+var displayToggles = [...]displayToggle{
+	{
+		label: "ORGANISMS",
+		get:   func(g *Grid) bool { return g.showOrganisms },
+		set:   func(g *Grid, v bool) { g.showOrganisms = v },
+	},
+	{
+		label: "PH",
+		get:   func(g *Grid) bool { return g.showPh },
+		set:   func(g *Grid, v bool) { g.showPh = v },
+	},
+	{
+		label: "FLOW",
+		get:   func(g *Grid) bool { return g.showFlow },
+		set:   func(g *Grid, v bool) { g.showFlow = v },
+	},
+	{
+		label: "FOOD",
+		get:   func(g *Grid) bool { return g.showFood },
+		set:   func(g *Grid, v bool) { g.showFood = v },
+	},
+	{
+		label: "WALLS",
+		get:   func(g *Grid) bool { return g.showWalls },
+		set:   func(g *Grid, v bool) { g.showWalls = v },
+	},
 }
 
 var orgColorButtons = [...]struct {
@@ -364,6 +418,8 @@ func graphModeLabel(mode graph.Mode, showSelected bool) string {
 		return "POPULATION HISTORY"
 	case graph.ModePh:
 		return "PH DISTRIBUTION"
+	case graph.ModeFood:
+		return "FOOD HISTORY"
 	}
 	return ""
 }
@@ -551,20 +607,9 @@ func (p *Panel) renderDisplay(panelImage *ebiten.Image, yOff int) {
 	rects := make([]displayBtnHitbox, 0, len(displayToggles))
 	for i, b := range displayToggles {
 		x, w := sectionRowButtonRect(i, len(displayToggles))
-		var active bool
-		switch b.kind {
-		case displayOrganisms:
-			active = p.grid.showOrganisms
-		case displayPh:
-			active = p.grid.showPh
-		case displayFood:
-			active = p.grid.showFood
-		case displayWalls:
-			active = p.grid.showWalls
-		}
-		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
+		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, b.get(p.grid))
 		rects = append(rects, displayBtnHitbox{
-			x: x, y: y, w: w, h: sectionRowHeight, kind: b.kind,
+			x: x, y: y, w: w, h: sectionRowHeight, toggle: b,
 		})
 	}
 	p.displayBtnRects = rects
@@ -574,16 +619,7 @@ func (p *Panel) renderDisplay(panelImage *ebiten.Image, yOff int) {
 func (p *Panel) handleDisplayButtonClick(mx, my int) bool {
 	for _, r := range p.displayBtnRects {
 		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
-			switch r.kind {
-			case displayOrganisms:
-				p.grid.showOrganisms = !p.grid.showOrganisms
-			case displayPh:
-				p.grid.showPh = !p.grid.showPh
-			case displayFood:
-				p.grid.showFood = !p.grid.showFood
-			case displayWalls:
-				p.grid.showWalls = !p.grid.showWalls
-			}
+			r.toggle.set(p.grid, !r.toggle.get(p.grid))
 			p.grid.doRefresh = true
 			return true
 		}
@@ -637,6 +673,56 @@ func (p *Panel) renderFindMost(panelImage *ebiten.Image, yOff int) {
 		})
 	}
 	p.selectButtonRects = rects
+}
+
+// renderTraitHighlight paints the HIGHLIGHT block: one row per
+// modality tree, each holding a toggle per feature in that tree.
+// Toggles are independent (not a radio group) — the grid highlights
+// any organism holding any selected feature, so several can be lit at
+// once to compare where two branches have settled.
+func (p *Panel) renderTraitHighlight(panelImage *ebiten.Image, yOff int) {
+	rects := make([]traitButtonHitbox, 0, len(physiology.All))
+
+	for row, tree := range physiology.AllTrees {
+		y := highlightYOffset + row*highlightRowPitch + yOff
+		label := tree.Name()
+		if row == 0 {
+			// Name the block on its first row rather than spending a
+			// whole row on a header.
+			label = "HIGHLIGHT"
+		}
+		drawRowLabel(panelImage, strings.ToUpper(label), y)
+
+		features := physiology.FeaturesInTree(tree)
+		for i, f := range features {
+			x, w := sectionRowButtonRect(i, len(features))
+			active := p.grid.traitHighlight.Has(f)
+			drawGraphButton(panelImage, x, y, w, sectionRowHeight,
+				strings.ToUpper(physiology.Specs[f].Name), active)
+			rects = append(rects, traitButtonHitbox{
+				x: x, y: y, w: w, h: sectionRowHeight, feature: f,
+			})
+		}
+	}
+	p.traitButtonRects = rects
+}
+
+// handleTraitButtonClick consumes a click at (mx, my) if it landed on
+// a HIGHLIGHT toggle. Returns true on hit. Caller must have
+// scroll-adjusted my already.
+func (p *Panel) handleTraitButtonClick(mx, my int) bool {
+	for _, r := range p.traitButtonRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			if p.grid.traitHighlight.Has(r.feature) {
+				p.grid.traitHighlight = p.grid.traitHighlight.Without(r.feature)
+			} else {
+				p.grid.traitHighlight = p.grid.traitHighlight.With(r.feature)
+			}
+			p.grid.doRefresh = true
+			return true
+		}
+	}
+	return false
 }
 
 // handleSelectButtonClick consumes a click at (mx, my) if it landed on
@@ -700,6 +786,7 @@ func (p *Panel) Render() *ebiten.Image {
 	p.renderDisplay(innerImage, yOff)
 	p.renderOrgColor(innerImage, yOff)
 	p.renderFindMost(innerImage, yOff)
+	p.renderTraitHighlight(innerImage, yOff)
 	p.renderGraph(innerImage, yOff)
 	contentBottom := p.renderSelected(innerImage, yOff)
 	p.contentHeight = contentBottom + padding
@@ -912,6 +999,9 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	if p.handleSelectButtonClick(mx, scrolledY) {
 		return true
 	}
+	if p.handleTraitButtonClick(mx, scrolledY) {
+		return true
+	}
 	if p.handleDisplayButtonClick(mx, scrolledY) {
 		return true
 	}
@@ -1094,10 +1184,10 @@ func (p *Panel) renderStats(panelImage *ebiten.Image, yOff int) {
 	// Cycle is shown in the timeline (when present), so we don't repeat
 	// it here. In live mode there's no timeline; the cycle is implicit
 	// from playback time.
-	// Left-pad each count to a fixed width so the ORGANISMS / DEAD / AVG PH
+	// Left-pad each count to a fixed width so the ORGANISMS / FOOD / AVG PH
 	// labels don't jitter as the values shrink or grow by a digit.
-	statsString := fmt.Sprintf("ORGANISMS: %8d   DEAD: %8d   AVG PH: %4.1f",
-		p.simulation.OrganismCount(), p.simulation.GetDeadCount(), p.simulation.AveragePh())
+	statsString := fmt.Sprintf("ORGANISMS: %8d   FOOD: %8d   AVG PH: %4.1f",
+		p.simulation.OrganismCount(), p.simulation.FoodCount(), p.simulation.AveragePh())
 	text.Draw(panelImage, statsString, r.FontSourceCodePro12, statsXOffset, statsYOffset+yOff, themedForeground())
 }
 
@@ -1506,7 +1596,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 			anim = animation.ForFrame(frame)
 			direction = frame.Direction
 		}
-		// High-res sprite sets (16x16 and 32x32) use 4 frames per cycle.
+		// The high-res sprite set (16x16) uses 4 frames per cycle.
 		frameIdx = p.grid.animState.SpriteFrameIndex(4)
 	}
 
@@ -1519,11 +1609,11 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 	const scale = float64(portraitScale)
 	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
 	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
-	// Portrait always renders from the 32x32 (highest-res) set, so
+	// Portrait always renders from the 16x16 (highest-res) set, so
 	// iterate the physiology-driven layers like the grid renderer
 	// does. Falls back to the bare default sprite when nothing in
 	// that organism's layer list has a PNG on disk yet.
-	const portraitZoom = 3 // 0:4x4, 1:8x8, 2:16x16, 3:32x32
+	const portraitZoom = 2 // 0:4x4, 1:8x8, 2:16x16
 	layers := r.OrganismLayersFor(info.Features)
 	stampedAny := false
 	for _, layer := range layers {

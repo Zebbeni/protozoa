@@ -18,7 +18,7 @@ type Info struct {
 	AncestorID int
 	Color      colorful.Color
 	// SecondaryColor tints feature overlays in the high-res renderer
-	// (flagellae / teeth / sensors). Inherited and mutated alongside
+	// (pili / teeth / sensors). Inherited and mutated alongside
 	// Color; view-mode overrides (pH, health) leave it unused since
 	// those modes paint the whole organism with one derived colour.
 	SecondaryColor colorful.Color

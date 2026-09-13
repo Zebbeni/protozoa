@@ -36,6 +36,7 @@ func ScreenHeight() int  { return constants.ScreenHeight }
 // --- Environment ---
 func InitialOrganisms() int        { return constants.InitialOrganisms }
 func InitialFood() int             { return constants.InitialFood }
+func InitialWalls() int            { return constants.InitialWalls }
 func ChanceToAddFoodItem() float64 { return constants.ChanceToAddFoodItem }
 func MinFoodValue() int            { return constants.MinFoodValue }
 func MaxFoodValue() int            { return constants.MaxFoodValue }
@@ -53,6 +54,12 @@ func ChemoPhEffectPerSize() float64    { return constants.ChemoPhEffectPerSize }
 func EatingPhEffectPerFood() float64   { return constants.EatingPhEffectPerFood }
 func PhDiffuseFactor() float64         { return constants.PhDiffuseFactor }
 func PhIncrementToDisplay() float64    { return constants.PhIncrementToDisplay }
+
+// --- Currents (the environment flow field) ---
+func FlowBias() float64              { return constants.FlowBias }
+func FlowDecayFactor() float64       { return constants.FlowDecayFactor }
+func CirculateStrength() float64     { return constants.CirculateStrength }
+func FlowAlignedThreshold() float64  { return constants.FlowAlignedThreshold }
 
 // --- Organisms ---
 func MinOrganisms() int                  { return constants.MinOrganisms }
@@ -86,15 +93,14 @@ func HealthChangeFromMoving() float64        { return constants.HealthChangeFrom
 func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFromEatingAttempt }
 func HealthChangeFromSpawning() float64      { return constants.HealthChangeFromSpawning }
 func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
-func HealthChangeFromStinging() float64      { return constants.HealthChangeFromStinging }
 func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
 func HealthChangeFromHunkering() float64     { return constants.HealthChangeFromHunkering }
 func HealthChangeFromFlaring() float64       { return constants.HealthChangeFromFlaring }
 func HealthChangeFromHiding() float64        { return constants.HealthChangeFromHiding }
+func HealthChangeFromCirculating() float64  { return constants.HealthChangeFromCirculating }
 
 // Damage delivered to targets — size-scaled, always negative.
 func HealthChangeInflictedByAttack() float64 { return constants.HealthChangeInflictedByAttack }
-func HealthChangeInflictedBySting() float64  { return constants.HealthChangeInflictedBySting }
 
 // Environmental health changes.
 func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
@@ -114,11 +120,11 @@ func WallStrengthDeltaLarge() int    { return constants.WallStrengthDeltaLarge }
 // exclusivity — see physiology.Set.Combined). Unitless multipliers
 // default to 1.0 (no effect); the additive modifier defaults to 0.
 
-// Flagellae tree
-func FlagellaeChemoEfficiencyMult() float64 { return constants.FlagellaeChemoEfficiencyMult }
-func CiliaChemoEfficiencyMult() float64     { return constants.CiliaChemoEfficiencyMult }
-func CiliaMoveCostMult() float64            { return constants.CiliaMoveCostMult }
-func StingerChemoEfficiencyMult() float64   { return constants.StingerChemoEfficiencyMult }
+// Pili tree
+func PiliChemoEfficiencyMult() float64     { return constants.PiliChemoEfficiencyMult }
+func FlagellaChemoEfficiencyMult() float64 { return constants.FlagellaChemoEfficiencyMult }
+func FlagellaMoveCostMult() float64        { return constants.FlagellaMoveCostMult }
+func FimbriaeChemoEfficiencyMult() float64 { return constants.FimbriaeChemoEfficiencyMult }
 
 // Sensors tree
 func AntennaeChemoEfficiencyMult() float64 { return constants.AntennaeChemoEfficiencyMult }
@@ -290,6 +296,7 @@ type Globals struct {
 	// --- Environment ---
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`
+	InitialWalls        int     `json:"initial_walls"`
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
 	MinFoodValue        int     `json:"min_food_value"`
 	MaxFoodValue        int     `json:"max_food_value"`
@@ -319,6 +326,31 @@ type Globals struct {
 	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
 	PhDiffuseFactor       float64 `json:"ph_diffuse_factor"`
 	PhIncrementToDisplay  float64 `json:"ph_increment_to_display"`
+
+	// --- Currents ---
+	// FlowBias is how hard a cell's flow vector skews its diffusion
+	// neighbour weights: weight = 1 - FlowBias*dot(flow, dirToNeighbour).
+	// 0 disables currents entirely (pure isotropic diffusion, the
+	// pre-currents behaviour). Must stay below 1 so every weight
+	// remains positive and diffusion stays a true weighted average;
+	// values near 1 make pH mix almost exclusively from upstream.
+	FlowBias float64 `json:"flow_bias"`
+	// FlowDecayFactor is the per-cycle multiplier pulling each cell's
+	// flow back toward still. 1.0 would make a current permanent;
+	// lower values mean Fimbriae organisms must keep circulating to
+	// hold one open. At 0.98 an un-tended current fades to ~13% over
+	// 100 cycles.
+	FlowDecayFactor float64 `json:"flow_decay_factor"`
+	// CirculateStrength is how much magnitude one ActCirculate adds to
+	// the cell's flow, in the organism's facing direction. Pushes
+	// accumulate and clamp at magnitude 1, so this also sets how many
+	// cycles of stirring it takes one organism to reach full current.
+	CirculateStrength float64 `json:"circulate_strength"`
+	// FlowAlignedThreshold is the dot-product cutoff the
+	// IsCurrentAligned condition tests the local flow against the
+	// organism's facing. 0 fires whenever the current has any forward
+	// component; higher values demand closer alignment.
+	FlowAlignedThreshold float64 `json:"flow_aligned_threshold"`
 
 	// --- Organisms ---
 	MinOrganisms                  int     `json:"min_organisms"`
@@ -358,13 +390,12 @@ type Globals struct {
 	HealthChangeFromEatingAttempt        float64 `json:"health_change_from_eating_attempt"`
 	HealthChangeFromSpawning             float64 `json:"health_change_from_spawning"`
 	HealthChangeFromAttacking            float64 `json:"health_change_from_attacking"`
-	HealthChangeFromStinging             float64 `json:"health_change_from_stinging"`
 	HealthChangeFromDigging              float64 `json:"health_change_from_digging"`
 	HealthChangeFromHunkering            float64 `json:"health_change_from_hunkering"`
 	HealthChangeFromFlaring              float64 `json:"health_change_from_flaring"`
 	HealthChangeFromHiding               float64 `json:"health_change_from_hiding"`
+	HealthChangeFromCirculating          float64 `json:"health_change_from_circulating"`
 	HealthChangeInflictedByAttack        float64 `json:"health_change_inflicted_by_attack"`
-	HealthChangeInflictedBySting         float64 `json:"health_change_inflicted_by_sting"`
 	HealthChangePerCycleUnhealthyPh      float64 `json:"health_change_per_unhealthy_ph"`
 
 	// --- Physiology ---
@@ -386,7 +417,7 @@ type Globals struct {
 	FlareDamageDealtMult  float64 `json:"flare_damage_dealt_mult"`
 	FlarePerceivedSizeAdd float64 `json:"flare_perceived_size_add"`
 	// WallStrengthDeltaSmall/Medium/Large set how much wall strength
-	// a single dig or burrow action adds or removes, bucketed by the
+	// a single ActDig adds or removes, bucketed by the
 	// organism's size class (thirds of MaximumMaxSize).
 	WallStrengthDeltaSmall  int `json:"wall_strength_delta_small"`
 	WallStrengthDeltaMedium int `json:"wall_strength_delta_medium"`
@@ -399,11 +430,11 @@ type Globals struct {
 	// order so the source layout mirrors default.json and the
 	// settings editor's per-tree subsections.
 
-	// Flagellae tree
-	FlagellaeChemoEfficiencyMult float64 `json:"flagellae_chemo_efficiency_mult"`
-	CiliaChemoEfficiencyMult     float64 `json:"cilia_chemo_efficiency_mult"`
-	CiliaMoveCostMult            float64 `json:"cilia_move_cost_mult"`
-	StingerChemoEfficiencyMult   float64 `json:"stinger_chemo_efficiency_mult"`
+	// Pili tree
+	PiliChemoEfficiencyMult     float64 `json:"pili_chemo_efficiency_mult"`
+	FlagellaChemoEfficiencyMult float64 `json:"flagella_chemo_efficiency_mult"`
+	FlagellaMoveCostMult        float64 `json:"flagella_move_cost_mult"`
+	FimbriaeChemoEfficiencyMult float64 `json:"fimbriae_chemo_efficiency_mult"`
 
 	// Sensors tree
 	AntennaeChemoEfficiencyMult float64 `json:"antennae_chemo_efficiency_mult"`

@@ -13,6 +13,11 @@
 --   <stem>_<res>_static     — static slice (food, wall, etc.);
 --                              pairs only with the `base` tag.
 --
+--   16x16 is the maximum resolution the project ships — the Go
+--   loader reads 4x4 / 8x8 / 16x16 only, and the renderer upscales
+--   the 16x16 set for the larger camera zooms. Slices authored above
+--   16 are skipped with a warning (see maxRes below).
+--
 --   Stems used by this project:
 --     Organisms:  small, medium, large           (use animated slices)
 --     Food:       food_small, food_medium,
@@ -29,14 +34,12 @@
 -- ============================================================
 --   <action>                — animated, ONE tag per action regardless
 --                              of resolution. Author the tag with
---                              up to 4 frames — that's the cap for the
---                              two highest-res slices. The script
---                              slices off the right number of frames
---                              per export:
+--                              up to 4 frames — that's the cap, set by
+--                              the 16x16 slices. The script slices off
+--                              the right number of frames per export:
 --                                4x4   → first 1 frame
 --                                8x8   → first 2 frames
 --                                16x16 → first 4 frames
---                                32x32 → first 4 frames
 --                              A tag with fewer frames than the slice
 --                              asks for is clamped, so a 2-frame tag
 --                              still works at higher res (animation just
@@ -54,7 +57,7 @@
 --     Organism low-res (4x4 / 8x8): only the unvaried body sprite.
 --       body
 --
---     Organism high-res (16x16 / 32x32): mutually-exclusive body
+--     Organism high-res (16x16): mutually-exclusive body
 --     silhouettes + additive feature overlays. Every body variant
 --     is exported for every organism size + action so the artist
 --     deliberately considers each combination.
@@ -62,9 +65,9 @@
 --       body_shell
 --       body_spikes
 --       body_camouflage
---       flagellae
---       cilia
---       stinger
+--       pili
+--       flagella
+--       fimbriae
 --       antennae
 --       feelers
 --       tasters
@@ -98,7 +101,7 @@
 --   Slices with multiple applicable layers (high-res organism):
 --     animated:   <layer>_<stem>_<action>.png
 --                                           e.g. body_basic_small_idle.png
---                                                flagellae_small_move.png
+--                                                pili_small_move.png
 --                                                teeth_medium_eat.png
 --
 --   Output dir: <outdir>/<res>x<res>/<filename>
@@ -268,7 +271,7 @@ end
 --                        "wall_left", "wall_right" }
 --   food_*          → { "food" }
 --   organism @ <=8  → { "body" }
---   organism @ >=16 → { body variants ..., feature overlays ... }
+--   organism @ 16    → { body variants ..., feature overlays ... }
 local function applicableLayersFor(slice)
     local stem = slice.stem
     if startsWith(stem, "wall") then
@@ -289,7 +292,7 @@ local function applicableLayersFor(slice)
     end
     return {
         "body_basic", "body_shell", "body_spikes", "body_camouflage",
-        "flagellae", "cilia", "stinger",
+        "pili", "flagella", "fimbriae",
         "antennae", "feelers", "tasters",
         "teeth", "fangs", "tusks",
     }
@@ -305,6 +308,13 @@ end
 -- before we crop the scratch copy).
 -- ------------------------------------------------------------------
 
+-- maxRes is the highest sprite resolution the project ships. Slices
+-- authored above it are parsed but skipped with a warning rather than
+-- exported, so a stray leftover slice in the .aseprite file gets
+-- surfaced in the summary instead of silently writing PNGs the Go
+-- loader will never read.
+local maxRes = 16
+
 local slices = {}
 local skipped = {}
 for _, slice in ipairs(spr.slices) do
@@ -314,6 +324,10 @@ for _, slice in ipairs(spr.slices) do
         local info = parseSlice(slice.name)
         if not info then
             table.insert(skipped, "slice '" .. slice.name .. "' (unrecognised name)")
+        elseif info.res > maxRes then
+            table.insert(skipped, "slice '" .. slice.name .. "' (resolution " ..
+                tostring(info.res) .. " exceeds the " .. tostring(maxRes) ..
+                "x" .. tostring(maxRes) .. " maximum — delete it from the source file)")
         else
             info.name   = slice.name
             info.bounds = slice.bounds
@@ -381,12 +395,12 @@ end
 local expectedTagActions = {
     "idle", "move", "blocked", "turn_left", "turn_right",
     "attack", "eat", "eatfail", "chemo", "chemofail", "die",
-    "hide",
+    "hide", "circulate",
 }
 local lowResOrganismLayers  = { "body" }
 local highResOrganismLayers = {
     "body_basic", "body_shell", "body_spikes", "body_camouflage",
-    "flagellae", "cilia", "stinger",
+    "pili", "flagella", "fimbriae",
     "antennae", "feelers", "tasters",
     "teeth", "fangs", "tusks",
 }
@@ -577,12 +591,12 @@ for _, sl in ipairs(slices) do
                             local fn = resDir .. sep .. outName
                             -- Frame range: each resolution takes the
                             -- first (res/4) frames from the tag's
-                            -- range, capped at 4. 32x32 takes the same
-                            -- 4 frames as 16x16 — the higher resolution
-                            -- buys detail per frame, not more animation
-                            -- steps. Static (base) tags have
-                            -- fromFrame == toFrame so the math
-                            -- collapses to a single frame.
+                            -- range — 4x4 → 1, 8x8 → 2, 16x16 → 4.
+                            -- 16x16 is the top resolution so res/4
+                            -- already lands on the 4-frame cap; the
+                            -- clamp below is belt-and-braces. Static
+                            -- (base) tags have fromFrame == toFrame so
+                            -- the math collapses to a single frame.
                             local framesNeeded = sl.res / 4
                             if framesNeeded < 1 then
                                 framesNeeded = 1

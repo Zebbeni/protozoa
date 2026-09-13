@@ -3,6 +3,8 @@ package manager
 import (
 	"sync"
 
+	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
@@ -21,20 +23,45 @@ const (
 // WallManager owns the stateful wall grid that replaced the
 // pool-bordered pure-function walls. Walls are a sparse map keyed by
 // point — most of the grid is empty, and feature-driven actions
-// (dig/burrow) add or remove walls dynamically over the sim's life.
+// (ActDig) add or remove walls dynamically over the sim's life.
 // State changes are guarded by an RWMutex so concurrent readers
 // (renderer, conditions) don't race the writer.
 type WallManager struct {
+	rng   *simrand.RNG
 	walls map[utils.Point]int
 	mu    sync.RWMutex
 }
 
-// NewWallManager returns an empty wall grid. Genesis sims start with
-// no walls — they only appear via burrow actions once a lineage
-// evolves Tusks.
-func NewWallManager() *WallManager {
-	return &WallManager{
+// NewWallManager returns a wall grid seeded with config.InitialWalls()
+// randomly placed walls of random strength in [MinWallStrength,
+// MaxWallStrength]. With InitialWalls == 0 the grid is empty and walls
+// only appear later via ActDig, matching the original
+// "Genesis sims start with no walls" behaviour.
+func NewWallManager(rng *simrand.RNG) *WallManager {
+	m := &WallManager{
+		rng:   rng,
 		walls: make(map[utils.Point]int),
+	}
+	m.InitializeWalls(config.InitialWalls())
+	return m
+}
+
+// InitializeWalls places n random walls. Each call picks a random
+// point and a random strength in [MinWallStrength, MaxWallStrength];
+// rolls that land on a cell already holding a wall simply overwrite
+// it, so collisions reduce the final count slightly on dense grids.
+func (m *WallManager) InitializeWalls(n int) {
+	if n <= 0 {
+		return
+	}
+	w := config.GridUnitsWide()
+	h := config.GridUnitsHigh()
+	strengthRange := MaxWallStrength - MinWallStrength + 1
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := 0; i < n; i++ {
+		p := utils.Point{X: m.rng.Intn(w), Y: m.rng.Intn(h)}
+		m.walls[p] = MinWallStrength + m.rng.Intn(strengthRange)
 	}
 }
 
@@ -57,7 +84,7 @@ func (m *WallManager) GetWallStrengthAtPoint(p utils.Point) int {
 // AddWallStrength adjusts the wall at p by delta, clamped to
 // [0, MaxWallStrength]. A resulting strength of 0 removes the entry
 // from the map so IsWallAtPoint becomes false. Returns the new
-// strength. Positive delta is burrow, negative is dig.
+// strength. Positive delta reinforces, negative digs.
 func (m *WallManager) AddWallStrength(p utils.Point, delta int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

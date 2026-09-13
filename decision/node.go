@@ -183,8 +183,10 @@ func (n *Node) print(indent string, first, last bool) string {
 	return toPrint
 }
 
-// intToNodeType maps a serialized int code back to an Action or Condition.
-// Built once at init from the Actions and Conditions arrays.
+// codeToNodeType maps a serialized int code back to its typed Action
+// or Condition. Built once at init from the Actions and Conditions
+// arrays in constants.go — every code is in one of those slices, so
+// no per-code explicit registration is needed.
 var codeToNodeType map[int]interface{}
 
 func init() {
@@ -195,21 +197,6 @@ func init() {
 	for _, c := range Conditions {
 		codeToNodeType[int(c)] = c
 	}
-	// ActSpawn isn't in Actions array but can appear in serialized trees
-	codeToNodeType[int(ActSpawn)] = ActSpawn
-	// Trait-tree placeholder actions: not in Actions array (selection
-	// is feature-gated, not by random pick from the global slice), but
-	// must round-trip through serialization once trees start to contain
-	// them in later slices.
-	codeToNodeType[int(ActSting)] = ActSting
-	codeToNodeType[int(ActDig)] = ActDig
-	codeToNodeType[int(ActHunker)] = ActHunker
-	codeToNodeType[int(ActFlare)] = ActFlare
-	codeToNodeType[int(ActHide)] = ActHide
-	codeToNodeType[int(ActBurrow)] = ActBurrow
-	codeToNodeType[int(IsWallAhead)] = IsWallAhead
-	codeToNodeType[int(IsWallLeft)] = IsWallLeft
-	codeToNodeType[int(IsWallRight)] = IsWallRight
 }
 
 // Deserialize parses a serialized tree string back into a Node tree.

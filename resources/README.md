@@ -16,7 +16,7 @@ over-body sensor overlays on top.
 Every sprite — every organism size, every food size, walls, every body
 variant, every feature overlay — lives in **one** `.aseprite` file.
 Slice names carry the resolution, so the same file can hold `small_4`,
-`small_16`, and `small_32` slices side by side. The script handles the
+`small_8`, and `small_16` slices side by side. The script handles the
 rest.
 
 ## Slices
@@ -28,7 +28,7 @@ A slice is a rectangle in the source file that maps to one cell (or one
 <stem>_<res>            animated 1-cell  (e.g. small_16)
 <stem>_<res>_xl         animated 2-cell  (e.g. small_16_xl)
 <stem>_<res>_static     static, paired only with the `base` tag
-                        (e.g. food_small_16_static, wall_32_static)
+                        (e.g. food_small_16_static, wall_16_static)
 ```
 
 Stems the renderer expects:
@@ -39,8 +39,12 @@ Stems the renderer expects:
 | `food_small`, `food_medium`, `food_large` | Food, by value-bucket; always `_static` |
 | `wall_weak`, `wall_medium`, `wall_strong` | Wall, by strength tier; always `_static`. Renderer picks the tier from the cell's current strength: 1–2 → weak, 3–5 → medium, 6–7 → strong |
 
-Resolutions: `4`, `8`, `16`, `32`. Authoring at every resolution is
-optional — only the ones you create slices for will be exported.
+Resolutions: `4`, `8`, `16`. **16 is the maximum** — the Go loader
+reads the `4x4` / `8x8` / `16x16` sets only, and the renderer upscales
+the 16x16 art for the larger camera zooms. Slices above 16 are skipped
+with a warning so a leftover `_32` slice gets surfaced rather than
+silently exported. Authoring at every resolution is optional — only the
+ones you create slices for will be exported.
 
 ## Tags
 
@@ -52,10 +56,8 @@ the right number of frames per export:
 | 4x4 | first 1 frame |
 | 8x8 | first 2 frames |
 | 16x16 | first 4 frames |
-| 32x32 | first 4 frames |
 
-32x32 doesn't add more frames than 16x16 — the extra resolution buys
-detail per frame, not more animation steps. A tag with fewer frames
+Four frames is the ceiling, set by the 16x16 set. A tag with fewer frames
 than a slice demands is clamped — the animation just plays however
 many you drew, in place of the full count. Useful when you're
 prototyping: start every tag at 1 frame, expand to 4 later.
@@ -70,18 +72,17 @@ single `base` tag for static art:
 | `blocked` | StatusMoveBlocked |
 | `turn_left` | StatusTurnLeft |
 | `turn_right` | StatusTurnRight |
-| `attack` | StatusAttacking (today also StatusStinging) |
+| `attack` | StatusAttacking |
 | `eat` | StatusEatSuccess |
 | `eatfail` | StatusEatFailed |
 | `chemo` | StatusChemoSuccess |
 | `chemofail` | StatusChemoFailed |
 | `die` | StatusDying |
-| `sting` | StatusStinging (pending — not yet wired in `ForStatus`) |
 | `dig` | StatusDigging (pending) |
-| `burrow` | StatusBurrowing (pending) |
 | `hunker` | StatusHunkering (pending) |
 | `flare` | StatusFlaring (pending) |
 | `hide` | StatusHiding |
+| `circulate` | StatusCirculating (Fimbriae stirring the current) |
 | `spawn` | StatusSpawning (pending) |
 | `base` | Static, paired only with `_static` slices |
 
@@ -102,9 +103,9 @@ isolated, ready for the renderer to composite at draw time.
 
 - `body`
 
-**High-res organism body variants** (used only with `small_16`,
-`small_32`, `medium_16`, `medium_32`, `large_16`, `large_32` slices —
-all four are exported for every size × action):
+**High-res organism body variants** (used only with the `small_16`,
+`medium_16` and `large_16` slices — all four are exported for every
+size × action):
 
 - `body_basic`
 - `body_shell`
@@ -118,9 +119,9 @@ parts that should poke past the body stay visible:
 Drawn *under* the body — these attach to or extend out from the body's
 sides / rear and the body silhouette covers their roots cleanly:
 
-- `flagellae`
-- `cilia`
-- `stinger`
+- `pili`
+- `flagella`
+- `fimbriae`
 - `teeth`
 - `fangs`
 - `tusks`
@@ -133,7 +134,7 @@ Drawn *over* the body — head-mounted sensors that need to read as
 - `tasters`
 
 Compositing order, bottom to top:
-1. Under-body overlays (flagellae, cilia, stinger, teeth, fangs, tusks)
+1. Under-body overlays (pili, flagella, fimbriae, teeth, fangs, tusks)
 2. Body variant (basic / shell / spikes / camouflage — exactly one)
 3. Over-body overlays (antennae, feelers, tasters)
 
@@ -166,7 +167,7 @@ slice's stem and resolution:
 | Slice stem | Resolution | Layers exported |
 |---|---|---|
 | `small`, `medium`, `large` | 4, 8 | `body` |
-| `small`, `medium`, `large` | 16, 32 | `body_basic`, `body_shell`, `body_spikes`, `body_camouflage`, plus all 9 feature overlays |
+| `small`, `medium`, `large` | 16 | `body_basic`, `body_shell`, `body_spikes`, `body_camouflage`, plus all 9 feature overlays |
 | `food_*` | any | `food` |
 | `wall_*` | any | `wall_base`, `wall_up`, `wall_down`, `wall_left`, `wall_right` (each exported per strength as `wall_<layer>_<strength>.png`) |
 
@@ -183,7 +184,7 @@ Filename rules:
 | Slice → | Filename |
 |---|---|
 | Animated, single applicable layer (low-res organism) | `<stem>_<action>.png` — e.g. `small_idle.png` |
-| Animated, multiple applicable layers (high-res organism) | `<layer>_<stem>_<action>.png` — e.g. `body_basic_small_idle.png`, `flagellae_small_move.png` |
+| Animated, multiple applicable layers (high-res organism) | `<layer>_<stem>_<action>.png` — e.g. `body_basic_small_idle.png`, `pili_small_move.png` |
 | Static (food, wall) | `<stem>.png` — e.g. `food_small.png`, `wall.png` |
 
 The layer prefix is only added when more than one layer applies, so the
@@ -198,7 +199,7 @@ existing 4x4 / 8x8 outputs stay backwards-compatible.
    default suggestion is the directory the source file lives in).
 4. Hit **Export**.
 
-The script creates `4x4/`, `8x8/`, `16x16/`, `32x32/` subdirectories
+The script creates `4x4/`, `8x8/`, `16x16/` subdirectories
 under the output folder as needed and writes one PNG per
 `(slice, applicable layer, matching tag)` triple. It then reports the
 count and prints three sanity-check sections in the final alert when
@@ -236,7 +237,7 @@ A sprite file with these slices, tags, and layers:
 - Slices: `small_4`, `small_16`, `food_small_16_static`, `wall_weak_16_static`, `wall_medium_16_static`, `wall_strong_16_static`
 - Tags: `idle` (4 frames), `move` (4 frames), `attack` (4 frames), `base` (1 frame)
 - Layers: `background` (preview), `body`, `body_basic`, `body_shell`,
-  `body_spikes`, `body_camouflage`, `flagellae`, `cilia`, `stinger`,
+  `body_spikes`, `body_camouflage`, `pili`, `flagella`, `fimbriae`,
   `antennae`, `feelers`, `tasters`, `teeth`, `fangs`, `tusks`, `food`, `wall`
 
 …produces these PNGs:
@@ -252,8 +253,8 @@ A sprite file with these slices, tags, and layers:
 16x16/body_shell_small_idle.png
 16x16/body_shell_small_move.png
 ...                                   (all body × size × action combos)
-16x16/flagellae_small_idle.png        (flagellae × idle, first 4 frames)
-16x16/flagellae_small_move.png
+16x16/pili_small_idle.png             (pili × idle, first 4 frames)
+16x16/pili_small_move.png
 ...                                   (all overlay × size × action combos)
 16x16/food_small.png                  (food × base, 1 frame)
 16x16/wall_weak.png                   (wall × base, 1 frame)

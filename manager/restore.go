@@ -17,7 +17,7 @@ import (
 // RestoreEnvironmentManager creates an EnvironmentManager with pre-populated
 // pH maps. Snapshot pH maps are float64 to preserve simulation precision
 // exactly, so we deep-copy here without any narrow/widen conversion.
-func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]float64) *EnvironmentManager {
+func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]float64, flow [][]checkpoint.FlowVector) *EnvironmentManager {
 	dup := func(src [][]float64) [][]float64 {
 		if len(src) == 0 {
 			return nil
@@ -29,10 +29,48 @@ func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]fl
 		}
 		return dst
 	}
+	// dupFlow converts the snapshot's vector type back to utils.Vector,
+	// allocating fresh rows so the restored manager shares nothing with
+	// the snapshot. A snapshot written before the flow field existed
+	// (or one from a grid that had no currents) restores as nil here;
+	// the caller fills in a still field of the right size.
+	dupFlow := func(src [][]checkpoint.FlowVector) [][]utils.Vector {
+		if len(src) == 0 {
+			return nil
+		}
+		dst := make([][]utils.Vector, len(src))
+		for x, col := range src {
+			dst[x] = make([]utils.Vector, len(col))
+			for y, v := range col {
+				dst[x][y] = utils.Vector{X: v.X, Y: v.Y}
+			}
+		}
+		return dst
+	}
+
+	flowMap := dupFlow(flow)
+	if flowMap == nil {
+		gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
+		flowMap = make([][]utils.Vector, gridW)
+		for x := 0; x < gridW; x++ {
+			flowMap[x] = make([]utils.Vector, gridH)
+		}
+	}
+
 	return &EnvironmentManager{
 		api:           api,
 		currentPhMap:  dup(currentPh),
 		previousPhMap: dup(previousPh),
+		flowMap:       flowMap,
+	}
+}
+
+// RestoreWallManager creates a WallManager with a pre-populated wall
+// map, bypassing the initial-walls seeding in NewWallManager.
+func RestoreWallManager(rng *simrand.RNG, walls map[utils.Point]int) *WallManager {
+	return &WallManager{
+		rng:   rng,
+		walls: walls,
 	}
 }
 
@@ -234,6 +272,7 @@ func RestoreOrganismManager(
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
+			HistoryFood:           make(map[int]map[int]int32),
 		},
 	}
 }

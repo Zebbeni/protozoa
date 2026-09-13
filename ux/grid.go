@@ -12,6 +12,7 @@ import (
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
@@ -26,6 +27,7 @@ type layerType int
 // helpers shared across layers.
 const (
 	layerPh layerType = iota
+	layerFlow
 	layerWalls
 	layerFood
 	layerOrganisms
@@ -64,11 +66,20 @@ type Grid struct {
 	// independently of the organism colour mode. orgColor decides how
 	// organisms are tinted when shown.
 	showPh        bool
+	showFlow      bool
 	showFood      bool
 	showOrganisms bool
 	showWalls     bool
 	orgColor      mode
 	selectMode    mode
+	// traitHighlight is the set of physiological features the user has
+	// asked to spotlight from the panel's HIGHLIGHT rows. Every living
+	// organism holding ANY feature in the set gets a box on the
+	// selection layer, independent of selectMode and of which organism
+	// is selected. The zero Set means the feature is off, which is the
+	// common case — populateSelectionLayer skips the whole pass then,
+	// so an unused highlight costs nothing per frame.
+	traitHighlight physiology.Set
 	clearImg      *ebiten.Image
 	// selectionBoxImg is the source bitmap stamped onto layerSelection
 	// for every highlighted organism. Authored white-on-transparent so
@@ -102,6 +113,7 @@ type Grid struct {
 	// specific layer or compose pass.
 	timeWalls          time.Duration
 	timePh             time.Duration
+	timeFlow           time.Duration
 	timeFood           time.Duration
 	timeOrganisms      time.Duration
 	timeCompose        time.Duration
@@ -121,6 +133,7 @@ type Grid struct {
 type RenderTimings struct {
 	Walls          time.Duration
 	Ph             time.Duration
+	Flow           time.Duration
 	Food           time.Duration
 	Organisms      time.Duration
 	Compose        time.Duration
@@ -133,6 +146,7 @@ func (g *Grid) LastRenderTimings() RenderTimings {
 	return RenderTimings{
 		Walls:          g.timeWalls,
 		Ph:             g.timePh,
+		Flow:           g.timeFlow,
 		Food:           g.timeFood,
 		Organisms:      g.timeOrganisms,
 		Compose:        g.timeCompose,
@@ -150,6 +164,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 		Camera:        cam,
 		doRefresh:     true,
 		showPh:        true,
+		showFlow:      false,
 		showFood:      true,
 		showOrganisms: true,
 		showWalls:     true,
@@ -165,6 +180,7 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 func (g *Grid) initLayerImages() {
 	g.layers = map[layerType]*ebiten.Image{
 		layerPh:        g.newBlankLayer(),
+		layerFlow:      g.newBlankLayer(),
 		layerWalls:     g.newBlankLayer(),
 		layerFood:      g.newBlankLayer(),
 		layerOrganisms: g.newBlankLayer(),
@@ -213,6 +229,7 @@ func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 func (g *Grid) Render() *ebiten.Image {
 	if g.doRefresh {
 		g.layers[layerPh] = g.newBlankLayer()
+		g.layers[layerFlow] = g.newBlankLayer()
 		g.layers[layerWalls] = g.newBlankLayer()
 		g.layers[layerFood] = g.newBlankLayer()
 		g.layers[layerOrganisms] = g.newBlankLayer()
@@ -230,6 +247,14 @@ func (g *Grid) Render() *ebiten.Image {
 	t = time.Now()
 	g.renderFood(g.layers[layerFood], g.doRefresh)
 	g.timeFood = time.Since(t)
+
+	// Flow is redrawn in full each frame (the field decays every
+	// cycle), so skip the work entirely while the overlay is hidden.
+	t = time.Now()
+	if g.showFlow {
+		g.renderFlow(g.layers[layerFlow])
+	}
+	g.timeFlow = time.Since(t)
 
 	// Fetch the alive organism map once per render so renderOrganisms
 	// and the selection layer can share it. Each call rebuilds a fresh
@@ -310,6 +335,9 @@ func (g *Grid) Render() *ebiten.Image {
 		// pixel size by renderPh, so it tiles 1:1 here like every other
 		// layer.
 		drawLayer(g.layers[layerPh], 1, 1, ebiten.FilterNearest)
+	}
+	if g.showFlow {
+		drawLayer(g.layers[layerFlow], 1, 1, ebiten.FilterNearest)
 	}
 	if g.showWalls {
 		drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)

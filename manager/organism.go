@@ -22,6 +22,7 @@ type HistoryType int
 const (
 	HistoryPopulation     HistoryType = iota // cycle : ancestorId : livingDescendantsCount
 	HistoryPhDistribution                    // cycle : phBucket : gridCellCount
+	HistoryFood                              // cycle : 0 : totalFoodItemCount
 )
 
 // OrganismManager contains 2D array of booleans showing if organism present
@@ -99,6 +100,7 @@ func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 		history: map[HistoryType]map[int]map[int]int32{
 			HistoryPopulation:     make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
+			HistoryFood:           make(map[int]map[int]int32),
 		},
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
@@ -320,6 +322,13 @@ func (m *OrganismManager) updateHistory() {
 	m.historyMutex.Lock()
 	m.history[HistoryPhDistribution][cycle] = phDist
 	m.historyMutex.Unlock()
+
+	// Record the total food-item count under a single fixed key (0) so
+	// the food graph can plot it as one series over time.
+	m.historyMutex.Lock()
+	m.history[HistoryFood][cycle] = map[int]int32{0: int32(m.api.FoodCount())}
+	m.historyMutex.Unlock()
+
 	m.HistoryDuration = time.Since(start)
 }
 
@@ -353,23 +362,6 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		o.AttackTotal++
 		if m.isOrganismAtLocation(target) {
 			o.AttackHits++
-		}
-	case d.ActSting:
-		// Sting is an area-of-effect attack hitting all 4 cardinal
-		// neighbours with reduced per-cell damage. AttackTotal
-		// increments once per sting cycle (consistent with attack as
-		// an action count), AttackHits increments per occupied
-		// adjacent cell — a 4-target sting can credit up to 4 hits in
-		// one cycle, so the hits/total stat properly rewards stingers
-		// that find crowds.
-		stingEffect := m.calculateStingEffect(o)
-		o.AttackTotal++
-		for _, offset := range utils.Directions {
-			target := o.Location.Add(offset)
-			rm.AddHealthEffectRequest(target, stingEffect)
-			if m.isOrganismAtLocation(target) {
-				o.AttackHits++
-			}
 		}
 	}
 }
@@ -906,7 +898,7 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 	// Junk-DNA fallback: a decision tree node may pick an action the
 	// organism no longer has the physiology to resolve (e.g. the tree
 	// kept ActMove from an ancestor but the lineage has since lost
-	// FeatCilia). Re-route those to applyIdle and rewrite o.Action so
+	// FeatFlagella). Re-route those to applyIdle and rewrite o.Action so
 	// the renderer's sprite matches actual behaviour rather than
 	// reporting the unrealisable intent. Re-gaining the feature later
 	// naturally reactivates the original action.
@@ -932,17 +924,9 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 		m.applySpawn(o)
 	case d.ActIdle:
 		m.applyIdle(o)
-	case d.ActSting:
-		m.applySting(o)
+	case d.ActCirculate:
+		m.applyCirculate(o)
 	case d.ActDig:
-		m.applyDig(o)
-	case d.ActBurrow:
-		// Legacy ActBurrow: routed to applyDig so any pre-merge
-		// decision tree that still references this code keeps doing
-		// the side-wall placement (now bundled into the combined dig
-		// behaviour). New mutations can't pick ActBurrow because no
-		// feature unlocks it; the constant only survives so old .pzr
-		// snapshots still decode.
 		m.applyDig(o)
 	case d.ActHunker:
 		m.applyHunker(o)
@@ -1007,6 +991,12 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 		// ChemoEfficiencyMult is the dominant chemo tradeoff: most
 		// non-base features carry a small chemo penalty so adopting
 		// new physiology costs the lineage some self-feeding rate.
+		//
+		// Fimbriae has no chemo multiplier of its own: its payoff is
+		// indirect. Chemosynthesis acidifies the cell it happens in,
+		// so a sessile organism poisons its own water over time —
+		// circulating the current is how a Fimbriae lineage flushes
+		// that acid downstream and mixes fresher pH in from upstream.
 		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size*o.Tradeoffs().ChemoEfficiencyMult)
 		o.Status = organism.StatusChemoSuccess
 		// Successful chemo pushes local pH down, scaled by organism
@@ -1049,23 +1039,8 @@ func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
 	return c.HealthChangeInflictedByAttack() * o.Size * mult
 }
 
-// calculateStingEffect returns the per-cell damage that a sting
-// inflicts on each of its 4 adjacent targets. Uses its own absolute
-// damage value (HealthChangeInflictedBySting) — typically smaller
-// than a single attack so the niche is in volume, not per-target
-// punch. Same attacker-side AttackDamageDealtMult applies; the
-// defender-side mult applies on the receive side. Flare boosts
-// sting damage symmetrically with single-target attack.
-func (m *OrganismManager) calculateStingEffect(o *organism.Organism) float64 {
-	mult := o.Tradeoffs().AttackDamageDealtMult
-	if o.Status == organism.StatusFlaring {
-		mult *= c.FlareDamageDealtMult()
-	}
-	return c.HealthChangeInflictedBySting() * o.Size * mult
-}
-
-// sizeStrengthDelta returns the amount of wall strength a digger or
-// burrower of the given Size adds or removes per action, looked up
+// sizeStrengthDelta returns the amount of wall strength a digger
+// of the given Size adds or removes per action, looked up
 // from the WallStrengthDelta* config knobs. Bracket cutoffs match
 // the renderer's thirds-of-MaximumMaxSize bins so the size class an
 // organism reads as visually maps 1:1 to the strength delta it does.
@@ -1083,9 +1058,8 @@ func sizeStrengthDelta(size float64) int {
 
 // applyDig resolves ActDig: pays the dig cost, damages any wall (or
 // destroys food) directly in front, AND reinforces / adds walls on
-// both sides. The two effects used to live in separate ActDig and
-// ActBurrow actions; they're combined into a single action so a tusks
-// lineage gets the full terrain-shaping toolkit from one decision.
+// both sides — a single combined terrain-shaping action so a tusks
+// lineage gets the full toolkit from one decision.
 //
 // Front cell:
 //   - wall present  → strength -= size delta (clamped at 0; the
@@ -1101,8 +1075,8 @@ func sizeStrengthDelta(size float64) int {
 //   - empty cell       → new wall created at delta strength
 //
 // One health cost is paid for the combined action — HealthChangeFromDigging
-// scaled by size. The old, separate HealthChangeFromBurrowing constant
-// is gone since burrowing no longer exists as its own action.
+// scaled by size — the front-cell dig and the side-wall placement
+// are not billed separately.
 func (m *OrganismManager) applyDig(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
 	m.applyHealthChange(o, c.HealthChangeFromDigging()*o.Size)
@@ -1133,14 +1107,22 @@ func (m *OrganismManager) applyDig(o *organism.Organism) {
 	}
 }
 
-// applySting pays the size-scaled health cost of stinging — damage
-// to neighbours is delivered through the request manager (added in
-// updateRequestMap during decide) and applied on the defender's
-// applyCycleHealthChanges pass.
-func (m *OrganismManager) applySting(o *organism.Organism) {
+// applyCirculate resolves ActCirculate: the organism stirs the water
+// at its own cell, pushing the flow vector there toward its facing by
+// CirculateStrength. Pushes accumulate across cycles and across
+// organisms and saturate at unit magnitude, so one organism stirring
+// steadily and several stirring together both converge on a full
+// current — the difference is how fast, and how well it holds against
+// the per-cycle decay.
+//
+// Always succeeds: unlike the old ActAttach there's no terrain
+// precondition, so there's no failure path to degrade to idle. The
+// organism pays HealthChangeFromCirculating scaled by size.
+func (m *OrganismManager) applyCirculate(o *organism.Organism) {
+	m.api.CirculateFlowAtPoint(o.Location, o.Direction, c.CirculateStrength())
 	m.addUpdatedPoint(o.Location)
-	m.applyHealthChange(o, c.HealthChangeFromStinging()*o.Size)
-	o.Status = organism.StatusStinging
+	m.applyHealthChange(o, c.HealthChangeFromCirculating()*o.Size)
+	o.Status = organism.StatusCirculating
 }
 
 // applyHunker raises the organism's defensive posture for this
@@ -1294,7 +1276,7 @@ func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils
 }
 
 func (m *OrganismManager) applyMove(o *organism.Organism) {
-	// MoveCostMult: Cilia makes movement cheaper, Shell/Spikes make
+	// MoveCostMult: Flagella makes movement cheaper, Shell/Spikes make
 	// it more expensive (dragging mass through the world).
 	m.applyHealthChange(o, c.HealthChangeFromMoving()*o.Size*o.Tradeoffs().MoveCostMult)
 

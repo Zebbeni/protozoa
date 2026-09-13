@@ -38,11 +38,9 @@ var hotReloadDirs = []string{
 	"resources/images/grid_light/4x4",
 	"resources/images/grid_light/8x8",
 	"resources/images/grid_light/16x16",
-	"resources/images/grid_light/32x32",
 	"resources/images/grid_dark/4x4",
 	"resources/images/grid_dark/8x8",
 	"resources/images/grid_dark/16x16",
-	"resources/images/grid_dark/32x32",
 }
 
 // AnimationTest is a standalone ebiten.Game for previewing every organism
@@ -56,7 +54,7 @@ type AnimationTest struct {
 	palette        []colorful.Color
 	swatches       []swatchRect
 	// features is the physiology bitmask used to drive the layered
-	// render at 16x16 / 32x32. Updated by clicks on featureButtons.
+	// render at 16x16. Updated by clicks on featureButtons.
 	// 4x4 / 8x8 fall back to the bare single-layer sprite — their art
 	// has no overlays to composite.
 	features       physiology.Set
@@ -148,13 +146,13 @@ var featureTreeRows = []struct {
 		},
 	},
 	{
-		label: "FLAG",
-		tree:  physiology.TreeFlagellae,
+		label: "PILI",
+		tree:  physiology.TreePili,
 		options: []featureRowOption{
 			{"NONE", nil},
-			{"FLAGELLAE", []physiology.Feature{physiology.FeatFlagellae}},
-			{"CILIA", []physiology.Feature{physiology.FeatFlagellae, physiology.FeatCilia}},
-			{"STINGER", []physiology.Feature{physiology.FeatFlagellae, physiology.FeatStinger}},
+			{"PILI", []physiology.Feature{physiology.FeatPili}},
+			{"FLAGELLA", []physiology.Feature{physiology.FeatPili, physiology.FeatFlagella}},
+			{"FIMBRIAE", []physiology.Feature{physiology.FeatPili, physiology.FeatFimbriae}},
 		},
 	},
 	{
@@ -845,7 +843,7 @@ func (a *AnimationTest) stampWallComposite(target *ebiten.Image, zoom int, x, y 
 //
 // Iterates the same OrganismLayersFor + SpriteLayer path the grid
 // renderer uses, so the feature-toggle selections preview correctly at
-// 16x16 / 32x32. At 4x4 / 8x8 every layered lookup misses and we fall
+// 16x16. At 4x4 / 8x8 every layered lookup misses and we fall
 // back to resources.Sprite (single LayerBody).
 func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 	role resources.ImageRole, direction utils.Point, anim animation.Animation, frameIdx int,

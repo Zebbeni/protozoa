@@ -6,6 +6,7 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
 	s "github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/ux/graph/food"
 	"github.com/Zebbeni/protozoa/ux/graph/ph"
 	"github.com/Zebbeni/protozoa/ux/graph/population"
 )
@@ -18,6 +19,7 @@ type Mode int
 const (
 	ModePopulation Mode = iota
 	ModePh
+	ModeFood
 )
 
 // Renderer renders a single graph mode. Each implementation owns its own
@@ -77,6 +79,7 @@ func NewGraph(sim *s.Simulation) *Graph {
 
 	g.renderers[ModePopulation] = population.NewRenderer(population.TraitColor, nil, 0)
 	g.renderers[ModePh] = ph.NewRenderer()
+	g.renderers[ModeFood] = food.NewRenderer()
 
 	return g
 }

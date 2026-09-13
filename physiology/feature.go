@@ -15,7 +15,7 @@ import (
 // Feature identifies one evolved physical feature. Features are organised
 // into four modality trees (see Tree). Each Spec declares its single
 // Parent feature; the tree shape is implicit in those parent links.
-// Mutual exclusion between sibling branches (e.g. Cilia vs Stinger)
+// Mutual exclusion between sibling branches (e.g. Flagella vs Fimbriae)
 // falls out for free: an organism can only gain features that are
 // children of its deepest-held feature in the relevant tree, so once
 // it's chosen one branch the other is unreachable.
@@ -27,10 +27,15 @@ type Feature int
 const FeatNone Feature = -1
 
 const (
-	// Flagellae tree — locomotion and physical contact.
-	FeatFlagellae Feature = iota // base: turning
-	FeatCilia                    // advanced: forward movement
-	FeatStinger                  // advanced: stinging attack
+	// Pili tree — locomotion strategy. Pili is the base "I can turn"
+	// trait; Flagella branches into forward movement (mobile, animal-
+	// like) and Fimbriae branches into stirring the local current
+	// (sessile, plant-like). Sibling branches are mutually exclusive:
+	// a lineage commits to either chasing better water or reshaping
+	// the water it sits in.
+	FeatPili     Feature = iota // base: turning
+	FeatFlagella                // advanced: forward movement
+	FeatFimbriae                // advanced: circulating the current
 
 	// Sensors tree — environmental awareness.
 	FeatAntennae // base: nearby food / organism perception
@@ -52,7 +57,7 @@ const (
 type Tree int
 
 const (
-	TreeFlagellae Tree = iota
+	TreePili Tree = iota
 	TreeSensors
 	TreeDefense
 	TreeTeeth
@@ -62,13 +67,13 @@ const (
 // Used wherever per-tree logic needs deterministic ordering — most
 // importantly Set.Eligible, which feeds the random feature pick during
 // mutation and therefore must replay identically.
-var AllTrees = []Tree{TreeFlagellae, TreeSensors, TreeDefense, TreeTeeth}
+var AllTrees = []Tree{TreePili, TreeSensors, TreeDefense, TreeTeeth}
 
 var treeNames = map[Tree]string{
-	TreeFlagellae: "Flagellae",
-	TreeSensors:   "Sensors",
-	TreeDefense:   "Defense",
-	TreeTeeth:     "Teeth",
+	TreePili:    "Pili",
+	TreeSensors: "Sensors",
+	TreeDefense: "Defense",
+	TreeTeeth:   "Teeth",
 }
 
 // Name returns the human-readable name of the modality tree, used
@@ -80,7 +85,7 @@ func (t Tree) Name() string { return treeNames[t] }
 // deterministic — important because random picks from the pool drive
 // mutation, and mutation must replay identically across runs.
 var All = []Feature{
-	FeatFlagellae, FeatCilia, FeatStinger,
+	FeatPili, FeatFlagella, FeatFimbriae,
 	FeatAntennae, FeatFeelers, FeatTasters,
 	FeatShell, FeatSpikes, FeatCamouflage,
 	FeatTeeth, FeatFangs, FeatTusks,
@@ -140,7 +145,7 @@ func noEffect() Tradeoffs {
 // from those Parent links. Mutual exclusion between sibling branches
 // is implicit — Eligible only ever exposes the children of an
 // organism's current deepest-held feature in each tree, so once
-// either Cilia or Stinger has been gained, the other is unreachable.
+// either Flagella or Fimbriae has been gained, the other is unreachable.
 //
 // Tradeoffs are NOT stored on Spec — they live in config so the user
 // can tune every per-feature penalty / benefit from default.json or
@@ -159,21 +164,31 @@ type Spec struct {
 // tradeoff values live in config (see tradeoffsFor) so they're
 // user-tunable from default.json or the in-game settings editor.
 var Specs = map[Feature]Spec{
-	// --- Flagellae tree ---
-	FeatFlagellae: {
-		Name: "Flagellae", Tree: TreeFlagellae, Parent: FeatNone,
+	// --- Pili tree ---
+	FeatPili: {
+		Name: "Pili", Tree: TreePili, Parent: FeatNone,
 		UnlocksActions: []decision.Action{
 			decision.ActTurnLeft, decision.ActTurnRight,
 		},
 	},
-	FeatCilia: {
-		Name: "Cilia", Tree: TreeFlagellae, Parent: FeatFlagellae,
+	FeatFlagella: {
+		Name: "Flagella", Tree: TreePili, Parent: FeatPili,
 		UnlocksActions:    []decision.Action{decision.ActMove},
 		UnlocksConditions: []decision.Condition{decision.CanMove},
 	},
-	FeatStinger: {
-		Name: "Stinger", Tree: TreeFlagellae, Parent: FeatFlagellae,
-		UnlocksActions: []decision.Action{decision.ActSting},
+	FeatFimbriae: {
+		Name: "Fimbriae", Tree: TreePili, Parent: FeatPili,
+		// Fimbriae is the sessile branch: instead of moving to better
+		// water, a Fimbriae organism stirs the water it already sits
+		// in. ActCirculate pushes the cell's flow vector toward the
+		// organism's facing, which skews pH diffusion so the cell
+		// mixes preferentially with whatever is upstream of that
+		// direction — letting a colony flush the acid its own
+		// chemosynthesis produces and draw fresher pH in behind it.
+		// The payoff is emergent rather than a flat multiplier, and
+		// it scales with how many neighbours face the same way.
+		UnlocksActions:    []decision.Action{decision.ActCirculate},
+		UnlocksConditions: []decision.Condition{decision.IsCurrentAligned},
 	},
 
 	// --- Sensors tree ---
@@ -187,7 +202,7 @@ var Specs = map[Feature]Spec{
 	FeatFeelers: {
 		Name: "Feelers", Tree: TreeSensors, Parent: FeatAntennae,
 		// Feelers unlocks size-comparison and wall-detection. The
-		// three IsWall* conditions sense burrowed terrain in the
+		// three IsWall* conditions sense wall terrain in the
 		// organism's three forward-facing cardinal directions —
 		// useful for nest-builders and pack hunters working around
 		// obstacles.
@@ -237,8 +252,8 @@ var Specs = map[Feature]Spec{
 		// Tusks unlock ActDig and ActAttack. ActDig is the combined
 		// terrain-shaping action: it damages the wall (or clears
 		// food) directly in front AND reinforces / adds walls on
-		// both sides — what used to be ActDig + ActBurrow rolled
-		// into one. Attack with tusks is less effective than with
+		// both sides — a single combined terrain-shaping action.
+		// Attack with tusks is less effective than with
 		// fangs (see TusksDamageDealtMult), but the option means
 		// tusk lineages can still defend themselves without being
 		// forced down the fangs branch.
@@ -254,13 +269,13 @@ var Specs = map[Feature]Spec{
 func tradeoffsFor(f Feature) Tradeoffs {
 	out := noEffect()
 	switch f {
-	case FeatFlagellae:
-		out.ChemoEfficiencyMult = config.FlagellaeChemoEfficiencyMult()
-	case FeatCilia:
-		out.ChemoEfficiencyMult = config.CiliaChemoEfficiencyMult()
-		out.MoveCostMult = config.CiliaMoveCostMult()
-	case FeatStinger:
-		out.ChemoEfficiencyMult = config.StingerChemoEfficiencyMult()
+	case FeatPili:
+		out.ChemoEfficiencyMult = config.PiliChemoEfficiencyMult()
+	case FeatFlagella:
+		out.ChemoEfficiencyMult = config.FlagellaChemoEfficiencyMult()
+		out.MoveCostMult = config.FlagellaMoveCostMult()
+	case FeatFimbriae:
+		out.ChemoEfficiencyMult = config.FimbriaeChemoEfficiencyMult()
 	case FeatAntennae:
 		out.ChemoEfficiencyMult = config.AntennaeChemoEfficiencyMult()
 	case FeatFeelers:
@@ -374,13 +389,26 @@ var (
 	conditionRequires map[decision.Condition][]Feature
 )
 
+// featuresInTree maps each Tree to every feature belonging to it, in
+// All's declaration order (root first, then its branches). Built once
+// at init like the other indexes so UI code can enumerate a tree
+// without re-scanning Specs.
+var featuresInTree map[Tree][]Feature
+
+// FeaturesInTree returns the features belonging to a modality tree, in
+// declaration order — root first, then its sibling branches. Order is
+// stable, so callers can use it to lay out UI deterministically.
+func FeaturesInTree(t Tree) []Feature { return featuresInTree[t] }
+
 func init() {
 	childrenOf = make(map[Feature][]Feature)
 	treeRoots = make(map[Tree]Feature)
 	actionRequires = make(map[decision.Action][]Feature)
 	conditionRequires = make(map[decision.Condition][]Feature)
+	featuresInTree = make(map[Tree][]Feature)
 	for _, f := range All {
 		spec := Specs[f]
+		featuresInTree[spec.Tree] = append(featuresInTree[spec.Tree], f)
 		if spec.Parent == FeatNone {
 			treeRoots[spec.Tree] = f
 		} else {
@@ -532,11 +560,11 @@ func (s Set) Loseable() []Feature {
 // Combined returns the resolved passive Tradeoffs for s. For every
 // tree only the deepest-held feature contributes — earlier ancestors
 // in the same tree are the lineage that led there, not stacking
-// layers. Cilia is "a cilia body", not "Flagellae plus Cilia"; Fangs
+// layers. Flagella is "a flagellate body", not "Pili plus Flagella"; Fangs
 // is "a fanged body", not "Teeth plus Fangs"; etc.
 //
 // Actions and Conditions still inherit through the full tree path —
-// a Cilia organism can still Turn because Flagellae unlocked it.
+// a Flagella organism can still Turn because Pili unlocked it.
 // AllowedActions / AllowedConditions handle that separately by
 // walking every held feature in the bitmask.
 //

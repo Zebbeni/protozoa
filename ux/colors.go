@@ -47,6 +47,22 @@ func themedForegroundDim() color.Color {
 	return color.RGBA{R: 180, G: 180, B: 180, A: 255}
 }
 
+// traitHighlightColor is the accent for the panel's HIGHLIGHT trait
+// boxes. Deliberately a hue rather than another alpha step on the
+// foreground: the descendant and most-successful highlights are both
+// faded white / near-black, so a trait spotlight has to read as a
+// different kind of thing at a glance, not a brighter version of the
+// same one. Cyan is the one strong hue that sits clear of both pH
+// colour schemes (green-pink and blue-orange), so a highlighted
+// organism stays findable whichever scheme the pH layer is using.
+//
+// Same colour in both themes: it's an accent over the world layers,
+// not UI chrome, and it carries enough saturation to hold up against
+// either background.
+func traitHighlightColor() color.Color {
+	return color.RGBA{R: 0, G: 229, B: 255, A: 255}
+}
+
 // fadedForeground returns the primary foreground colour with its alpha
 // replaced by the given value, so callers can paint accents that read
 // as related-but-quieter than the main selection. Channels are

@@ -18,7 +18,7 @@ import (
 // ChemoPhEffectPerSize / EatingPhEffectPerFood), PhTolerance, MaxLifespan.
 type Traits struct {
 	OrganismColor colorful.Color
-	// SecondaryColor tints high-res feature overlays (flagellae /
+	// SecondaryColor tints high-res feature overlays (pili /
 	// teeth / sensors) while OrganismColor tints the body variant.
 	// Inherited and mutated alongside the primary so the two-tone
 	// look stays a family trait. At low-res (single-layer sprites)

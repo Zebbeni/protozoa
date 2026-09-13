@@ -75,7 +75,7 @@ func NewSimulation(options *config.Options) *Simulation {
 		isPaused: false,
 	}
 	sim.updateManager = manager.NewUpdateManager()
-	sim.wallManager = manager.NewWallManager()
+	sim.wallManager = manager.NewWallManager(rng)
 	sim.environmentManager = manager.NewEnvironmentManager(sim)
 	sim.foodManager = manager.NewFoodManager(sim, rng)
 	sim.organismManager = manager.NewOrganismManager(sim, rng)
@@ -156,6 +156,7 @@ func (s *Simulation) CaptureSnapshot() *checkpoint.SnapshotPayload {
 		OrganismGrid:          s.organismManager.CaptureOrganismGrid(),
 		CurrentPhMap:          currentPh,
 		PreviousPhMap:         previousPh,
+		FlowMap:               s.environmentManager.CaptureFlowMap(),
 		FoodItems:             s.foodManager.CaptureFoodRecords(),
 		Walls:                 captureWallRecords(s.wallManager),
 		Ancestors:             s.organismManager.CaptureAncestors(),
@@ -571,7 +572,7 @@ func (s *Simulation) GetWallStrengthAtPoint(p utils.Point) int {
 }
 
 // AddWallStrength adjusts the wall at p by delta, clamped to
-// [0, MaxWallStrength]. Positive deltas burrow, negative dig.
+// [0, MaxWallStrength]. Positive deltas reinforce, negative dig.
 // Returns the resulting strength after clamping.
 func (s *Simulation) AddWallStrength(p utils.Point, delta int) int {
 	return s.wallManager.AddWallStrength(p, delta)
@@ -597,6 +598,26 @@ func captureWallRecords(wm *manager.WallManager) []checkpoint.WallRecord {
 // GetPhAtPoint returns the current Ph of the environment at a given location
 func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
 	return s.environmentManager.GetPhAtPoint(point)
+}
+
+// GetFlowAtPoint returns the environment's current ("flow") vector at
+// a point. Zero means still water.
+func (s *Simulation) GetFlowAtPoint(point utils.Point) utils.Vector {
+	return s.environmentManager.GetFlowAtPoint(point)
+}
+
+// GetFlowMap returns the environment's whole flow field by reference.
+// Read-only for callers: the snapshot path copies it, the renderer
+// only reads it.
+func (s *Simulation) GetFlowMap() [][]utils.Vector {
+	return s.environmentManager.GetFlowMap()
+}
+
+// CirculateFlowAtPoint nudges the flow at a point toward dir by
+// strength. Called by ActCirculate resolution on behalf of Fimbriae
+// organisms.
+func (s *Simulation) CirculateFlowAtPoint(point utils.Point, dir utils.Point, strength float64) {
+	s.environmentManager.CirculateFlowAtPoint(point, dir, strength)
 }
 
 // AddPhChangeAtPoint adds a given value to the environment's Ph at a given location

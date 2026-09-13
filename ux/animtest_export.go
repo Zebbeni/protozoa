@@ -221,8 +221,8 @@ func centisecondsPerFrame(framesInSet int) int {
 	if d < 2 {
 		// Most browsers/viewers clamp delays under 2cs to 10cs, which
 		// would make fast animations play far slower than intended. 2cs
-		// matches the GIF89a de-facto minimum and keeps 32x32's
-		// 8-frames-per-cycle cycle roughly correct.
+		// matches the GIF89a de-facto minimum and keeps the
+		// densest (16x16, 4-frame) cycle roughly correct.
 		d = 2
 	}
 	return d

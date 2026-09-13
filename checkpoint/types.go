@@ -37,6 +37,12 @@ type SnapshotPayload struct {
 	// "most successful" highlighting.
 	CurrentPhMap  [][]float64
 	PreviousPhMap [][]float64
+	// FlowMap is the environment's per-cell current. Stored at full
+	// float64 precision for the same reason the pH maps are: the
+	// vectors feed straight into the diffusion weights, so any
+	// narrowing here compounds across cycles and drifts a replay away
+	// from its recording.
+	FlowMap [][]FlowVector
 	FoodItems     []FoodRecord
 	Walls         []WallRecord
 	Ancestors     []AncestorRecord
@@ -101,6 +107,14 @@ type OrganismRecord struct {
 	// highlight and the "Attacks: hits/total" display.
 	AttackTotal uint32
 	AttackHits  uint32
+
+}
+
+// FlowVector is the serializable form of one cell's current. Mirrors
+// utils.Vector; declared locally so this package stays dependency-free
+// like the rest of the snapshot format.
+type FlowVector struct {
+	X, Y float64
 }
 
 // FoodRecord is the serializable form of a food item.

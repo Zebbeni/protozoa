@@ -41,14 +41,19 @@ const (
 	StatusTurnLeft
 	StatusTurnRight
 	StatusAttacking
-	StatusStinging
 	StatusSpawning
 	StatusDigging
-	StatusBurrowing
 	StatusHunkering
 	StatusFlaring
 	StatusHiding
 	StatusDying // one cycle after lethal damage — AnimDie plays, then finalizeDeaths replaces with food
+	// StatusCirculating is the outcome of a resolved ActCirculate: the
+	// organism stirred the flow at its cell this cycle. Unlike the old
+	// attachment flag this is a pure per-cycle outcome — the resulting
+	// state lives in the environment's flow field, not on the
+	// organism — so it resets to Idle next cycle like every other
+	// status.
+	StatusCirculating
 )
 
 type Organism struct {
@@ -182,7 +187,8 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
 	traits Traits, tree *d.Tree, action d.Action, status Status,
-	attackTotal, attackHits int, phPositive, phNegative float64, api LookupAPI) *Organism {
+	attackTotal, attackHits int, phPositive, phNegative float64,
+	api LookupAPI) *Organism {
 	return &Organism{
 		ID:                   id,
 		Age:                  age,
@@ -353,6 +359,16 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isWallAtPoint(o.Location.Add(o.Direction.Left()))
 	case d.IsWallRight:
 		return o.isWallAtPoint(o.Location.Add(o.Direction.Right()))
+	case d.IsCurrentAligned:
+		// True when the current at this cell runs with the organism's
+		// facing. Reads the flow field, not organism state, so a
+		// Fimbriae lineage can test "is the water already going my
+		// way?" and skip paying to stir it again.
+		flow := o.lookupAPI.GetFlowAtPoint(o.Location)
+		if flow.IsZero() {
+			return false
+		}
+		return flow.Dot(utils.VectorFromPoint(o.Direction)) >= c.FlowAlignedThreshold()
 	}
 	return false
 }

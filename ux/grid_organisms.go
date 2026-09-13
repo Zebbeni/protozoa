@@ -65,7 +65,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	}
 
 	// Per-layer colour: by default body uses the primary OrganismColor
-	// and overlays (flagellae / teeth / sensors) use the SecondaryColor
+	// and overlays (pili / teeth / sensors) use the SecondaryColor
 	// so two-tone family identities read at a glance. View-mode
 	// overrides (pH effect, health) are diagnostic views that should
 	// paint the whole organism uniformly — they collapse secondary to
@@ -131,6 +131,8 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		}
 	}
 
+	drawX, drawY := gridX, gridY
+
 	// High-res sprite sets are layered: one body variant + a feature
 	// overlay per non-defense tree, picked from the organism's
 	// physiology. Low-res sets have a single LayerBody layer per role,
@@ -148,7 +150,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		if resources.UsesPrimaryColor(layer) {
 			col = bodyColor
 		}
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, col)
+		g.drawOrganismSprite(img, drawX*us, drawY*us, sprite, direction, col)
 		stampedAny = true
 	}
 	if !stampedAny {
@@ -158,7 +160,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		// represent "the body of the organism" so they use the
 		// primary colour, not secondary.
 		sprite := resources.Sprite(role, anim, frameIdx)
-		g.drawOrganismSprite(img, gridX*us, gridY*us, sprite, direction, bodyColor)
+		g.drawOrganismSprite(img, drawX*us, drawY*us, sprite, direction, bodyColor)
 	}
 }
 

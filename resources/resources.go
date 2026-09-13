@@ -31,6 +31,7 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimChemoFail: "chemofail",
 	animation.AnimDie:       "die",
 	animation.AnimHide:      "hide",
+	animation.AnimCirculate: "circulate",
 }
 
 // organismRoleName maps each organism role to the filename stem used by the
@@ -107,16 +108,19 @@ const (
 	// Feature overlays — additive. Drawn on top of the body in the
 	// canonical order below; a high-res organism draws the overlay
 	// corresponding to the deepest-held feature in each non-defense
-	// tree (Flagellae, Sensors, Teeth).
-	LayerFlagellae
-	LayerCilia
-	LayerStinger
+	// tree (Pili, Sensors, Teeth).
+	LayerPili
+	LayerFlagella
+	// Iota slot retained for back-compat with any code that bound an
+	// integer Layer ID directly to art. New code should ignore it.
+	_
 	LayerAntennae
 	LayerFeelers
 	LayerTasters
 	LayerTeeth
 	LayerFangs
 	LayerTusks
+	LayerFimbriae
 
 	// Wall layers. Authored as separate Aseprite layers within the
 	// same wall slice so each strength tier exports its own base +
@@ -144,9 +148,9 @@ var layerFilenamePrefix = map[Layer]string{
 	LayerBodyShell:      "body_shell",
 	LayerBodySpikes:     "body_spikes",
 	LayerBodyCamouflage: "body_camouflage",
-	LayerFlagellae:      "flagellae",
-	LayerCilia:          "cilia",
-	LayerStinger:        "stinger",
+	LayerPili:           "pili",
+	LayerFlagella:       "flagella",
+	LayerFimbriae:       "fimbriae",
 	LayerAntennae:       "antennae",
 	LayerFeelers:        "feelers",
 	LayerTasters:        "tasters",
@@ -167,15 +171,15 @@ var layerFilenamePrefix = map[Layer]string{
 // "one ancestor, not stacked" semantics), so deeper features in the
 // same tree replace shallower ones rather than stacking on top.
 var featureOverlayLayer = map[physiology.Feature]Layer{
-	physiology.FeatFlagellae: LayerFlagellae,
-	physiology.FeatCilia:     LayerCilia,
-	physiology.FeatStinger:   LayerStinger,
-	physiology.FeatAntennae:  LayerAntennae,
-	physiology.FeatFeelers:   LayerFeelers,
-	physiology.FeatTasters:   LayerTasters,
-	physiology.FeatTeeth:     LayerTeeth,
-	physiology.FeatFangs:     LayerFangs,
-	physiology.FeatTusks:     LayerTusks,
+	physiology.FeatPili:     LayerPili,
+	physiology.FeatFlagella: LayerFlagella,
+	physiology.FeatFimbriae: LayerFimbriae,
+	physiology.FeatAntennae: LayerAntennae,
+	physiology.FeatFeelers:  LayerFeelers,
+	physiology.FeatTasters:  LayerTasters,
+	physiology.FeatTeeth:    LayerTeeth,
+	physiology.FeatFangs:    LayerFangs,
+	physiology.FeatTusks:    LayerTusks,
 }
 
 // UsesPrimaryColor reports whether the given Layer should be tinted
@@ -232,7 +236,7 @@ func appendOverlay(out []Layer, features physiology.Set, tree physiology.Tree) [
 // OrganismLayersFor returns the ordered list of layers a high-res
 // renderer should draw for an organism with the given physiology, from
 // bottom to top:
-//  1. Flagellae overlay  (Flagellae / Cilia / Stinger)
+//  1. Pili overlay       (Pili / Flagella / Fimbriae)
 //  2. Teeth overlay      (Teeth / Fangs / Tusks)
 //  3. Body variant       (basic / Shell / Spikes / Camouflage)
 //  4. Sensors overlay    (Antennae / Feelers / Tasters)
@@ -244,7 +248,7 @@ func appendOverlay(out []Layer, features physiology.Set, tree physiology.Tree) [
 // every body / armour variant.
 func OrganismLayersFor(features physiology.Set) []Layer {
 	out := make([]Layer, 0, 4)
-	out = appendOverlay(out, features, physiology.TreeFlagellae)
+	out = appendOverlay(out, features, physiology.TreePili)
 	out = appendOverlay(out, features, physiology.TreeTeeth)
 	out = append(out, bodyVariantLayer(features))
 	out = appendOverlay(out, features, physiology.TreeSensors)
@@ -272,9 +276,10 @@ var (
 	Images map[ImageRole]LayeredFrames
 )
 
-// ZoomImages holds sprite sets for the 4 native sprite sizes
-// (0=4x4, 1=8x8, 2=16x16, 3=32x32).
-var ZoomImages [4]map[ImageRole]LayeredFrames
+// ZoomImages holds sprite sets for the 3 native sprite sizes
+// (0=4x4, 1=8x8, 2=16x16). 16x16 is the highest resolution the
+// project authors; the camera upscales it for the larger zooms.
+var ZoomImages [3]map[ImageRole]LayeredFrames
 
 // currentZoom tracks which ZoomImages entry is active. Persisted across
 // calls to initImages so reloads (e.g. theme toggling) keep pointing at
@@ -393,8 +398,8 @@ func initImages() {
 	PlayButton = loadImage("resources/images/play_button.png")
 	PauseButton = loadImage("resources/images/pause_button.png")
 
-	dirs := [4]string{"4x4", "8x8", "16x16", "32x32"}
-	sizes := [4]int{4, 8, 16, 32}
+	dirs := [3]string{"4x4", "8x8", "16x16"}
+	sizes := [3]int{4, 8, 16}
 
 	// Light vs dark theme uses separate sprite directories so artists
 	// can keep two parallel sets — same Lua export script, different
@@ -439,8 +444,8 @@ func initImages() {
 		foodLarge := loadOrGenerateCircle(path+"food_large.png", size, size)
 
 		// Frames per cycle scale with resolution: 4x4 → 1, 8x8 → 2,
-		// 16x16 and 32x32 → 4. 32x32 doesn't add more frames than
-		// 16x16 — the extra resolution buys per-frame detail, not more
+		// 16x16 → 4. Four frames is the ceiling: higher zoom levels
+		// upscale the 16x16 art, buying on-screen size, not more
 		// animation steps. Must match zoomSpriteFrameCounts in ux/camera.go.
 		// Missing per-action sheets fall back to repeating the base sprite
 		// so all frame slots render the same image (harmless).
@@ -553,7 +558,7 @@ func loadOrGenerateBox(fullPath string, totalSize int) *ebiten.Image {
 // without a layer prefix (e.g. small_move.png) — that single sheet is
 // loaded into LayerBody. At high-res the artist authors one PNG per
 // (layer, role, action) triple (e.g. body_basic_small_move.png,
-// flagellae_small_move.png) and each Layer with a PNG on disk gets its
+// pili_small_move.png) and each Layer with a PNG on disk gets its
 // own FrameSet; layers without PNGs are simply omitted so the renderer
 // only stamps art the artist drew. The base role sprite (or its
 // generated fallback) backstops the body slot when no per-action sheet

@@ -29,37 +29,35 @@ const (
 )
 
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
-// Zoom4..Zoom32 render at their own native sprite resolution so the
-// renderer never has to upscale past 1x. Zoom64 reuses the 32x32
-// sprite set scaled 2x — the highest-detail art the project authors
-// without doubling memory for a dedicated 64x sheet.
+// Zoom4..Zoom16 render at their own native sprite resolution so the
+// renderer never has to upscale past 1x. Zoom32 and Zoom64 both reuse
+// the 16x16 set — 16x16 is the highest resolution the project authors
+// (see resources/README.md) — scaled 2x and 4x respectively.
 var zoomUnitSizes = [5]int{4, 8, 16, 32, 64}
 
 // zoomSpriteSet maps each zoom level to the sprite set index
-// (0=4x4, 1=8x8, 2=16x16, 3=32x32). Zoom64 reuses sprite set 3, so
-// sprites are sampled from the 32x32 sheets and scaled up by
-// SpriteScale to fill the 64px cells.
-var zoomSpriteSet = [5]int{0, 1, 2, 3, 3}
+// (0=4x4, 1=8x8, 2=16x16). Zoom32 and Zoom64 both reuse sprite set 2,
+// so sprites are sampled from the 16x16 sheets and scaled up by
+// SpriteScale to fill the 32px / 64px cells.
+var zoomSpriteSet = [5]int{0, 1, 2, 2, 2}
 
 // zoomSpriteSizes is the native pixel size per sprite set.
-var zoomSpriteSizes = [4]int{4, 8, 16, 32}
+var zoomSpriteSizes = [3]int{4, 8, 16}
 
 // zoomSpriteFrameCounts is the per-cycle frame count per sprite set.
-// Caps at BaseFramesPerCycle (4): 4x4 → 1, 8x8 → 2, 16x16 and 32x32 → 4.
-// 32x32 doesn't add more frames than 16x16 — the extra resolution buys
-// detail per frame, not more animation steps. Authored sprite sheets
-// contain this many frames per animation tag; the renderer divides
-// animation.State.Progress() proportionally across them (see
-// animation.SpriteFrameIndex).
-var zoomSpriteFrameCounts = [4]int{1, 2, 4, 4}
+// Caps at BaseFramesPerCycle (4): 4x4 → 1, 8x8 → 2, 16x16 → 4.
+// Authored sprite sheets contain this many frames per animation tag;
+// the renderer divides animation.State.Progress() proportionally
+// across them (see animation.SpriteFrameIndex).
+var zoomSpriteFrameCounts = [3]int{1, 2, 4}
 
-// SpriteSet returns the sprite set index (0-3) for the current zoom level.
+// SpriteSet returns the sprite set index (0-2) for the current zoom level.
 func (cam *Camera) SpriteSet() int {
 	return zoomSpriteSet[cam.Zoom]
 }
 
 // SpriteFrameCount returns the per-cycle sprite frame count for the
-// active sprite set (1 at 4x4, 2 at 8x8, 4 at 16x16 and 32x32).
+// active sprite set (1 at 4x4, 2 at 8x8, 4 at 16x16).
 func (cam *Camera) SpriteFrameCount() int {
 	return zoomSpriteFrameCounts[cam.SpriteSet()]
 }

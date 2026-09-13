@@ -113,6 +113,32 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	return
 }
 
+// CaptureFlowMap returns a deep copy of the environment's flow field
+// in the snapshot's own vector type. Deep-copied for the same reason
+// the pH maps are: handing the snapshot a reference would let
+// forward-play mutate a ring buffer entry in place and corrupt it.
+func (m *EnvironmentManager) CaptureFlowMap() [][]checkpoint.FlowVector {
+	w := len(m.flowMap)
+	if w == 0 {
+		return nil
+	}
+	h := len(m.flowMap[0])
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	out := make([][]checkpoint.FlowVector, w)
+	for x := 0; x < w; x++ {
+		out[x] = make([]checkpoint.FlowVector, h)
+		for y := 0; y < h; y++ {
+			out[x][y] = checkpoint.FlowVector{
+				X: m.flowMap[x][y].X,
+				Y: m.flowMap[x][y].Y,
+			}
+		}
+	}
+	return out
+}
+
 // CaptureHistory returns a deep copy of the pH distribution and effect history maps.
 func (m *OrganismManager) CaptureHistory() *checkpoint.HistoryPayload {
 	m.historyMutex.RLock()

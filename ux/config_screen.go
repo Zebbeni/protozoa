@@ -743,6 +743,7 @@ func (cs *ConfigScreen) buildSections() {
 		{title: "— ENVIRONMENT —", fields: []configField{
 			field("Initial Organisms", "initial_organisms"),
 			field("Initial Food", "initial_food"),
+			field("Initial Walls", "initial_walls"),
 			field("Chance to Add Food", "chance_to_add_food_item"),
 			field("Min Food Value", "min_food_value"),
 			field("Max Food Value", "max_food_value"),
@@ -760,6 +761,10 @@ func (cs *ConfigScreen) buildSections() {
 			field("Eating pH Effect / Food", "eating_ph_effect_per_food"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
 			field("pH Increment to Display", "ph_increment_to_display"),
+			// Currents: how hard the flow field skews pH diffusion,
+			// and how fast an un-tended current fades.
+			field("Flow Bias", "flow_bias"),
+			field("Flow Decay Factor", "flow_decay_factor"),
 		}},
 		{title: "— ORGANISMS —", fields: []configField{
 			field("Min Organisms", "min_organisms"),
@@ -793,14 +798,13 @@ func (cs *ConfigScreen) buildSections() {
 			field("Eating Attempt", "health_change_from_eating_attempt"),
 			field("Spawning", "health_change_from_spawning"),
 			field("Attacking", "health_change_from_attacking"),
-			field("Stinging", "health_change_from_stinging"),
 			field("Digging", "health_change_from_digging"),
 			field("Hunkering", "health_change_from_hunkering"),
 			field("Flaring", "health_change_from_flaring"),
 			field("Hiding", "health_change_from_hiding"),
+			field("Circulating", "health_change_from_circulating"),
 			// Damage delivered to targets (signed, always negative).
 			field("Inflicted by Attack", "health_change_inflicted_by_attack"),
-			field("Inflicted by Sting", "health_change_inflicted_by_sting"),
 			// Environmental health changes.
 			field("Per Unhealthy pH Cycle", "health_change_per_unhealthy_ph"),
 		}},
@@ -814,7 +818,7 @@ func (cs *ConfigScreen) buildSections() {
 			field("Hunker Damage Taken Mult", "hunker_damage_taken_mult"),
 			field("Flare Damage Dealt Mult", "flare_damage_dealt_mult"),
 			field("Flare Perceived Size +", "flare_perceived_size_add"),
-			// Per-size-class wall strength delta for dig / burrow.
+			// Per-size-class wall strength delta for ActDig.
 			field("Wall Strength Delta (S)", "wall_strength_delta_small"),
 			field("Wall Strength Delta (M)", "wall_strength_delta_medium"),
 			field("Wall Strength Delta (L)", "wall_strength_delta_large"),
@@ -823,9 +827,9 @@ func (cs *ConfigScreen) buildSections() {
 			// Grouped together because every feature has one and
 			// they're easier to balance side-by-side than scattered
 			// across per-tree sections.
-			field("Flagellae", "flagellae_chemo_efficiency_mult"),
-			field("Cilia", "cilia_chemo_efficiency_mult"),
-			field("Stinger", "stinger_chemo_efficiency_mult"),
+			field("Pili", "pili_chemo_efficiency_mult"),
+			field("Flagella", "flagella_chemo_efficiency_mult"),
+			field("Fimbriae", "fimbriae_chemo_efficiency_mult"),
 			field("Antennae", "antennae_chemo_efficiency_mult"),
 			field("Feelers", "feelers_chemo_efficiency_mult"),
 			field("Tasters", "tasters_chemo_efficiency_mult"),
@@ -836,8 +840,10 @@ func (cs *ConfigScreen) buildSections() {
 			field("Fangs", "fangs_chemo_efficiency_mult"),
 			field("Tusks", "tusks_chemo_efficiency_mult"),
 		}},
-		{title: "— FLAGELLAE TREE —", fields: []configField{
-			field("Cilia Move Cost", "cilia_move_cost_mult"),
+		{title: "— PILI TREE —", fields: []configField{
+			field("Flagella Move Cost", "flagella_move_cost_mult"),
+			field("Circulate Strength", "circulate_strength"),
+			field("Flow Aligned Threshold", "flow_aligned_threshold"),
 		}},
 		{title: "— DEFENSE TREE —", fields: []configField{
 			field("Shell Move Cost", "shell_move_cost_mult"),
