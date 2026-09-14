@@ -12,6 +12,12 @@ import (
 
 const avgPhLineHeight = 100
 
+// maxLineWidth caps the average-pH line image's width. It was one pixel per
+// bar with no limit, so a long enough run would ask ebiten for a texture
+// wider than the GPU allows (~16384px) and panic. The line is drawn into
+// RealGraphWidth (1000px), so past this width bars share a column.
+const maxLineWidth = 4096
+
 // Renderer renders a stacked area chart of pH distribution with an avg pH line overlay.
 type Renderer struct {
 	LastAvgPh float64
@@ -21,17 +27,20 @@ func NewRenderer() *Renderer { return &Renderer{} }
 
 func (r *Renderer) Reset() {}
 
-func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebiten.Image {
+// Render ignores progress: a single pass over the recorded buckets is
+// fast enough that a progress bar would only flash.
+func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int, _ *gh.Progress) *ebiten.Image {
 	totalCells := c.GridUnitsWide() * c.GridUnitsHigh()
 	if totalCells < 1 {
 		totalCells = 1
 	}
 	heightPerCell := gh.RealGraphHeight / float64(totalCells)
-	barWidth := gh.RealGraphWidth / float64(newBarCount)
+	width := float64(gh.GraphImageWidth(newBarCount))
+	barWidth := width / float64(newBarCount)
 	phBucketWidth := 0.5
 	numBuckets := int(c.MaxPh() / phBucketWidth)
 
-	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	img := instrument.NewImage(int(width), int(gh.RealGraphHeight))
 	src := gh.WhiteSrc()
 
 	sim.LockHistoryForReading()
@@ -40,7 +49,8 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	var vertices []ebiten.Vertex
 	var indices []uint16
 
-	lineBuf := make([]byte, 4*newBarCount*avgPhLineHeight)
+	lineCols := min(newBarCount, maxLineWidth)
+	lineBuf := make([]byte, 4*lineCols*avgPhLineHeight)
 	lineThickness := 1
 	lastAvgPh := r.LastAvgPh
 
@@ -88,7 +98,7 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 			for dy := -lineThickness / 2; dy <= lineThickness/2; dy++ {
 				py := lineY + dy
 				if py >= 0 && py < avgPhLineHeight {
-					idx := (py*newBarCount + barIdx) * 4
+					idx := (py*lineCols + barIdx*lineCols/newBarCount) * 4
 					lineBuf[idx] = 255
 					lineBuf[idx+1] = 255
 					lineBuf[idx+2] = 255
@@ -105,12 +115,12 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebit
 	}
 
 	if newBarCount > 0 {
-		lineImg := instrument.NewImage(newBarCount, avgPhLineHeight)
+		lineImg := instrument.NewImage(lineCols, avgPhLineHeight)
 		lineImg.WritePixels(lineBuf)
 
 		lineOpts := &ebiten.DrawImageOptions{}
 		lineOpts.GeoM.Scale(
-			gh.RealGraphWidth/float64(newBarCount),
+			width/float64(lineCols),
 			gh.RealGraphHeight/float64(avgPhLineHeight),
 		)
 		img.DrawImage(lineImg, lineOpts)
@@ -133,4 +143,3 @@ func computeAvgPh(dist map[int]int32, bucketWidth float64) float64 {
 	}
 	return weightedSum / totalCount
 }
-

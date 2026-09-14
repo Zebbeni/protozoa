@@ -47,22 +47,6 @@ func themedForegroundDim() color.Color {
 	return color.RGBA{R: 180, G: 180, B: 180, A: 255}
 }
 
-// traitHighlightColor is the accent for the panel's HIGHLIGHT trait
-// boxes. Deliberately a hue rather than another alpha step on the
-// foreground: the descendant and most-successful highlights are both
-// faded white / near-black, so a trait spotlight has to read as a
-// different kind of thing at a glance, not a brighter version of the
-// same one. Cyan is the one strong hue that sits clear of both pH
-// colour schemes (green-pink and blue-orange), so a highlighted
-// organism stays findable whichever scheme the pH layer is using.
-//
-// Same colour in both themes: it's an accent over the world layers,
-// not UI chrome, and it carries enough saturation to hold up against
-// either background.
-func traitHighlightColor() color.Color {
-	return color.RGBA{R: 0, G: 229, B: 255, A: 255}
-}
-
 // fadedForeground returns the primary foreground colour with its alpha
 // replaced by the given value, so callers can paint accents that read
 // as related-but-quieter than the main selection. Channels are
@@ -122,7 +106,7 @@ func fillPhExtremeBackground(screen *ebiten.Image, ph float64) {
 }
 
 // setTheme switches to the named theme and reloads images so any
-// theme-keyed assets (e.g. grid_light vs grid_dark sprite directories)
+// theme-keyed assets (e.g. the light theme's lifted sprites)
 // pick up the change. No-op when the theme is already active.
 func setTheme(name string) {
 	if config.Theme() == name {
@@ -202,19 +186,6 @@ func phEffectColor(positive, negative float64) colorful.Color {
 	}
 }
 
-// greenRedColor maps t in [0, 1] onto the green→red HSLuv spectrum:
-// 1 = green, 0 = red, 0.5 = yellow. Hue 0° = red, 120° = green; HSLuv
-// keeps the transitions perceptually uniform.
-func greenRedColor(t float64) colorful.Color {
-	if t < 0 {
-		t = 0
-	}
-	if t > 1 {
-		t = 1
-	}
-	return colorful.HSLuv(120.0*t, 0.9, 0.5)
-}
-
 // healthColor maps an organism's health/size ratio onto the green→red
 // spectrum. Ratio 1 (full health) is green; 0 (about to die) is red.
 // Used by the HEALTH grid render mode and the panel's HEALTH stat.
@@ -222,7 +193,7 @@ func healthColor(health, size float64) colorful.Color {
 	if size <= 0 {
 		return colorful.Color{R: 1, G: 0, B: 0}
 	}
-	return greenRedColor(health / size)
+	return gh.GreenRedColor(health / size)
 }
 
 // phIdealTextColor returns a text colour for the PH TOL stat, based

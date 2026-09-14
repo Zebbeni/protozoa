@@ -11,36 +11,36 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// phLinearUpscale is the fixed factor of the first (FilterLinear)
-// upscale pass. The remaining GridUnitSize/phLinearUpscale factor is
-// then applied with FilterNearest — so the cell-to-cell gradient is
-// only smooth down to phLinearUpscale steps per cell and otherwise
-// reads as chunky pixel blocks. Bigger → smoother, smaller → blockier.
-const phLinearUpscale = 4
-
 // renderPh maintains the W × H pH buffer (one pixel per cell, no
 // border) and stamps it into the (W+2) × (H+2) bordered scratch with
 // sub-image draws — interior, four edges, and four corners. The
 // border source is always the buffer image, never phBordered itself,
 // so there's no self-draw.
 //
-// The bordered scratch is upscaled into phImage in two passes:
-//  1. FilterLinear by phLinearUpscale into phLinear — this is the
-//     only pass that blends, so the gradient is smooth at
-//     phLinearUpscale resolution per cell.
-//  2. FilterNearest by the remaining factor (GridUnitSize /
-//     phLinearUpscale) into phImage — this blows pass 1 up with hard
-//     pixels, quantising the gradient into blocks. The translate
-//     crops the 1-px wrap border (phLinearUpscale px wide in
-//     phLinear, GridUnitSize px wide after pass 2), leaving exactly
-//     W*S × H*S of visible cells.
+// The bordered scratch is smoothed once, with FilterLinear, to the
+// active sprite set's resolution — 4, 8 or 16 px per cell — so the
+// gradient has exactly as many pixels per cell as the sprites drawn on
+// top of it and its pixels line up with theirs. At the zooms where cells
+// are drawn at native sprite size that is the only upscale. At the
+// larger zooms, where sprites are themselves enlarged with nearest
+// neighbour by Camera.SpriteScale, the gradient gets the same
+// enlargement so it stays aligned with them.
+//
+// (This replaced an earlier scheme that always smoothed to a fixed 4 px
+// per cell and then enlarged with nearest neighbour, which at the 16x16
+// sprite set quantised the gradient into visible 4x4 blocks per cell.)
 func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 	W := config.GridUnitsWide()
 	H := config.GridUnitsHigh()
 	if g.phBordered == nil {
 		g.phBordered = ebiten.NewImage(W+2, H+2)
 		g.phBuffer = ebiten.NewImage(W, H)
-		g.phLinear = ebiten.NewImage((W+2)*phLinearUpscale, (H+2)*phLinearUpscale)
+		refresh = true
+	}
+	cell := g.Camera.SpriteSize()
+	if g.phLinear == nil || g.phLinearCell != cell {
+		g.phLinear = ebiten.NewImage((W+2)*cell, (H+2)*cell)
+		g.phLinearCell = cell
 		refresh = true
 	}
 
@@ -68,20 +68,22 @@ func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 		g.stampPhBorderedFromBuffer()
 	}
 
-	// Pass 1: linear upscale of the bordered scratch into phLinear.
+	// The one smoothing pass: linear upscale to sprite resolution.
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterLinear
-	op.GeoM.Scale(phLinearUpscale, phLinearUpscale)
+	op.GeoM.Scale(float64(cell), float64(cell))
 	g.phLinear.DrawImage(g.phBordered, op)
 
-	// Pass 2: nearest upscale of phLinear into the layer image,
-	// cropping the (phLinearUpscale-px-wide) wrap border.
-	s := float64(g.Camera.GridUnitSize())
-	nearestScale := s / phLinearUpscale
+	// Place it in the layer at world-pixel size, cropping the 1-cell
+	// wrap border. SpriteScale is 1 at native zooms (a straight copy)
+	// and 2 or 4 at the larger ones, where nearest neighbour matches how
+	// the sprites are enlarged.
+	unit := float64(g.Camera.GridUnitSize())
+	scale := g.Camera.SpriteScale()
 	op = &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterNearest
-	op.GeoM.Scale(nearestScale, nearestScale)
-	op.GeoM.Translate(-s, -s)
+	op.GeoM.Scale(scale, scale)
+	op.GeoM.Translate(-unit, -unit)
 	phImage.DrawImage(g.phLinear, op)
 }
 

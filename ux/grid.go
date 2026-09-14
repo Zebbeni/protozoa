@@ -27,7 +27,6 @@ type layerType int
 // helpers shared across layers.
 const (
 	layerPh layerType = iota
-	layerFlow
 	layerWalls
 	layerFood
 	layerOrganisms
@@ -41,6 +40,14 @@ const (
 	orgColorTrue mode = iota
 	orgColorPhEffect
 	orgColorHealth
+	// orgColorAbility tints each organism gray→green by its score in
+	// Grid.colorAbility — a view for finding where specialists in one
+	// ability have settled.
+	orgColorAbility
+	// orgColorSuccess tints each organism gray→green by how much of the
+	// time left in the recorded run its line of descent survives:
+	// brightest when a descendant survives to the end.
+	orgColorSuccess
 )
 
 const (
@@ -66,21 +73,16 @@ type Grid struct {
 	// independently of the organism colour mode. orgColor decides how
 	// organisms are tinted when shown.
 	showPh        bool
-	showFlow      bool
 	showFood      bool
 	showOrganisms bool
 	showWalls     bool
 	orgColor      mode
 	selectMode    mode
-	// traitHighlight is the set of physiological features the user has
-	// asked to spotlight from the panel's HIGHLIGHT rows. Every living
-	// organism holding ANY feature in the set gets a box on the
-	// selection layer, independent of selectMode and of which organism
-	// is selected. The zero Set means the feature is off, which is the
-	// common case — populateSelectionLayer skips the whole pass then,
-	// so an unused highlight costs nothing per frame.
-	traitHighlight physiology.Set
-	clearImg      *ebiten.Image
+	// colorAbility is the ability orgColorAbility colours by. Kept when
+	// the colour mode changes, so returning to ABILITY restores the
+	// last ability viewed rather than resetting to the first.
+	colorAbility physiology.Ability
+	clearImg     *ebiten.Image
 	// selectionBoxImg is the source bitmap stamped onto layerSelection
 	// for every highlighted organism. Authored white-on-transparent so
 	// the per-stamp ColorScale can tint to any selection colour.
@@ -101,19 +103,19 @@ type Grid struct {
 	// wallpaper-tile seam disappears. Size is independent of zoom.
 	phBordered *ebiten.Image
 
-	// phLinear is the intermediate for the pH layer's two-pass
-	// upscale: phBordered scaled phLinearUpscale× with FilterLinear.
-	// A second FilterNearest pass blows this the rest of the way up
-	// into layers[layerPh], so the smooth gradient reads as chunky
-	// pixel blocks. Size is independent of zoom.
-	phLinear *ebiten.Image
+	// phLinear is phBordered upscaled with FilterLinear to the active
+	// sprite set's resolution (Camera.SpriteSize px per cell), so the pH
+	// gradient's pixels line up with sprite pixels. Reallocated when the
+	// sprite set changes size; phLinearCell records the size it was
+	// built for.
+	phLinear     *ebiten.Image
+	phLinearCell int
 
 	// Per-phase render timings, refreshed each call to Render(). Surfaced
 	// to the debug overlay so a slow frame can be attributed to a
 	// specific layer or compose pass.
 	timeWalls          time.Duration
 	timePh             time.Duration
-	timeFlow           time.Duration
 	timeFood           time.Duration
 	timeOrganisms      time.Duration
 	timeCompose        time.Duration
@@ -133,7 +135,6 @@ type Grid struct {
 type RenderTimings struct {
 	Walls          time.Duration
 	Ph             time.Duration
-	Flow           time.Duration
 	Food           time.Duration
 	Organisms      time.Duration
 	Compose        time.Duration
@@ -146,7 +147,6 @@ func (g *Grid) LastRenderTimings() RenderTimings {
 	return RenderTimings{
 		Walls:          g.timeWalls,
 		Ph:             g.timePh,
-		Flow:           g.timeFlow,
 		Food:           g.timeFood,
 		Organisms:      g.timeOrganisms,
 		Compose:        g.timeCompose,
@@ -164,7 +164,6 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 		Camera:        cam,
 		doRefresh:     true,
 		showPh:        true,
-		showFlow:      false,
 		showFood:      true,
 		showOrganisms: true,
 		showWalls:     true,
@@ -180,7 +179,6 @@ func NewGrid(sim *simulation.Simulation) *Grid {
 func (g *Grid) initLayerImages() {
 	g.layers = map[layerType]*ebiten.Image{
 		layerPh:        g.newBlankLayer(),
-		layerFlow:      g.newBlankLayer(),
 		layerWalls:     g.newBlankLayer(),
 		layerFood:      g.newBlankLayer(),
 		layerOrganisms: g.newBlankLayer(),
@@ -229,7 +227,6 @@ func (g *Grid) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 func (g *Grid) Render() *ebiten.Image {
 	if g.doRefresh {
 		g.layers[layerPh] = g.newBlankLayer()
-		g.layers[layerFlow] = g.newBlankLayer()
 		g.layers[layerWalls] = g.newBlankLayer()
 		g.layers[layerFood] = g.newBlankLayer()
 		g.layers[layerOrganisms] = g.newBlankLayer()
@@ -247,14 +244,6 @@ func (g *Grid) Render() *ebiten.Image {
 	t = time.Now()
 	g.renderFood(g.layers[layerFood], g.doRefresh)
 	g.timeFood = time.Since(t)
-
-	// Flow is redrawn in full each frame (the field decays every
-	// cycle), so skip the work entirely while the overlay is hidden.
-	t = time.Now()
-	if g.showFlow {
-		g.renderFlow(g.layers[layerFlow])
-	}
-	g.timeFlow = time.Since(t)
 
 	// Fetch the alive organism map once per render so renderOrganisms
 	// and the selection layer can share it. Each call rebuilds a fresh
@@ -335,9 +324,6 @@ func (g *Grid) Render() *ebiten.Image {
 		// pixel size by renderPh, so it tiles 1:1 here like every other
 		// layer.
 		drawLayer(g.layers[layerPh], 1, 1, ebiten.FilterNearest)
-	}
-	if g.showFlow {
-		drawLayer(g.layers[layerFlow], 1, 1, ebiten.FilterNearest)
 	}
 	if g.showWalls {
 		drawLayer(g.layers[layerWalls], 1, 1, ebiten.FilterNearest)

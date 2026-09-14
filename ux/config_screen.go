@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -14,19 +15,20 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
 const (
-	cfgPanelWidth    = 700
-	cfgLabelWidth    = 340
-	cfgSliderWidth   = 200
-	cfgValueWidth    = 120
-	cfgRowHeight     = 18
-	cfgPadding       = 10
-	cfgHeaderHeight  = 30
-	cfgButtonHeight  = 30
-	cfgButtonWidth   = 200
+	cfgPanelWidth   = 700
+	cfgLabelWidth   = 340
+	cfgSliderWidth  = 200
+	cfgValueWidth   = 120
+	cfgRowHeight    = 18
+	cfgPadding      = 10
+	cfgHeaderHeight = 30
+	cfgButtonHeight = 30
+	cfgButtonWidth  = 200
 )
 
 // configField describes one editable config value
@@ -40,7 +42,23 @@ type configField struct {
 	// keyboard entry. Used for fields whose value range isn't a
 	// natural slider (e.g. RNG seed).
 	textOnly bool
+	// row selects special rows that aren't a plain Globals field: the
+	// initial ability scores (one row per ability, with -/+ buttons) and
+	// their running total. ability is the score's index for
+	// rowAbilityScore.
+	row     rowType
+	ability int
 }
+
+// rowType distinguishes the config screen's special rows from ordinary
+// field rows.
+type rowType int
+
+const (
+	rowField rowType = iota
+	rowAbilityScore
+	rowAbilityTotal
+)
 
 // configSection groups fields under a heading. Sections are
 // collapsible: clicking the header toggles `collapsed`, and when
@@ -81,7 +99,11 @@ type ConfigScreen struct {
 	// shrinks if the popup is narrower than the standalone-mode
 	// default. accepted never goes true in embedded mode; the popup
 	// decides when Start fires.
-	embedded       bool
+	embedded bool
+	// hoverKey / hoverSince track which row the mouse is resting on and
+	// since when, so its tooltip only appears after a short pause.
+	hoverKey       string
+	hoverSince     time.Time
 	viewportLeft   int
 	viewportTop    int
 	viewportRight  int
@@ -89,6 +111,11 @@ type ConfigScreen struct {
 }
 
 func NewConfigScreen(globals *c.Globals) *ConfigScreen {
+	// The ability scores are a slice, so copying Globals shares their
+	// backing array with whatever the caller passed in — editing them
+	// here would silently change the active config before Start.
+	// Give the form its own copy, padded to one entry per ability.
+	globals.InitialAbilityScores = normalizedInitialScores(globals.InitialAbilityScores)
 	cs := &ConfigScreen{
 		globals:     globals,
 		initValues:  *globals,
@@ -312,7 +339,14 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 		} else {
 			for _, field := range section.fields {
 				if y+cfgRowHeight > clipTop && y < clipBottom {
-					cs.drawRow(screen, panelX, y, rowIdx, field)
+					switch field.row {
+					case rowAbilityScore:
+						cs.drawAbilityScoreRow(screen, panelX, y, rowIdx, field)
+					case rowAbilityTotal:
+						cs.drawAbilityTotalRow(screen, panelX, y)
+					default:
+						cs.drawRow(screen, panelX, y, rowIdx, field)
+					}
 				}
 				y += cfgRowHeight
 				rowIdx++
@@ -324,6 +358,7 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 	// Standalone START button — popup mode hides this; the popup
 	// renders its own Cancel/Start row in fixed footer position.
 	if !cs.embedded {
+		defer cs.DrawTooltip(screen)
 		btnX := panelX + (panelW-cfgButtonWidth)/2
 		btnY := y + cfgPadding
 		if btnY > -cfgButtonHeight && btnY < c.ScreenHeight() {
@@ -498,8 +533,28 @@ func (cs *ConfigScreen) handleClick() {
 		}
 		for _, field := range section.fields {
 			if my >= y-2 && my < y+cfgRowHeight-2 {
-				// Check if clicked on slider area (skipped for text-only fields)
 				sliderX := panelX + cfgLabelWidth
+				switch field.row {
+				case rowAbilityTotal:
+					return
+				case rowAbilityScore:
+					if cs.globals.RandomInitialAbilities {
+						return // greyed out while Random is on
+					}
+					step := 1
+					if ebiten.IsKeyPressed(ebiten.KeyShift) {
+						step = 10
+					}
+					switch {
+					case mx >= sliderX && mx < sliderX+abilityBtnW:
+						cs.adjustAbilityScore(field.ability, -step)
+						return
+					case mx >= sliderX+sliderW-abilityBtnW && mx < sliderX+sliderW:
+						cs.adjustAbilityScore(field.ability, step)
+						return
+					}
+				}
+				// Check if clicked on slider area (skipped for text-only fields)
 				if !field.textOnly {
 					if field.kind == reflect.Bool && mx >= sliderX && mx < sliderX+40 {
 						cs.toggleBool(field)
@@ -528,7 +583,9 @@ func (cs *ConfigScreen) handleClick() {
 		btnX := panelX + (panelW-cfgButtonWidth)/2
 		btnY := y + cfgPadding
 		if mx >= btnX && mx < btnX+cfgButtonWidth && my >= btnY && my < btnY+cfgButtonHeight {
-			cs.accepted = true
+			if cs.StartBlockedReason() == "" {
+				cs.accepted = true
+			}
 			return
 		}
 	}
@@ -572,6 +629,13 @@ func (cs *ConfigScreen) commitEdit() {
 	}
 	field := cs.getFieldByRow(cs.selectedRow)
 	if field == nil {
+		return
+	}
+	if field.row == rowAbilityScore {
+		if val, err := strconv.Atoi(cs.editingValue); err == nil && !cs.globals.RandomInitialAbilities {
+			cs.setAbilityScore(field.ability, val)
+		}
+		cs.editingValue = ""
 		return
 	}
 	v := reflect.ValueOf(cs.globals).Elem()
@@ -663,6 +727,8 @@ func (cs *ConfigScreen) setValueFromSliderRatio(ratio float64, field configField
 
 // getSliderRange returns sensible min/max for the slider based on the
 // initial default value (stable — doesn't shift as the value is edited).
+// Except for fields with a fixed natural range, the default sits at the
+// centre of its slider so it can be nudged either way by the same amount.
 func (cs *ConfigScreen) getSliderRange(field configField) (float64, float64) {
 	iv := reflect.ValueOf(cs.initValues)
 	fv := iv.Field(field.fieldIdx)
@@ -682,16 +748,51 @@ func (cs *ConfigScreen) getSliderRange(field configField) (float64, float64) {
 	if strings.HasSuffix(field.jsonTag, "_chemo_efficiency_mult") {
 		return 0, 1
 	}
-	// For health change values that can be negative
-	if strings.Contains(field.jsonTag, "health_change") {
-		absMax := math.Max(math.Abs(initial)*3, 1)
-		return -absMax, absMax
+	// Initial and ideal pH values are points on the fixed pH scale, so
+	// their sliders span exactly that scale rather than a multiple of the
+	// default.
+	switch field.jsonTag {
+	case "min_initial_ph", "max_initial_ph", "min_ideal_ph", "max_ideal_ph":
+		return c.MinPh(), c.MaxPh()
 	}
-	// General positive values
+	return centeredSliderRange(field.jsonTag, initial)
+}
+
+// nonPositiveSliders lists fields whose slider is capped at zero: values
+// that are always damage, where a positive setting would turn a penalty
+// into healing.
+var nonPositiveSliders = map[string]bool{
+	"health_change_per_unhealthy_ph": true,
+}
+
+// centeredSliderRange puts initial at the centre of its slider.
+//
+// Health changes are signed (negative costs, positive gains), so their
+// slider spans twice the default's magnitude either side of it and can
+// cross zero — a cost can be turned into a gain. Everything else is a
+// non-negative quantity, so its slider runs from 0 to twice the default.
+// A zero default has no scale to centre on and gets a unit range instead.
+func centeredSliderRange(jsonTag string, initial float64) (float64, float64) {
+	// Some health changes only make sense as damage. Their sliders stop at
+	// zero instead of crossing into a gain, and still centre on a
+	// negative default.
+	if nonPositiveSliders[jsonTag] {
+		if initial >= 0 {
+			return -1, 0
+		}
+		return 2 * initial, 0
+	}
+	if strings.Contains(jsonTag, "health_change") {
+		if initial == 0 {
+			return -1, 1
+		}
+		spread := 2 * math.Abs(initial)
+		return initial - spread, initial + spread
+	}
 	if initial <= 0 {
 		return 0, 1
 	}
-	return 0, initial * 3
+	return 0, 2 * initial
 }
 
 func (cs *ConfigScreen) getFieldByRow(rowIdx int) *configField {
@@ -749,27 +850,26 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Food Value", "max_food_value"),
 		}},
 		{title: "— PH —", fields: []configField{
-			field("Min pH", "min_ph"),
-			field("Max pH", "max_ph"),
 			field("Min Initial pH", "min_initial_ph"),
 			field("Max Initial pH", "max_initial_ph"),
 			field("Min Ideal pH", "min_ideal_ph"),
 			field("Max Ideal pH", "max_ideal_ph"),
 			field("pH Tolerance", "ph_tolerance"),
 			field("Chemosynthesis Tolerance", "chemosynthesis_tolerance"),
+			field("Chemo pH Falloff", "chemo_ph_falloff"),
+			field("Chemo Curve Exponent", "chemo_curve_exponent"),
 			field("Chemo pH Effect / Size", "chemosynthesis_ph_effect_per_size"),
 			field("Eating pH Effect / Food", "eating_ph_effect_per_food"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
 			field("pH Increment to Display", "ph_increment_to_display"),
 			// Currents: how hard the flow field skews pH diffusion,
 			// and how fast an un-tended current fades.
-			field("Flow Bias", "flow_bias"),
-			field("Flow Decay Factor", "flow_decay_factor"),
 		}},
 		{title: "— ORGANISMS —", fields: []configField{
 			field("Min Organisms", "min_organisms"),
 			field("Max Organisms", "max_organisms"),
 			field("Growth Factor", "growth_factor"),
+			field("Eating Growth Factor", "eating_growth_factor"),
 			field("Maximum Max Size", "maximum_max_size"),
 			field("Minimum Max Size", "minimum_max_size"),
 			field("Max Initial Size", "maximum_initial_size"),
@@ -799,66 +899,66 @@ func (cs *ConfigScreen) buildSections() {
 			field("Spawning", "health_change_from_spawning"),
 			field("Attacking", "health_change_from_attacking"),
 			field("Digging", "health_change_from_digging"),
-			field("Hunkering", "health_change_from_hunkering"),
-			field("Flaring", "health_change_from_flaring"),
-			field("Hiding", "health_change_from_hiding"),
-			field("Circulating", "health_change_from_circulating"),
 			// Damage delivered to targets (signed, always negative).
 			field("Inflicted by Attack", "health_change_inflicted_by_attack"),
+			field("Inflicted by Shoving", "health_change_inflicted_by_shoving"),
+			field("Attack Health Gain", "attack_health_gain"),
+			field("Chemo Crowding Penalty", "chemo_crowding_penalty"),
+			field("Corpse Food Multiplier", "corpse_food_multiplier"),
 			// Environmental health changes.
 			field("Per Unhealthy pH Cycle", "health_change_per_unhealthy_ph"),
 		}},
-		{title: "— PHYSIOLOGY —", fields: []configField{
-			// Feature-evolution rates.
-			field("Chance to Gain Feature", "chance_to_gain_feature"),
-			field("Chance to Lose Feature", "chance_to_lose_feature"),
-			// Posture-state modifiers — multipliers (unitless,
-			// 1.0 = no effect) and additive deltas applied during
-			// the cycle an organism holds the matching posture.
-			field("Hunker Damage Taken Mult", "hunker_damage_taken_mult"),
-			field("Flare Damage Dealt Mult", "flare_damage_dealt_mult"),
-			field("Flare Perceived Size +", "flare_perceived_size_add"),
-			// Per-size-class wall strength delta for ActDig.
+		{title: "— TERRAIN —", fields: []configField{
+			// Per-size-class wall strength delta for ActDig, before
+			// the digger's Digging ability scales it.
 			field("Wall Strength Delta (S)", "wall_strength_delta_small"),
 			field("Wall Strength Delta (M)", "wall_strength_delta_medium"),
 			field("Wall Strength Delta (L)", "wall_strength_delta_large"),
+			// Ability score at which a blocked move (Digging) or an
+			// attack (Attack) removes one point of wall strength per
+			// hit, per size class.
+			field("Wall Break Score (S)", "wall_break_score_small"),
+			field("Wall Break Score (M)", "wall_break_score_medium"),
+			field("Wall Break Score (L)", "wall_break_score_large"),
 		}},
-		{title: "— CHEMO EFFICIENCY —", fields: []configField{
-			// Grouped together because every feature has one and
-			// they're easier to balance side-by-side than scattered
-			// across per-tree sections.
-			field("Pili", "pili_chemo_efficiency_mult"),
-			field("Flagella", "flagella_chemo_efficiency_mult"),
-			field("Fimbriae", "fimbriae_chemo_efficiency_mult"),
-			field("Antennae", "antennae_chemo_efficiency_mult"),
-			field("Feelers", "feelers_chemo_efficiency_mult"),
-			field("Tasters", "tasters_chemo_efficiency_mult"),
-			field("Shell", "shell_chemo_efficiency_mult"),
-			field("Spikes", "spikes_chemo_efficiency_mult"),
-			field("Camouflage", "camouflage_chemo_efficiency_mult"),
-			field("Teeth", "teeth_chemo_efficiency_mult"),
-			field("Fangs", "fangs_chemo_efficiency_mult"),
-			field("Tusks", "tusks_chemo_efficiency_mult"),
+		{title: "— INITIAL ABILITIES —", fields: initialAbilityFields(field("Random Initial Abilities", "random_initial_abilities"))},
+		{title: "— ABILITY SCORES —", fields: []configField{
+			// Where each ability's multiplier curve crosses 1.0; starting
+			// scores are set under INITIAL ABILITIES.
+			field("Curve Pivot Minor Score", "genesis_minor_ability_score"),
+			field("Chance to Mutate", "chance_to_mutate_abilities"),
+			field("Max Point Shift", "max_ability_shift"),
+			field("Specialization Span", "ability_specialization_span"),
+			field("Thorns Threshold", "thorns_threshold"),
+			field("Thorns Damage Per Point", "thorns_damage_per_point"),
+			field("Defense pH Protection", "defense_ph_protection"),
+			// Each pair is (multiplier at score 0, multiplier at 100);
+			// the curve passes through 1.0 at the genesis allocation.
+			// Movement and Defense are COST multipliers, so their
+			// endpoints run the other way round.
+			field("Chemo @0", "chemo_mult_at_zero"),
+			field("Chemo @100", "chemo_mult_at_max"),
+			field("Eating @0", "eating_mult_at_zero"),
+			field("Eating @100", "eating_mult_at_max"),
+			field("Movement cost @0", "movement_mult_at_zero"),
+			field("Movement cost @100", "movement_mult_at_max"),
+			field("Digging @0", "digging_mult_at_zero"),
+			field("Digging @100", "digging_mult_at_max"),
+			field("Attack @0", "attack_mult_at_zero"),
+			field("Attack @100", "attack_mult_at_max"),
+			field("Dmg taken @0", "defense_mult_at_zero"),
+			field("Dmg taken @100", "defense_mult_at_max"),
 		}},
-		{title: "— PILI TREE —", fields: []configField{
-			field("Flagella Move Cost", "flagella_move_cost_mult"),
-			field("Circulate Strength", "circulate_strength"),
-			field("Flow Aligned Threshold", "flow_aligned_threshold"),
-		}},
-		{title: "— DEFENSE TREE —", fields: []configField{
-			field("Shell Move Cost", "shell_move_cost_mult"),
-			field("Shell Damage Taken", "shell_damage_taken_mult"),
-			field("Spikes Move Cost", "spikes_move_cost_mult"),
-			field("Spikes Damage Taken", "spikes_damage_taken_mult"),
-			field("Spikes Damage Dealt", "spikes_damage_dealt_mult"),
-			field("Spikes Perceived Size +", "spikes_perceived_size_add"),
-			field("Camouflage Move Cost", "camouflage_move_cost_mult"),
-			field("Camouflage Damage Taken", "camouflage_damage_taken_mult"),
-		}},
-		{title: "— TEETH TREE —", fields: []configField{
-			field("Fangs Damage Dealt", "fangs_damage_dealt_mult"),
-			field("Tusks Move Cost", "tusks_move_cost_mult"),
-			field("Tusks Damage Dealt", "tusks_damage_dealt_mult"),
+		{title: "— APPEARANCE —", fields: []configField{
+			// Score at which each sprite overlay starts being drawn.
+			field("Shell Body", "shell_body_threshold"),
+			field("Spikes Body", "spikes_body_threshold"),
+			field("Pili Motor", "pili_motor_threshold"),
+			field("Flagella Motor", "flagella_motor_threshold"),
+			field("Teeth Mouth", "teeth_mouth_threshold"),
+			field("Fangs Mouth", "fangs_mouth_threshold"),
+			field("Tusks Mouth", "tusks_mouth_threshold"),
+			field("Sensor Min Conditions", "sensor_min_conditions"),
 		}},
 		{title: "— STATISTICS —", fields: []configField{
 			field("Population Update Interval", "population_update_interval"),
@@ -869,4 +969,245 @@ func (cs *ConfigScreen) buildSections() {
 	for i := range cs.sections {
 		cs.sections[i].collapsed = true
 	}
+}
+
+// abilityBtnW is the width of the - / + buttons on an initial ability row.
+const abilityBtnW = 22
+
+// initialAbilityFields builds the INITIAL ABILITIES section: the Random
+// toggle, one score row per ability, and the running total.
+func initialAbilityFields(random configField) []configField {
+	fields := []configField{random}
+	for _, a := range physiology.AllAbilities {
+		fields = append(fields, configField{label: a.Name(), row: rowAbilityScore, ability: int(a)})
+	}
+	return append(fields, configField{label: "Total", row: rowAbilityTotal})
+}
+
+// normalizedInitialScores returns a fresh copy of scores with exactly one
+// entry per ability, falling back to the genesis distribution when the
+// setting is missing or the wrong length.
+func normalizedInitialScores(scores []int) []int {
+	out := make([]int, len(physiology.AllAbilities))
+	if len(scores) != len(out) {
+		genesis := physiology.GenesisScores()
+		for _, a := range physiology.AllAbilities {
+			out[a] = genesis[a]
+		}
+		return out
+	}
+	copy(out, scores)
+	return out
+}
+
+// initialScoresTotal is the sum of the configured initial ability scores.
+func (cs *ConfigScreen) initialScoresTotal() int {
+	total := 0
+	for _, v := range cs.globals.InitialAbilityScores {
+		total += v
+	}
+	return total
+}
+
+// adjustAbilityScore changes one initial ability score by delta.
+func (cs *ConfigScreen) adjustAbilityScore(ability, delta int) {
+	cs.setAbilityScore(ability, cs.globals.InitialAbilityScores[ability]+delta)
+}
+
+// setAbilityScore sets one initial ability score, clamped to [0, 100].
+// The total isn't forced to 100 here — the user rebalances by hand, and
+// StartBlockedReason holds the start back until it adds up.
+func (cs *ConfigScreen) setAbilityScore(ability, value int) {
+	if ability < 0 || ability >= len(cs.globals.InitialAbilityScores) {
+		return
+	}
+	cs.globals.InitialAbilityScores[ability] = min(physiology.PointTotal, max(0, value))
+}
+
+// StartBlockedReason explains why the simulation can't start with the
+// current settings, or returns "" when it can. The initial ability scores
+// must add up to the full budget unless Random is on.
+func (cs *ConfigScreen) StartBlockedReason() string {
+	if cs.globals.RandomInitialAbilities {
+		return ""
+	}
+	if total := cs.initialScoresTotal(); total != physiology.PointTotal {
+		return fmt.Sprintf("Initial abilities total %d; they must add up to %d", total, physiology.PointTotal)
+	}
+	return ""
+}
+
+// drawAbilityScoreRow draws one initial ability row: the ability name,
+// then - value + in the slider column. Greyed out while Random is on.
+func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx int, field configField) {
+	disabled := cs.globals.RandomInitialAbilities
+	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
+	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	btnColor := color.RGBA{R: 70, G: 70, B: 95, A: 255}
+	if disabled {
+		labelColor = color.RGBA{R: 90, G: 90, B: 90, A: 255}
+		valueColor = labelColor
+		btnColor = color.RGBA{R: 45, G: 45, B: 50, A: 255}
+	}
+	isSelected := rowIdx == cs.selectedRow && !disabled
+	if isSelected {
+		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
+		valueColor = color.RGBA{R: 100, G: 255, B: 100, A: 255}
+	}
+
+	text.Draw(screen, "  "+field.label, r.FontSourceCodePro10, px, py+10, labelColor)
+
+	sliderX := px + cfgLabelWidth
+	sliderW := cs.sliderColWidth()
+	btnH := float64(cfgRowHeight - 4)
+	for _, b := range []struct {
+		x     int
+		label string
+	}{{sliderX, "-"}, {sliderX + sliderW - abilityBtnW, "+"}} {
+		ebitenutil.DrawRect(screen, float64(b.x), float64(py), abilityBtnW, btnH, btnColor)
+		lb := boundString(r.FontSourceCodePro12, b.label)
+		text.Draw(screen, b.label, r.FontSourceCodePro12, b.x+(abilityBtnW-lb.Dx())/2, py+11, valueColor)
+	}
+
+	value := strconv.Itoa(cs.globals.InitialAbilityScores[field.ability])
+	if isSelected && cs.editingValue != "" {
+		value = cs.editingValue + "_"
+	}
+	vb := boundString(r.FontSourceCodePro10, value)
+	text.Draw(screen, value, r.FontSourceCodePro10, sliderX+(sliderW-vb.Dx())/2, py+10, valueColor)
+}
+
+// drawAbilityTotalRow shows the running total of the initial ability
+// scores, green when it adds up to the budget and red otherwise, or a
+// note that scores are random per organism.
+func (cs *ConfigScreen) drawAbilityTotalRow(screen *ebiten.Image, px, py int) {
+	label := fmt.Sprintf("  Total: %d / %d", cs.initialScoresTotal(), physiology.PointTotal)
+	col := color.RGBA{R: 100, G: 220, B: 100, A: 255}
+	switch {
+	case cs.globals.RandomInitialAbilities:
+		label = "  Total: random split of 100 per organism"
+		col = color.RGBA{R: 90, G: 90, B: 90, A: 255}
+	case cs.initialScoresTotal() != physiology.PointTotal:
+		col = color.RGBA{R: 235, G: 90, B: 90, A: 255}
+	}
+	text.Draw(screen, label, r.FontSourceCodePro10, px, py+10, col)
+}
+
+// tooltipDelay is how long the mouse must rest on a row before its
+// tooltip appears, so tooltips don't flicker while scrolling past.
+const tooltipDelay = 350 * time.Millisecond
+
+// tooltipMaxWidth is the widest a tooltip box's text runs before wrapping.
+const tooltipMaxWidth = 300
+
+// rowAt returns the field row under screen point (mx, my), or false if
+// the point isn't on a visible field row. Mirrors Draw's layout.
+func (cs *ConfigScreen) rowAt(mx, my int) (configField, bool) {
+	panelX, panelW := cs.panelX(), cs.panelWidth()
+	clipTop, clipBottom := cs.clipRange()
+	if mx < panelX || mx >= panelX+panelW || my < clipTop || my >= clipBottom {
+		return configField{}, false
+	}
+	y := cs.panelTop() + cfgHeaderHeight - int(cs.scrollY)
+	for _, section := range cs.sections {
+		y += cfgRowHeight + 4
+		if !section.collapsed {
+			for _, field := range section.fields {
+				if my >= y-2 && my < y+cfgRowHeight-2 {
+					return field, true
+				}
+				y += cfgRowHeight
+			}
+		}
+		y += 6
+	}
+	return configField{}, false
+}
+
+// DrawTooltip draws the explanation for the row under the mouse once it
+// has rested there for tooltipDelay. The popup calls this after its
+// footer so the tooltip sits on top of everything; standalone Draw calls
+// it itself.
+func (cs *ConfigScreen) DrawTooltip(screen *ebiten.Image) {
+	mx, my := ebiten.CursorPosition()
+	field, ok := cs.rowAt(mx, my)
+	tip := ""
+	if ok {
+		tip = tooltipFor(field)
+	}
+	key := field.jsonTag + "|" + field.label
+	if tip == "" {
+		cs.hoverKey = ""
+		return
+	}
+	if key != cs.hoverKey {
+		cs.hoverKey = key
+		cs.hoverSince = time.Now()
+		return
+	}
+	if time.Since(cs.hoverSince) < tooltipDelay {
+		return
+	}
+	drawTooltipBox(screen, tip, mx, my)
+}
+
+// drawTooltipBox draws word-wrapped text in a bordered box near the
+// cursor, flipping to the other side of the cursor when it would run off
+// the screen.
+func drawTooltipBox(screen *ebiten.Image, tip string, mx, my int) {
+	face := r.FontSourceCodePro10
+	lines := wrapText(tip, tooltipMaxWidth, func(s string) int { return textAdvance(face, s) })
+	lineH := face.Metrics().Height.Round()
+	ascent := face.Metrics().Ascent.Round()
+	const pad = 6
+	textW := 0
+	for _, l := range lines {
+		textW = max(textW, textAdvance(face, l))
+	}
+	w, h := textW+2*pad, len(lines)*lineH+2*pad
+
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	x, y := mx+14, my+18
+	if x+w > sw {
+		x = mx - 14 - w
+	}
+	if y+h > sh {
+		y = my - 10 - h
+	}
+	x, y = max(0, x), max(0, y)
+
+	bg := chrome(color.RGBA{R: 25, G: 25, B: 35, A: 245}, color.RGBA{R: 250, G: 250, B: 252, A: 245})
+	border := chrome(color.RGBA{R: 120, G: 120, B: 170, A: 255}, color.RGBA{R: 140, G: 140, B: 160, A: 255})
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bg)
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), 1, border)
+	ebitenutil.DrawRect(screen, float64(x), float64(y+h-1), float64(w), 1, border)
+	ebitenutil.DrawRect(screen, float64(x), float64(y), 1, float64(h), border)
+	ebitenutil.DrawRect(screen, float64(x+w-1), float64(y), 1, float64(h), border)
+	for i, l := range lines {
+		text.Draw(screen, l, face, x+pad, y+pad+ascent+i*lineH, themedForeground())
+	}
+}
+
+// wrapText splits text into lines no wider than maxWidth, as measured by
+// width, breaking between words. A single word wider than maxWidth gets a
+// line of its own.
+func wrapText(s string, maxWidth int, width func(string) int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(s) {
+		candidate := word
+		if line != "" {
+			candidate = line + " " + word
+		}
+		if line != "" && width(candidate) > maxWidth {
+			lines = append(lines, line)
+			line = word
+			continue
+		}
+		line = candidate
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }

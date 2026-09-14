@@ -17,9 +17,10 @@ func (n *Node) CalcAndUpdateSize() int {
 }
 
 // GetRandomCondition returns a random Condition drawn from the supplied
-// allowed pool. The caller computes the pool from the organism's feature
-// set (see physiology.Set.AllowedConditions) so that mutation can only
-// produce nodes the organism has evolved the physiology to support.
+// pool — in practice MutableConditions. Every organism can express every
+// node under ability scores, so the pool is global rather than
+// per-organism; what differs between organisms is how well each action
+// works, not which ones they can reference.
 func GetRandomCondition(rng *simrand.RNG, allowed []Condition) Condition {
 	return allowed[rng.Intn(len(allowed))]
 }

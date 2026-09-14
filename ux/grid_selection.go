@@ -54,9 +54,6 @@ func (g *Grid) buildSelectionBoxImg() {
 // tiling so we don't re-stamp the same box at every visible tile.
 //
 // Tiered styling, brightest last so it overdraws the rest:
-//   - Every living organism matching the panel's trait highlight gets
-//     a cyan box. Drawn first so the selection tiers overdraw it — a
-//     trait match is background information, the selection is not.
 //   - In selectMostSuccessful mode, every currently-living organism on
 //     the most-successful set gets a faded box.
 //   - Otherwise, every living descendant of the selected organism
@@ -71,23 +68,6 @@ func (g *Grid) populateSelectionLayer(aliveInfos map[int]*organism.Info) {
 	layer.Clear()
 
 	selID := g.simulation.GetSelected()
-
-	// Trait highlight runs independently of selectMode: it answers
-	// "where are all the shells?", not "who is the best organism?".
-	// Skipped entirely when nothing is toggled, which is the common
-	// case, so an unused highlight costs nothing per frame.
-	if g.traitHighlight != 0 {
-		traitColor := traitHighlightColor()
-		for _, info := range aliveInfos {
-			// Any-match rather than all-match: with one trait toggled
-			// this is "show me the shells", and with several it reads
-			// as a union, which is what you want when comparing where
-			// two branches of a tree have settled.
-			if info.Features&g.traitHighlight != 0 {
-				g.stampSelectionBox(layer, info.Location, traitColor)
-			}
-		}
-	}
 
 	if g.selectMode == selectMostSuccessful {
 		successfulColor := fadedForeground(0x40)

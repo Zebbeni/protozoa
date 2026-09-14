@@ -229,8 +229,8 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 //	showOrgs  — when false organisms are skipped entirely
 //	orgColor  — orgColorPhEffect tints by PhEffect; other modes use the
 //	            organism's natural colour (the minimap doesn't bother
-//	            with health colouring, which is a per-organism gradient
-//	            that reads poorly at minimap resolution).
+//	            with health or ability colouring, which are per-organism
+//	            gradients that read poorly at minimap resolution).
 //
 // State is captured by the caller (Update) and passed in so that a user
 // mid-switch doesn't tear: the goroutine renders one consistent

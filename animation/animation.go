@@ -92,8 +92,7 @@ const (
 	AnimChemo
 	AnimChemoFail
 	AnimDie
-	AnimHide
-	AnimCirculate
+	AnimDig
 )
 
 // AllAnimations lists every Animation value, for resource preloading.
@@ -102,8 +101,8 @@ var AllAnimations = [...]Animation{
 	AnimTurnLeft, AnimTurnRight,
 	AnimAttack, AnimEat, AnimEatFail,
 	AnimChemo, AnimChemoFail,
-	AnimDie, AnimHide,
-	AnimCirculate,
+	AnimDie,
+	AnimDig,
 }
 
 // ForStatus maps a resolved organism.Status to the Animation sheet
@@ -132,14 +131,11 @@ func ForStatus(s organism.Status) Animation {
 		return AnimChemoFail
 	case organism.StatusDying:
 		return AnimDie
-	case organism.StatusHiding:
-		return AnimHide
-	case organism.StatusCirculating:
-		return AnimCirculate
+	case organism.StatusDigging:
+		return AnimDig
 	default:
-		// Status values without dedicated animations yet (Spawning,
-		// Digging, Hunkering, Flaring) fall back to AnimIdle. Add
-		// cases here as sprites land.
+		// Status values without dedicated animations yet (Spawning)
+		// fall back to AnimIdle. Add cases here as sprites land.
 		return AnimIdle
 	}
 }

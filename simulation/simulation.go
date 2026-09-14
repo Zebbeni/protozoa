@@ -24,6 +24,14 @@ type Simulation struct {
 	cycle    int
 	isPaused bool
 
+	// minOrganismsArmed is set the first cycle the living population
+	// reaches twice config.MinOrganisms, and never cleared. Until then
+	// the low-population end condition can't fire — see IsDone.
+	minOrganismsArmed bool
+	// endReported keeps IsDone from printing its end message on every
+	// call; callers poll it in loop conditions.
+	endReported bool
+
 	selectedID int
 
 	organismManager    *manager.OrganismManager
@@ -108,6 +116,7 @@ func (s *Simulation) Update() {
 	s.updateEnvironment()
 	s.updateFood()
 	s.updateOrganisms()
+	s.updateMinOrganismsArmed()
 
 	s.UpdateTime = time.Since(start)
 
@@ -152,11 +161,11 @@ func (s *Simulation) CaptureSnapshot() *checkpoint.SnapshotPayload {
 		Cycle:                 s.cycle,
 		RNGState:              rngState,
 		TotalOrganismsCreated: s.organismManager.TotalOrganismsCreated(),
+		MinOrganismsArmed:     s.minOrganismsArmed,
 		Organisms:             s.organismManager.CaptureOrganismRecords(),
 		OrganismGrid:          s.organismManager.CaptureOrganismGrid(),
 		CurrentPhMap:          currentPh,
 		PreviousPhMap:         previousPh,
-		FlowMap:               s.environmentManager.CaptureFlowMap(),
 		FoodItems:             s.foodManager.CaptureFoodRecords(),
 		Walls:                 captureWallRecords(s.wallManager),
 		Ancestors:             s.organismManager.CaptureAncestors(),
@@ -286,13 +295,52 @@ func (s *Simulation) TimingSummary() string {
 	return summary
 }
 
-// IsDone returns true if end condition met
-func (s *Simulation) IsDone() bool {
-	if s.GetNumOrganisms() == 0 {
-		fmt.Printf("\nSimulation ended on cycle %d with %d organisms alive.", s.cycle, s.GetNumOrganisms())
+// updateMinOrganismsArmed arms the low-population end condition the
+// first time the population reaches twice MinOrganisms. Tracked here in
+// Update rather than lazily in IsDone so the flag is right however often
+// (or whether) anything polls IsDone — replay playback, for one, never
+// does.
+func (s *Simulation) updateMinOrganismsArmed() {
+	if s.minOrganismsArmed {
+		return
+	}
+	if min := config.MinOrganisms(); min > 0 && s.GetNumOrganisms() >= 2*min {
+		s.minOrganismsArmed = true
+	}
+}
+
+// shouldEnd is the end-condition decision, kept free of simulation state
+// so it can be tested directly. A run ends at extinction, or — once the
+// population has been armed by reaching twice minOrganisms — as soon as
+// fewer than minOrganisms are alive.
+//
+// The arming requirement is what stops this firing during a run's
+// founding phase: with a single founder, every run starts well below
+// minOrganisms, and ending there would kill each evolutionary explosion
+// before it began.
+func shouldEnd(alive int, armed bool, minOrganisms int) bool {
+	if alive == 0 {
 		return true
 	}
-	return false
+	return minOrganisms > 0 && armed && alive < minOrganisms
+}
+
+// IsDone returns true if end condition met
+func (s *Simulation) IsDone() bool {
+	alive := s.GetNumOrganisms()
+	if !shouldEnd(alive, s.minOrganismsArmed, config.MinOrganisms()) {
+		return false
+	}
+	if !s.endReported {
+		s.endReported = true
+		if alive == 0 {
+			fmt.Printf("\nSimulation ended on cycle %d: population went extinct.", s.cycle)
+		} else {
+			fmt.Printf("\nSimulation ended on cycle %d: %d organisms alive, below the minimum of %d.",
+				s.cycle, alive, config.MinOrganisms())
+		}
+	}
+	return true
 }
 
 // IsDebug returns true if debug flag set on run
@@ -496,6 +544,17 @@ func (s *Simulation) FoodCount() int {
 	return s.foodManager.FoodCount()
 }
 
+// RecordedEndCycle returns the end of the recorded run being replayed, or 0
+// in a live run.
+func (s *Simulation) RecordedEndCycle() int {
+	return s.organismManager.RecordedEndCycle()
+}
+
+// WallCount returns the number of cells currently holding a wall.
+func (s *Simulation) WallCount() int {
+	return s.wallManager.Count()
+}
+
 // CheckOrganismAtPoint returns the result of running a check against any
 // Organism object found at a given Point.
 func (s *Simulation) CheckOrganismAtPoint(point utils.Point, checkFunc organism.OrgCheck) bool {
@@ -598,26 +657,6 @@ func captureWallRecords(wm *manager.WallManager) []checkpoint.WallRecord {
 // GetPhAtPoint returns the current Ph of the environment at a given location
 func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
 	return s.environmentManager.GetPhAtPoint(point)
-}
-
-// GetFlowAtPoint returns the environment's current ("flow") vector at
-// a point. Zero means still water.
-func (s *Simulation) GetFlowAtPoint(point utils.Point) utils.Vector {
-	return s.environmentManager.GetFlowAtPoint(point)
-}
-
-// GetFlowMap returns the environment's whole flow field by reference.
-// Read-only for callers: the snapshot path copies it, the renderer
-// only reads it.
-func (s *Simulation) GetFlowMap() [][]utils.Vector {
-	return s.environmentManager.GetFlowMap()
-}
-
-// CirculateFlowAtPoint nudges the flow at a point toward dir by
-// strength. Called by ActCirculate resolution on behalf of Fimbriae
-// organisms.
-func (s *Simulation) CirculateFlowAtPoint(point utils.Point, dir utils.Point, strength float64) {
-	s.environmentManager.CirculateFlowAtPoint(point, dir, strength)
 }
 
 // AddPhChangeAtPoint adds a given value to the environment's Ph at a given location

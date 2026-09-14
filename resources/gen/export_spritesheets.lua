@@ -64,10 +64,8 @@
 --       body_basic
 --       body_shell
 --       body_spikes
---       body_camouflage
 --       pili
 --       flagella
---       fimbriae
 --       antennae
 --       feelers
 --       tasters
@@ -291,8 +289,8 @@ local function applicableLayersFor(slice)
         return { "body" }
     end
     return {
-        "body_basic", "body_shell", "body_spikes", "body_camouflage",
-        "pili", "flagella", "fimbriae",
+        "body_basic", "body_shell", "body_spikes",
+        "pili", "flagella",
         "antennae", "feelers", "tasters",
         "teeth", "fangs", "tusks",
     }
@@ -336,11 +334,41 @@ for _, slice in ipairs(spr.slices) do
     end
 end
 
+-- Tag actions the game can use. Required actions must each have a tag
+-- (see the sanity check below); pending actions have Status values in the
+-- game but no dedicated animation yet, so their tags are exported but
+-- optional. Mirrors animationFileName in resources/resources.go and
+-- animation.ForStatus in animation/animation.go.
+local expectedTagActions = {
+    "idle", "move", "blocked", "turn_left", "turn_right",
+    "attack", "eat", "eatfail", "chemo", "chemofail", "die",
+    "dig",
+}
+local pendingTagActions = { "spawn" }
+
+-- Retired actions belong to removed mechanics (hunker, hide, fimbriae
+-- currents, flare, sting, burrowing). Their tags are skipped rather than
+-- exported, with a note to delete them from the source file.
+local retiredTagActions = {
+    hunker = true, hide = true, circulate = true,
+    flare = true, sting = true, burrow = true,
+}
+
+local supportedTagActions = {}
+for _, a in ipairs(expectedTagActions) do supportedTagActions[a] = true end
+for _, a in ipairs(pendingTagActions) do supportedTagActions[a] = true end
+
 local tags = {}
 for _, tag in ipairs(spr.tags) do
     local info = parseTag(tag.name)
     if not info then
         table.insert(skipped, "tag '" .. tag.name .. "' (unrecognised name)")
+    elseif not info.isBase and retiredTagActions[info.action] then
+        table.insert(skipped, "tag '" .. tag.name .. "' (retired — the game no longer uses '" ..
+            info.action .. "'; delete it from the source file)")
+    elseif not info.isBase and not supportedTagActions[info.action] then
+        table.insert(skipped, "tag '" .. tag.name .. "' (unknown action '" .. info.action ..
+            "' — typo, or add it to expectedTagActions / pendingTagActions)")
     else
         info.name = tag.name
         info.fromFrame = frameNumberOf(tag.fromFrame)
@@ -391,16 +419,11 @@ for _, layer in ipairs(spr.layers) do
     presentLayerNames[layer.name] = true
 end
 
--- Expected sets.
-local expectedTagActions = {
-    "idle", "move", "blocked", "turn_left", "turn_right",
-    "attack", "eat", "eatfail", "chemo", "chemofail", "die",
-    "hide", "circulate",
-}
+-- Expected sets. (Tag actions are declared above, before tag parsing.)
 local lowResOrganismLayers  = { "body" }
 local highResOrganismLayers = {
-    "body_basic", "body_shell", "body_spikes", "body_camouflage",
-    "pili", "flagella", "fimbriae",
+    "body_basic", "body_shell", "body_spikes",
+    "pili", "flagella",
     "antennae", "feelers", "tasters",
     "teeth", "fangs", "tusks",
 }

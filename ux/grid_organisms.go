@@ -9,6 +9,7 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/utils"
+	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
 // minOrganismAnimationUnitSize is the smallest per-cell unit size at which
@@ -67,7 +68,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	// Per-layer colour: by default body uses the primary OrganismColor
 	// and overlays (pili / teeth / sensors) use the SecondaryColor
 	// so two-tone family identities read at a glance. View-mode
-	// overrides (pH effect, health) are diagnostic views that should
+	// overrides (pH effect, health, ability) are diagnostic views that should
 	// paint the whole organism uniformly — they collapse secondary to
 	// the same derived colour as primary.
 	bodyColor := info.Color
@@ -78,6 +79,13 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		overlayColor = bodyColor
 	case orgColorHealth:
 		bodyColor = healthColor(info.Health, info.Size)
+		overlayColor = bodyColor
+	case orgColorAbility:
+		bodyColor = gh.AbilityColor(info.Abilities, g.colorAbility)
+		overlayColor = bodyColor
+	case orgColorSuccess:
+		success := organism.LineageSuccess(info.LineageEndCycle, g.simulation.Cycle(), g.simulation.RecordedEndCycle())
+		bodyColor = gh.GrayGreenColor(success)
 		overlayColor = bodyColor
 	}
 
@@ -139,7 +147,7 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	// so OrganismLayersFor's body-variant choice naturally collapses
 	// to a single absent-LayerBody lookup that misses and falls back
 	// to the default sprite via the Sprite fallback path below.
-	layers := resources.OrganismLayersFor(info.Features)
+	layers := resources.OrganismLayersFor(info.Appearance)
 	stampedAny := false
 	for _, layer := range layers {
 		sprite := resources.SpriteLayer(role, layer, anim, frameIdx)
@@ -184,7 +192,8 @@ func animatedCellPosition(f animation.Frame) (float64, float64) {
 // for the whole cycle, not the pre-action start state.
 func isMultiCellAnim(a animation.Animation) bool {
 	switch a {
-	case animation.AnimMove, animation.AnimAttack, animation.AnimEat, animation.AnimEatFail:
+	case animation.AnimMove, animation.AnimAttack, animation.AnimEat, animation.AnimEatFail,
+		animation.AnimDig:
 		return true
 	}
 	return false

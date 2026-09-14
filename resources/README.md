@@ -8,13 +8,13 @@ slices the right number of frames out of each tag based on the slice's
 resolution.
 
 The renderer then composites at draw time: under-body overlays first,
-then the body variant matching the organism's defense feature, then
+then the body variant matching the organism's Defense score, then
 over-body sensor overlays on top.
 
 ## One file, all resolutions
 
 Every sprite — every organism size, every food size, walls, every body
-variant, every feature overlay — lives in **one** `.aseprite` file.
+variant, every appearance overlay — lives in **one** `.aseprite` file.
 Slice names carry the resolution, so the same file can hold `small_4`,
 `small_8`, and `small_16` slices side by side. The script handles the
 rest.
@@ -78,17 +78,18 @@ single `base` tag for static art:
 | `chemo` | StatusChemoSuccess |
 | `chemofail` | StatusChemoFailed |
 | `die` | StatusDying |
-| `dig` | StatusDigging (pending) |
-| `hunker` | StatusHunkering (pending) |
-| `flare` | StatusFlaring (pending) |
-| `hide` | StatusHiding |
-| `circulate` | StatusCirculating (Fimbriae stirring the current) |
+| `dig` | StatusDigging |
 | `spawn` | StatusSpawning (pending) |
 | `base` | Static, paired only with `_static` slices |
 
 The "pending" tags can be authored now; they'll produce PNGs that sit
 unused until `animation.ForStatus` is extended to route those statuses
 to dedicated animations.
+
+Tags for retired mechanics — `hunker`, `hide`, `circulate` (fimbriae),
+`flare`, `sting` and `burrow` — are skipped by the script with a note
+to delete them from the source file. Any other tag the script doesn't
+recognise is skipped too, as a likely typo.
 
 ## Layers
 
@@ -110,9 +111,8 @@ size × action):
 - `body_basic`
 - `body_shell`
 - `body_spikes`
-- `body_camouflage`
 
-**High-res feature overlays** (same slices as the body variants). The
+**High-res appearance overlays** (same slices as the body variants). The
 renderer draws them in three z-tiers around the body silhouette so
 parts that should poke past the body stay visible:
 
@@ -121,7 +121,6 @@ sides / rear and the body silhouette covers their roots cleanly:
 
 - `pili`
 - `flagella`
-- `fimbriae`
 - `teeth`
 - `fangs`
 - `tusks`
@@ -134,8 +133,8 @@ Drawn *over* the body — head-mounted sensors that need to read as
 - `tasters`
 
 Compositing order, bottom to top:
-1. Under-body overlays (pili, flagella, fimbriae, teeth, fangs, tusks)
-2. Body variant (basic / shell / spikes / camouflage — exactly one)
+1. Under-body overlays (pili, flagella, teeth, fangs, tusks)
+2. Body variant (basic / shell / spikes — exactly one)
 3. Over-body overlays (antennae, feelers, tasters)
 
 **Static art** (any resolution; pairs only with the matching `_static`
@@ -167,7 +166,7 @@ slice's stem and resolution:
 | Slice stem | Resolution | Layers exported |
 |---|---|---|
 | `small`, `medium`, `large` | 4, 8 | `body` |
-| `small`, `medium`, `large` | 16 | `body_basic`, `body_shell`, `body_spikes`, `body_camouflage`, plus all 9 feature overlays |
+| `small`, `medium`, `large` | 16 | `body_basic`, `body_shell`, `body_spikes`, plus all 8 overlays |
 | `food_*` | any | `food` |
 | `wall_*` | any | `wall_base`, `wall_up`, `wall_down`, `wall_left`, `wall_right` (each exported per strength as `wall_<layer>_<strength>.png`) |
 
@@ -237,7 +236,7 @@ A sprite file with these slices, tags, and layers:
 - Slices: `small_4`, `small_16`, `food_small_16_static`, `wall_weak_16_static`, `wall_medium_16_static`, `wall_strong_16_static`
 - Tags: `idle` (4 frames), `move` (4 frames), `attack` (4 frames), `base` (1 frame)
 - Layers: `background` (preview), `body`, `body_basic`, `body_shell`,
-  `body_spikes`, `body_camouflage`, `pili`, `flagella`, `fimbriae`,
+  `body_spikes`, `pili`, `flagella`,
   `antennae`, `feelers`, `tasters`, `teeth`, `fangs`, `tusks`, `food`, `wall`
 
 …produces these PNGs:

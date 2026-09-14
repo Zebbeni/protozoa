@@ -9,7 +9,6 @@ import (
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
-	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 	"github.com/lucasb-eyer/go-colorful"
@@ -49,6 +48,8 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 		options: options,
 		rng:     rng,
 		cycle:   snap.Cycle,
+
+		minOrganismsArmed: snap.MinOrganismsArmed,
 	}
 
 	sim.updateManager = manager.NewUpdateManager()
@@ -72,6 +73,8 @@ func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 
 	s.rng = rng
 	s.cycle = snap.Cycle
+	s.minOrganismsArmed = snap.MinOrganismsArmed
+	s.endReported = false
 	s.updateManager = manager.NewUpdateManager()
 	s.wallManager = restoreWalls(s, snap)
 	s.environmentManager = restoreEnvironment(s, snap)
@@ -95,7 +98,7 @@ func rebuildDecisionPaths(s *Simulation) {
 }
 
 func restoreEnvironment(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.EnvironmentManager {
-	return manager.RestoreEnvironmentManager(sim, snap.CurrentPhMap, snap.PreviousPhMap, snap.FlowMap)
+	return manager.RestoreEnvironmentManager(sim, snap.CurrentPhMap, snap.PreviousPhMap)
 }
 
 func restoreWalls(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.WallManager {
@@ -116,9 +119,23 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 	// the sim as its lookupAPI, and several lookups bottom out in
 	// sim.organismManager which we're still constructing here.
 	organisms := make(map[int]*organism.Organism)
+	staleAbilities := 0
 	for _, rec := range snap.Organisms {
-		o := recordToOrganism(rec, sim)
+		o, abilitiesOK := recordToOrganism(rec, sim)
+		if !abilitiesOK {
+			staleAbilities++
+		}
 		organisms[o.ID] = o
+	}
+	// Reported once for the whole file rather than once per organism:
+	// a snapshot predating ability scores fails for every record it
+	// holds, and thousands of identical lines would bury anything else
+	// the load had to say.
+	if staleAbilities > 0 {
+		fmt.Printf("\nWarning: %d of %d organisms had invalid ability scores "+
+			"(snapshot predates ability scores, or is corrupt); reset to the genesis "+
+			"distribution. Re-record the file to replay it faithfully.",
+			staleAbilities, len(snap.Organisms))
 	}
 
 	// Rebuild ancestor data
@@ -134,7 +151,12 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 		snap.TotalOrganismsCreated, ancestorIDs, ancestorColors)
 }
 
-func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *organism.Organism {
+// recordToOrganism rebuilds a live organism from its snapshot record.
+// The bool reports whether the record's ability scores were valid;
+// false means they were reset to the genesis distribution, and the
+// caller surfaces that once for the whole load.
+func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*organism.Organism, bool) {
+	abilities, abilitiesOK := manager.AbilitiesFromRecord(rec.Abilities)
 	traits := organism.Traits{
 		OrganismColor:          colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
 		MaxSize:                rec.MaxSize,
@@ -142,7 +164,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		MinHealthToSpawn:       rec.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: int(rec.MinCyclesBetweenSpawns),
 		IdealPh:                rec.IdealPh,
-		Features:               physiology.Set(rec.Features),
+		Abilities:              abilities,
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)
@@ -157,5 +179,6 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		int(rec.AttackTotal), int(rec.AttackHits),
 		rec.PhPositive, rec.PhNegative,
 		api,
-	)
+	), abilitiesOK
 }
+

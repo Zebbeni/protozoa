@@ -42,29 +42,43 @@ func MinFoodValue() int            { return constants.MinFoodValue }
 func MaxFoodValue() int            { return constants.MaxFoodValue }
 
 // --- pH ---
-func MinPh() float64                   { return constants.MinPh }
-func MaxPh() float64                   { return constants.MaxPh }
+
+// The pH scale is fixed rather than configurable. Colour schemes, the pH
+// graph's buckets and every tolerance are all tuned against 0-10, so a
+// different range would quietly break them rather than rescale them.
+const (
+	minPh = 0.0
+	maxPh = 10.0
+)
+
+func MinPh() float64                   { return minPh }
+func MaxPh() float64                   { return maxPh }
 func MinInitialPh() float64            { return constants.MinInitialPh }
 func MaxInitialPh() float64            { return constants.MaxInitialPh }
 func MinIdealPh() float64              { return constants.MinIdealPh }
 func MaxIdealPh() float64              { return constants.MaxIdealPh }
 func PhTolerance() float64             { return constants.PhTolerance }
 func ChemosynthesisTolerance() float64 { return constants.ChemosynthesisTolerance }
-func ChemoPhEffectPerSize() float64    { return constants.ChemoPhEffectPerSize }
-func EatingPhEffectPerFood() float64   { return constants.EatingPhEffectPerFood }
-func PhDiffuseFactor() float64         { return constants.PhDiffuseFactor }
-func PhIncrementToDisplay() float64    { return constants.PhIncrementToDisplay }
 
-// --- Currents (the environment flow field) ---
-func FlowBias() float64              { return constants.FlowBias }
-func FlowDecayFactor() float64       { return constants.FlowDecayFactor }
-func CirculateStrength() float64     { return constants.CirculateStrength }
-func FlowAlignedThreshold() float64  { return constants.FlowAlignedThreshold }
+// ChemosynthesisPhWindow is how far an organism's cell pH may sit from its
+// ideal and still allow chemosynthesis. The single source for that window:
+// the chemosynthesis action and the CanChemosynthesizeHere condition both
+// read it, so what a decision tree tests can never disagree with what the
+// action does. Wider than PhTolerance when ChemosynthesisTolerance > 1, in
+// which case chemosynthesis works in water that is also damaging.
+func ChemosynthesisPhWindow() float64 { return PhTolerance() * ChemosynthesisTolerance() }
+func ChemoPhFalloff() float64         { return constants.ChemoPhFalloff }
+func ChemoCurveExponent() float64     { return constants.ChemoCurveExponent }
+func ChemoPhEffectPerSize() float64   { return constants.ChemoPhEffectPerSize }
+func EatingPhEffectPerFood() float64  { return constants.EatingPhEffectPerFood }
+func PhDiffuseFactor() float64        { return constants.PhDiffuseFactor }
+func PhIncrementToDisplay() float64   { return constants.PhIncrementToDisplay }
 
 // --- Organisms ---
 func MinOrganisms() int                  { return constants.MinOrganisms }
 func MaxOrganisms() int                  { return constants.MaxOrganisms }
 func GrowthFactor() float64              { return constants.GrowthFactor }
+func EatingGrowthFactor() float64        { return constants.EatingGrowthFactor }
 func MaximumMaxSize() float64            { return constants.MaximumMaxSize }
 func MinimumMaxSize() float64            { return constants.MinimumMaxSize }
 func MaximumInitialSize() float64        { return constants.MaximumInitialSize }
@@ -94,63 +108,76 @@ func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFrom
 func HealthChangeFromSpawning() float64      { return constants.HealthChangeFromSpawning }
 func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
 func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
-func HealthChangeFromHunkering() float64     { return constants.HealthChangeFromHunkering }
-func HealthChangeFromFlaring() float64       { return constants.HealthChangeFromFlaring }
-func HealthChangeFromHiding() float64        { return constants.HealthChangeFromHiding }
-func HealthChangeFromCirculating() float64  { return constants.HealthChangeFromCirculating }
 
 // Damage delivered to targets — size-scaled, always negative.
-func HealthChangeInflictedByAttack() float64 { return constants.HealthChangeInflictedByAttack }
+func HealthChangeInflictedByAttack() float64  { return constants.HealthChangeInflictedByAttack }
+func HealthChangeInflictedByShoving() float64 { return constants.HealthChangeInflictedByShoving }
+func AttackHealthGain() float64               { return constants.AttackHealthGain }
+func ChemoCrowdingPenalty() float64           { return constants.ChemoCrowdingPenalty }
+func CorpseFoodMultiplier() float64           { return constants.CorpseFoodMultiplier }
 
 // Environmental health changes.
 func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
 
+// --- Ability scores ---
+// Every organism distributes a fixed budget (physiology.PointTotal)
+// across six ability scores. Each score maps to an effect multiplier
+// via two linear segments pinned to 1.0 at the even-split score, so
+// the *AtZero / *AtMax pairs below are the full balance surface.
+//
+// Cost-style abilities (movement, and the cost half of digging) invert:
+// their AtZero is above 1 and AtMax below, so a high score means the
+// action is cheaper rather than stronger.
+func GenesisMinorAbilityScore() int    { return constants.GenesisMinorAbilityScore }
+func InitialAbilityScores() []int      { return constants.InitialAbilityScores }
+func RandomInitialAbilities() bool     { return constants.RandomInitialAbilities }
+func ChanceToMutateAbilities() float64 { return constants.ChanceToMutateAbilities }
+func MaxAbilityShift() int             { return constants.MaxAbilityShift }
+func AbilitySpecializationSpan() int   { return constants.AbilitySpecializationSpan }
+func ThornsThreshold() int             { return constants.ThornsThreshold }
+func ThornsDamagePerPoint() float64    { return constants.ThornsDamagePerPoint }
+func DefensePhProtection() float64     { return constants.DefensePhProtection }
+
+// --- Appearance thresholds ---
+// Sprite overlays are derived from ability scores, not inherited, so
+// these decide at what point an organism starts *looking* like what it
+// has specialised in. Genesis organisms sit at GenesisMinorAbilityScore
+// in every non-chemo ability, so a threshold at or below that would
+// give every newborn the overlay for free.
+func ShellBodyThreshold() int     { return constants.ShellBodyThreshold }
+func SpikesBodyThreshold() int    { return constants.SpikesBodyThreshold }
+func PiliMotorThreshold() int     { return constants.PiliMotorThreshold }
+func FlagellaMotorThreshold() int { return constants.FlagellaMotorThreshold }
+func TeethMouthThreshold() int    { return constants.TeethMouthThreshold }
+func FangsMouthThreshold() int    { return constants.FangsMouthThreshold }
+func TusksMouthThreshold() int    { return constants.TusksMouthThreshold }
+func SensorMinConditions() int    { return constants.SensorMinConditions }
+func ChemoMultAtZero() float64    { return constants.ChemoMultAtZero }
+func ChemoMultAtMax() float64     { return constants.ChemoMultAtMax }
+func EatingMultAtZero() float64   { return constants.EatingMultAtZero }
+func EatingMultAtMax() float64    { return constants.EatingMultAtMax }
+func MovementMultAtZero() float64 { return constants.MovementMultAtZero }
+func MovementMultAtMax() float64  { return constants.MovementMultAtMax }
+func DiggingMultAtZero() float64  { return constants.DiggingMultAtZero }
+func DiggingMultAtMax() float64   { return constants.DiggingMultAtMax }
+func AttackMultAtZero() float64   { return constants.AttackMultAtZero }
+func AttackMultAtMax() float64    { return constants.AttackMultAtMax }
+func DefenseMultAtZero() float64  { return constants.DefenseMultAtZero }
+func DefenseMultAtMax() float64   { return constants.DefenseMultAtMax }
+
 // --- Physiology ---
-func ChanceToGainFeature() float64   { return constants.ChanceToGainFeature }
-func ChanceToLoseFeature() float64   { return constants.ChanceToLoseFeature }
-func HunkerDamageTakenMult() float64 { return constants.HunkerDamageTakenMult }
-func FlareDamageDealtMult() float64  { return constants.FlareDamageDealtMult }
-func FlarePerceivedSizeAdd() float64 { return constants.FlarePerceivedSizeAdd }
-func WallStrengthDeltaSmall() int    { return constants.WallStrengthDeltaSmall }
-func WallStrengthDeltaMedium() int   { return constants.WallStrengthDeltaMedium }
-func WallStrengthDeltaLarge() int    { return constants.WallStrengthDeltaLarge }
-
-// Per-feature passive tradeoffs. Each feature contributes its own
-// set; only the deepest-held feature in each tree applies (body-type
-// exclusivity — see physiology.Set.Combined). Unitless multipliers
-// default to 1.0 (no effect); the additive modifier defaults to 0.
-
-// Pili tree
-func PiliChemoEfficiencyMult() float64     { return constants.PiliChemoEfficiencyMult }
-func FlagellaChemoEfficiencyMult() float64 { return constants.FlagellaChemoEfficiencyMult }
-func FlagellaMoveCostMult() float64        { return constants.FlagellaMoveCostMult }
-func FimbriaeChemoEfficiencyMult() float64 { return constants.FimbriaeChemoEfficiencyMult }
+func WallStrengthDeltaSmall() int  { return constants.WallStrengthDeltaSmall }
+func WallStrengthDeltaMedium() int { return constants.WallStrengthDeltaMedium }
+func WallStrengthDeltaLarge() int  { return constants.WallStrengthDeltaLarge }
+func WallBreakScoreSmall() int     { return constants.WallBreakScoreSmall }
+func WallBreakScoreMedium() int    { return constants.WallBreakScoreMedium }
+func WallBreakScoreLarge() int     { return constants.WallBreakScoreLarge }
 
 // Sensors tree
-func AntennaeChemoEfficiencyMult() float64 { return constants.AntennaeChemoEfficiencyMult }
-func FeelersChemoEfficiencyMult() float64  { return constants.FeelersChemoEfficiencyMult }
-func TastersChemoEfficiencyMult() float64  { return constants.TastersChemoEfficiencyMult }
 
 // Defense tree
-func ShellChemoEfficiencyMult() float64      { return constants.ShellChemoEfficiencyMult }
-func ShellMoveCostMult() float64             { return constants.ShellMoveCostMult }
-func ShellDamageTakenMult() float64          { return constants.ShellDamageTakenMult }
-func SpikesChemoEfficiencyMult() float64     { return constants.SpikesChemoEfficiencyMult }
-func SpikesMoveCostMult() float64            { return constants.SpikesMoveCostMult }
-func SpikesDamageTakenMult() float64         { return constants.SpikesDamageTakenMult }
-func SpikesDamageDealtMult() float64         { return constants.SpikesDamageDealtMult }
-func SpikesPerceivedSizeAdd() float64        { return constants.SpikesPerceivedSizeAdd }
-func CamouflageChemoEfficiencyMult() float64 { return constants.CamouflageChemoEfficiencyMult }
-func CamouflageMoveCostMult() float64        { return constants.CamouflageMoveCostMult }
-func CamouflageDamageTakenMult() float64     { return constants.CamouflageDamageTakenMult }
 
 // Teeth tree
-func TeethChemoEfficiencyMult() float64 { return constants.TeethChemoEfficiencyMult }
-func FangsChemoEfficiencyMult() float64 { return constants.FangsChemoEfficiencyMult }
-func FangsDamageDealtMult() float64     { return constants.FangsDamageDealtMult }
-func TusksChemoEfficiencyMult() float64 { return constants.TusksChemoEfficiencyMult }
-func TusksMoveCostMult() float64        { return constants.TusksMoveCostMult }
-func TusksDamageDealtMult() float64     { return constants.TusksDamageDealtMult }
 
 // --- Statistics ---
 func PopulationUpdateInterval() int { return constants.PopulationUpdateInterval }
@@ -221,7 +248,7 @@ func ThemeBackgroundRGB() (r, g, b float64) {
 // At exactly neutral the caller should use a weight of 0 so the target
 // colour has no effect.
 func PhTargetColorRGB(ph float64) (r, g, b float64) {
-	neutral := (constants.MaxPh + constants.MinPh) / 2.0
+	neutral := (maxPh + minPh) / 2.0
 	acid := ph < neutral
 	switch PhColorScheme() {
 	case PhColorSchemeBlueOrange:
@@ -265,6 +292,7 @@ func SetTheme(theme string) {
 		constants.Theme = "dark"
 	}
 }
+
 type Globals struct {
 	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
 	// or the time-based default chosen by the runner". Editable via
@@ -280,10 +308,10 @@ type Globals struct {
 	Seed int `json:"seed"`
 
 	// --- Display ---
-	GridUnitsWide int    `json:"grid_units_wide"`
-	GridUnitsHigh int    `json:"grid_units_high"`
-	ScreenWidth   int    `json:"screen_width"`
-	ScreenHeight  int    `json:"screen_height"`
+	GridUnitsWide int `json:"grid_units_wide"`
+	GridUnitsHigh int `json:"grid_units_high"`
+	ScreenWidth   int `json:"screen_width"`
+	ScreenHeight  int `json:"screen_height"`
 	// GUI theme: "light" or "dark". Controls the window background
 	// and selects between <theme>-prefixed sprite sheets.
 	Theme string `json:"theme"`
@@ -302,8 +330,6 @@ type Globals struct {
 	MaxFoodValue        int     `json:"max_food_value"`
 
 	// --- pH ---
-	MinPh        float64 `json:"min_ph"`
-	MaxPh        float64 `json:"max_ph"`
 	MinInitialPh float64 `json:"min_initial_ph"`
 	MaxInitialPh float64 `json:"max_initial_ph"`
 	MinIdealPh   float64 `json:"min_ideal_ph"`
@@ -318,6 +344,22 @@ type Globals struct {
 	// narrow chemo-viable pH relative to general survival tolerance;
 	// values above 1 widen it.
 	ChemosynthesisTolerance float64 `json:"chemosynthesis_tolerance"`
+	// ChemoPhFalloff shapes how chemosynthesis efficiency drops as a
+	// cell's pH moves away from the organism's ideal, inside the
+	// chemosynthesis window: efficiency = 1 - (distance/window)^k. Both
+	// the health gained and the acid produced scale with it, so a
+	// population chemosynthesizing in increasingly poor water also slows
+	// the acidification that made it poor. 1 is a linear decline, 2
+	// forgives small offsets and drops steeply near the edge, 0.5 drops
+	// quickly from the start. 0 disables it: full efficiency anywhere
+	// inside the window, the original flat behaviour.
+	ChemoPhFalloff float64 `json:"chemo_ph_falloff"`
+	// ChemoCurveExponent shapes the Chemosynthesis ability curve above an
+	// organism's genesis allocation. 1 is linear. Below 1 gives
+	// diminishing returns: the first points invested past genesis pay
+	// most, and stacking chemosynthesis toward the top of the budget pays
+	// progressively less, leaving more reason to spend points elsewhere.
+	ChemoCurveExponent float64 `json:"chemo_curve_exponent"`
 	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize
 	// * organism.Size on each successful chemo cycle. Eating pushes
 	// the local pH up by EatingPhEffectPerFood * food_amount_eaten
@@ -327,35 +369,23 @@ type Globals struct {
 	PhDiffuseFactor       float64 `json:"ph_diffuse_factor"`
 	PhIncrementToDisplay  float64 `json:"ph_increment_to_display"`
 
-	// --- Currents ---
-	// FlowBias is how hard a cell's flow vector skews its diffusion
-	// neighbour weights: weight = 1 - FlowBias*dot(flow, dirToNeighbour).
-	// 0 disables currents entirely (pure isotropic diffusion, the
-	// pre-currents behaviour). Must stay below 1 so every weight
-	// remains positive and diffusion stays a true weighted average;
-	// values near 1 make pH mix almost exclusively from upstream.
-	FlowBias float64 `json:"flow_bias"`
-	// FlowDecayFactor is the per-cycle multiplier pulling each cell's
-	// flow back toward still. 1.0 would make a current permanent;
-	// lower values mean Fimbriae organisms must keep circulating to
-	// hold one open. At 0.98 an un-tended current fades to ~13% over
-	// 100 cycles.
-	FlowDecayFactor float64 `json:"flow_decay_factor"`
-	// CirculateStrength is how much magnitude one ActCirculate adds to
-	// the cell's flow, in the organism's facing direction. Pushes
-	// accumulate and clamp at magnitude 1, so this also sets how many
-	// cycles of stirring it takes one organism to reach full current.
-	CirculateStrength float64 `json:"circulate_strength"`
-	// FlowAlignedThreshold is the dot-product cutoff the
-	// IsCurrentAligned condition tests the local flow against the
-	// organism's facing. 0 fires whenever the current has any forward
-	// component; higher values demand closer alignment.
-	FlowAlignedThreshold float64 `json:"flow_aligned_threshold"`
-
 	// --- Organisms ---
-	MinOrganisms                  int     `json:"min_organisms"`
-	MaxOrganisms                  int     `json:"max_organisms"`
-	GrowthFactor                  float64 `json:"growth_factor"`
+	// MinOrganisms ends a run once the living population falls below it,
+	// so a sim doesn't idle for thousands of cycles waiting for the last
+	// few stragglers to die. Only armed after the population has reached
+	// twice this number, so the small founding population of a run that
+	// is just getting started never trips it. 0 disables it, leaving
+	// extinction as the only end condition. (This key once topped the
+	// population back up with random organisms; that behaviour was
+	// removed and the key sat unused until it took on this meaning.)
+	MinOrganisms int     `json:"min_organisms"`
+	MaxOrganisms int     `json:"max_organisms"`
+	GrowthFactor float64 `json:"growth_factor"`
+	// EatingGrowthFactor is the share of health gained from eating, beyond
+	// an organism's current size, that turns into growth. GrowthFactor
+	// plays the same role for every other gain. At 1 an eater keeps all of
+	// a big meal (up to its max size) instead of losing the overflow.
+	EatingGrowthFactor            float64 `json:"eating_growth_factor"`
 	MaximumMaxSize                float64 `json:"maximum_max_size"`
 	MinimumMaxSize                float64 `json:"minimum_max_size"`
 	MaximumInitialSize            float64 `json:"maximum_initial_size"`
@@ -391,76 +421,145 @@ type Globals struct {
 	HealthChangeFromSpawning             float64 `json:"health_change_from_spawning"`
 	HealthChangeFromAttacking            float64 `json:"health_change_from_attacking"`
 	HealthChangeFromDigging              float64 `json:"health_change_from_digging"`
-	HealthChangeFromHunkering            float64 `json:"health_change_from_hunkering"`
-	HealthChangeFromFlaring              float64 `json:"health_change_from_flaring"`
-	HealthChangeFromHiding               float64 `json:"health_change_from_hiding"`
-	HealthChangeFromCirculating          float64 `json:"health_change_from_circulating"`
 	HealthChangeInflictedByAttack        float64 `json:"health_change_inflicted_by_attack"`
-	HealthChangePerCycleUnhealthyPh      float64 `json:"health_change_per_unhealthy_ph"`
+	// HealthChangeInflictedByShoving is the damage per unit of size a
+	// large organism deals when it tries to move into an occupied cell,
+	// scaled by its Digging multiplier and reduced by the target's
+	// Defense like any other damage. See manager.shoveEffect.
+	HealthChangeInflictedByShoving float64 `json:"health_change_inflicted_by_shoving"`
+	// AttackHealthGain is the share of attack damage landed on a victim
+	// that the attacker gains as health, capped at the health the victim
+	// had left: predation. 0 disables it, leaving corpses as the only
+	// payoff from an attack.
+	AttackHealthGain float64 `json:"attack_health_gain"`
+	// ChemoCrowdingPenalty is the share of chemosynthesis efficiency lost
+	// per adjacent organism (up to four), modelling competition for the
+	// same dissolved nutrients. 0 disables it.
+	ChemoCrowdingPenalty float64 `json:"chemo_crowding_penalty"`
+	// CorpseFoodMultiplier scales the food a dead organism leaves behind,
+	// as a multiple of its size.
+	CorpseFoodMultiplier            float64 `json:"corpse_food_multiplier"`
+	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
+
+	// --- Ability scores ---
+	// GenesisMinorAbilityScore is the score every non-chemosynthesis
+	// ability starts at for a genesis organism; chemosynthesis takes
+	// the whole remainder of the budget. Genesis organisms are pure
+	// chemosynthesizers, and every point of movement / attack / defense
+	// a lineage later evolves is a point taken off self-feeding.
+	GenesisMinorAbilityScore int `json:"genesis_minor_ability_score"`
+	// InitialAbilityScores is the ability distribution the simulation's
+	// initial organisms start with, in physiology.AllAbilities order
+	// (chemosynthesis, eating, movement, digging, attack, defense). It
+	// must sum to the 100-point budget; the config screen refuses to
+	// start otherwise, and a bad value loaded from a file falls back to
+	// the genesis distribution. It sets only where organisms start —
+	// the multiplier curves still pivot on the genesis distribution
+	// from GenesisMinorAbilityScore.
+	InitialAbilityScores []int `json:"initial_ability_scores"`
+	// RandomInitialAbilities gives each initial organism its own random
+	// split of the budget instead of InitialAbilityScores.
+	RandomInitialAbilities bool `json:"random_initial_abilities"`
+	// ChanceToMutateAbilities is the per-spawn probability that a child
+	// shifts points between two abilities. Higher than the old feature
+	// gain rate because a transfer is a small nudge rather than a whole
+	// new capability.
+	ChanceToMutateAbilities float64 `json:"chance_to_mutate_abilities"`
+	// MaxAbilityShift caps how many points one mutation can move. The
+	// actual shift is 1..MaxAbilityShift, clamped to the donor balance.
+	MaxAbilityShift int `json:"max_ability_shift"`
+	// AbilitySpecializationSpan is how many points above its genesis
+	// allocation an ability must gain to reach its full multiplier.
+	// Fixed across abilities on purpose: anchoring the top of the curve
+	// at the 100-point budget instead made non-chemo abilities nine
+	// times harder to grow into than to abandon, which put every
+	// specialist behind a fitness valley no lineage could cross.
+	AbilitySpecializationSpan int `json:"ability_specialization_span"`
+	// ThornsThreshold is the Defense score above which a
+	// defender starts returning damage to its attacker. Gated rather
+	// than scaled from zero so light armour absorbs damage while heavy
+	// armour punishes — the counter-attack should read as its own
+	// strategy, not as a small bonus everyone gets.
+	ThornsThreshold int `json:"thorns_threshold"`
+	// ThornsDamagePerPoint is the damage a defender deals back to each
+	// organism that hits it, per point of Defense above ThornsThreshold
+	// and per unit of the defender's size. Independent of the attack: at
+	// 0.005 a size-50 defender with 80 Defense deals 10 per hit taken,
+	// however hard or soft the hit was.
+	ThornsDamagePerPoint float64 `json:"thorns_damage_per_point"`
+	// DefensePhProtection is how much of Defense's protection against
+	// attacks also applies to unhealthy-pH damage, from 0 (none — pH
+	// damage ignores Defense) to 1 (pH damage is reduced exactly as much
+	// as attack damage).
+	DefensePhProtection float64 `json:"defense_ph_protection"`
+
+	// --- Appearance thresholds ---
+	// Score at which each overlay starts being drawn. Must sit above
+	// GenesisMinorAbilityScore or newborns get the sprite for nothing.
+	ShellBodyThreshold     int `json:"shell_body_threshold"`
+	SpikesBodyThreshold    int `json:"spikes_body_threshold"`
+	PiliMotorThreshold     int `json:"pili_motor_threshold"`
+	FlagellaMotorThreshold int `json:"flagella_motor_threshold"`
+	TeethMouthThreshold    int `json:"teeth_mouth_threshold"`
+	FangsMouthThreshold    int `json:"fangs_mouth_threshold"`
+	TusksMouthThreshold    int `json:"tusks_mouth_threshold"`
+	// SensorMinConditions is how many conditions of one sense category
+	// a decision tree must contain before the matching sensor overlay
+	// is drawn. Unlike the others this counts tree nodes, not score:
+	// sensing is a behaviour, so the sprite follows what the organism
+	// actually checks for.
+	SensorMinConditions int `json:"sensor_min_conditions"`
+
+	// Per-ability multiplier curve endpoints. Each pair is
+	// (multiplier at score 0, multiplier at score PointTotal); the
+	// curve passes through exactly 1.0 at the even-split score.
+	ChemoMultAtZero    float64 `json:"chemo_mult_at_zero"`
+	ChemoMultAtMax     float64 `json:"chemo_mult_at_max"`
+	EatingMultAtZero   float64 `json:"eating_mult_at_zero"`
+	EatingMultAtMax    float64 `json:"eating_mult_at_max"`
+	MovementMultAtZero float64 `json:"movement_mult_at_zero"`
+	MovementMultAtMax  float64 `json:"movement_mult_at_max"`
+	DiggingMultAtZero  float64 `json:"digging_mult_at_zero"`
+	DiggingMultAtMax   float64 `json:"digging_mult_at_max"`
+	AttackMultAtZero   float64 `json:"attack_mult_at_zero"`
+	AttackMultAtMax    float64 `json:"attack_mult_at_max"`
+	DefenseMultAtZero  float64 `json:"defense_mult_at_zero"`
+	DefenseMultAtMax   float64 `json:"defense_mult_at_max"`
 
 	// --- Physiology ---
 	// ChanceToGainFeature is the per-spawn probability that a child
 	// gains one new physiological feature (drawn uniformly at random
 	// from those whose prerequisites the parent already meets).
-	ChanceToGainFeature float64 `json:"chance_to_gain_feature"`
 	// ChanceToLoseFeature is the per-spawn probability that a child
 	// loses the deepest feature from one of its non-empty modality
 	// trees (drawn uniformly at random across non-empty trees). Lets
 	// lineages back out of a branch so descendants can re-grow down
 	// a sibling — without this the population saturates at the same
 	// leaf set in every tree and physiological diversity vanishes.
-	ChanceToLoseFeature float64 `json:"chance_to_lose_feature"`
 	// Posture-state modifiers applied during the cycle an organism
 	// is in the matching posture. Multipliers default to 1.0 = no
 	// effect; the additive modifier is a signed delta.
-	HunkerDamageTakenMult float64 `json:"hunker_damage_taken_mult"`
-	FlareDamageDealtMult  float64 `json:"flare_damage_dealt_mult"`
-	FlarePerceivedSizeAdd float64 `json:"flare_perceived_size_add"`
 	// WallStrengthDeltaSmall/Medium/Large set how much wall strength
 	// a single ActDig adds or removes, bucketed by the
 	// organism's size class (thirds of MaximumMaxSize).
 	WallStrengthDeltaSmall  int `json:"wall_strength_delta_small"`
 	WallStrengthDeltaMedium int `json:"wall_strength_delta_medium"`
 	WallStrengthDeltaLarge  int `json:"wall_strength_delta_large"`
-
-	// Per-feature passive Tradeoffs. Body-type exclusivity means
-	// only the deepest-held feature in each tree contributes — see
-	// physiology.Set.Combined. Multipliers default to 1.0; additive
-	// modifiers default to 0. Fields kept in feature-then-aspect
-	// order so the source layout mirrors default.json and the
-	// settings editor's per-tree subsections.
-
-	// Pili tree
-	PiliChemoEfficiencyMult     float64 `json:"pili_chemo_efficiency_mult"`
-	FlagellaChemoEfficiencyMult float64 `json:"flagella_chemo_efficiency_mult"`
-	FlagellaMoveCostMult        float64 `json:"flagella_move_cost_mult"`
-	FimbriaeChemoEfficiencyMult float64 `json:"fimbriae_chemo_efficiency_mult"`
+	// WallBreakScoreSmall/Medium/Large calibrate how hard organisms wear
+	// down walls by moving into them (Digging) or attacking them
+	// (Attack): the ability score at which an organism of that size
+	// class removes exactly one point of wall strength per hit. Higher
+	// scores remove proportionally more, following the ability's
+	// multiplier curve. See manager.wallDamage.
+	WallBreakScoreSmall  int `json:"wall_break_score_small"`
+	WallBreakScoreMedium int `json:"wall_break_score_medium"`
+	WallBreakScoreLarge  int `json:"wall_break_score_large"`
 
 	// Sensors tree
-	AntennaeChemoEfficiencyMult float64 `json:"antennae_chemo_efficiency_mult"`
-	FeelersChemoEfficiencyMult  float64 `json:"feelers_chemo_efficiency_mult"`
-	TastersChemoEfficiencyMult  float64 `json:"tasters_chemo_efficiency_mult"`
 
 	// Defense tree
-	ShellChemoEfficiencyMult      float64 `json:"shell_chemo_efficiency_mult"`
-	ShellMoveCostMult             float64 `json:"shell_move_cost_mult"`
-	ShellDamageTakenMult          float64 `json:"shell_damage_taken_mult"`
-	SpikesChemoEfficiencyMult     float64 `json:"spikes_chemo_efficiency_mult"`
-	SpikesMoveCostMult            float64 `json:"spikes_move_cost_mult"`
-	SpikesDamageTakenMult         float64 `json:"spikes_damage_taken_mult"`
-	SpikesDamageDealtMult         float64 `json:"spikes_damage_dealt_mult"`
-	SpikesPerceivedSizeAdd        float64 `json:"spikes_perceived_size_add"`
-	CamouflageChemoEfficiencyMult float64 `json:"camouflage_chemo_efficiency_mult"`
-	CamouflageMoveCostMult        float64 `json:"camouflage_move_cost_mult"`
-	CamouflageDamageTakenMult     float64 `json:"camouflage_damage_taken_mult"`
 
 	// Teeth tree
-	TeethChemoEfficiencyMult float64 `json:"teeth_chemo_efficiency_mult"`
-	FangsChemoEfficiencyMult float64 `json:"fangs_chemo_efficiency_mult"`
-	FangsDamageDealtMult     float64 `json:"fangs_damage_dealt_mult"`
-	TusksChemoEfficiencyMult float64 `json:"tusks_chemo_efficiency_mult"`
-	TusksMoveCostMult        float64 `json:"tusks_move_cost_mult"`
-	TusksDamageDealtMult     float64 `json:"tusks_damage_dealt_mult"`
 
 	// --- Statistics ---
 	PopulationUpdateInterval int `json:"population_update_interval"`

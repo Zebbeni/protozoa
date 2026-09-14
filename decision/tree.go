@@ -42,17 +42,19 @@ func (t *Tree) CopyTree() *Tree {
 }
 
 // MutateTree copies a root Tree, makes changes to the full tree, and
-// returns the mutated copy. The allowed pools constrain mutation to
-// actions/conditions the organism's physiology supports — typically
-// derived from the spawning organism's feature set via
-// physiology.Set.AllowedActions / AllowedConditions.
-func MutateTree(rng *simrand.RNG, original *Tree, allowedActions []Action, allowedConditions []Condition) *Tree {
+// returns the mutated copy.
+//
+// Every organism can express every node: what differs between them is
+// how well each action works, which their ability scores decide. There
+// is no per-organism pool to pass in, and therefore no way for an
+// inherited tree to reference something its owner cannot perform.
+func MutateTree(rng *simrand.RNG, original *Tree) *Tree {
 	tree := original.CopyTree()
-	tree.mutate(rng, allowedActions, allowedConditions)
+	tree.mutate(rng)
 	return tree
 }
 
-func (t *Tree) mutate(rng *simrand.RNG, allowedActions []Action, allowedConditions []Condition) {
+func (t *Tree) mutate(rng *simrand.RNG) {
 	allSubNodes := t.getNodes()
 	idx := rng.Intn(len(allSubNodes))
 	isRoot := idx == 0
@@ -63,16 +65,16 @@ func (t *Tree) mutate(rng *simrand.RNG, allowedActions []Action, allowedConditio
 	if node.IsAction() {
 		if isRoot || (rng.Intn(2) == 0 && t.size <= maxTreeSize-2) {
 			originalAction := node.NodeType.(Action)
-			node.NodeType = GetRandomCondition(rng, allowedConditions)
+			node.NodeType = GetRandomCondition(rng, MutableConditions)
 			if rng.Intn(2) == 0 {
-				node.YesNode = NodeFromAction(GetRandomAction(rng, allowedActions))
+				node.YesNode = NodeFromAction(GetRandomAction(rng, MutableActions))
 				node.NoNode = NodeFromAction(originalAction)
 			} else {
 				node.YesNode = NodeFromAction(originalAction)
-				node.NoNode = NodeFromAction(GetRandomAction(rng, allowedActions))
+				node.NoNode = NodeFromAction(GetRandomAction(rng, MutableActions))
 			}
 		} else {
-			node.NodeType = GetRandomAction(rng, allowedActions)
+			node.NodeType = GetRandomAction(rng, MutableActions)
 		}
 	} else {
 		randInt := rng.Intn(3)
@@ -84,13 +86,32 @@ func (t *Tree) mutate(rng *simrand.RNG, allowedActions []Action, allowedConditio
 			node = node.NoNode
 			break
 		default:
-			node.NodeType = GetRandomCondition(rng, allowedConditions)
+			node.NodeType = GetRandomCondition(rng, MutableConditions)
 			break
 		}
 	}
 
 	t.size = t.CalcAndUpdateSize()
 	t.ResetUsedLastCycle()
+}
+
+// ConditionNodes returns the condition at every condition node in the
+// tree, in traversal order. Repeats are kept: a tree that tests for
+// food three times is more of a food-sensing organism than one that
+// tests once, and the appearance layer weighs that.
+//
+// Exported so the physiology layer can classify what an organism
+// actually senses without reaching into node internals or parsing the
+// printable form.
+func (t *Tree) ConditionNodes() []Condition {
+	nodes := t.getNodes()
+	out := make([]Condition, 0, len(nodes))
+	for _, n := range nodes {
+		if c, ok := n.NodeType.(Condition); ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (t *Tree) Size() int {

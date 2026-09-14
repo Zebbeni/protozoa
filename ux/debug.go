@@ -55,7 +55,6 @@ func (d *Debug) render() *ebiten.Image {
 	info = fmt.Sprintf("%s\nRender Grid:    %10s", info, d.gridRenderTime)
 	info = fmt.Sprintf("%s\n  Walls:        %10s", info, d.gridTimings.Walls)
 	info = fmt.Sprintf("%s\n  pH:           %10s", info, d.gridTimings.Ph)
-	info = fmt.Sprintf("%s\n  Flow:         %10s", info, d.gridTimings.Flow)
 	info = fmt.Sprintf("%s\n  Food:         %10s", info, d.gridTimings.Food)
 	info = fmt.Sprintf("%s\n  Organisms:    %10s", info, d.gridTimings.Organisms)
 	info = fmt.Sprintf("%s\n  Compose:      %10s", info, d.gridTimings.Compose)

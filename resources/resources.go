@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"io/fs"
 	"log"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
@@ -30,8 +31,7 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimChemo:     "chemo",
 	animation.AnimChemoFail: "chemofail",
 	animation.AnimDie:       "die",
-	animation.AnimHide:      "hide",
-	animation.AnimCirculate: "circulate",
+	animation.AnimDig:       "dig",
 }
 
 // organismRoleName maps each organism role to the filename stem used by the
@@ -82,8 +82,8 @@ type FrameSet map[animation.Animation][]*ebiten.Image
 // matching the Aseprite layer names that the export lua script writes
 // PNG files for. Low-res organism sprites (4x4 / 8x8) only populate
 // LayerBody; high-res organism sprites (16x16+) populate a single body
-// variant (picked from the defense tree) and additional overlay layers
-// (one per non-defense feature tree's deepest-held feature).
+// variant (picked from the Defense score) and additional overlay layers
+// (motor, mouth and sensor, from physiology.Appearance).
 //
 // Food and wall roles also store their (single) sprite under LayerBody
 // so every (role, layer) lookup goes through the same code path.
@@ -97,18 +97,18 @@ const (
 	LayerBody Layer = iota
 
 	// Body variants — mutually exclusive. One is always drawn first
-	// when rendering a high-res organism; the choice is driven by
-	// the defense tree (Shell/Spikes/Camouflage), with FeatNone in
-	// that tree mapping to LayerBodyBasic.
+	// when rendering a high-res organism; the choice comes from
+	// physiology.Appearance's Body class, derived from the Defense
+	// score (basic / shell / spikes).
 	LayerBodyBasic
 	LayerBodyShell
 	LayerBodySpikes
-	LayerBodyCamouflage
 
-	// Feature overlays — additive. Drawn on top of the body in the
-	// canonical order below; a high-res organism draws the overlay
-	// corresponding to the deepest-held feature in each non-defense
-	// tree (Pili, Sensors, Teeth).
+	// Appearance overlays — additive. Drawn around the body in the
+	// canonical order below; a high-res organism draws at most one
+	// motor (pili / flagella), one sensor (antennae / feelers /
+	// tasters) and one mouth (teeth / fangs / tusks), per
+	// physiology.Appearance.
 	LayerPili
 	LayerFlagella
 	// Iota slot retained for back-compat with any code that bound an
@@ -120,7 +120,6 @@ const (
 	LayerTeeth
 	LayerFangs
 	LayerTusks
-	LayerFimbriae
 
 	// Wall layers. Authored as separate Aseprite layers within the
 	// same wall slice so each strength tier exports its own base +
@@ -143,43 +142,23 @@ const (
 // in the export script drops the layer prefix entirely (e.g.
 // small_attack.png).
 var layerFilenamePrefix = map[Layer]string{
-	LayerBody:           "",
-	LayerBodyBasic:      "body_basic",
-	LayerBodyShell:      "body_shell",
-	LayerBodySpikes:     "body_spikes",
-	LayerBodyCamouflage: "body_camouflage",
-	LayerPili:           "pili",
-	LayerFlagella:       "flagella",
-	LayerFimbriae:       "fimbriae",
-	LayerAntennae:       "antennae",
-	LayerFeelers:        "feelers",
-	LayerTasters:        "tasters",
-	LayerTeeth:          "teeth",
-	LayerFangs:          "fangs",
-	LayerTusks:          "tusks",
-	LayerWallBase:       "wall_base",
-	LayerWallUp:         "wall_up",
-	LayerWallDown:       "wall_down",
-	LayerWallLeft:       "wall_left",
-	LayerWallRight:      "wall_right",
-}
-
-// featureOverlayLayer maps each non-defense feature to its overlay
-// Layer. Defense features map to body variants instead — see
-// bodyVariantLayer. Only the deepest-held feature in each non-defense
-// tree contributes an overlay (mirroring physiology.Combined's per-tree
-// "one ancestor, not stacked" semantics), so deeper features in the
-// same tree replace shallower ones rather than stacking on top.
-var featureOverlayLayer = map[physiology.Feature]Layer{
-	physiology.FeatPili:     LayerPili,
-	physiology.FeatFlagella: LayerFlagella,
-	physiology.FeatFimbriae: LayerFimbriae,
-	physiology.FeatAntennae: LayerAntennae,
-	physiology.FeatFeelers:  LayerFeelers,
-	physiology.FeatTasters:  LayerTasters,
-	physiology.FeatTeeth:    LayerTeeth,
-	physiology.FeatFangs:    LayerFangs,
-	physiology.FeatTusks:    LayerTusks,
+	LayerBody:       "",
+	LayerBodyBasic:  "body_basic",
+	LayerBodyShell:  "body_shell",
+	LayerBodySpikes: "body_spikes",
+	LayerPili:       "pili",
+	LayerFlagella:   "flagella",
+	LayerAntennae:   "antennae",
+	LayerFeelers:    "feelers",
+	LayerTasters:    "tasters",
+	LayerTeeth:      "teeth",
+	LayerFangs:      "fangs",
+	LayerTusks:      "tusks",
+	LayerWallBase:   "wall_base",
+	LayerWallUp:     "wall_up",
+	LayerWallDown:   "wall_down",
+	LayerWallLeft:   "wall_left",
+	LayerWallRight:  "wall_right",
 }
 
 // UsesPrimaryColor reports whether the given Layer should be tinted
@@ -193,7 +172,7 @@ var featureOverlayLayer = map[physiology.Feature]Layer{
 func UsesPrimaryColor(layer Layer) bool {
 	switch layer {
 	case LayerBody,
-		LayerBodyBasic, LayerBodyShell, LayerBodySpikes, LayerBodyCamouflage,
+		LayerBodyBasic, LayerBodyShell, LayerBodySpikes,
 		LayerAntennae, LayerFeelers, LayerTasters:
 		return true
 	default:
@@ -201,59 +180,62 @@ func UsesPrimaryColor(layer Layer) bool {
 	}
 }
 
-// bodyVariantLayer returns the body-variant Layer for an organism with
-// the given physiology — driven by the defense tree's deepest-held
-// feature (Shell/Spikes/Camouflage), falling back to LayerBodyBasic
-// when the organism hasn't evolved into the defense tree.
-func bodyVariantLayer(features physiology.Set) Layer {
-	switch features.Deepest(physiology.TreeDefense) {
-	case physiology.FeatShell:
-		return LayerBodyShell
-	case physiology.FeatSpikes:
-		return LayerBodySpikes
-	case physiology.FeatCamouflage:
-		return LayerBodyCamouflage
-	default:
-		return LayerBodyBasic
+// OrganismLayersFor returns the ordered list of layers a high-res
+// renderer should draw for an organism with the given appearance, from
+// bottom to top:
+//  1. Motor overlay   (Pili / Flagella)
+//  2. Mouth overlay   (Teeth / Fangs / Tusks)
+//  3. Body silhouette (basic / Shell / Spikes)
+//  4. Sensor overlay  (Antennae / Feelers / Tasters)
+//
+// Locomotion sits underneath so the body covers wherever the limbs meet
+// the silhouette; the mouth sits under the body so teeth read as
+// protruding rather than floating in front of it; sensors sit on top
+// because antennae and feelers are meant to be visible above every
+// body variant.
+//
+// The appearance is derived from ability scores and decision-tree
+// conditions (see physiology.AppearanceFor) and precomputed per
+// organism, so this is pure lookup — no per-frame derivation.
+func OrganismLayersFor(app physiology.Appearance) []Layer {
+	out := make([]Layer, 0, 4)
+	if layer, ok := motorLayer[app.Motor]; ok {
+		out = append(out, layer)
 	}
-}
-
-// appendOverlay appends the overlay layer for the deepest-held feature
-// in tree to out, or leaves out unchanged if the organism hasn't entered
-// the tree (no overlay) or the deepest feature has no mapping (e.g.
-// defense features, which drive bodyVariantLayer instead).
-func appendOverlay(out []Layer, features physiology.Set, tree physiology.Tree) []Layer {
-	deepest := features.Deepest(tree)
-	if deepest == physiology.FeatNone {
-		return out
+	if layer, ok := mouthLayer[app.Mouth]; ok {
+		out = append(out, layer)
 	}
-	if layer, ok := featureOverlayLayer[deepest]; ok {
+	out = append(out, bodyLayer[app.Body])
+	if layer, ok := sensorLayer[app.Sensor]; ok {
 		out = append(out, layer)
 	}
 	return out
 }
 
-// OrganismLayersFor returns the ordered list of layers a high-res
-// renderer should draw for an organism with the given physiology, from
-// bottom to top:
-//  1. Pili overlay       (Pili / Flagella / Fimbriae)
-//  2. Teeth overlay      (Teeth / Fangs / Tusks)
-//  3. Body variant       (basic / Shell / Spikes / Camouflage)
-//  4. Sensors overlay    (Antennae / Feelers / Tasters)
-//
-// Locomotion sits underneath so the body covers wherever the limbs meet
-// the silhouette; teeth sit under the body so they read as protruding
-// from the mouth rather than floating in front of it; sensors sit on
-// top because antennae and feelers are intended to be visible above
-// every body / armour variant.
-func OrganismLayersFor(features physiology.Set) []Layer {
-	out := make([]Layer, 0, 4)
-	out = appendOverlay(out, features, physiology.TreePili)
-	out = appendOverlay(out, features, physiology.TreeTeeth)
-	out = append(out, bodyVariantLayer(features))
-	out = appendOverlay(out, features, physiology.TreeSensors)
-	return out
-}
+// Layer lookups per appearance class. The "none" classes are simply
+// absent from the overlay maps, so an organism that hasn't specialised
+// enough to earn an overlay draws without one.
+var (
+	bodyLayer = map[physiology.BodyClass]Layer{
+		physiology.BodyBasic:  LayerBodyBasic,
+		physiology.BodyShell:  LayerBodyShell,
+		physiology.BodySpikes: LayerBodySpikes,
+	}
+	motorLayer = map[physiology.MotorClass]Layer{
+		physiology.MotorPili:     LayerPili,
+		physiology.MotorFlagella: LayerFlagella,
+	}
+	mouthLayer = map[physiology.MouthClass]Layer{
+		physiology.MouthTeeth: LayerTeeth,
+		physiology.MouthFangs: LayerFangs,
+		physiology.MouthTusks: LayerTusks,
+	}
+	sensorLayer = map[physiology.SensorClass]Layer{
+		physiology.SensorAntennae: LayerAntennae,
+		physiology.SensorFeelers:  LayerFeelers,
+		physiology.SensorTasters:  LayerTasters,
+	}
+)
 
 // LayeredFrames holds per-layer FrameSets for one role. Low-res roles
 // (organisms at 4x4 / 8x8, plus food and walls at every resolution)
@@ -401,14 +383,12 @@ func initImages() {
 	dirs := [3]string{"4x4", "8x8", "16x16"}
 	sizes := [3]int{4, 8, 16}
 
-	// Light vs dark theme uses separate sprite directories so artists
-	// can keep two parallel sets — same Lua export script, different
-	// source aseprite files. ReloadImages is called by cycleTheme so
-	// switching themes at runtime picks up the new sheets.
-	themeDir := "grid_dark"
-	if config.IsLightTheme() {
-		themeDir = "grid_light"
-	}
+	// Both themes draw the same sprite set. The light theme lifts the
+	// sprites' greys toward white as they load (see loadSprite), so dark
+	// outlines and shading don't read as near-black against the light
+	// background. ReloadImages is called by cycleTheme so switching
+	// themes at runtime reloads with or without the lift.
+	themeDir := spriteDir
 
 	for i, dir := range dirs {
 		size := sizes[i]
@@ -492,7 +472,7 @@ func initImages() {
 // back gracefully for sizes the user hasn't drawn art for yet.
 func loadOrGenerateFilled(fullPath string, totalSize, innerSize int) *ebiten.Image {
 	if assetExists(fullPath) {
-		return loadImage(fullPath)
+		return loadSprite(fullPath)
 	}
 	return generateFilledImage(totalSize, innerSize)
 }
@@ -501,7 +481,7 @@ func loadOrGenerateFilled(fullPath string, totalSize, innerSize int) *ebiten.Ima
 // (food).
 func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Image {
 	if assetExists(fullPath) {
-		return loadImage(fullPath)
+		return loadSprite(fullPath)
 	}
 	return generateCircle(totalSize, diameter)
 }
@@ -512,7 +492,7 @@ func loadOrGenerateCircle(fullPath string, totalSize, diameter int) *ebiten.Imag
 // empty-frames-returns-nil contract then lets renderers skip them.
 func loadOrNil(fullPath string) *ebiten.Image {
 	if assetExists(fullPath) {
-		return loadImage(fullPath)
+		return loadSprite(fullPath)
 	}
 	return nil
 }
@@ -547,7 +527,7 @@ func loadWallLayers(path, strength string, size int) LayeredFrames {
 // changes.
 func loadOrGenerateBox(fullPath string, totalSize int) *ebiten.Image {
 	if assetExists(fullPath) {
-		return loadImage(fullPath)
+		return loadSprite(fullPath)
 	}
 	return generateBoxImage(totalSize)
 }
@@ -626,7 +606,7 @@ func loadAnimSheets(path, prefix string, role ImageRole, fallback *ebiten.Image,
 			}
 			continue
 		}
-		sheet := loadImage(sheetPath)
+		sheet := loadSprite(sheetPath)
 		if sheet.Bounds().Dx() < orgFrames*frameSize {
 			set[anim] = repeatSprite(sheet, orgFrames)
 		} else {
@@ -721,7 +701,91 @@ func generateBoxImage(size int) *ebiten.Image {
 	return ebiten.NewImageFromImage(img)
 }
 
+// spriteDir is the image directory every theme's grid sprites load from.
+const spriteDir = "grid_dark"
+
+// lightThemeSpriteShadow, lightThemeSpriteGamma and lightThemeSpriteDarken
+// set the tone curve the light theme applies to sprite greys. Each opaque
+// pixel's channels (in [0, 1]) go through two steps:
+//
+//	lifted = shadow + (1 - shadow) × value^gamma
+//	final  = lifted - darken × (1 - lifted)²
+//
+// Sprites are authored for the dark background, where dark outlines and
+// shading read well; multiplied by an organism's colour they come out
+// close to black against the light theme's background. The shadow point
+// lifts the darkest greys only so far, keeping outlines clearly darker
+// than the fill, and a gamma below 1 brightens midtones and fills more
+// than the outlines, so the lighter sprite keeps its contrast instead of
+// flattening toward white. The darken step then deepens the darks alone:
+// its pull shrinks with the square of the distance from white, so lights
+// barely move while outlines and deep shading get noticeably darker. Tune by eye with the animation test screen
+// (t toggles theme, r reloads).
+const (
+	lightThemeSpriteShadow = 0.25
+	lightThemeSpriteGamma  = 0.65
+	lightThemeSpriteDarken = 0.3
+)
+
+// loadSprite loads a grid sprite, applying the light theme's tone curve.
+//
+// Done once at load rather than per draw: tinting is a per-vertex colour
+// scale that ebiten batches, but a tone curve needs a colour matrix or
+// shader, which would break batching and cost a draw call per organism.
+func loadSprite(path string) *ebiten.Image {
+	img := decodeImage(path)
+	if config.IsLightTheme() {
+		img = toneImage(img, lightThemeSpriteShadow, lightThemeSpriteGamma, lightThemeSpriteDarken)
+	}
+	return ebiten.NewImageFromImage(img)
+}
+
+// toneImage returns a copy of img with each opaque pixel's colour channels
+// remapped by the light theme's tone curve (channels in [0, 1],
+// non-premultiplied):
+//
+//	lifted = shadow + (1 - shadow) × c^gamma
+//	c'     = lifted - darken × (1 - lifted)², floored at 0
+//
+// White stays white and the order of greys is preserved: the darken step
+// is increasing in lifted for any darken ≥ 0. Strong darkening does push
+// the darkest greys below zero, where the floor merges them into black. Transparency is unchanged, so silhouettes
+// and soft edges keep their shape.
+func toneImage(img image.Image, shadow, gamma, darken float64) *image.NRGBA {
+	b := img.Bounds()
+	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	shadow = min(1, max(0, shadow))
+	// Past 0.5 more of the darkest greys would floor to black and lose
+	// their shading; cap it there.
+	darken = min(0.5, max(0, darken))
+	if gamma <= 0 {
+		gamma = 1
+	}
+	// Only 256 possible channel values, so build the curve once.
+	var curve [256]uint8
+	for v := range curve {
+		lifted := shadow + (1-shadow)*math.Pow(float64(v)/255, gamma)
+		mapped := max(0, lifted-darken*(1-lifted)*(1-lifted))
+		curve[v] = uint8(math.Round(255 * mapped))
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+			if c.A != 0 {
+				c.R, c.G, c.B = curve[c.R], curve[c.G], curve[c.B]
+			}
+			out.SetNRGBA(x-b.Min.X, y-b.Min.Y, c)
+		}
+	}
+	return out
+}
+
 func loadImage(path string) *ebiten.Image {
+	return ebiten.NewImageFromImage(decodeImage(path))
+}
+
+// decodeImage reads and decodes a PNG from the asset filesystem.
+func decodeImage(path string) image.Image {
 	if assetsFS == nil {
 		log.Fatalf("resources: asset FS not initialised; UseEmbeddedAssets must be called before loading %q", path)
 	}
@@ -734,7 +798,7 @@ func loadImage(path string) *ebiten.Image {
 	if err != nil {
 		log.Fatalf("resources: failed to decode %q: %v", path, err)
 	}
-	return ebiten.NewImageFromImage(img)
+	return img
 }
 
 func loadFont(path string) *opentype.Font {

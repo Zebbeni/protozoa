@@ -17,7 +17,7 @@ import (
 // RestoreEnvironmentManager creates an EnvironmentManager with pre-populated
 // pH maps. Snapshot pH maps are float64 to preserve simulation precision
 // exactly, so we deep-copy here without any narrow/widen conversion.
-func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]float64, flow [][]checkpoint.FlowVector) *EnvironmentManager {
+func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]float64) *EnvironmentManager {
 	dup := func(src [][]float64) [][]float64 {
 		if len(src) == 0 {
 			return nil
@@ -29,39 +29,10 @@ func RestoreEnvironmentManager(api environment.API, currentPh, previousPh [][]fl
 		}
 		return dst
 	}
-	// dupFlow converts the snapshot's vector type back to utils.Vector,
-	// allocating fresh rows so the restored manager shares nothing with
-	// the snapshot. A snapshot written before the flow field existed
-	// (or one from a grid that had no currents) restores as nil here;
-	// the caller fills in a still field of the right size.
-	dupFlow := func(src [][]checkpoint.FlowVector) [][]utils.Vector {
-		if len(src) == 0 {
-			return nil
-		}
-		dst := make([][]utils.Vector, len(src))
-		for x, col := range src {
-			dst[x] = make([]utils.Vector, len(col))
-			for y, v := range col {
-				dst[x][y] = utils.Vector{X: v.X, Y: v.Y}
-			}
-		}
-		return dst
-	}
-
-	flowMap := dupFlow(flow)
-	if flowMap == nil {
-		gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
-		flowMap = make([][]utils.Vector, gridW)
-		for x := 0; x < gridW; x++ {
-			flowMap[x] = make([]utils.Vector, gridH)
-		}
-	}
-
 	return &EnvironmentManager{
 		api:           api,
 		currentPhMap:  dup(currentPh),
 		previousPhMap: dup(previousPh),
-		flowMap:       flowMap,
 	}
 }
 
@@ -89,11 +60,21 @@ func RestoreFoodManager(api food.API, rng *simrand.RNG, items []checkpoint.FoodR
 	}
 }
 
-// RestoreHistory injects pre-built pH distribution history into the OrganismManager.
+// RestoreHistory injects pre-built graph history (pH distribution, food
+// count, wall count) into the OrganismManager.
+//
+// Each map is deep-copied. The replay controller keeps the payload and
+// restores it again on every seek, while forward play keeps writing new
+// cycles into these maps, so installing the payload's maps directly would
+// let playback mutate the cached copy. Copying also turns the nil Food /
+// Walls maps of older replay files into empty maps that updateHistory can
+// write into.
 func (m *OrganismManager) RestoreHistory(payload *checkpoint.HistoryPayload) {
 	m.historyMutex.Lock()
 	defer m.historyMutex.Unlock()
-	m.history[HistoryPhDistribution] = payload.PhDistribution
+	m.history[HistoryPhDistribution] = copyHistoryMap(payload.PhDistribution)
+	m.history[HistoryFood] = copyHistoryMap(payload.Food)
+	m.history[HistoryWalls] = copyHistoryMap(payload.Walls)
 }
 
 // RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
@@ -131,6 +112,16 @@ func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantT
 	// Precompute the "most successful" set so the Most Successful
 	// select mode can do an O(1) per-organism lookup each frame.
 	m.mostSuccessful = computeMostSuccessfulSet(trees)
+	// Likewise precompute each node's lineage end for the SUCCESS
+	// organism colour mode, so rendering reads a field instead of
+	// walking descendants.
+	m.recordedEndCycle = organism.ComputeLineageEnds(trees)
+}
+
+// RecordedEndCycle returns the end of the recorded run whose descendant
+// trees were restored, or 0 in a live run.
+func (m *OrganismManager) RecordedEndCycle() int {
+	return m.recordedEndCycle
 }
 
 // computeMostSuccessfulSet builds the set of "most successful" tree
@@ -225,9 +216,14 @@ func recordToNode(rec checkpoint.DescendantNodeRecord, parent *organism.Descenda
 	if startCycle > 1<<30 {
 		startCycle = 0
 	}
+	// A pre-abilities file yields genesis scores here. Not reported: the
+	// organism restore path already warns once per load about stale
+	// ability data, and a node is only ever used for display.
+	abilities, _ := AbilitiesFromRecord(rec.Abilities)
 	node := &organism.DescendantNode{
 		ID:                   int(rec.ID),
 		Color:                colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
+		Abilities:            abilities,
 		StartCycle:           startCycle,
 		EndCycle:             int(rec.EndCycle),
 		AllBranchesDeadCycle: int(rec.AllBranchesDeadCycle),
@@ -273,6 +269,7 @@ func RestoreOrganismManager(
 			HistoryPopulation:     make(map[int]map[int]int32),
 			HistoryPhDistribution: make(map[int]map[int]int32),
 			HistoryFood:           make(map[int]map[int]int32),
+			HistoryWalls:          make(map[int]map[int]int32),
 		},
 	}
 }

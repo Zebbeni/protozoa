@@ -25,6 +25,12 @@ type SnapshotPayload struct {
 	Cycle                 int
 	RNGState              []byte
 	TotalOrganismsCreated int
+	// MinOrganismsArmed records whether the population has already grown
+	// to twice MinOrganisms, so a run resumed from this snapshot keeps
+	// its end condition live instead of re-waiting for the population to
+	// double. Absent from older files, where it decodes as false — the
+	// conservative choice, since it can only delay an end, never cause one.
+	MinOrganismsArmed     bool
 	Organisms             []OrganismRecord
 	OrganismGrid          [][]int
 	// CurrentPhMap and PreviousPhMap are stored as float64 to preserve
@@ -37,12 +43,6 @@ type SnapshotPayload struct {
 	// "most successful" highlighting.
 	CurrentPhMap  [][]float64
 	PreviousPhMap [][]float64
-	// FlowMap is the environment's per-cell current. Stored at full
-	// float64 precision for the same reason the pH maps are: the
-	// vectors feed straight into the diffusion weights, so any
-	// narrowing here compounds across cycles and drifts a replay away
-	// from its recording.
-	FlowMap [][]FlowVector
 	FoodItems     []FoodRecord
 	Walls         []WallRecord
 	Ancestors     []AncestorRecord
@@ -84,10 +84,6 @@ type OrganismRecord struct {
 	MinHealthToSpawn       float64
 	MinCyclesBetweenSpawns uint16
 	IdealPh                float64
-	// Features is the bitmask of evolved physiological features
-	// (physiology.Set is a uint64). Stored verbatim — no migration
-	// from pre-physiology snapshots; old .pzr files won't decode.
-	Features uint64
 
 	// PhPositive / PhNegative are lifetime cumulative magnitudes the
 	// organism has pushed pH up (eating) or down (chemosynthesis).
@@ -108,14 +104,20 @@ type OrganismRecord struct {
 	AttackTotal uint32
 	AttackHits  uint32
 
+	// Abilities is the organism's ability-score distribution. Scores
+	// are bounded by physiology.PointTotal (100) so a byte each is
+	// ample. Stored as a fixed array rather than named fields so the
+	// restore path can loop; manager/capture.go asserts at init that
+	// this length still matches the live ability count.
+	Abilities AbilityScores
+
 }
 
-// FlowVector is the serializable form of one cell's current. Mirrors
-// utils.Vector; declared locally so this package stays dependency-free
-// like the rest of the snapshot format.
-type FlowVector struct {
-	X, Y float64
-}
+// AbilityScores is the serializable form of one organism's ability
+// distribution, in physiology.AllAbilities order. Declared locally with
+// a literal length so this package stays dependency-free like the rest
+// of the snapshot format.
+type AbilityScores [6]uint8
 
 // FoodRecord is the serializable form of a food item.
 type FoodRecord struct {
@@ -172,10 +174,17 @@ type FoodChangeRecord struct {
 	Value uint16
 }
 
-// HistoryPayload stores the complete pH distribution history,
-// serialized once at the end of a simulation run.
+// HistoryPayload stores the complete graph history — pH distribution,
+// food count and wall count — serialized once at the end of a simulation
+// run.
+//
+// Food and Walls were added later. Gob leaves them nil when reading an
+// older file, and those replays show no food or wall history for the
+// cycles before playback resumed.
 type HistoryPayload struct {
 	PhDistribution map[int]map[int]int32 // cycle -> bucket -> count
+	Food           map[int]map[int]int32 // cycle -> 0 -> total food items
+	Walls          map[int]map[int]int32 // cycle -> 0 -> total wall cells
 }
 
 // DescendantTreesPayload contains the full descendant trees, serialized once
@@ -194,6 +203,9 @@ type DescendantTreeRecord struct {
 type DescendantNodeRecord struct {
 	ID                     uint32
 	ColorR, ColorG, ColorB float32
+	// Abilities lets the population graph colour dead organisms by
+	// ability after a load, the same as live ones.
+	Abilities              AbilityScores
 	StartCycle             uint32
 	EndCycle               uint32
 	AllBranchesDeadCycle   uint32

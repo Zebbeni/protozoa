@@ -14,8 +14,8 @@ import (
 // notifications are discarded. Enough to drive diffusion in isolation.
 type stubEnvAPI struct{}
 
-func (stubEnvAPI) Cycle() int                      { return 0 }
-func (stubEnvAPI) AddPhUpdate(p utils.Point)       {}
+func (stubEnvAPI) Cycle() int                       { return 0 }
+func (stubEnvAPI) AddPhUpdate(p utils.Point)        {}
 func (stubEnvAPI) IsWallAtPoint(p utils.Point) bool { return false }
 
 // loadDefaultGlobals wires settings/default.json into the process-wide
@@ -34,75 +34,24 @@ func loadDefaultGlobals(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// setUniformFlow points every cell's current in the same direction at
-// full magnitude, bypassing CirculateFlowAtPoint's accumulate-and-clamp
-// so the test controls the field exactly.
-func setUniformFlow(m *EnvironmentManager, v utils.Vector) {
-	for x := range m.flowMap {
-		for y := range m.flowMap[x] {
-			m.flowMap[x][y] = v
-		}
-	}
-}
-
-// TestFlowCarriesPhDownstream is the regression guard on the sign of
-// the anisotropic diffusion weight. A pH spike sitting in an eastward
-// current must spread further EAST than west: the weighting favours
-// each cell's upstream neighbour, so every cell adopts more of what
-// lies behind the flow, and the pattern therefore travels along the
-// vector rather than against it.
+// TestDiffusionIsSymmetric pins the core property of pH diffusion: with
+// no walls, a spike spreads equally in all four directions.
 //
-// Getting the sign backwards still produces a plausible-looking,
-// perfectly stable simulation — the pattern just drifts the wrong way
-// — which is exactly why this is worth pinning down in a test.
-func TestFlowCarriesPhDownstream(t *testing.T) {
+// Asymmetry here would mean pH drifts across the map for no modelled
+// reason, which is close to invisible by eye — a slow bias looks like
+// ordinary simulation noise — but would quietly skew every lineage
+// toward one edge of the world.
+//
+// The equality is exact, not approximate: the four neighbours are
+// summed in a fixed order (neighbourOffsets) and divided once, so
+// symmetric inputs give bit-identical outputs. If this ever needs a
+// tolerance, something has started depending on iteration order.
+func TestDiffusionIsSymmetric(t *testing.T) {
 	loadDefaultGlobals(t)
 
-	const spikePh = 10.0
 	origin := utils.Point{X: 20, Y: 20}
-
 	m := NewEnvironmentManager(stubEnvAPI{})
-	neutral := m.currentPhMap[origin.X][origin.Y]
-
-	// East is +x. Full-magnitude current so the bias is unmistakable.
-	setUniformFlow(m, utils.Vector{X: 1, Y: 0})
-	m.currentPhMap[origin.X][origin.Y] = spikePh
-
-	// decayFlow would erode the field as we step, so re-assert it each
-	// cycle: this test is about the diffusion weighting, not decay.
-	for i := 0; i < 12; i++ {
-		setUniformFlow(m, utils.Vector{X: 1, Y: 0})
-		m.Update()
-	}
-
-	east := m.currentPhMap[origin.X+4][origin.Y] - neutral
-	west := m.currentPhMap[origin.X-4][origin.Y] - neutral
-	north := m.currentPhMap[origin.X][origin.Y-4] - neutral
-
-	if east <= west {
-		t.Errorf("eastward current should carry pH east: east deviation %g, west %g "+
-			"(sign of the flow weight in diffusePhLevels is likely inverted)", east, west)
-	}
-	// Cross-stream spread should sit between the two: the flow biases
-	// the x axis only, leaving y at weight 1.
-	if !(east > north && north > west) {
-		t.Errorf("expected east > north > west, got east=%g north=%g west=%g", east, north, west)
-	}
-}
-
-// TestZeroFlowDiffusesSymmetrically pins the other half of the
-// contract: with a still field the weights all collapse to 1 and
-// diffusion is exactly the isotropic mean it was before currents
-// existed. Any asymmetry here means the weighting leaks into the
-// no-current case.
-func TestZeroFlowDiffusesSymmetrically(t *testing.T) {
-	loadDefaultGlobals(t)
-
-	const spikePh = 10.0
-	origin := utils.Point{X: 20, Y: 20}
-
-	m := NewEnvironmentManager(stubEnvAPI{})
-	m.currentPhMap[origin.X][origin.Y] = spikePh
+	m.currentPhMap[origin.X][origin.Y] = 10.0
 
 	for i := 0; i < 12; i++ {
 		m.Update()
@@ -122,78 +71,43 @@ func TestZeroFlowDiffusesSymmetrically(t *testing.T) {
 		{"east vs north", east, north},
 	} {
 		if tc.a != tc.b {
-			t.Errorf("still water should diffuse symmetrically, %s: %g != %g", tc.name, tc.a, tc.b)
+			t.Errorf("diffusion should be symmetric, %s: %g != %g", tc.name, tc.a, tc.b)
 		}
 	}
 }
 
-// TestCirculateAccumulatesAndClamps covers the write path: repeated
-// pushes in one direction build toward full magnitude and saturate
-// there, and an opposing push cancels rather than stacking.
-func TestCirculateAccumulatesAndClamps(t *testing.T) {
+// TestDiffusionConservesPh checks that diffusion only moves pH around,
+// never creates or destroys it. The step is a weighted average of
+// neighbours, so total pH across the grid should hold steady; a drift
+// would compound over the tens of thousands of cycles a real run takes
+// and slowly acidify or alkalise the whole world on its own.
+func TestDiffusionConservesPh(t *testing.T) {
 	loadDefaultGlobals(t)
 
-	p := utils.Point{X: 5, Y: 5}
-	east := utils.Point{X: 1, Y: 0}
-	west := utils.Point{X: -1, Y: 0}
-
 	m := NewEnvironmentManager(stubEnvAPI{})
+	m.currentPhMap[20][20] = 9.0
+	m.currentPhMap[5][40] = 1.0
 
-	if got := m.GetFlowAtPoint(p); !got.IsZero() {
-		t.Fatalf("flow should start still, got %+v", got)
-	}
-
-	// Far more pushes than needed to reach magnitude 1, to prove the
-	// clamp holds rather than letting the vector grow without bound.
-	for i := 0; i < 50; i++ {
-		m.CirculateFlowAtPoint(p, east, config.CirculateStrength())
-	}
-	got := m.GetFlowAtPoint(p)
-	if l := got.Length(); l > 1.0000001 {
-		t.Errorf("flow magnitude should clamp at 1, got %g", l)
-	}
-	if got.X <= 0 {
-		t.Errorf("eastward pushes should give positive X, got %+v", got)
-	}
-
-	// An opposing push must reduce the magnitude, not add to it.
-	before := m.GetFlowAtPoint(p).Length()
-	m.CirculateFlowAtPoint(p, west, config.CirculateStrength())
-	if after := m.GetFlowAtPoint(p).Length(); after >= before {
-		t.Errorf("opposing push should cancel: %g -> %g", before, after)
-	}
-}
-
-// TestFlowDecaysToStill verifies an un-tended current fades and snaps
-// cleanly to zero, so IsZero stays a meaningful fast path instead of
-// cells carrying vanishing residue forever.
-func TestFlowDecaysToStill(t *testing.T) {
-	loadDefaultGlobals(t)
-
-	p := utils.Point{X: 5, Y: 5}
-	m := NewEnvironmentManager(stubEnvAPI{})
-	m.CirculateFlowAtPoint(p, utils.Point{X: 1, Y: 0}, 1.0)
-
-	if m.GetFlowAtPoint(p).IsZero() {
-		t.Fatal("flow should be non-zero after a full-strength push")
-	}
-
-	prev := m.GetFlowAtPoint(p).Length()
-	for i := 0; i < 5; i++ {
-		m.decayFlow()
-		got := m.GetFlowAtPoint(p).Length()
-		if got >= prev {
-			t.Fatalf("decay should shrink the vector: %g -> %g", prev, got)
+	total := func() float64 {
+		sum := 0.0
+		for _, col := range m.currentPhMap {
+			for _, v := range col {
+				sum += v
+			}
 		}
-		prev = got
+		return sum
 	}
 
-	// Enough cycles to cross flowRestThreshold from magnitude 1 at the
-	// configured decay rate.
-	for i := 0; i < 2000; i++ {
-		m.decayFlow()
+	before := total()
+	for i := 0; i < 200; i++ {
+		m.Update()
 	}
-	if got := m.GetFlowAtPoint(p); !got.IsZero() {
-		t.Errorf("flow should snap to exactly still below the rest threshold, got %+v", got)
+	after := total()
+
+	// Floating-point summation over 8000 cells won't be bit-exact, so
+	// allow a relative slack far tighter than any drift that would
+	// matter over a real run.
+	if rel := (after - before) / before; rel > 1e-9 || rel < -1e-9 {
+		t.Errorf("diffusion changed total pH by %.3e relative (%v -> %v)", rel, before, after)
 	}
 }

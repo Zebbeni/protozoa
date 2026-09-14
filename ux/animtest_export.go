@@ -123,7 +123,7 @@ func (a *AnimationTest) exportCellGif(h cellHit) (string, error) {
 	if err := os.MkdirAll(gifExportDir, 0o755); err != nil {
 		return "", err
 	}
-	fpath := filepath.Join(gifExportDir, gifFilename(h, a.features))
+	fpath := filepath.Join(gifExportDir, gifFilename(h, a.appearance))
 	out, err := os.Create(fpath)
 	if err != nil {
 		return "", err
@@ -233,25 +233,26 @@ func centisecondsPerFrame(framesInSet int) int {
 // so the file is identifiable in a directory listing of many exports.
 // Colors aren't encoded — overwriting on re-export with the same
 // settings is the desired behaviour.
-func gifFilename(h cellHit, feats physiology.Set) string {
+func gifFilename(h cellHit, app physiology.Appearance) string {
 	zoom := fmt.Sprintf("%dx%d", h.nativeCell, h.nativeCell)
 	role := strings.ToLower(h.roleLabel)
 	anim := strings.ReplaceAll(strings.ToLower(h.animLabel), " ", "_")
-	return fmt.Sprintf("%s_%s_%s_%s.gif", zoom, role, anim, featureSlug(feats))
+	return fmt.Sprintf("%s_%s_%s_%s.gif", zoom, role, anim, appearanceSlug(app))
 }
 
-// featureSlug renders the held physiology features as a kebab-case
-// string. "basic" is returned when no features are held so the slot in
+// appearanceSlug renders an appearance as a kebab-case string for the
+// export filename, listing the overlays in render order and skipping
+// the "none" classes. The body class is always present, so the slot in
 // the filename is never empty.
-func featureSlug(feats physiology.Set) string {
+func appearanceSlug(app physiology.Appearance) string {
 	parts := make([]string, 0, 4)
-	for _, f := range physiology.All {
-		if feats.Has(f) {
-			parts = append(parts, strings.ToLower(physiology.Specs[f].Name))
+	for _, row := range appearanceRows {
+		value := row.get(app)
+		label := strings.ToLower(row.options[value])
+		if label == "none" {
+			continue
 		}
-	}
-	if len(parts) == 0 {
-		return "basic"
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, "-")
 }

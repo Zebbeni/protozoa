@@ -22,9 +22,9 @@ type Info struct {
 	// Color; view-mode overrides (pH, health) leave it unused since
 	// those modes paint the whole organism with one derived colour.
 	SecondaryColor colorful.Color
-	Age          int
-	Children     int
-	TraveledDist int // lifetime grid-unit travel count
+	Age            int
+	Children       int
+	TraveledDist   int // lifetime grid-unit travel count
 	// PhPositive / PhNegative are lifetime cumulative magnitudes the
 	// organism has pushed pH up (eating) and down (chemosynthesis).
 	// Both are non-negative; the renderer derives a tint from the
@@ -37,9 +37,8 @@ type Info struct {
 	AttackTotal int
 	AttackHits  int
 	// Status is the resolved outcome of the most recent cycle —
-	// what the action did, how it turned out, and whether the
-	// organism is currently in a posture mode (Hunker/Flare/Hide)
-	// or its terminal Dying/Decaying sequence. Replaces the older
+	// what the action did, how it turned out, or whether the
+	// organism is in its terminal Dying/Decaying sequence. Replaces the older
 	// ChemoFailed / EatFailed / Posture fields.
 	Status Status
 	// BornThisCycle is true for exactly the cycle on which the
@@ -47,8 +46,16 @@ type Info struct {
 	// a birth Frame (2-cell move from the parent's cell into the
 	// child's cell) without needing to carry the parent's location.
 	BornThisCycle bool
-	// Features is the organism's evolved physiology bitmask. The
-	// high-res sprite renderer reads this to pick the body variant
-	// (defense tree) and feature overlays (other trees) to composite.
-	Features physiology.Set
+	// Abilities is the organism's ability-score distribution, shown by
+	// the panel.
+	Abilities physiology.Scores
+	// Appearance is the derived sprite composition — body silhouette
+	// plus motor / mouth / sensor overlays. Precomputed on the
+	// organism, not derived here, so the renderer never walks a
+	// decision tree per frame.
+	Appearance physiology.Appearance
+	// LineageEndCycle is the latest death in this organism's line of
+	// descent, or 0 if a descendant survives to the end of the recorded
+	// run (always 0 in a live run). See DescendantNode.LineageEndCycle.
+	LineageEndCycle int
 }

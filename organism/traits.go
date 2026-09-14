@@ -25,18 +25,19 @@ type Traits struct {
 	// SecondaryColor isn't used because nothing is drawn over the body.
 	SecondaryColor colorful.Color
 	MaxSize        float64
-	SpawnHealth   float64
+	SpawnHealth    float64
 	// MinHealthToSpawn: the minimum health needed in order to spawn
 	MinHealthToSpawn       float64
 	MinCyclesBetweenSpawns int
 	IdealPh                float64
-	// Features is the bitmask of physiological features this organism
-	// has evolved. Determines the per-organism action/condition pool
-	// available to decision-tree mutation. Genesis organisms start with
-	// the empty set (base chemosynthesizers); features are gained on
-	// spawn at rate ChanceToGainFeature, drawn uniformly from those
-	// whose prerequisites are met.
-	Features physiology.Set
+	// Abilities is the organism's ability-score distribution: a fixed
+	// budget (physiology.PointTotal) split across chemosynthesis,
+	// eating, movement, digging, attack and defense. Every organism can
+	// perform every action; these scores decide how effective it is and
+	// what the action costs. Genesis organisms start as near-pure
+	// chemosynthesizers, so any specialisation a lineage evolves is
+	// paid for out of its self-feeding rate.
+	Abilities physiology.Scores
 }
 
 func newRandomTraits(rng *simrand.RNG) Traits {
@@ -53,9 +54,10 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 		MinHealthToSpawn:       minHealthToSpawn,
 		MinCyclesBetweenSpawns: minCyclesBetweenSpawns,
 		IdealPh:                idealPh,
-		// Features intentionally left zero — genesis organisms are base
-		// chemosynthesizers that must evolve their way into every
-		// physiological capability, including turning.
+		// Initial organisms start from the configured distribution
+		// (near-pure chemosynthesizers by default) or a random split;
+		// every later capability has to be paid for out of that.
+		Abilities: physiology.InitialScores(rng),
 	}
 }
 
@@ -65,10 +67,13 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 	spawnHealth := mutateFloat(rng, t.SpawnHealth, 0.5, c.MinSpawnHealth(), maxSize*c.MaxSpawnHealthPercent())
 	minHealthToSpawn := mutateFloat(rng, t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
 	idealPh := mutateFloat(rng, t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
-	features := mutateFeatures(rng, t.Features)
-	featuresChanged := features != t.Features
-	color := mutateColor(rng, t.OrganismColor, featuresChanged)
-	secondary := mutateColor(rng, t.SecondaryColor, featuresChanged)
+	abilities := t.Abilities.Mutated(rng)
+	// A visible shift in what the organism IS drives a larger colour
+	// step, so related lineages stay recognisable while a
+	// re-specialising branch visibly diverges from its parent.
+	physiologyChanged := abilities != t.Abilities
+	color := mutateColor(rng, t.OrganismColor, physiologyChanged)
+	secondary := mutateColor(rng, t.SecondaryColor, physiologyChanged)
 	return Traits{
 		OrganismColor:          color,
 		SecondaryColor:         secondary,
@@ -77,34 +82,8 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 		MinHealthToSpawn:       minHealthToSpawn,
 		MinCyclesBetweenSpawns: minCyclesBetweenSpawns,
 		IdealPh:                idealPh,
-		Features:               features,
+		Abilities:              abilities,
 	}
-}
-
-// mutateFeatures rolls independently for a feature gain and a feature
-// loss. Gain picks uniformly from Eligible (next-step children of the
-// organism's deepest-held feature in each tree, or roots of unentered
-// trees). Loss picks uniformly from Loseable (deepest-held feature in
-// each non-empty tree) and clears that bit, allowing the lineage to
-// re-grow down a sibling branch in subsequent generations.
-//
-// Order is gain-then-lose; both rolls always consume the same number
-// of rng draws regardless of outcome (always at least one Float64,
-// optionally one Intn each), so replays stay deterministic.
-func mutateFeatures(rng *simrand.RNG, features physiology.Set) physiology.Set {
-	if rng.Float64() < c.ChanceToGainFeature() {
-		eligible := features.Eligible()
-		if len(eligible) > 0 {
-			features = features.With(eligible[rng.Intn(len(eligible))])
-		}
-	}
-	if rng.Float64() < c.ChanceToLoseFeature() {
-		loseable := features.Loseable()
-		if len(loseable) > 0 {
-			features = features.Without(loseable[rng.Intn(len(loseable))])
-		}
-	}
-	return features
 }
 
 func mutateFloat(rng *simrand.RNG, value, maxChange, min, max float64) float64 {

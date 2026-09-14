@@ -32,12 +32,8 @@ const (
 )
 
 // hotReloadDirs lists the sprite directories watched for mtime changes.
-// Both light and dark sets are watched so saving an aseprite export
-// to either tree triggers a reload regardless of the active theme.
+// Both themes draw the same sprite set, so there is one tree to watch.
 var hotReloadDirs = []string{
-	"resources/images/grid_light/4x4",
-	"resources/images/grid_light/8x8",
-	"resources/images/grid_light/16x16",
 	"resources/images/grid_dark/4x4",
 	"resources/images/grid_dark/8x8",
 	"resources/images/grid_dark/16x16",
@@ -53,12 +49,11 @@ type AnimationTest struct {
 	secondaryColor colorful.Color
 	palette        []colorful.Color
 	swatches       []swatchRect
-	// features is the physiology bitmask used to drive the layered
-	// render at 16x16. Updated by clicks on featureButtons.
-	// 4x4 / 8x8 fall back to the bare single-layer sprite — their art
-	// has no overlays to composite.
-	features       physiology.Set
-	featureButtons []featureButton
+	// appearance drives the layered render at 16x16. Updated by clicks
+	// on appearanceButtons. 4x4 / 8x8 fall back to the bare
+	// single-layer sprite — their art has no overlays to composite.
+	appearance        physiology.Appearance
+	appearanceButtons []appearanceButton
 	// bgMode selects the background fill: 0 = theme, 1 = low-pH tint,
 	// 2 = high-pH tint. The pH options match what the grid env layer
 	// paints at MinPh / MaxPh, so the artist can preview how sprites
@@ -71,9 +66,9 @@ type AnimationTest struct {
 	// Pan offset applied to the matrix (labels + sprites). Color picker and
 	// hint line stay anchored to the window. Held as float64 so arrow-key
 	// panning can accumulate fractional deltas cleanly.
-	panX, panY   float64
-	dragging     bool
-	lastDragPos  image.Point
+	panX, panY  float64
+	dragging    bool
+	lastDragPos image.Point
 
 	// Hot-reload state.
 	lastMaxMTime time.Time // newest mtime observed on the last successful scan
@@ -117,11 +112,11 @@ type swatchRect struct {
 // rebuilds AnimationTest.features by clearing every bit in `tree` and
 // then setting the bits along `path` (the root → leaf walk of the
 // chosen branch). An empty `path` selects "none" for the tree.
-type featureButton struct {
+type appearanceButton struct {
 	x, y, w, h int
 	label      string
-	tree       physiology.Tree
-	path       []physiology.Feature
+	row        int // index into appearanceRows
+	value      int // class value this button selects
 }
 
 // featureTreeRows defines the feature-toggle UI: one row per modality
@@ -130,71 +125,47 @@ type featureButton struct {
 // branches, in physiology.All declaration order. The first non-empty
 // path becomes the default selection for organisms-as-drawn-here so
 // the matrix renders something interesting out of the box.
-var featureTreeRows = []struct {
+// appearanceRows defines the sprite-composition toggle UI: one row per
+// appearance dimension, in the same top-to-bottom order the renderer
+// stacks them. Each option's index IS the class value, since the
+// physiology class enums start at zero and run in the same order —
+// which is what lets a row be a plain get/set pair instead of the
+// path-matching the feature trees needed.
+//
+// In the simulation an organism's appearance is derived from its
+// ability scores and decision tree; here the artist picks the classes
+// directly, so every sprite combination is reachable for preview
+// without having to construct scores that would produce it.
+var appearanceRows = []struct {
 	label   string
-	tree    physiology.Tree
-	options []featureRowOption
+	get     func(physiology.Appearance) int
+	set     func(*physiology.Appearance, int)
+	options []string
 }{
 	{
-		label: "BODY",
-		tree:  physiology.TreeDefense,
-		options: []featureRowOption{
-			{"BASIC", nil},
-			{"SHELL", []physiology.Feature{physiology.FeatShell}},
-			{"SPIKES", []physiology.Feature{physiology.FeatShell, physiology.FeatSpikes}},
-			{"CAMO", []physiology.Feature{physiology.FeatShell, physiology.FeatCamouflage}},
-		},
+		label:   "BODY",
+		get:     func(a physiology.Appearance) int { return int(a.Body) },
+		set:     func(a *physiology.Appearance, v int) { a.Body = physiology.BodyClass(v) },
+		options: []string{"BASIC", "SHELL", "SPIKES"},
 	},
 	{
-		label: "PILI",
-		tree:  physiology.TreePili,
-		options: []featureRowOption{
-			{"NONE", nil},
-			{"PILI", []physiology.Feature{physiology.FeatPili}},
-			{"FLAGELLA", []physiology.Feature{physiology.FeatPili, physiology.FeatFlagella}},
-			{"FIMBRIAE", []physiology.Feature{physiology.FeatPili, physiology.FeatFimbriae}},
-		},
+		label:   "MOTOR",
+		get:     func(a physiology.Appearance) int { return int(a.Motor) },
+		set:     func(a *physiology.Appearance, v int) { a.Motor = physiology.MotorClass(v) },
+		options: []string{"NONE", "PILI", "FLAGELLA"},
 	},
 	{
-		label: "SENS",
-		tree:  physiology.TreeSensors,
-		options: []featureRowOption{
-			{"NONE", nil},
-			{"ANTENNAE", []physiology.Feature{physiology.FeatAntennae}},
-			{"FEELERS", []physiology.Feature{physiology.FeatAntennae, physiology.FeatFeelers}},
-			{"TASTERS", []physiology.Feature{physiology.FeatAntennae, physiology.FeatTasters}},
-		},
+		label:   "SENS",
+		get:     func(a physiology.Appearance) int { return int(a.Sensor) },
+		set:     func(a *physiology.Appearance, v int) { a.Sensor = physiology.SensorClass(v) },
+		options: []string{"NONE", "ANTENNAE", "FEELERS", "TASTERS"},
 	},
 	{
-		label: "TEETH",
-		tree:  physiology.TreeTeeth,
-		options: []featureRowOption{
-			{"NONE", nil},
-			{"TEETH", []physiology.Feature{physiology.FeatTeeth}},
-			{"FANGS", []physiology.Feature{physiology.FeatTeeth, physiology.FeatFangs}},
-			{"TUSKS", []physiology.Feature{physiology.FeatTeeth, physiology.FeatTusks}},
-		},
+		label:   "MOUTH",
+		get:     func(a physiology.Appearance) int { return int(a.Mouth) },
+		set:     func(a *physiology.Appearance, v int) { a.Mouth = physiology.MouthClass(v) },
+		options: []string{"NONE", "TEETH", "FANGS", "TUSKS"},
 	},
-}
-
-type featureRowOption struct {
-	label string
-	path  []physiology.Feature
-}
-
-// setFeatureBranch replaces every bit of tree in s with the bits along
-// path. Used by feature-button clicks so each click is a complete
-// per-tree pick rather than an additive toggle.
-func setFeatureBranch(s physiology.Set, tree physiology.Tree, path []physiology.Feature) physiology.Set {
-	for _, f := range physiology.All {
-		if physiology.Specs[f].Tree == tree {
-			s = s.Without(f)
-		}
-	}
-	for _, f := range path {
-		s = s.With(f)
-	}
-	return s
 }
 
 // demoCell pairs a role with an animation to preview.
@@ -233,21 +204,21 @@ var demoAnimations = []demoCell{
 	{"CHEMO", animation.AnimChemo},
 	{"CHEMO FAIL", animation.AnimChemoFail},
 	{"DIE", animation.AnimDie},
-	{"HIDE", animation.AnimHide},
+	{"DIG", animation.AnimDig},
 }
 
 // NewAnimationTest builds a demo game starting at 16x16 sprites with the
 // first palette color selected.
 func NewAnimationTest() *AnimationTest {
 	palette := []colorful.Color{
-		colorful.HSLuv(0, 0.7, 0.55),    // red
-		colorful.HSLuv(30, 0.85, 0.55),  // orange
-		colorful.HSLuv(60, 0.9, 0.6),    // yellow
-		colorful.HSLuv(120, 0.6, 0.5),   // green
-		colorful.HSLuv(180, 0.7, 0.55),  // cyan
-		colorful.HSLuv(240, 0.7, 0.55),  // blue
-		colorful.HSLuv(290, 0.7, 0.55),  // purple
-		colorful.HSLuv(0, 0, 0.85),      // near-white
+		colorful.HSLuv(0, 0.7, 0.55),   // red
+		colorful.HSLuv(30, 0.85, 0.55), // orange
+		colorful.HSLuv(60, 0.9, 0.6),   // yellow
+		colorful.HSLuv(120, 0.6, 0.5),  // green
+		colorful.HSLuv(180, 0.7, 0.55), // cyan
+		colorful.HSLuv(240, 0.7, 0.55), // blue
+		colorful.HSLuv(290, 0.7, 0.55), // purple
+		colorful.HSLuv(0, 0, 0.85),     // near-white
 	}
 	a := &AnimationTest{
 		color:          palette[0],
@@ -347,9 +318,9 @@ func (a *AnimationTest) Update() error {
 			}
 		}
 		if !picked {
-			for _, b := range a.featureButtons {
+			for _, b := range a.appearanceButtons {
 				if mx >= b.x && mx < b.x+b.w && my >= b.y && my < b.y+b.h {
-					a.features = setFeatureBranch(a.features, b.tree, b.path)
+					appearanceRows[b.row].set(&a.appearance, b.value)
 					picked = true
 					break
 				}
@@ -485,27 +456,27 @@ func (a *AnimationTest) drawColorPicker(screen *ebiten.Image) int {
 // Returns the y-pixel below the bar so the matrix can anchor under it.
 func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image, topPx int) int {
 	const (
-		barLeft       = 12
-		rowH          = 22
-		labelW        = 60
-		btnH          = 18
-		btnPad        = 6 // x-padding inside button around label
-		btnGap        = 4
-		selBorder     = 2
-		btnRadiusPad  = 2 // tiny vertical offset of label inside btn
+		barLeft      = 12
+		rowH         = 22
+		labelW       = 60
+		btnH         = 18
+		btnPad       = 6 // x-padding inside button around label
+		btnGap       = 4
+		selBorder    = 2
+		btnRadiusPad = 2 // tiny vertical offset of label inside btn
 	)
-	a.featureButtons = a.featureButtons[:0]
+	a.appearanceButtons = a.appearanceButtons[:0]
 	fg := themedForeground()
-	for ri, row := range featureTreeRows {
+	for ri, row := range appearanceRows {
 		y := topPx + ri*rowH
 		text.Draw(screen, row.label+":", resources.FontSourceCodePro10, barLeft, y+rowH-7, fg)
 		x := barLeft + labelW
-		for _, opt := range row.options {
-			lblW := boundString(resources.FontSourceCodePro10, opt.label).Dx()
+		for value, label := range row.options {
+			lblW := boundString(resources.FontSourceCodePro10, label).Dx()
 			btnW := lblW + 2*btnPad
 			ebitenutil.DrawRect(screen, float64(x), float64(y), float64(btnW), float64(btnH), themedButtonBackground())
-			text.Draw(screen, opt.label, resources.FontSourceCodePro10, x+btnPad, y+btnH-5+btnRadiusPad, fg)
-			if a.matchesRowSelection(row.tree, opt.path) {
+			text.Draw(screen, label, resources.FontSourceCodePro10, x+btnPad, y+btnH-5+btnRadiusPad, fg)
+			if row.get(a.appearance) == value {
 				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y-selBorder),
 					float64(btnW+2*selBorder), float64(selBorder), fg)
 				ebitenutil.DrawRect(screen, float64(x-selBorder), float64(y+btnH),
@@ -515,14 +486,14 @@ func (a *AnimationTest) drawFeatureBar(screen *ebiten.Image, topPx int) int {
 				ebitenutil.DrawRect(screen, float64(x+btnW), float64(y),
 					float64(selBorder), float64(btnH), fg)
 			}
-			a.featureButtons = append(a.featureButtons, featureButton{
+			a.appearanceButtons = append(a.appearanceButtons, appearanceButton{
 				x: x, y: y, w: btnW, h: btnH,
-				label: opt.label, tree: row.tree, path: opt.path,
+				label: label, row: ri, value: value,
 			})
 			x += btnW + btnGap
 		}
 	}
-	return topPx + len(featureTreeRows)*rowH
+	return topPx + len(appearanceRows)*rowH
 }
 
 // themedButtonBackground returns the colour used to fill feature
@@ -533,18 +504,6 @@ func themedButtonBackground() color.Color {
 		return color.RGBA{R: 220, G: 220, B: 220, A: 255}
 	}
 	return color.RGBA{R: 40, G: 40, B: 40, A: 255}
-}
-
-// matchesRowSelection reports whether a.features currently matches the
-// given path inside tree — i.e. the deepest-held feature in tree is the
-// last entry in path (or both are empty, the "none" case). Used to
-// highlight the selected button in each feature-bar row.
-func (a *AnimationTest) matchesRowSelection(tree physiology.Tree, path []physiology.Feature) bool {
-	deepest := a.features.Deepest(tree)
-	if len(path) == 0 {
-		return deepest == physiology.FeatNone
-	}
-	return deepest == path[len(path)-1]
 }
 
 // drawMatrix lays out the (4 zoom levels × 3 sizes) × N-animation grid,
@@ -566,9 +525,9 @@ func (a *AnimationTest) matchesRowSelection(tree physiology.Tree, path []physiol
 // line) stays anchored.
 func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, chromeBottom int) int {
 	const (
-		colGap    = 8  // horizontal gap between animation columns
-		rowGap    = 4  // vertical gap between rows
-		headerGap = 8  // gap between column headers and first row
+		colGap    = 8 // horizontal gap between animation columns
+		rowGap    = 4 // vertical gap between rows
+		headerGap = 8 // gap between column headers and first row
 	)
 
 	maxNativeCell := zoomSpriteSizes[len(zoomSpriteSizes)-1]
@@ -853,7 +812,7 @@ func (a *AnimationTest) drawDemoSprite(screen *ebiten.Image, x, y float64,
 		frameIdx = 0
 	}
 
-	layers := resources.OrganismLayersFor(a.features)
+	layers := resources.OrganismLayersFor(a.appearance)
 	stampedAny := false
 	for _, layer := range layers {
 		sprite := resources.SpriteLayer(role, layer, anim, frameIdx)

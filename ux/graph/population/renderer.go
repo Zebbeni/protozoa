@@ -8,11 +8,35 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
 const baseHeight = 4096
+
+// maxBaseWidth caps the base image's width. The base image used to grow
+// two pixels per bar without limit, and a long run (8833 bars) asked
+// ebiten for a 17666px texture, which panics: GPU textures top out around
+// 16384px. The graph is drawn into RealGraphWidth (1000px) anyway, so past
+// this width several bars share one column with no visible loss.
+const maxBaseWidth = 4096
+
+// strideFor returns how many bars share one base-image column so that
+// numCols bars fit in maxBaseWidth. It only ever doubles, so a growing run
+// rebuilds the base image O(log n) times rather than on every new bar.
+func strideFor(numCols int) int {
+	stride := 1
+	for numCols > maxBaseWidth*stride {
+		stride *= 2
+	}
+	return stride
+}
+
+// columnsFor is how many base-image columns numCols bars occupy at stride.
+func columnsFor(numCols, stride int) int {
+	return (numCols + stride - 1) / stride
+}
 
 // popGraphCeiling returns the y-axis ceiling to render bars against,
 // given the current peak population. Adds a small relative headroom
@@ -33,6 +57,15 @@ type NodeColorFunc func(node *organism.DescendantNode) color.Color
 
 func TraitColor(node *organism.DescendantNode) color.Color { return node.Color }
 
+// AbilityColor returns a NodeColorFunc painting each organism gray→green
+// by its score in one ability, on the same scale as the grid's ABILITY
+// colour mode.
+func AbilityColor(a physiology.Ability) NodeColorFunc {
+	return func(node *organism.DescendantNode) color.Color {
+		return gh.AbilityColor(node.Abilities, a)
+	}
+}
+
 // Renderer renders a population bar graph using a descendant tree walk.
 type Renderer struct {
 	colorFn     NodeColorFunc
@@ -41,6 +74,7 @@ type Renderer struct {
 
 	baseImage *ebiten.Image
 	baseWidth int
+	stride    int
 	maxAlive  int
 }
 
@@ -63,12 +97,16 @@ func NewRenderer(colorFn NodeColorFunc, subTreeRoot *organism.DescendantNode, st
 func (r *Renderer) Reset() {
 	r.baseImage = nil
 	r.baseWidth = 0
+	r.stride = 0
 	r.maxAlive = 0
 }
 
-func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int) *ebiten.Image {
+// Render reports progress as it walks the descendant trees: one unit per
+// bar counted and one per column drawn. The walks are what make a full
+// rebuild over a long run slow.
+func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int, progress *gh.Progress) *ebiten.Image {
 	trees, ids := r.getTrees(sim)
-	return r.renderPopGraph(oldBarCount, newBarCount, trees, ids)
+	return r.renderPopGraph(oldBarCount, newBarCount, trees, ids, progress)
 }
 
 func (r *Renderer) getTrees(sim *s.Simulation) (map[int]*organism.DescendantNode, []int) {
@@ -79,106 +117,78 @@ func (r *Renderer) getTrees(sim *s.Simulation) (map[int]*organism.DescendantNode
 }
 
 func (r *Renderer) renderPopGraph(oldBarCount, newBarCount int,
-	trees map[int]*organism.DescendantNode, ancestorIDs []int) *ebiten.Image {
+	trees map[int]*organism.DescendantNode, ancestorIDs []int, progress *gh.Progress) *ebiten.Image {
 
 	numCols := newBarCount - r.startBar
 	if numCols < 1 {
 		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
 	}
+	stride := strideFor(numCols)
+	cols := columnsFor(numCols, stride)
 
-	if r.baseImage == nil {
-		max := 0
-		for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
+	// A full rebuild is needed on first render, when the bars no longer
+	// fit at the current stride, or when a new bar exceeds the y-axis
+	// ceiling. The rebuild is done in place, without nil-ing r.baseImage
+	// first — an earlier version did and recursed, which left a brief
+	// window where the renderer's image was empty if the goroutine got
+	// interleaved with the main thread's frame composition.
+	needsRebuild := r.baseImage == nil || stride != r.stride
+	if !needsRebuild {
+		for barIdx := max(oldBarCount, r.startBar); barIdx < newBarCount; barIdx++ {
 			cycle := barIdx * c.PopulationUpdateInterval()
-			count := countAliveInTrees(trees, ancestorIDs, cycle)
-			if count > max {
-				max = count
-			}
-		}
-		if max < 1 {
-			max = 1
-		}
-		r.maxAlive = popGraphCeiling(max)
-		r.baseWidth = numCols * 2
-		if r.baseWidth < 4 {
-			r.baseWidth = 4
-		}
-		r.baseImage = ebiten.NewImage(r.baseWidth, baseHeight)
-
-		for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
-			cycle := barIdx * c.PopulationUpdateInterval()
-			r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
-		}
-	} else {
-		needsRefresh := false
-		for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
-			cycle := barIdx * c.PopulationUpdateInterval()
-			count := countAliveInTrees(trees, ancestorIDs, cycle)
-			if count > r.maxAlive {
-				needsRefresh = true
+			if countAliveInTrees(trees, ancestorIDs, cycle) > r.maxAlive {
+				needsRebuild = true
 				break
 			}
 		}
-		if needsRefresh {
-			// Rebuild in place: recompute max, allocate a fresh
-			// baseImage of the right width, and redraw every column
-			// with the new scale. We do *not* null out r.baseImage
-			// before drawing — the previous version of this code did
-			// so and recursed back into renderPopGraph, which left a
-			// brief window where the renderer's image was empty if
-			// the goroutine got interleaved with the main thread's
-			// frame composition. Doing it linearly avoids that
-			// transient and is no more expensive.
-			max := 0
-			for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
-				cycle := barIdx * c.PopulationUpdateInterval()
-				count := countAliveInTrees(trees, ancestorIDs, cycle)
-				if count > max {
-					max = count
-				}
-			}
-			if max < 1 {
-				max = 1
-			}
-			r.maxAlive = popGraphCeiling(max)
-			r.baseWidth = numCols * 2
-			if r.baseWidth < 4 {
-				r.baseWidth = 4
-			}
-			r.baseImage = ebiten.NewImage(r.baseWidth, baseHeight)
-			for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
-				cycle := barIdx * c.PopulationUpdateInterval()
-				r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
-			}
-		} else {
-			if numCols > r.baseWidth {
-				newWidth := numCols * 2
-				newBase := ebiten.NewImage(newWidth, baseHeight)
-				newBase.DrawImage(r.baseImage, nil)
-				r.baseImage = newBase
-				r.baseWidth = newWidth
-			}
-			for barIdx := oldBarCount; barIdx < newBarCount; barIdx++ {
-				cycle := barIdx * c.PopulationUpdateInterval()
-				r.drawColumn(trees, ancestorIDs, cycle, barIdx-r.startBar)
-			}
+	}
+
+	if needsRebuild {
+		// Two passes: count every bar for the y-axis peak, then draw
+		// every column.
+		progress.AddWork(numCols + cols)
+		peak := 0
+		for barIdx := r.startBar; barIdx < newBarCount; barIdx++ {
+			cycle := barIdx * c.PopulationUpdateInterval()
+			peak = max(peak, countAliveInTrees(trees, ancestorIDs, cycle))
+			progress.Step()
+		}
+		r.maxAlive = popGraphCeiling(max(peak, 1))
+		r.stride = stride
+		r.baseWidth = max(4, min(cols*2, maxBaseWidth))
+		r.baseImage = ebiten.NewImage(r.baseWidth, baseHeight)
+		// Each column shows the last bar in its group, matching what the
+		// incremental path leaves behind as it overwrites a column.
+		for col := 0; col < cols; col++ {
+			barIdx := min(r.startBar+(col+1)*stride, newBarCount) - 1
+			r.drawColumn(trees, ancestorIDs, barIdx*c.PopulationUpdateInterval(), col)
+			progress.Step()
+		}
+	} else {
+		if cols > r.baseWidth {
+			newWidth := min(cols*2, maxBaseWidth)
+			newBase := ebiten.NewImage(newWidth, baseHeight)
+			newBase.DrawImage(r.baseImage, nil)
+			r.baseImage = newBase
+			r.baseWidth = newWidth
+		}
+		first := max(oldBarCount, r.startBar)
+		progress.AddWork(newBarCount - first)
+		for barIdx := first; barIdx < newBarCount; barIdx++ {
+			cycle := barIdx * c.PopulationUpdateInterval()
+			r.drawColumn(trees, ancestorIDs, cycle, (barIdx-r.startBar)/stride)
+			progress.Step()
 		}
 	}
 
-	if r.baseImage == nil || numCols == 0 {
-		return instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
-	}
-	img := instrument.NewImage(int(gh.RealGraphWidth), int(gh.RealGraphHeight))
+	width := float64(gh.GraphImageWidth(cols))
+	img := instrument.NewImage(int(width), int(gh.RealGraphHeight))
 	// Faint background just barely off the panel fill, so the graph
 	// area is visible without competing with the bars. Light theme uses
 	// a near-white shade; dark theme stays at near-black.
-	bg := color.RGBA{R: 30, G: 30, B: 35, A: 255}
-	if c.IsLightTheme() {
-		bg = color.RGBA{R: 235, G: 235, B: 240, A: 255}
-	}
-	img.Fill(bg)
+	img.Fill(gh.GraphBackground())
 	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Scale(gh.RealGraphWidth/float64(numCols), gh.RealGraphHeight/float64(baseHeight))
+	opts.GeoM.Scale(width/float64(cols), gh.RealGraphHeight/float64(baseHeight))
 	img.DrawImage(r.baseImage, opts)
 	return img
 }

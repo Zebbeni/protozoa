@@ -45,12 +45,6 @@ type Controller struct {
 	// toggle that turns it back on and re-anchors speed to the zoom.
 	AutoSpeed bool
 
-	// maxSpeed caps Speed based on the active sprite set: 16x16 sprites
-	// can't be driven faster than 2x and 8x8 faster than 4x without the
-	// animation looking janky. Refreshed by UpdateSpeedFromZoom on every
-	// camera-zoom change. 0 means "unset" → MaxReplaySpeed effectively.
-	maxSpeed float64
-
 	// SeekCount increments on every successful snapshot seek. UI
 	// elements that cache sim state (e.g. the minimap) compare it
 	// against their last-seen value to invalidate when the playhead
@@ -298,14 +292,14 @@ func (c *Controller) SetSpeed(speed float64) {
 
 // setSpeedInternal updates Speed without touching AutoSpeed. Used by the
 // auto-sync path so re-anchoring from zoom doesn't toggle the user's
-// preference off. Clamps to the per-zoom max so large sprites can't be
-// driven faster than they animate cleanly.
+// preference off. Clamps only to the global Min/MaxReplaySpeed bounds —
+// zoom level never limits how fast the user can play.
 func (c *Controller) setSpeedInternal(speed float64) {
 	if speed < MinReplaySpeed {
 		speed = MinReplaySpeed
 	}
-	if cap := c.maxSpeed; cap > 0 && speed > cap {
-		speed = cap
+	if speed > MaxReplaySpeed {
+		speed = MaxReplaySpeed
 	}
 	c.Speed = speed
 	c.AnimState.Speed = speed
@@ -318,21 +312,6 @@ const (
 	MinReplaySpeed = 0.25
 	MaxReplaySpeed = 64
 )
-
-// MaxSpeedForUnitSize returns the playback-speed cap for the active
-// sprite set at this camera zoom. 16x16 sprites (zoom unit 16+) animate
-// at most 2x; 8x8 sprites (zoom unit 8) at most 16x; the 4x4 set has no
-// extra cap beyond MaxReplaySpeed.
-func MaxSpeedForUnitSize(unitSize int) float64 {
-	switch {
-	case unitSize >= 16:
-		return 2
-	case unitSize >= 8:
-		return 16
-	default:
-		return MaxReplaySpeed
-	}
-}
 
 // SpeedForUnitSize returns the auto-speed for a given camera unit size.
 // Larger zoom (bigger unit sizes) → 1x; smaller zoom → progressively
@@ -350,16 +329,12 @@ func SpeedForUnitSize(unitSize int) float64 {
 	}
 }
 
-// UpdateSpeedFromZoom re-anchors the per-zoom speed cap and, if
-// AutoSpeed is on, the active speed itself. The cap always applies — a
-// manually-chosen speed gets clamped down when zooming in to a
-// larger-sprite zoom.
+// UpdateSpeedFromZoom re-anchors the speed to the camera zoom when
+// AutoSpeed is on. A manually chosen speed is left exactly as it is —
+// zooming in never slows playback down.
 func (c *Controller) UpdateSpeedFromZoom(unitSize int) {
-	c.maxSpeed = MaxSpeedForUnitSize(unitSize)
 	if c.AutoSpeed {
 		c.setSpeedInternal(SpeedForUnitSize(unitSize))
-	} else if c.Speed > c.maxSpeed {
-		c.setSpeedInternal(c.Speed)
 	}
 }
 
@@ -368,7 +343,6 @@ func (c *Controller) UpdateSpeedFromZoom(unitSize int) {
 // site.
 func (c *Controller) EnableAutoSpeed(unitSize int) {
 	c.AutoSpeed = true
-	c.maxSpeed = MaxSpeedForUnitSize(unitSize)
 	c.setSpeedInternal(SpeedForUnitSize(unitSize))
 }
 

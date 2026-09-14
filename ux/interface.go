@@ -151,8 +151,13 @@ func (i *Interface) HandleUserInput() {
 	// Manual pan / zoom in the input handlers will cancel it as needed.
 	i.grid.Camera.UpdatePan()
 	i.handleKeyboard()
-	i.panel.HandleScroll()
-	i.handleMouse()
+	// Graph zoom/pan gets first claim on the mouse: a wheel over the
+	// graph zooms it instead of scrolling the panel, and a drag that
+	// starts on it pans the graph instead of the grid.
+	if !i.panel.HandleGraphInput() {
+		i.panel.HandleScroll()
+		i.handleMouse()
+	}
 	i.minimap.Update()
 }
 

@@ -43,17 +43,7 @@ const (
 	StatusAttacking
 	StatusSpawning
 	StatusDigging
-	StatusHunkering
-	StatusFlaring
-	StatusHiding
 	StatusDying // one cycle after lethal damage — AnimDie plays, then finalizeDeaths replaces with food
-	// StatusCirculating is the outcome of a resolved ActCirculate: the
-	// organism stirred the flow at its cell this cycle. Unlike the old
-	// attachment flag this is a pure per-cycle outcome — the resulting
-	// state lives in the environment's flow field, not on the
-	// organism — so it resets to Idle next cycle like every other
-	// status.
-	StatusCirculating
 )
 
 type Organism struct {
@@ -93,8 +83,8 @@ type Organism struct {
 	// Status is the resolved outcome of the most recent apply* pass
 	// — see the Status enum. Set by every action handler, consumed
 	// by renderers (via animation.ForStatus) and by sensor / damage
-	// code that needs to know "what posture is this organism in?"
-	// (Hunker / Flare / Hide). Reset to StatusIdle by UpdateStats
+	// code that needs to know what the organism just did. Reset to
+	// StatusIdle by UpdateStats
 	// at the start of the next cycle, except for the Dying /
 	// Decaying terminal sequence which finalizeDeaths advances.
 	Status Status
@@ -107,19 +97,30 @@ type Organism struct {
 	// and land one cell off from their true location.
 	BornThisCycle bool
 
+	// appearance is derived from the ability scores and the decision
+	// tree, both of which are fixed for an organism's lifetime, so it
+	// is computed once at construction and never recomputed. Deriving
+	// it lazily would put a full tree walk per organism into the
+	// render loop.
+	appearance physiology.Appearance
+
 	lookupAPI LookupAPI
 
 	mutex sync.Mutex
 }
 
+// Appearance returns the organism's derived look — body silhouette,
+// motor, mouth and sensor overlays. Read by the sprite renderer.
+func (o *Organism) Appearance() physiology.Appearance {
+	return o.appearance
+}
+
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits(rng)
-	allowedActions := traits.Features.AllowedActions()
-	allowedConditions := traits.Features.AllowedConditions()
 	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
 	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
-		decisionTree = d.MutateTree(rng, decisionTree, allowedActions, allowedConditions)
+		decisionTree = d.MutateTree(rng, decisionTree)
 	}
 	organism := Organism{
 		ID:                   id,
@@ -135,6 +136,7 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 		traits:       traits,
 		decisionTree: decisionTree,
 		action:       d.ActChemosynthesis,
+		appearance:   physiology.AppearanceFor(traits.Abilities, decisionTree),
 
 		lookupAPI: api,
 	}
@@ -150,10 +152,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 	traits := o.traits.copyMutated(rng)
 	inheritedTree := o.GetDecisionTreeCopy()
 	if rng.Float64() < c.ChanceToMutateDecisionTree() {
-		inheritedTree = d.MutateTree(rng, inheritedTree,
-			traits.Features.AllowedActions(),
-			traits.Features.AllowedConditions(),
-		)
+		inheritedTree = d.MutateTree(rng, inheritedTree)
 	}
 	// SpawnHealthMult is the parent's investment-in-offspring tradeoff:
 	// scaling the parent's InitialHealth before assigning it to the
@@ -161,7 +160,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 	// at the spawn site without needing to rewrite the child's
 	// SpawnHealth trait (which still drift-mutates independently and
 	// becomes the basis for the grandchild).
-	startHealth := o.InitialHealth() * o.Tradeoffs().SpawnHealthMult
+	startHealth := o.InitialHealth()
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
@@ -176,6 +175,7 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 		traits:        traits,
 		decisionTree:  inheritedTree,
 		action:        d.ActChemosynthesis,
+		appearance:    physiology.AppearanceFor(traits.Abilities, inheritedTree),
 		BornThisCycle: true,
 
 		lookupAPI: api,
@@ -203,6 +203,7 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		traits:               traits,
 		decisionTree:         tree,
 		action:               action,
+		appearance:           physiology.AppearanceFor(traits.Abilities, tree),
 		Status:               status,
 		AttackTotal:          attackTotal,
 		AttackHits:           attackHits,
@@ -214,25 +215,27 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 
 func (o *Organism) Info() *Info {
 	return &Info{
-		ID:             o.ID,
-		Health:         o.Health,
-		Location:       o.Location,
-		Direction:      o.Direction,
-		Size:           o.Size,
-		Action:         o.action,
-		AncestorID:     o.OriginalAncestorID,
-		Color:          o.traits.OrganismColor,
-		SecondaryColor: o.traits.SecondaryColor,
-		Age:            o.Age,
-		Children:       o.Children,
-		TraveledDist:   o.TraveledDist,
-		PhPositive:     o.PhPositive,
-		PhNegative:     o.PhNegative,
-		Status:         o.Status,
-		BornThisCycle:  o.BornThisCycle,
-		AttackTotal:    o.AttackTotal,
-		AttackHits:     o.AttackHits,
-		Features:       o.traits.Features,
+		ID:              o.ID,
+		Health:          o.Health,
+		Location:        o.Location,
+		Direction:       o.Direction,
+		Size:            o.Size,
+		Action:          o.action,
+		AncestorID:      o.OriginalAncestorID,
+		Color:           o.traits.OrganismColor,
+		SecondaryColor:  o.traits.SecondaryColor,
+		Age:             o.Age,
+		Children:        o.Children,
+		TraveledDist:    o.TraveledDist,
+		PhPositive:      o.PhPositive,
+		PhNegative:      o.PhNegative,
+		Status:          o.Status,
+		BornThisCycle:   o.BornThisCycle,
+		AttackTotal:     o.AttackTotal,
+		AttackHits:      o.AttackHits,
+		Abilities:       o.traits.Abilities,
+		Appearance:      o.appearance,
+		LineageEndCycle: lineageEndCycle(o.TreeNode),
 	}
 }
 
@@ -316,14 +319,6 @@ func (o *Organism) chooseAction(node *d.Node) d.Action {
 }
 
 func (o *Organism) isConditionTrue(cond interface{}) bool {
-	// Junk-DNA fallback for conditions: a tree node may probe a
-	// condition the organism no longer has the sensor for (e.g. an
-	// IsBiggerOrganismAhead test inherited after losing FeatFeelers).
-	// Treat those as false so the No branch is taken — re-gaining the
-	// feature reactivates the test naturally.
-	if c, ok := cond.(d.Condition); ok && !o.traits.Features.ConditionAvailable(c) {
-		return false
-	}
 	switch cond {
 	case d.CanMove:
 		return o.canMove()
@@ -337,6 +332,8 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isOrganismAhead()
 	case d.IsBiggerOrganismAhead:
 		return o.isBiggerOrganismAhead()
+	case d.IsRelativeAhead:
+		return o.isRelativeAhead()
 	case d.IsOrganismLeft:
 		return o.isOrganismLeft()
 	case d.IsOrganismRight:
@@ -347,6 +344,8 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.Health > o.Size*0.5
 	case d.IsHealthyPhHere:
 		return o.isHealthyPhHere()
+	case d.CanChemosynthesizeHere:
+		return o.canChemosynthesizeHere()
 	case d.IsHealthierPhAhead:
 		return o.isHealthierPhAhead()
 	case d.IsAgeMultipleOfTwo:
@@ -359,16 +358,6 @@ func (o *Organism) isConditionTrue(cond interface{}) bool {
 		return o.isWallAtPoint(o.Location.Add(o.Direction.Left()))
 	case d.IsWallRight:
 		return o.isWallAtPoint(o.Location.Add(o.Direction.Right()))
-	case d.IsCurrentAligned:
-		// True when the current at this cell runs with the organism's
-		// facing. Reads the flow field, not organism state, so a
-		// Fimbriae lineage can test "is the water already going my
-		// way?" and skip paying to stir it again.
-		flow := o.lookupAPI.GetFlowAtPoint(o.Location)
-		if flow.IsZero() {
-			return false
-		}
-		return flow.Dot(utils.VectorFromPoint(o.Direction)) >= c.FlowAlignedThreshold()
 	}
 	return false
 }
@@ -402,13 +391,21 @@ func (o Organism) Traits() Traits      { return o.traits }
 func (o *Organism) TraitsRef() *Traits { return &o.traits }
 
 // Tradeoffs returns the organism's combined passive Tradeoffs from
-// every feature it currently holds. Computed on demand from the
-// feature bitmask; cheap (12-feature iteration) and called from a few
-// per-cycle hot paths (chemo, move, attack, size-compare). If
-// profiling ever shows this in the hot loop, cache on the organism
-// at construction — features are immutable for a given organism.
-func (o *Organism) Tradeoffs() physiology.Tradeoffs {
-	return o.traits.Features.Combined()
+// / Abilities returns the organism's ability-score distribution. Scores
+// are immutable for a given organism (set at spawn, mutated only into
+// children), so callers can read them freely in per-cycle hot paths —
+// an array read, no derivation.
+func (o *Organism) Abilities() physiology.Scores {
+	return o.traits.Abilities
+}
+
+// AbilityMultiplier is the effect multiplier for one ability: how much
+// better or worse this organism is at that kind of action than an
+// evenly-split one. Effect-style abilities scale the result up;
+// cost-style abilities (movement, and the cost half of digging) scale
+// the price down.
+func (o *Organism) AbilityMultiplier(a physiology.Ability) float64 {
+	return o.traits.Abilities.Multiplier(a)
 }
 
 // InitialHealth returns the health an organism and its children start life with
@@ -451,11 +448,18 @@ func (o *Organism) setDecisionTree(decisionTree *d.Tree) {
 // ApplyHealthChange adds a value to the organism's health, bounded by 0 and MaxSize
 // If new health is greater than the organism's Size, this is updated too.
 func (o *Organism) ApplyHealthChange(change float64) {
+	o.ApplyHealthChangeWithGrowth(change, c.GrowthFactor())
+}
+
+// ApplyHealthChangeWithGrowth applies a health change, turning growthFactor
+// of any health above the organism's current size into growth (capped at
+// its max size). The rest of the overflow is lost, since health can't
+// exceed size.
+func (o *Organism) ApplyHealthChangeWithGrowth(change, growthFactor float64) {
 	o.Health += change
 	if o.Health > o.Size {
-		// When health increase causes size to increase, increase slowly, not all at once.
 		difference := o.Health - o.Size
-		o.Size = math.Min(o.Size+(difference*c.GrowthFactor()), o.traits.MaxSize)
+		o.Size = math.Min(o.Size+(difference*growthFactor), o.traits.MaxSize)
 	}
 	o.Health = math.Min(o.Health, o.Size)
 }
@@ -490,6 +494,12 @@ func (o *Organism) isBiggerOrganismAhead() bool {
 	return o.isBiggerOrganismAtPoint(o.Location.Add(o.Direction))
 }
 
+func (o *Organism) isRelativeAhead() bool {
+	return o.checkOrganismAtPoint(o.Location.Add(o.Direction), func(x *Organism) bool {
+		return x != nil && areRelatives(o.TreeNode, x.TreeNode)
+	})
+}
+
 func (o *Organism) isOrganismLeft() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Left()))
 }
@@ -498,8 +508,19 @@ func (o *Organism) isOrganismRight() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
+// isHealthyPhHere reports whether this cell's pH is inside the organism's
+// damage-free tolerance, i.e. staying put won't cost health to pH.
 func (o *Organism) isHealthyPhHere() bool {
 	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.PhTolerance())
+}
+
+// canChemosynthesizeHere reports whether chemosynthesis would succeed in
+// this cell. Distinct from isHealthyPhHere: the chemosynthesis window can
+// be wider than the damage-free tolerance, so an organism may be able to
+// feed somewhere that is also hurting it — the trade a well-defended
+// lineage is positioned to take.
+func (o *Organism) canChemosynthesizeHere() bool {
+	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.ChemosynthesisPhWindow())
 }
 
 func (o *Organism) isHealthierPhAhead() bool {
@@ -516,48 +537,31 @@ func (o *Organism) isAgeMultipleOfTen() bool {
 
 func (o *Organism) isBiggerOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		// Hidden organisms are invisible to sensor conditions for
-		// the cycle they spent on ActHide. Use the OTHER organism's
-		// perceived size (Size + passive Tradeoffs.PerceivedSizeAdd
-		// + active FlarePerceivedSizeAdd when flaring) so Spikes /
-		// Flare can make their bearer look bigger to a sensing
-		// neighbour.
-		return x != nil && x.Status != StatusHiding && x.Size+x.perceivedSizeBonus() > o.Size
+		// Compare against the OTHER organism's perceived size so a
+		// future posture can make its bearer read as larger to a
+		// sensing neighbour.
+		return x != nil && x.Size+x.perceivedSizeBonus() > o.Size
 	})
 }
 
-// perceivedSizeBonus returns the passive feature contribution plus
-// the per-cycle Flare bonus when applicable. Pulled out so other
-// "what does this look like to a sensor" checks can reuse the same
-// composition.
+// perceivedSizeBonus returns any per-cycle addition to how large this
+// organism appears to another's size comparison. Nothing contributes
+// under the ability-score model — the passive term came from Spikes
+// and the active one from Flare, both of which are gone — but the hook
+// stays so a future posture can reuse the composition point rather
+// than re-scattering size adjustments through the sensor checks.
 func (o *Organism) perceivedSizeBonus() float64 {
-	bonus := o.Tradeoffs().PerceivedSizeAdd
-	if o.Status == StatusFlaring {
-		bonus += c.FlarePerceivedSizeAdd()
-	}
-	return bonus
+	return 0
 }
 
 func (o *Organism) isOrganismAtPoint(p utils.Point) bool {
 	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		// Hidden organisms read as absent to sensor conditions for
-		// the cycle they spent on ActHide. The manager's grid still
-		// holds them — physical contact (blind attacks, blocked
-		// moves) is unaffected.
-		return x != nil && x.Status != StatusHiding
+		return x != nil
 	})
 }
 
 func (o *Organism) isWallAtPoint(p utils.Point) bool {
-	if o.lookupAPI.IsWallAtPoint(p) {
-		return true
-	}
-	// A hiding organism reads as a wall to sensor conditions — it blends
-	// into the terrain while in StatusHiding regardless of which feature
-	// unlocked the action.
-	return o.checkOrganismAtPoint(p, func(x *Organism) bool {
-		return x != nil && x.Status == StatusHiding
-	})
+	return o.lookupAPI.IsWallAtPoint(p)
 }
 
 func (o *Organism) checkOrganismAtPoint(p utils.Point, checkFunc OrgCheck) bool {
@@ -586,4 +590,13 @@ func (o *Organism) canMove() bool {
 		return false
 	}
 	return true
+}
+
+// lineageEndCycle reads a node's LineageEndCycle, treating an organism with
+// no tree node as having a surviving line.
+func lineageEndCycle(n *DescendantNode) int {
+	if n == nil {
+		return 0
+	}
+	return n.LineageEndCycle
 }

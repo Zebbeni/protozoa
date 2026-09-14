@@ -18,12 +18,13 @@ type LookupAPI interface {
 	GetFoodAtPoint(point utils.Point) (*food.Item, bool)
 	GetPhAtPoint(point utils.Point) float64
 	GetPhMap() [][]float64
-	// GetFlowAtPoint returns the environment's current ("flow")
-	// vector at a point. The zero vector means still water.
-	GetFlowAtPoint(point utils.Point) utils.Vector
 	IsWallAtPoint(point utils.Point) bool
+	// GetWallStrengthAtPoint returns the wall's strength at a point, or 0
+	// if there is no wall there.
+	GetWallStrengthAtPoint(point utils.Point) int
 	OrganismCount() int
 	FoodCount() int
+	WallCount() int
 	Cycle() int
 	GetSelected() int
 }
@@ -47,11 +48,6 @@ type ChangeAPI interface {
 	// AddWallUpdate flags a wall cell as dirty so the renderer repaints
 	// it on the next incremental refresh.
 	AddWallUpdate(point utils.Point)
-	// CirculateFlowAtPoint nudges the environment's flow vector at a
-	// point toward dir by strength, clamped to unit magnitude. Pushes
-	// from multiple organisms accumulate, so a colony facing the same
-	// way builds a stronger current than any one of them could.
-	CirculateFlowAtPoint(point utils.Point, dir utils.Point, strength float64)
 }
 
 // API provides functions needed to lookup and make changes to world objects

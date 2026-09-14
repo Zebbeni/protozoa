@@ -33,7 +33,7 @@ const (
 type PopupRequest int
 
 const (
-	PopupReqNone PopupRequest = iota
+	PopupReqNone   PopupRequest = iota
 	PopupReqCancel              // close popup, back to main menu
 	PopupReqStart               // begin headless sim
 	PopupReqRetry               // begin a fresh sim (re-randomized seed)
@@ -84,12 +84,12 @@ type SimPopup struct {
 	stopRequested bool
 
 	// Captured by SetSimComplete and shown in the complete body.
-	finalCycle  int
-	finalOrgs   int
-	finalFood   int
-	elapsed     time.Duration
-	replayPath  string
-	replaySize  string
+	finalCycle int
+	finalOrgs  int
+	finalFood  int
+	elapsed    time.Duration
+	replayPath string
+	replaySize string
 
 	// pending is the next request the runner should pick up. Cleared
 	// on read (Take) so each request fires exactly once.
@@ -263,7 +263,11 @@ func (p *SimPopup) handleConfigFooterClicks() bool {
 		return true
 	}
 	if hitRect(mx, my, startRect) {
-		p.pending = PopupReqStart
+		// Settings that can't start (e.g. initial abilities not adding
+		// up to 100) swallow the click; the footer says why.
+		if p.config.StartBlockedReason() == "" {
+			p.pending = PopupReqStart
+		}
 		return true
 	}
 	// Click anywhere else in the footer band still gets eaten (so
@@ -339,6 +343,7 @@ func (p *SimPopup) Draw(screen *ebiten.Image) {
 	case SimPopupConfig:
 		p.config.Draw(screen)
 		p.drawConfigFooter(screen)
+		p.config.DrawTooltip(screen)
 	case SimPopupRunning:
 		p.drawRunningBody(screen)
 		p.drawRunningFooter(screen)
@@ -420,6 +425,16 @@ func (p *SimPopup) drawConfigFooter(screen *ebiten.Image) {
 	pressedS := hS && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	drawMenuButton(screen, cancelRect.Min.X, cancelRect.Min.Y, cancelRect.Dx(), cancelRect.Dy(),
 		"Cancel", hC, pressedC, false)
+	if reason := p.config.StartBlockedReason(); reason != "" {
+		// Greyed-out Start with the reason beside the buttons.
+		drawAccentButton(screen, startRect.Min.X, startRect.Min.Y, startRect.Dx(), startRect.Dy(),
+			"Start", false, false, color.RGBA{R: 70, G: 70, B: 70, A: 255})
+		rb := boundString(r.FontSourceCodePro10, reason)
+		tx := cancelRect.Min.X - popupBtnSpacing - rb.Dx()
+		ty := startRect.Min.Y + (startRect.Dy()+rb.Dy())/2
+		text.Draw(screen, reason, r.FontSourceCodePro10, tx, ty, color.RGBA{R: 235, G: 90, B: 90, A: 255})
+		return
+	}
 	drawAccentButton(screen, startRect.Min.X, startRect.Min.Y, startRect.Dx(), startRect.Dy(),
 		"Start", hS, pressedS,
 		color.RGBA{R: 40, G: 100, B: 40, A: 255})
@@ -594,8 +609,8 @@ func (p *SimPopup) completeButtonRects() (popupRectT, popupRectT, popupRectT) {
 
 // FormatLogLine creates one entry for the running-mode log buffer.
 // Shared with the headless CLI path so log output is consistent.
-func FormatLogLine(cycle, organisms, food int, avgPh float64) string {
-	return fmt.Sprintf("Cycle: %6d   Organisms: %5d   Food: %6d   AvgPh: %2.2f", cycle, organisms, food, avgPh)
+func FormatLogLine(cycle, organisms, food, walls int, avgPh float64) string {
+	return fmt.Sprintf("Cycle: %6d   Organisms: %5d   Food: %6d   Walls: %5d   AvgPh: %2.2f", cycle, organisms, food, walls, avgPh)
 }
 
 // drawAccentButton paints a button whose fill is a specific accent

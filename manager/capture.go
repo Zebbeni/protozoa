@@ -1,10 +1,13 @@
 package manager
 
 import (
+	"fmt"
+
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 )
 
 // CaptureOrganismRecords returns all living organisms as checkpoint records.
@@ -113,39 +116,17 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	return
 }
 
-// CaptureFlowMap returns a deep copy of the environment's flow field
-// in the snapshot's own vector type. Deep-copied for the same reason
-// the pH maps are: handing the snapshot a reference would let
-// forward-play mutate a ring buffer entry in place and corrupt it.
-func (m *EnvironmentManager) CaptureFlowMap() [][]checkpoint.FlowVector {
-	w := len(m.flowMap)
-	if w == 0 {
-		return nil
-	}
-	h := len(m.flowMap[0])
-
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	out := make([][]checkpoint.FlowVector, w)
-	for x := 0; x < w; x++ {
-		out[x] = make([]checkpoint.FlowVector, h)
-		for y := 0; y < h; y++ {
-			out[x][y] = checkpoint.FlowVector{
-				X: m.flowMap[x][y].X,
-				Y: m.flowMap[x][y].Y,
-			}
-		}
-	}
-	return out
-}
-
-// CaptureHistory returns a deep copy of the pH distribution and effect history maps.
+// CaptureHistory returns a deep copy of the history maps the graphs read
+// (pH distribution, food count, wall count). Population history isn't
+// included: the population graph rebuilds it from the descendant trees.
 func (m *OrganismManager) CaptureHistory() *checkpoint.HistoryPayload {
 	m.historyMutex.RLock()
 	defer m.historyMutex.RUnlock()
 
 	return &checkpoint.HistoryPayload{
 		PhDistribution: copyHistoryMap(m.history[HistoryPhDistribution]),
+		Food:           copyHistoryMap(m.history[HistoryFood]),
+		Walls:          copyHistoryMap(m.history[HistoryWalls]),
 	}
 }
 
@@ -199,6 +180,7 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 		StartCycle:           uint32(startCycle),
 		EndCycle:             uint32(n.EndCycle),
 		AllBranchesDeadCycle: uint32(n.AllBranchesDeadCycle),
+		Abilities:            captureAbilities(n.Abilities),
 	}
 
 	n.ForEachChild(func(child *organism.DescendantNode) {
@@ -231,7 +213,6 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		MinHealthToSpawn:       traits.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: uint16(traits.MinCyclesBetweenSpawns),
 		IdealPh:                traits.IdealPh,
-		Features:               uint64(traits.Features),
 		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
 		CurrentAction:          uint8(o.Action()),
 		Status:                 uint8(o.Status),
@@ -239,5 +220,53 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		AttackHits:             uint32(o.AttackHits),
 		PhPositive:             o.PhPositive,
 		PhNegative:             o.PhNegative,
+		Abilities:              captureAbilities(traits.Abilities),
 	}
 }
+
+// The snapshot format pins the ability array to a literal length so the
+// checkpoint package stays dependency-free. That makes it possible to
+// add an ability without widening the record, which would silently
+// truncate the new score on every save. Fail at startup instead.
+func init() {
+	var rec checkpoint.AbilityScores
+	if len(rec) != len(physiology.AllAbilities) {
+		panic(fmt.Sprintf(
+			"manager: checkpoint.AbilityScores holds %d entries but physiology has %d abilities — "+
+				"widen AbilityScores in checkpoint/types.go",
+			len(rec), len(physiology.AllAbilities)))
+	}
+}
+
+// AbilitiesFromRecord widens a snapshot's byte array back to live scores,
+// reporting whether the stored distribution was valid.
+//
+// A record whose scores don't sum to physiology.PointTotal is a corrupt
+// or pre-abilities file. Restoring it verbatim would put a lineage on
+// the grid holding a different ability budget from everyone else, which
+// reads as an inexplicably dominant strain rather than a bad load — so
+// the genesis distribution comes back instead, and the caller decides
+// whether that's worth reporting. Shared by organism and descendant-node
+// restore so both treat stale data the same way.
+func AbilitiesFromRecord(rec checkpoint.AbilityScores) (physiology.Scores, bool) {
+	var out physiology.Scores
+	for _, a := range physiology.AllAbilities {
+		out[a] = int(rec[a])
+	}
+	if out.Validate() != nil {
+		return physiology.GenesisScores(), false
+	}
+	return out, true
+}
+
+// captureAbilities narrows the live scores to the snapshot's byte
+// array. Scores are bounded by physiology.PointTotal (100), so the
+// conversion is always lossless.
+func captureAbilities(s physiology.Scores) checkpoint.AbilityScores {
+	var out checkpoint.AbilityScores
+	for _, a := range physiology.AllAbilities {
+		out[a] = uint8(s[a])
+	}
+	return out
+}
+

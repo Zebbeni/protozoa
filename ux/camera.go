@@ -63,6 +63,14 @@ func (cam *Camera) SpriteFrameCount() int {
 }
 
 // SpriteScale returns the factor to scale sprites up to the display unit size.
+// SpriteSize returns the native pixel size of one cell in the active
+// sprite set (4, 8 or 16). Layers that want their detail to line up with
+// sprite pixels, like the pH gradient, work at this resolution and are
+// then scaled by SpriteScale exactly as sprites are.
+func (cam *Camera) SpriteSize() int {
+	return zoomSpriteSizes[cam.SpriteSet()]
+}
+
 func (cam *Camera) SpriteScale() float64 {
 	return float64(cam.GridUnitSize()) / float64(zoomSpriteSizes[cam.SpriteSet()])
 }

@@ -379,7 +379,7 @@ func (r *Runner) stepSimulation() {
 		r.activeSim.Update()
 		if r.activeSim.Cycle()%100 == 0 {
 			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(),
-				r.activeSim.FoodCount(), r.activeSim.AveragePh())
+				r.activeSim.FoodCount(), r.activeSim.WallCount(), r.activeSim.AveragePh())
 			r.simPopup.AddLog(line)
 		}
 		stopRequested = r.simPopup.StopRequested()
