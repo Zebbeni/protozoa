@@ -8,8 +8,8 @@ slices the right number of frames out of each tag based on the slice's
 resolution.
 
 The renderer then composites at draw time: under-body overlays first,
-then the body variant matching the organism's Defense score, then
-over-body sensor overlays on top.
+then the body variant matching the organism's Tolerance (shell) or
+Defense (spikes) score, then over-body sensor overlays on top.
 
 ## One file, all resolutions
 

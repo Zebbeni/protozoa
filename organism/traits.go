@@ -15,7 +15,7 @@ import (
 //
 // Former traits now applied as globals (same value to every organism):
 // ChanceToMutateDecisionTree, PhGrowthEffect (now action-driven via
-// ChemoPhEffectPerSize / EatingPhEffectPerFood), PhTolerance, MaxLifespan.
+// ChemoPhEffect / EatingPhEffect), PhTolerance, MaxLifespan.
 type Traits struct {
 	OrganismColor colorful.Color
 	// SecondaryColor tints high-res feature overlays (pili /
@@ -31,12 +31,12 @@ type Traits struct {
 	MinCyclesBetweenSpawns int
 	IdealPh                float64
 	// Abilities is the organism's ability-score distribution: a fixed
-	// budget (physiology.PointTotal) split across chemosynthesis,
+	// budget (physiology.PointTotal, capped per ability) split across chemosynthesis,
 	// eating, movement, digging, attack and defense. Every organism can
 	// perform every action; these scores decide how effective it is and
-	// what the action costs. Genesis organisms start as near-pure
-	// chemosynthesizers, so any specialisation a lineage evolves is
-	// paid for out of its self-feeding rate.
+	// what the action costs. Initial organisms start from the configured
+	// distribution, and any specialisation a lineage evolves is paid for
+	// out of its other abilities.
 	Abilities physiology.Scores
 }
 
@@ -45,7 +45,7 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 	spawnHealth := rng.Float64() * math.Min(maxSize*c.MaxSpawnHealthPercent(), c.MaximumInitialSpawnHealth())
 	minHealthToSpawn := spawnHealth + rng.Float64()*(maxSize-spawnHealth)
 	minCyclesBetweenSpawns := rng.Intn(c.MaxInitialCyclesBetweenSpawns() + 1)
-	idealPh := (c.MaxIdealPh() + c.MinIdealPh()) / 2.0
+	idealPh := c.InitialPh()
 	return Traits{
 		OrganismColor:          newRandomColor(rng),
 		SecondaryColor:         newRandomColor(rng),
@@ -66,7 +66,7 @@ func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 	minCyclesBetweenSpawns := mutateInt(rng, t.MinCyclesBetweenSpawns, 5, 0, c.MaxCyclesBetweenSpawns())
 	spawnHealth := mutateFloat(rng, t.SpawnHealth, 0.5, c.MinSpawnHealth(), maxSize*c.MaxSpawnHealthPercent())
 	minHealthToSpawn := mutateFloat(rng, t.MinHealthToSpawn, 5.0, spawnHealth, maxSize)
-	idealPh := mutateFloat(rng, t.IdealPh, 0.1, c.MinIdealPh(), c.MaxIdealPh())
+	idealPh := mutateFloat(rng, t.IdealPh, c.IdealPhMutationStep(), c.MinIdealPh(), c.MaxIdealPh())
 	abilities := t.Abilities.Mutated(rng)
 	// A visible shift in what the organism IS drives a larger colour
 	// step, so related lineages stay recognisable while a

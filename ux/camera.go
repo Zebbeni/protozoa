@@ -86,13 +86,13 @@ type Camera struct {
 	// interpolates X/Y toward panTo over panDuration starting at
 	// panStart. Triggered by PanTo; manual Pan / SetZoom cancel it
 	// so the user always wins over an in-flight transition.
-	panActive    bool
-	panStart     time.Time
-	panDuration  time.Duration
-	panFromX     float64
-	panFromY     float64
-	panToX       float64
-	panToY       float64
+	panActive   bool
+	panStart    time.Time
+	panDuration time.Duration
+	panFromX    float64
+	panFromY    float64
+	panToX      float64
+	panToY      float64
 }
 
 // NewCamera creates a camera at medium zoom, centered on the world.

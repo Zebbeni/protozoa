@@ -39,12 +39,12 @@ func TestAbilityColorAnchors(t *testing.T) {
 			t.Errorf("%s at 0: got %v, want gray %v", a.Name(), got, want)
 		}
 
-		s[a] = physiology.SpecialistScore(a)
+		s[a] = physiology.SpecialistScore
 		if got, want := AbilityColor(s, a), GrayGreenColor(1); got != want {
 			t.Errorf("%s at specialist score %d: got %v, want green %v", a.Name(), s[a], got, want)
 		}
 
-		s[a] = physiology.PointTotal
+		s[a] = physiology.MaxAbilityScore
 		if got, want := AbilityColor(s, a), GrayGreenColor(1); got != want {
 			t.Errorf("%s above specialist score should clamp to green: got %v", a.Name(), got)
 		}
@@ -83,5 +83,24 @@ func TestGrayGreenIsEasyToTellApart(t *testing.T) {
 	}
 	if spread := prevL - lowL; spread < 0.4 {
 		t.Errorf("ends too close in lightness to tell apart: L* %.3f -> %.3f (spread %.3f)", lowL, prevL, spread)
+	}
+}
+
+// TestPeakFractionScalesToTheRunSoFar: a graph drawn against the whole
+// run's peak is cropped to the height the data has actually reached, so
+// early cycles of a run that grows a hundredfold aren't a flat line.
+func TestPeakFractionScalesToTheRunSoFar(t *testing.T) {
+	if got := PeakFraction(3000, 3000); got != 1 {
+		t.Errorf("at the run's peak the whole height is in use, got %v", got)
+	}
+	small, large := PeakFraction(30, 3000), PeakFraction(1500, 3000)
+	if !(small > 0 && small < large && large < 1) {
+		t.Errorf("fractions should rise with the peak so far: 30 → %v, 1500 → %v", small, large)
+	}
+	if got := PeakFraction(30, 0); got != 1 {
+		t.Errorf("with no recorded peak the whole height is in use, got %v", got)
+	}
+	if got := PeakFraction(5000, 3000); got != 1 {
+		t.Errorf("a peak past the ceiling clamps to the full height, got %v", got)
 	}
 }

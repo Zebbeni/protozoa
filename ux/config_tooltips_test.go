@@ -12,6 +12,9 @@ func TestEveryConfigFieldHasTooltip(t *testing.T) {
 	used := map[string]bool{}
 	for _, section := range cs.sections {
 		for _, field := range section.fields {
+			if field.row == rowCurveGraph {
+				continue // graph blocks explain themselves
+			}
 			if tooltipFor(field) == "" {
 				t.Errorf("%s: %q has no tooltip", section.title, field.label)
 			}

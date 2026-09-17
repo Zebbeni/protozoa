@@ -48,6 +48,21 @@ type configField struct {
 	// rowAbilityScore.
 	row     rowType
 	ability int
+	// graphToggle marks a curve setting row, which carries the button
+	// that shows or hides that curve's effect graphs; curve names the
+	// curve for toggle and graph rows.
+	graphToggle bool
+	curve       physiology.CurveID
+	// curveAbility is the ability a header or block row belongs to: its
+	// block holds every curve that ability drives.
+	curveAbility physiology.Ability
+	// shape is the curve shape a K field belongs to. A curve has one K
+	// field per shape that uses one; the block's slider edits whichever
+	// belongs to the shape in use.
+	shape physiology.ShapeKind
+	// hidden keeps a field in the section — so resets and "restore
+	// defaults" still see it — without giving it a row of its own.
+	hidden bool
 }
 
 // rowType distinguishes the config screen's special rows from ordinary
@@ -58,6 +73,13 @@ const (
 	rowField rowType = iota
 	rowAbilityScore
 	rowAbilityTotal
+	// rowCurveGraph is a curve's graph block, zero-height until its toggle
+	// is expanded.
+	rowCurveGraph
+	// rowCurveHeader is a curve's row: its name, the shape and
+	// coefficient it currently uses, and the toggle for its block of
+	// graphs and controls.
+	rowCurveHeader
 )
 
 // configSection groups fields under a heading. Sections are
@@ -80,16 +102,22 @@ type configSection struct {
 type ConfigScreen struct {
 	globals    *c.Globals
 	initValues c.Globals // snapshot of initial values for stable slider ranges
-	sections   []configSection
+	// defaults is the shipped default configuration (settings/default.json),
+	// used by the per-row reset buttons and RESTORE ALL DEFAULTS.
+	defaults c.Globals
+	sections []configSection
 
 	scrollY      float64
 	selectedRow  int // -1 for none
 	editingValue string
 	accepted     bool
 
-	// Slider drag state
+	// Slider drag state. dragSlider is set when the drag started on a
+	// slider inside a curve's block, which sits somewhere other than the
+	// form's slider column.
 	draggingSlider bool
 	dragField      *configField
+	dragSlider     *sliderRect
 
 	// Embedded mode: when true the screen skips painting its own
 	// background and START button (the popup owns those). The
@@ -100,6 +128,16 @@ type ConfigScreen struct {
 	// default. accepted never goes true in embedded mode; the popup
 	// decides when Start fires.
 	embedded bool
+	// readOnly shows the settings without letting them change: no
+	// sliders, toggles, text entry or reset buttons. Sections and curve
+	// graphs still expand, and values that differ from the defaults are
+	// highlighted with the default beside them.
+	readOnly bool
+	// graphExpanded records which abilities' blocks are showing;
+	// graphCanvas is the reusable offscreen image they
+	// are drawn into before being clipped to the viewport.
+	graphExpanded map[physiology.Ability]bool
+	graphCanvas   *ebiten.Image
 	// hoverKey / hoverSince track which row the mouse is resting on and
 	// since when, so its tooltip only appears after a short pause.
 	hoverKey       string
@@ -116,10 +154,14 @@ func NewConfigScreen(globals *c.Globals) *ConfigScreen {
 	// here would silently change the active config before Start.
 	// Give the form its own copy, padded to one entry per ability.
 	globals.InitialAbilityScores = normalizedInitialScores(globals.InitialAbilityScores)
+	defaults := loadConfigDefaults()
+	defaults.InitialAbilityScores = normalizedInitialScores(defaults.InitialAbilityScores)
 	cs := &ConfigScreen{
-		globals:     globals,
-		initValues:  *globals,
-		selectedRow: -1,
+		globals:       globals,
+		initValues:    *globals,
+		defaults:      defaults,
+		selectedRow:   -1,
+		graphExpanded: map[physiology.Ability]bool{},
 	}
 	cs.buildSections()
 	return cs
@@ -142,6 +184,13 @@ func (cs *ConfigScreen) SetEmbedded(left, top, right, bottom int) {
 	cs.viewportTop = top
 	cs.viewportRight = right
 	cs.viewportBottom = bottom
+}
+
+// SetReadOnly makes the screen a viewer for its settings; see readOnly.
+func (cs *ConfigScreen) SetReadOnly() {
+	cs.readOnly = true
+	cs.selectedRow = -1
+	cs.editingValue = ""
 }
 
 // panelWidth returns the form's content-column width. Standalone
@@ -238,7 +287,7 @@ func (cs *ConfigScreen) Update() bool {
 	// Mouse click / drag
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		cs.handleClick()
-	} else if cs.draggingSlider && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	} else if !cs.readOnly && cs.draggingSlider && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		cs.handleSliderDrag()
 	}
 
@@ -250,6 +299,7 @@ func (cs *ConfigScreen) Update() bool {
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		cs.draggingSlider = false
 		cs.dragField = nil
+		cs.dragSlider = nil
 	}
 
 	// Keyboard input for editing
@@ -270,7 +320,9 @@ func (cs *ConfigScreen) contentHeight() int {
 	for _, section := range cs.sections {
 		h += cfgRowHeight + 4 // header
 		if !section.collapsed {
-			h += len(section.fields) * cfgRowHeight
+			for _, field := range section.fields {
+				h += cs.rowHeight(field)
+			}
 		}
 		h += 6 // gap between sections
 	}
@@ -318,6 +370,15 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 		text.Draw(screen, title, r.FontSourceCodePro12, titleX, panelTop+titleBounds.Dy(), themedForeground())
 	}
 
+	if bx, by, bw, bh := cs.restoreAllRect(); cs.readOnly {
+		if by+bh > clipTop && by < clipBottom {
+			note := "Highlighted values differ from the defaults"
+			text.Draw(screen, note, r.FontSourceCodePro10, panelX, by+bh-5, changedFromDefaultColor)
+		}
+	} else if by+bh > clipTop && by < clipBottom {
+		cs.drawSmallButton(screen, bx, by, bw, bh, "RESTORE ALL DEFAULTS", !cs.allDefaults())
+	}
+
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
 	rowIdx := 0
 
@@ -330,7 +391,11 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 			if !section.collapsed {
 				marker = "▼" // ▼
 			}
-			text.Draw(screen, marker+" "+section.title, r.FontSourceCodePro12, panelX, y+12, color.RGBA{R: 180, G: 180, B: 255, A: 255})
+			titleColor := color.Color(color.RGBA{R: 180, G: 180, B: 255, A: 255})
+			if cs.sectionChanged(section) {
+				titleColor = changedFromDefaultColor
+			}
+			text.Draw(screen, marker+" "+section.title, r.FontSourceCodePro12, panelX, y+12, titleColor)
 		}
 		y += cfgRowHeight + 4
 
@@ -338,8 +403,18 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 			rowIdx += len(section.fields)
 		} else {
 			for _, field := range section.fields {
-				if y+cfgRowHeight > clipTop && y < clipBottom {
+				rowH := cs.rowHeight(field)
+				if field.row == rowCurveGraph {
+					cs.drawGraphRow(screen, panelX, y, field)
+				} else if rowH == 0 {
+					// A row that isn't in play — another shape's K —
+					// takes no space and draws nothing.
+					rowIdx++
+					continue
+				} else if y+rowH > clipTop && y < clipBottom {
 					switch field.row {
+					case rowCurveHeader:
+						cs.drawCurveHeaderRow(screen, panelX, y, field)
 					case rowAbilityScore:
 						cs.drawAbilityScoreRow(screen, panelX, y, rowIdx, field)
 					case rowAbilityTotal:
@@ -347,8 +422,15 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 					default:
 						cs.drawRow(screen, panelX, y, rowIdx, field)
 					}
+					if cs.canReset(field) && !cs.readOnly {
+						bx, by, bw, bh := cs.resetRect(panelX, y)
+						cs.drawSmallButton(screen, bx, by, bw, bh, "reset", true)
+					}
+					if field.graphToggle {
+						cs.drawGraphToggle(screen, panelX, y, field.curveAbility)
+					}
 				}
-				y += cfgRowHeight
+				y += rowH
 				rowIdx++
 			}
 		}
@@ -394,14 +476,27 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	isSelected := rowIdx == cs.selectedRow
 	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
 	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	if cs.canReset(field) {
+		valueColor = changedFromDefaultColor
+	}
 	if isSelected {
 		// highlight row
 		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
 		valueColor = color.RGBA{R: 100, G: 255, B: 100, A: 255}
 	}
 
-	// Label
-	text.Draw(screen, field.label, r.FontSourceCodePro10, px, py+10, labelColor)
+	// Label (shifted right on "@0" curve rows to make room for the graph
+	// toggle drawn over the left edge).
+	labelX := px
+	if field.graphToggle {
+		labelX += graphToggleW + 2
+	}
+	text.Draw(screen, field.label, r.FontSourceCodePro10, labelX, py+10, labelColor)
+
+	if cs.readOnly {
+		cs.drawReadOnlyValue(screen, px+cfgLabelWidth, py, cs.getValueStr(fv, field, false), field)
+		return
+	}
 
 	// Value
 	sliderW := cs.sliderColWidth()
@@ -423,6 +518,29 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	}
 }
 
+// changedFromDefaultColor marks values that differ from the defaults,
+// in the editor as well as the read-only viewer, so a setting that has
+// been changed stands out without opening every section.
+var changedFromDefaultColor = color.RGBA{R: 240, G: 190, B: 90, A: 255}
+
+// drawReadOnlyValue draws a read-only row's value at x, highlighted with
+// the default beside it when it differs from the default.
+func (cs *ConfigScreen) drawReadOnlyValue(screen *ebiten.Image, x, py int, value string, field configField) {
+	if !cs.canReset(field) {
+		text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		return
+	}
+	text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, changedFromDefaultColor)
+	def := ""
+	if field.row == rowAbilityScore {
+		def = strconv.Itoa(cs.defaults.InitialAbilityScores[field.ability])
+	} else {
+		def = cs.getValueStr(reflect.ValueOf(cs.defaults).Field(field.fieldIdx), field, false)
+	}
+	vb := boundString(r.FontSourceCodePro10, value)
+	text.Draw(screen, "(default "+def+")", r.FontSourceCodePro10, x+vb.Dx()+12, py+10, color.RGBA{R: 130, G: 130, B: 130, A: 255})
+}
+
 func (cs *ConfigScreen) getValueStr(fv reflect.Value, field configField, isEditing bool) string {
 	if isEditing && cs.editingValue != "" {
 		return cs.editingValue + "_"
@@ -431,11 +549,7 @@ func (cs *ConfigScreen) getValueStr(fv reflect.Value, field configField, isEditi
 	case reflect.Int:
 		return strconv.Itoa(int(fv.Int()))
 	case reflect.Float64:
-		val := fv.Float()
-		if math.Abs(val) < 0.001 && val != 0 {
-			return fmt.Sprintf("%.6f", val)
-		}
-		return strconv.FormatFloat(val, 'f', -1, 64)
+		return formatConfigValue(fv.Float())
 	case reflect.Bool:
 		if fv.Bool() {
 			return "true"
@@ -443,6 +557,35 @@ func (cs *ConfigScreen) getValueStr(fv reflect.Value, field configField, isEditi
 		return "false"
 	}
 	return "?"
+}
+
+// configValueDecimals is how much of a float the config screen shows,
+// and the precision a user edit is held to. A slider drag lands on
+// values like 0.15346258503401359, whose full round-trip form fills the
+// column with digits nobody chose; no setting in the shipped defaults
+// carries more than five decimals.
+const configValueDecimals = 5
+
+// roundConfigValue holds a value the user set to what the screen shows,
+// so the simulation runs the number in front of them rather than the
+// tail of a drag. Values loaded from a file are left as they are — they
+// weren't set here.
+func roundConfigValue(v float64) float64 {
+	pow := math.Pow(10, configValueDecimals)
+	return math.Round(v*pow) / pow
+}
+
+// formatConfigValue renders a float for the screen: up to
+// configValueDecimals decimals with trailing zeros trimmed. A value from
+// a file too small to show at that precision falls back to a compact
+// exponent rather than reading as a flat 0.
+func formatConfigValue(v float64) string {
+	s := strconv.FormatFloat(v, 'f', configValueDecimals, 64)
+	s = strings.TrimSuffix(strings.TrimRight(s, "0"), ".")
+	if v != 0 && (s == "0" || s == "-0") {
+		return strconv.FormatFloat(v, 'g', 3, 64)
+	}
+	return s
 }
 
 func (cs *ConfigScreen) drawSlider(screen *ebiten.Image, x, y int, fv reflect.Value, field configField) {
@@ -508,6 +651,11 @@ func (cs *ConfigScreen) handleClick() {
 	// Commit any current edit
 	cs.commitEdit()
 
+	if bx, by, bw, bh := cs.restoreAllRect(); !cs.readOnly && mx >= bx && mx < bx+bw && my >= by && my < by+bh {
+		cs.restoreAllDefaults()
+		return
+	}
+
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
 	rowIdx := 0
 
@@ -532,10 +680,33 @@ func (cs *ConfigScreen) handleClick() {
 			continue
 		}
 		for _, field := range section.fields {
-			if my >= y-2 && my < y+cfgRowHeight-2 {
+			rowH := cs.rowHeight(field)
+			if rowH > 0 && my >= y-2 && my < y+rowH-2 {
+				if field.row == rowCurveGraph {
+					cs.handleCurveBlockClick(panelX, y, mx, my, field.curveAbility)
+					return
+				}
+
+				if field.graphToggle && mx >= panelX && mx < panelX+graphToggleW {
+					cs.graphExpanded[field.curveAbility] = !cs.graphExpanded[field.curveAbility]
+					return
+				}
+				if cs.readOnly {
+					return
+				}
+				if bx, by, bw, bh := cs.resetRect(panelX, y); cs.canReset(field) &&
+					mx >= bx && mx < bx+bw && my >= by && my < by+bh {
+					cs.resetField(field)
+					return
+				}
 				sliderX := panelX + cfgLabelWidth
 				switch field.row {
 				case rowAbilityTotal:
+					return
+				case rowCurveHeader:
+					// Anywhere on the row opens or closes the curve's
+					// block; the controls live inside it.
+					cs.graphExpanded[field.curveAbility] = !cs.graphExpanded[field.curveAbility]
 					return
 				case rowAbilityScore:
 					if cs.globals.RandomInitialAbilities {
@@ -571,7 +742,7 @@ func (cs *ConfigScreen) handleClick() {
 				cs.editingValue = ""
 				return
 			}
-			y += cfgRowHeight
+			y += rowH
 			rowIdx++
 		}
 		y += 6
@@ -641,14 +812,23 @@ func (cs *ConfigScreen) commitEdit() {
 	v := reflect.ValueOf(cs.globals).Elem()
 	fv := v.Field(field.fieldIdx)
 
+	b, bounded := fixedBounds[field.jsonTag]
 	switch field.kind {
 	case reflect.Int:
 		if val, err := strconv.Atoi(cs.editingValue); err == nil {
+			if bounded {
+				val = min(int(b[1]), max(int(b[0]), val))
+			}
 			fv.SetInt(int64(val))
 		}
 	case reflect.Float64:
 		if val, err := strconv.ParseFloat(cs.editingValue, 64); err == nil {
-			fv.SetFloat(val)
+			if bounded {
+				val = min(b[1], max(b[0], val))
+			}
+			// Typing "-650" into a damage field means 650 damage, not a
+			// heal: a sign-bound setting keeps the magnitude typed.
+			fv.SetFloat(c.NormalizeSign(roundConfigValue(val), field.jsonTag))
 		}
 	}
 	cs.editingValue = ""
@@ -673,14 +853,21 @@ func (cs *ConfigScreen) handleSliderClick(relX int, field configField) {
 	cs.setValueFromSliderRatio(ratio, field)
 }
 
+// sliderRect is where a drag-in-progress slider sits: its left edge and
+// width, in screen coordinates.
+type sliderRect struct{ x, w int }
+
 func (cs *ConfigScreen) handleSliderDrag() {
 	if cs.dragField == nil {
 		return
 	}
 	mx, _ := ebiten.CursorPosition()
-	sliderX := cs.panelX() + cfgLabelWidth
+	sliderX, sliderW := cs.panelX()+cfgLabelWidth, cs.sliderColWidth()
+	if cs.dragSlider != nil {
+		sliderX, sliderW = cs.dragSlider.x, cs.dragSlider.w
+	}
 	relX := mx - sliderX
-	ratio := float64(relX) / float64(cs.sliderColWidth())
+	ratio := float64(relX) / float64(sliderW)
 	if ratio < 0 {
 		ratio = 0
 	}
@@ -721,7 +908,7 @@ func (cs *ConfigScreen) setValueFromSliderRatio(ratio float64, field configField
 	case reflect.Int:
 		fv.SetInt(int64(math.Round(val)))
 	case reflect.Float64:
-		fv.SetFloat(val)
+		fv.SetFloat(c.NormalizeSign(roundConfigValue(val), field.jsonTag))
 	}
 }
 
@@ -752,17 +939,20 @@ func (cs *ConfigScreen) getSliderRange(field configField) (float64, float64) {
 	// their sliders span exactly that scale rather than a multiple of the
 	// default.
 	switch field.jsonTag {
-	case "min_initial_ph", "max_initial_ph", "min_ideal_ph", "max_ideal_ph":
-		return c.MinPh(), c.MaxPh()
+	case "ideal_ph_range":
+		// A range, not a point on the scale: 0 pins every lineage to the
+		// middle, the full width lets them evolve anywhere.
+		return 0, c.MaxPh() - c.MinPh()
+	}
+	if b, ok := fixedBounds[field.jsonTag]; ok {
+		return b[0], b[1]
+	}
+	// A K row's slider runs over the range its own shape uses.
+	if tag, ok := curveKTags[field.jsonTag]; ok {
+		lo, hi := tag.shape.KRange()
+		return lo, hi
 	}
 	return centeredSliderRange(field.jsonTag, initial)
-}
-
-// nonPositiveSliders lists fields whose slider is capped at zero: values
-// that are always damage, where a positive setting would turn a penalty
-// into healing.
-var nonPositiveSliders = map[string]bool{
-	"health_change_per_unhealthy_ph": true,
 }
 
 // centeredSliderRange puts initial at the centre of its slider.
@@ -772,15 +962,29 @@ var nonPositiveSliders = map[string]bool{
 // cross zero — a cost can be turned into a gain. Everything else is a
 // non-negative quantity, so its slider runs from 0 to twice the default.
 // A zero default has no scale to centre on and gets a unit range instead.
+// fixedBounds are hard limits for settings whose slider range isn't
+// derived from the default. Typed values are clamped to them too.
+var fixedBounds = map[string][2]float64{
+	// A one-node tree is a lone action.
+	"max_decision_tree_size": {1, 32},
+	// Chemosynthesis uses the saturating curve, whose K is a score scale.
+	"chemosynthesis_curve_k": {physiology.MinSaturatingK, physiology.MaxSaturatingK},
+}
+
 func centeredSliderRange(jsonTag string, initial float64) (float64, float64) {
-	// Some health changes only make sense as damage. Their sliders stop at
-	// zero instead of crossing into a gain, and still centre on a
-	// negative default.
-	if nonPositiveSliders[jsonTag] {
-		if initial >= 0 {
-			return -1, 0
+	// A setting that only makes sense with one sign gets a slider that
+	// can't cross zero: a cost that could be dragged into a gain, or
+	// damage that could be dragged into healing, offers a setting nobody
+	// is reaching for and a sim nobody can explain.
+	if sign := c.SettingSign(jsonTag); sign != 0 {
+		span := 2 * math.Abs(initial)
+		if span == 0 {
+			span = 1
 		}
-		return 2 * initial, 0
+		if sign < 0 {
+			return -span, 0
+		}
+		return 0, span
 	}
 	if strings.Contains(jsonTag, "health_change") {
 		if initial == 0 {
@@ -817,7 +1021,10 @@ func (cs *ConfigScreen) buildSections() {
 	}
 
 	field := func(label, jsonTag string) configField {
-		idx := byTag[jsonTag]
+		idx, ok := byTag[jsonTag]
+		if !ok {
+			panic("config screen: no Globals field with json tag " + jsonTag)
+		}
 		return configField{
 			label:    label,
 			jsonTag:  jsonTag,
@@ -850,16 +1057,8 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Food Value", "max_food_value"),
 		}},
 		{title: "— PH —", fields: []configField{
-			field("Min Initial pH", "min_initial_ph"),
-			field("Max Initial pH", "max_initial_ph"),
-			field("Min Ideal pH", "min_ideal_ph"),
-			field("Max Ideal pH", "max_ideal_ph"),
-			field("pH Tolerance", "ph_tolerance"),
-			field("Chemosynthesis Tolerance", "chemosynthesis_tolerance"),
-			field("Chemo pH Falloff", "chemo_ph_falloff"),
-			field("Chemo Curve Exponent", "chemo_curve_exponent"),
-			field("Chemo pH Effect / Size", "chemosynthesis_ph_effect_per_size"),
-			field("Eating pH Effect / Food", "eating_ph_effect_per_food"),
+			field("Ideal pH Range", "ideal_ph_range"),
+			field("Ideal pH Mutation Step", "ideal_ph_mutation_step"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
 			field("pH Increment to Display", "ph_increment_to_display"),
 			// Currents: how hard the flow field skews pH diffusion,
@@ -869,7 +1068,6 @@ func (cs *ConfigScreen) buildSections() {
 			field("Min Organisms", "min_organisms"),
 			field("Max Organisms", "max_organisms"),
 			field("Growth Factor", "growth_factor"),
-			field("Eating Growth Factor", "eating_growth_factor"),
 			field("Maximum Max Size", "maximum_max_size"),
 			field("Minimum Max Size", "minimum_max_size"),
 			field("Max Initial Size", "maximum_initial_size"),
@@ -886,69 +1084,48 @@ func (cs *ConfigScreen) buildSections() {
 			field("Max Tree Size", "max_decision_tree_size"),
 		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
-			// Per-action costs/gains paid by the actor. All values
-			// are signed absolute deltas (typically size-scaled at
-			// the apply site); convention is negative = cost,
-			// positive = gain. One row per action.
-			field("Chemosynthesis", "health_change_from_chemosynthesis"),
-			field("Failed Chemosynthesis", "health_change_from_failed_chemosynthesis"),
+			// Costs and gains that belong to no single ability. The
+			// per-ability ones live with their curve, in ABILITIES.
 			field("Idle", "health_change_from_idle"),
-			field("Turning", "health_change_from_turning"),
-			field("Moving", "health_change_from_moving"),
-			field("Eating Attempt", "health_change_from_eating_attempt"),
 			field("Spawning", "health_change_from_spawning"),
-			field("Attacking", "health_change_from_attacking"),
-			field("Digging", "health_change_from_digging"),
-			// Damage delivered to targets (signed, always negative).
-			field("Inflicted by Attack", "health_change_inflicted_by_attack"),
-			field("Inflicted by Shoving", "health_change_inflicted_by_shoving"),
-			field("Attack Health Gain", "attack_health_gain"),
-			field("Chemo Crowding Penalty", "chemo_crowding_penalty"),
+			field("Blocked Move", "health_change_from_blocked_move"),
 			field("Corpse Food Multiplier", "corpse_food_multiplier"),
-			// Environmental health changes.
-			field("Per Unhealthy pH Cycle", "health_change_per_unhealthy_ph"),
 		}},
 		{title: "— TERRAIN —", fields: []configField{
 			// Per-size-class wall strength delta for ActDig, before
 			// the digger's Digging ability scales it.
-			field("Wall Strength Delta (S)", "wall_strength_delta_small"),
-			field("Wall Strength Delta (M)", "wall_strength_delta_medium"),
-			field("Wall Strength Delta (L)", "wall_strength_delta_large"),
 			// Ability score at which a blocked move (Digging) or an
 			// attack (Attack) removes one point of wall strength per
 			// hit, per size class.
-			field("Wall Break Score (S)", "wall_break_score_small"),
-			field("Wall Break Score (M)", "wall_break_score_medium"),
-			field("Wall Break Score (L)", "wall_break_score_large"),
 		}},
 		{title: "— INITIAL ABILITIES —", fields: initialAbilityFields(field("Random Initial Abilities", "random_initial_abilities"))},
-		{title: "— ABILITY SCORES —", fields: []configField{
-			// Where each ability's multiplier curve crosses 1.0; starting
-			// scores are set under INITIAL ABILITIES.
-			field("Curve Pivot Minor Score", "genesis_minor_ability_score"),
+		{title: "— ABILITIES —", fields: withCurveGraphs([]configField{
 			field("Chance to Mutate", "chance_to_mutate_abilities"),
-			field("Max Point Shift", "max_ability_shift"),
-			field("Specialization Span", "ability_specialization_span"),
-			field("Thorns Threshold", "thorns_threshold"),
-			field("Thorns Damage Per Point", "thorns_damage_per_point"),
-			field("Defense pH Protection", "defense_ph_protection"),
-			// Each pair is (multiplier at score 0, multiplier at 100);
-			// the curve passes through 1.0 at the genesis allocation.
-			// Movement and Defense are COST multipliers, so their
-			// endpoints run the other way round.
-			field("Chemo @0", "chemo_mult_at_zero"),
-			field("Chemo @100", "chemo_mult_at_max"),
-			field("Eating @0", "eating_mult_at_zero"),
-			field("Eating @100", "eating_mult_at_max"),
-			field("Movement cost @0", "movement_mult_at_zero"),
-			field("Movement cost @100", "movement_mult_at_max"),
-			field("Digging @0", "digging_mult_at_zero"),
-			field("Digging @100", "digging_mult_at_max"),
-			field("Attack @0", "attack_mult_at_zero"),
-			field("Attack @100", "attack_mult_at_max"),
-			field("Dmg taken @0", "defense_mult_at_zero"),
-			field("Dmg taken @100", "defense_mult_at_max"),
-		}},
+			// One row per curve, opening onto its graphs, its shape and
+			// every knob that curve scales — so an ability's settings are
+			// read and tuned in one place rather than split between a
+			// curve section and a health-changes section.
+			field("Chemosynthesis K", "chemosynthesis_cosine_k"),
+			field("Chemosynthesis K", "chemosynthesis_saturating_k"),
+			field("Eating K", "eating_cosine_k"),
+			field("Eating K", "eating_saturating_k"),
+			field("Movement cost K", "movement_cost_cosine_k"),
+			field("Movement cost K", "movement_cost_saturating_k"),
+			field("Digging cost K", "digging_cost_cosine_k"),
+			field("Digging cost K", "digging_cost_saturating_k"),
+			field("Digging removal K", "digging_strength_cosine_k"),
+			field("Digging removal K", "digging_strength_saturating_k"),
+			field("Digging creation K", "digging_creation_cosine_k"),
+			field("Digging creation K", "digging_creation_saturating_k"),
+			field("Attack K", "attack_cosine_k"),
+			field("Attack K", "attack_saturating_k"),
+			field("Damage taken K", "damage_taken_cosine_k"),
+			field("Damage taken K", "damage_taken_saturating_k"),
+			field("Thorns K", "thorns_cosine_k"),
+			field("Thorns K", "thorns_saturating_k"),
+			field("pH Tolerance K", "ph_tolerance_cosine_k"),
+			field("pH Tolerance K", "ph_tolerance_saturating_k"),
+		})},
 		{title: "— APPEARANCE —", fields: []configField{
 			// Score at which each sprite overlay starts being drawn.
 			field("Shell Body", "shell_body_threshold"),
@@ -985,14 +1162,14 @@ func initialAbilityFields(random configField) []configField {
 }
 
 // normalizedInitialScores returns a fresh copy of scores with exactly one
-// entry per ability, falling back to the genesis distribution when the
+// entry per ability, falling back to the balanced distribution when the
 // setting is missing or the wrong length.
 func normalizedInitialScores(scores []int) []int {
 	out := make([]int, len(physiology.AllAbilities))
 	if len(scores) != len(out) {
-		genesis := physiology.GenesisScores()
+		balanced := physiology.BalancedScores()
 		for _, a := range physiology.AllAbilities {
-			out[a] = genesis[a]
+			out[a] = balanced[a]
 		}
 		return out
 	}
@@ -1014,14 +1191,15 @@ func (cs *ConfigScreen) adjustAbilityScore(ability, delta int) {
 	cs.setAbilityScore(ability, cs.globals.InitialAbilityScores[ability]+delta)
 }
 
-// setAbilityScore sets one initial ability score, clamped to [0, 100].
-// The total isn't forced to 100 here — the user rebalances by hand, and
-// StartBlockedReason holds the start back until it adds up.
+// setAbilityScore sets one initial ability score, clamped to the
+// per-ability cap. The total isn't forced to the budget here — the user
+// rebalances by hand, and StartBlockedReason holds the start back until
+// it adds up.
 func (cs *ConfigScreen) setAbilityScore(ability, value int) {
 	if ability < 0 || ability >= len(cs.globals.InitialAbilityScores) {
 		return
 	}
-	cs.globals.InitialAbilityScores[ability] = min(physiology.PointTotal, max(0, value))
+	cs.globals.InitialAbilityScores[ability] = min(physiology.MaxAbilityScore, max(0, value))
 }
 
 // StartBlockedReason explains why the simulation can't start with the
@@ -1049,6 +1227,9 @@ func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx
 		valueColor = labelColor
 		btnColor = color.RGBA{R: 45, G: 45, B: 50, A: 255}
 	}
+	if cs.canReset(field) && !disabled {
+		valueColor = changedFromDefaultColor
+	}
 	isSelected := rowIdx == cs.selectedRow && !disabled
 	if isSelected {
 		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
@@ -1058,6 +1239,10 @@ func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx
 	text.Draw(screen, "  "+field.label, r.FontSourceCodePro10, px, py+10, labelColor)
 
 	sliderX := px + cfgLabelWidth
+	if cs.readOnly {
+		cs.drawReadOnlyValue(screen, sliderX, py, strconv.Itoa(cs.globals.InitialAbilityScores[field.ability]), field)
+		return
+	}
 	sliderW := cs.sliderColWidth()
 	btnH := float64(cfgRowHeight - 4)
 	for _, b := range []struct {
@@ -1075,6 +1260,190 @@ func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx
 	}
 	vb := boundString(r.FontSourceCodePro10, value)
 	text.Draw(screen, value, r.FontSourceCodePro10, sliderX+(sliderW-vb.Dx())/2, py+10, valueColor)
+}
+
+// drawCurveHeaderRow draws a curve's row: its name on the left, and the
+// shape and coefficient it currently uses on the right, so a collapsed
+// curve still says what it does.
+func (cs *ConfigScreen) drawCurveHeaderRow(screen *ebiten.Image, px, py int, field configField) {
+	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
+	valueColor := color.Color(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	if cs.curveShapeChanged(field.curve) {
+		valueColor = changedFromDefaultColor
+	}
+	text.Draw(screen, field.label, r.FontSourceCodePro10, px+graphToggleW+2, py+10, labelColor)
+
+	summary := string(physiology.ShapeFor(cs.globals, field.curve))
+	if physiology.ShapeFor(cs.globals, field.curve).UsesK() {
+		summary += "  K " + formatConfigValue(curveKValue(cs.globals, field.curve))
+	}
+	text.Draw(screen, summary, r.FontSourceCodePro10, px+cfgLabelWidth, py+10, valueColor)
+}
+
+// handleCurveBlockClick routes a click inside a curve's block. Each graph
+// has its own controls column beside it, so the click is matched against
+// the row it landed in: a shape button picks that shape, the slider
+// starts a drag, and the value beside it opens for typing.
+func (cs *ConfigScreen) handleCurveBlockClick(px, py, mx, my int, a physiology.Ability) {
+	if cs.readOnly {
+		return
+	}
+	// An ability with two curves stacks a section per curve; the click
+	// belongs to whichever it landed in.
+	curve, sectionTop, ok := curveSectionAt(a, py, my)
+	if !ok {
+		return
+	}
+	ctrlX, _ := curveCtrlX(px, cs.panelWidth())
+	top := sectionTop + curveHeadingH
+
+	if kind, ok := curveShapeButtonAt(ctrlX, top, mx, my); ok {
+		cs.setCurveShape(curve, kind)
+		return
+	}
+
+	fields := cs.curveSliderFields(curve)
+	i, onLabel, ok := curveSliderAt(ctrlX, top, len(fields), mx, my)
+	if !ok {
+		return
+	}
+	field := fields[i]
+	if onLabel {
+		// Click a slider's line to type an exact value, the same editing
+		// path the form's own rows use.
+		cs.selectedRow = cs.rowIndexOfTag(field.jsonTag)
+		cs.editingValue = ""
+		return
+	}
+	sx, _, sw, _ := curveSliderRect(ctrlX, top, i)
+	cs.draggingSlider = true
+	cs.dragField = &field
+	cs.dragSlider = &sliderRect{x: sx, w: sw}
+	cs.setValueFromSliderRatio(float64(mx-sx)/float64(sw), field)
+}
+
+// curveSliderFields are the config fields a curve's controls column
+// edits: the coefficient of the shape in use (when it reads one), then
+// the settings that curve scales.
+func (cs *ConfigScreen) curveSliderFields(curve physiology.CurveID) []configField {
+	var out []configField
+	if physiology.ShapeFor(cs.globals, curve).UsesK() {
+		if f, ok := cs.curveKField(curve); ok {
+			out = append(out, f)
+		}
+	}
+	for _, tag := range curveSettingTags[curve] {
+		if f, ok := cs.fieldByTag(tag); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// curveSliders is what a curve's controls column draws: one entry per
+// field in curveSliderFields.
+func (cs *ConfigScreen) curveSliders(curve physiology.CurveID) []curveSlider {
+	fields := cs.curveSliderFields(curve)
+	out := make([]curveSlider, 0, len(fields))
+	for _, f := range fields {
+		fv := reflect.ValueOf(cs.globals).Elem().Field(f.fieldIdx)
+		label := f.label
+		if f.shape != "" {
+			label = "K"
+		}
+		editing, selected := "", cs.selectedRow >= 0 && cs.selectedRow == cs.rowIndexOfTag(f.jsonTag)
+		if selected {
+			editing = cs.editingValue
+		}
+		out = append(out, curveSlider{
+			label:    label,
+			ratio:    cs.getSliderRatio(fv, f),
+			value:    cs.getValueStr(fv, f, false),
+			editing:  editing,
+			selected: selected,
+		})
+	}
+	return out
+}
+
+// fieldByTag finds a config field by its json tag.
+func (cs *ConfigScreen) fieldByTag(tag string) (configField, bool) {
+	for _, section := range cs.sections {
+		for _, f := range section.fields {
+			if f.jsonTag == tag {
+				return f, true
+			}
+		}
+	}
+	return configField{}, false
+}
+
+// rowIndexOfTag is the row index of the field with this json tag, which
+// is what the keyboard editing path is keyed on.
+func (cs *ConfigScreen) rowIndexOfTag(tag string) int {
+	idx := 0
+	for _, section := range cs.sections {
+		for _, f := range section.fields {
+			if f.jsonTag == tag {
+				return idx
+			}
+			idx++
+		}
+	}
+	return -1
+}
+
+// curveKField is the config field behind the coefficient the curve's
+// current shape uses.
+func (cs *ConfigScreen) curveKField(curve physiology.CurveID) (configField, bool) {
+	tag := curveKTag(cs.globals, curve)
+	for _, section := range cs.sections {
+		for _, f := range section.fields {
+			if f.jsonTag == tag {
+				return f, true
+			}
+		}
+	}
+	return configField{}, false
+}
+
+// curveKRatio is where the curve's coefficient sits in its slider range,
+// for drawing the block's slider.
+func (cs *ConfigScreen) curveKRatio(curve physiology.CurveID) float64 {
+	field, ok := cs.curveKField(curve)
+	if !ok {
+		return 0
+	}
+	fv := reflect.ValueOf(cs.globals).Elem().Field(field.fieldIdx)
+	return cs.getSliderRatio(fv, field)
+}
+
+// cycleCurveShape steps a curve's shape through physiology.AllShapeKinds.
+func (cs *ConfigScreen) cycleCurveShape(curve physiology.CurveID, step int) {
+	kinds := physiology.AllShapeKinds
+	current := physiology.ShapeFor(cs.globals, curve)
+	idx := 0
+	for i, k := range kinds {
+		if k == current {
+			idx = i
+		}
+	}
+	cs.setCurveShape(curve, kinds[((idx+step)%len(kinds)+len(kinds))%len(kinds)])
+}
+
+// setCurveShape gives a curve a shape. Each shape keeps its own K, so
+// nothing has to be converted or clamped: switching away and back leaves
+// the shape tuned exactly as it was.
+func (cs *ConfigScreen) setCurveShape(curve physiology.CurveID, kind physiology.ShapeKind) {
+	setCurveShape(cs.globals, curve, kind)
+	cs.selectedRow = -1
+	cs.editingValue = ""
+}
+
+// curveShapeChanged reports whether a curve's shape differs from the
+// shipped default.
+func (cs *ConfigScreen) curveShapeChanged(curve physiology.CurveID) bool {
+	return physiology.ShapeFor(cs.globals, curve) != physiology.ShapeFor(&cs.defaults, curve)
 }
 
 // drawAbilityTotalRow shows the running total of the initial ability
@@ -1113,10 +1482,11 @@ func (cs *ConfigScreen) rowAt(mx, my int) (configField, bool) {
 		y += cfgRowHeight + 4
 		if !section.collapsed {
 			for _, field := range section.fields {
-				if my >= y-2 && my < y+cfgRowHeight-2 {
+				rowH := cs.rowHeight(field)
+				if rowH > 0 && my >= y-2 && my < y+rowH-2 {
 					return field, true
 				}
-				y += cfgRowHeight
+				y += rowH
 			}
 		}
 		y += 6
@@ -1210,4 +1580,118 @@ func wrapText(s string, maxWidth int, width func(string) int) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// loadConfigDefaults returns the shipped default configuration. A
+// variable so tests, which can't reach the embedded asset bundle, can
+// supply defaults from disk.
+var loadConfigDefaults = c.GetDefaultGlobals
+
+// resetBtnW is the width of a row's reset button.
+const resetBtnW = 34
+
+// resetRect is the reset button's rect for the row at y: right-aligned in
+// the panel, past the value column.
+func (cs *ConfigScreen) resetRect(panelX, y int) (x, top, w, h int) {
+	return panelX + cs.panelWidth() - resetBtnW, y, resetBtnW, cfgRowHeight - 4
+}
+
+// restoreAllRect is the RESTORE ALL DEFAULTS button's rect: right-aligned
+// in the header band above the first section, scrolling with the form.
+func (cs *ConfigScreen) restoreAllRect() (x, y, w, h int) {
+	const bw, bh = 150, 18
+	return cs.panelX() + cs.panelWidth() - bw, cs.panelTop() + (cfgHeaderHeight-bh)/2 - int(cs.scrollY), bw, bh
+}
+
+// canReset reports whether a row has a value that differs from its
+// default, which is when its reset button shows.
+func (cs *ConfigScreen) canReset(field configField) bool {
+	switch field.row {
+	case rowAbilityTotal, rowCurveGraph:
+		return false
+	case rowAbilityScore:
+		return cs.globals.InitialAbilityScores[field.ability] != cs.defaults.InitialAbilityScores[field.ability]
+	}
+	current := reflect.ValueOf(cs.globals).Elem().Field(field.fieldIdx)
+	def := reflect.ValueOf(cs.defaults).Field(field.fieldIdx)
+	return !reflect.DeepEqual(current.Interface(), def.Interface())
+}
+
+// resetField sets one row back to its default value.
+func (cs *ConfigScreen) resetField(field configField) {
+	cs.selectedRow = -1
+	cs.editingValue = ""
+	switch field.row {
+	case rowAbilityTotal, rowCurveGraph:
+		return
+	case rowAbilityScore:
+		cs.globals.InitialAbilityScores[field.ability] = cs.defaults.InitialAbilityScores[field.ability]
+		return
+	}
+	def := reflect.ValueOf(cs.defaults).Field(field.fieldIdx)
+	reflect.ValueOf(cs.globals).Elem().Field(field.fieldIdx).Set(def)
+}
+
+// sectionChanged reports whether any setting in section differs from its
+// default, so a collapsed section can still show it holds changes.
+func (cs *ConfigScreen) sectionChanged(section configSection) bool {
+	for _, field := range section.fields {
+		if cs.canReset(field) {
+			return true
+		}
+	}
+	return false
+}
+
+// allDefaults reports whether every setting already matches its default.
+func (cs *ConfigScreen) allDefaults() bool {
+	for _, section := range cs.sections {
+		if cs.sectionChanged(section) {
+			return false
+		}
+	}
+	return true
+}
+
+// restoreAllDefaults sets every setting on the screen back to the shipped
+// defaults. The theme and pH colour scheme aren't on this screen, so they
+// keep the user's choice rather than silently switching. The ability
+// scores are copied so later edits can't change the defaults.
+func (cs *ConfigScreen) restoreAllDefaults() {
+	theme, phScheme := cs.globals.Theme, cs.globals.PhColorScheme
+	*cs.globals = cs.defaults
+	cs.globals.Theme, cs.globals.PhColorScheme = theme, phScheme
+	cs.globals.InitialAbilityScores = normalizedInitialScores(cs.defaults.InitialAbilityScores)
+	cs.selectedRow = -1
+	cs.editingValue = ""
+}
+
+// drawSmallButton draws a compact labelled button. Inactive buttons are
+// greyed out (RESTORE ALL DEFAULTS when nothing has changed).
+func (cs *ConfigScreen) drawSmallButton(screen *ebiten.Image, x, y, w, h int, label string, active bool) {
+	bg := color.RGBA{R: 70, G: 70, B: 95, A: 255}
+	fg := color.RGBA{R: 225, G: 225, B: 235, A: 255}
+	if !active {
+		bg = color.RGBA{R: 45, G: 45, B: 50, A: 255}
+		fg = color.RGBA{R: 110, G: 110, B: 110, A: 255}
+	}
+	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bg)
+	lb := boundString(r.FontSourceCodePro8, label)
+	text.Draw(screen, label, r.FontSourceCodePro8, x+(w-lb.Dx())/2, y+(h+lb.Dy())/2, fg)
+}
+
+// rowHeight is a row's height in pixels: an ability's graph block when its
+// graphs are expanded, nothing when collapsed, and a standard row
+// otherwise.
+func (cs *ConfigScreen) rowHeight(field configField) int {
+	if field.hidden {
+		return 0
+	}
+	if field.row == rowCurveGraph {
+		if !cs.graphExpanded[field.curveAbility] {
+			return 0
+		}
+		return abilityBlockHeight(field.curveAbility)
+	}
+	return cfgRowHeight
 }

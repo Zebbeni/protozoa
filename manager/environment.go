@@ -16,6 +16,10 @@ type EnvironmentManager struct {
 	previousPhMap [][]float64
 
 	averagePh float64
+	// minPh / maxPh are the extremes across the grid, tracked in the same
+	// pass that averages it: an average alone hides a world that is half
+	// acid and half base.
+	minPh, maxPh float64
 
 	mutex sync.Mutex
 }
@@ -42,9 +46,8 @@ func (m *EnvironmentManager) initializePhMap() {
 			// at sim start (they only appear when an organism
 			// performs ActDig and places side walls); the pH map is
 			// uniform until that happens.
-			val := (c.MaxInitialPh() + c.MinInitialPh()) / 2.0
-			m.previousPhMap[x][y] = val
-			m.currentPhMap[x][y] = val
+			m.previousPhMap[x][y] = c.InitialPh()
+			m.currentPhMap[x][y] = c.InitialPh()
 		}
 	}
 }
@@ -65,6 +68,11 @@ func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
 
 func (m *EnvironmentManager) GetAveragePh() float64 {
 	return m.averagePh
+}
+
+// GetPhRange returns the lowest and highest pH anywhere on the grid.
+func (m *EnvironmentManager) GetPhRange() (float64, float64) {
+	return m.minPh, m.maxPh
 }
 
 // AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the
@@ -171,15 +179,18 @@ func (m *EnvironmentManager) diffusePhLevels() {
 		return total / float64(neighbours)
 	}
 
+	// Water stats skip wall cells: a wall holds whatever pH it was built
+	// in for as long as it stands, so counting them would report the
+	// world's history rather than the water its organisms live in.
 	totalPh := 0.0
-	pointCount := float64(gridW * gridH)
+	pointCount := 0.0
+	minPh, maxPh := math.Inf(1), math.Inf(-1)
 	// set each value in the current phMap to its value in the previous phMap, plus
 	// the average difference between itself and its N,S,E,W neighbors (times the
 	// diffusion factor provided by the config)
 	for x := 0; x < gridW; x++ {
 		for y := 0; y < gridH; y++ {
 			prevVal := m.previousPhMap[x][y]
-			totalPh += prevVal
 
 			// Wall cells freeze their pH at the value they had when
 			// the wall appeared — propagate the prevMap value
@@ -190,11 +201,21 @@ func (m *EnvironmentManager) diffusePhLevels() {
 				continue
 			}
 
+			totalPh += prevVal
+			pointCount++
+			minPh, maxPh = math.Min(minPh, prevVal), math.Max(maxPh, prevVal)
+
 			avgAdjacentPh := avgAdjPh(x, y)
 			change := (avgAdjacentPh - prevVal) * diffFactor
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
 		}
 	}
 
+	if pointCount == 0 {
+		// Every cell is a wall: no water to report, so leave the last
+		// figures standing rather than dividing by zero.
+		return
+	}
 	m.averagePh = totalPh / pointCount
+	m.minPh, m.maxPh = minPh, maxPh
 }

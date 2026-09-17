@@ -193,18 +193,18 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 	traits := o.Traits()
 	return checkpoint.OrganismRecord{
-		ID:                         uint32(o.ID),
-		Age:                        uint32(o.Age),
-		Health:                     o.Health,
-		Size:                       o.Size,
-		Children:                   uint16(o.Children),
-		TraveledDist:               uint32(o.TraveledDist),
-		CyclesSinceLastSpawn:       uint16(o.CyclesSinceLastSpawn),
-		LocationX:                  uint16(o.Location.X),
-		LocationY:                  uint16(o.Location.Y),
-		DirectionX:                 int8(o.Direction.X),
-		DirectionY:                 int8(o.Direction.Y),
-		OriginalAncestorID:         uint32(o.OriginalAncestorID),
+		ID:                     uint32(o.ID),
+		Age:                    uint32(o.Age),
+		Health:                 o.Health,
+		Size:                   o.Size,
+		Children:               uint16(o.Children),
+		TraveledDist:           uint32(o.TraveledDist),
+		CyclesSinceLastSpawn:   uint16(o.CyclesSinceLastSpawn),
+		LocationX:              uint16(o.Location.X),
+		LocationY:              uint16(o.Location.Y),
+		DirectionX:             int8(o.Direction.X),
+		DirectionY:             int8(o.Direction.Y),
+		OriginalAncestorID:     uint32(o.OriginalAncestorID),
 		ColorR:                 float32(traits.OrganismColor.R),
 		ColorG:                 float32(traits.OrganismColor.G),
 		ColorB:                 float32(traits.OrganismColor.B),
@@ -245,7 +245,7 @@ func init() {
 // or pre-abilities file. Restoring it verbatim would put a lineage on
 // the grid holding a different ability budget from everyone else, which
 // reads as an inexplicably dominant strain rather than a bad load — so
-// the genesis distribution comes back instead, and the caller decides
+// the balanced distribution comes back instead, and the caller decides
 // whether that's worth reporting. Shared by organism and descendant-node
 // restore so both treat stale data the same way.
 func AbilitiesFromRecord(rec checkpoint.AbilityScores) (physiology.Scores, bool) {
@@ -254,13 +254,13 @@ func AbilitiesFromRecord(rec checkpoint.AbilityScores) (physiology.Scores, bool)
 		out[a] = int(rec[a])
 	}
 	if out.Validate() != nil {
-		return physiology.GenesisScores(), false
+		return physiology.BalancedScores(), false
 	}
 	return out, true
 }
 
 // captureAbilities narrows the live scores to the snapshot's byte
-// array. Scores are bounded by physiology.PointTotal (100), so the
+// array. Scores are bounded by physiology.MaxAbilityScore (100), so the
 // conversion is always lossless.
 func captureAbilities(s physiology.Scores) checkpoint.AbilityScores {
 	var out checkpoint.AbilityScores
@@ -269,4 +269,3 @@ func captureAbilities(s physiology.Scores) checkpoint.AbilityScores {
 	}
 	return out
 }
-

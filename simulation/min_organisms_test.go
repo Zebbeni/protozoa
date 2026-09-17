@@ -67,9 +67,11 @@ func runUntilDone(t *testing.T, seed, maxCycles int) (sim *Simulation, peak int)
 // the minimum and then crashes below it within about a thousand cycles.
 // A small world keeps populations small, so the run is quick and crashes
 // are common; at the default grid size worlds have become stable enough
-// that no seed searched falls below the minimum in 8000 cycles.
+// that no seed searched falls below the minimum in 8000 cycles. Balance
+// changes can make a chosen seed survive — the test says so and a fresh
+// one is easy to find, since most small-grid seeds still tail off.
 const (
-	tailOffSeed  = 4
+	tailOffSeed  = 3
 	tailOffGridW = 24
 	tailOffGridH = 20
 )

@@ -114,6 +114,21 @@ func (t *Tree) ConditionNodes() []Condition {
 	return out
 }
 
+// ActionNodes returns every action the tree can take, in node order and
+// with duplicates kept — the mirror of ConditionNodes. What a tree can
+// *do* is as much a part of its behaviour as what it senses, and reading
+// it needs the same access to node internals.
+func (t *Tree) ActionNodes() []Action {
+	nodes := t.getNodes()
+	out := make([]Action, 0, len(nodes))
+	for _, n := range nodes {
+		if a, ok := n.NodeType.(Action); ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func (t *Tree) Size() int {
 	return t.size
 }

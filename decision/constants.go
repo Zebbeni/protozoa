@@ -78,6 +78,16 @@ var (
 	// organism's own health and cycle thresholds, not chosen from the
 	// tree. Letting mutation pick it would hand every lineage
 	// voluntary reproduction, which is a different simulation.
+	//
+	// EXPERIMENT (temporary): IsAgeMultipleOfTwo / IsAgeMultipleOfTen are
+	// held out of the condition pool, to see whether lineages evolve
+	// better behaviour without them. They read nothing about the world,
+	// so a tree built on them alternates on a clock rather than
+	// responding to anything — cheap for mutation to stumble into and
+	// hard to improve on afterwards. They stay in Conditions above, so
+	// trees already recorded with them still load and still run; only
+	// new mutations can't pick them. To end the experiment, put them
+	// back in MutableConditions.
 	MutableActions = []Action{
 		ActAttack, ActEat, ActChemosynthesis,
 		ActMove, ActTurnLeft, ActTurnRight,
@@ -90,7 +100,7 @@ var (
 		IsOrganismAhead, IsBiggerOrganismAhead,
 		IsOrganismLeft, IsOrganismRight,
 		IsHealthAboveFiftyPercent, IsHealthyPhHere, IsHealthierPhAhead,
-		IsAgeMultipleOfTwo, IsAgeMultipleOfTen,
+		// IsAgeMultipleOfTwo, IsAgeMultipleOfTen, — held out, see above
 		IsWallAhead, IsWallLeft, IsWallRight,
 		CanChemosynthesizeHere,
 		IsRelativeAhead,

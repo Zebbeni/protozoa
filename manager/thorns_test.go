@@ -6,25 +6,31 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// TestThornsDependOnlyOnDefender pins the formula: per point of Defense
-// over the threshold, per unit of defender size, and nothing below it.
+// TestThornsDependOnlyOnDefender pins the formula: the configured damage
+// at 100 Defense, along the Thorns curve, per unit of defender size, and
+// nothing at all without Defense.
 func TestThornsDependOnlyOnDefender(t *testing.T) {
 	loadDefaultGlobals(t)
-	threshold := config.ThornsThreshold()
-	per := config.ThornsDamagePerPoint()
 
-	if d := thornsDamage(threshold, 50); d != 0 {
-		t.Errorf("at the threshold thorns should deal nothing, got %.3f", d)
+	if d := thornsDamage(0, 50); d != 0 {
+		t.Errorf("with no Defense thorns should deal nothing, got %.3f", d)
 	}
-	want := -per * 40 * 50
-	if d := thornsDamage(threshold+40, 50); math.Abs(d-want) > 1e-9 {
-		t.Errorf("40 over the threshold, size 50: %.3f, want %.3f", d, want)
+	// The setting is a positive damage magnitude; what lands on the
+	// attacker is the health change, so the expected value is negated.
+	full := -config.ThornsDamageAtFullDefense() * 50
+	if d := thornsDamage(physiology.MaxAbilityScore, 50); math.Abs(d-full) > 1e-9 {
+		t.Errorf("full Defense, size 50: %.3f, want the full %.3f", d, full)
 	}
-	if bigger := thornsDamage(threshold+40, 100); math.Abs(bigger-2*want) > 1e-9 {
-		t.Errorf("double the size should double thorns: %.3f, want %.3f", bigger, 2*want)
+	mid := thornsDamage(physiology.MaxAbilityScore/2, 50)
+	if !(mid < 0 && mid > full) {
+		t.Errorf("half Defense should deal something short of the full amount: %.3f vs %.3f", mid, full)
+	}
+	if bigger := thornsDamage(physiology.MaxAbilityScore, 100); math.Abs(bigger-2*full) > 1e-9 {
+		t.Errorf("double the size should double thorns: %.3f, want %.3f", bigger, 2*full)
 	}
 }
 

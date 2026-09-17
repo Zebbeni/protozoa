@@ -140,3 +140,36 @@ func TestProgressHidesWhenIdle(t *testing.T) {
 		t.Error("progress should not show with no render in flight")
 	}
 }
+
+// TestPopulationColorChangeKeepsOtherGraphs: recolouring the population
+// graph doesn't touch the pH, food or wall graphs, so their images are
+// carried over instead of being re-rendered.
+func TestPopulationColorChangeKeepsOtherGraphs(t *testing.T) {
+	g, _, _, _ := newTestGraph()
+	g.SetPopulationColor(PopulationColor{ByAbility: true})
+	if !g.popOnlyRender {
+		t.Error("a colour change should repaint only the population graphs")
+	}
+
+	g.Invalidate()
+	if g.popOnlyRender {
+		t.Error("Invalidate changes what every graph looks like, so all of them must repaint")
+	}
+}
+
+// TestCarriedImagesSurviveARender: modes left out of a repaint keep the
+// images handed to renderInBackground.
+func TestCarriedImagesSurviveARender(t *testing.T) {
+	g, _, pop, _ := newTestGraph()
+	g.rendering = false
+	carried := map[Mode]*ebiten.Image{ModeFood: nil, ModeWalls: nil}
+
+	g.renderInBackground(map[Mode]Renderer{ModePopulation: pop}, nil, false, 0, 1, 0, g.renderGen, nil, carried)
+
+	result := <-g.pendingResult
+	for _, mode := range []Mode{ModeFood, ModeWalls, ModePopulation} {
+		if _, ok := result.images[mode]; !ok {
+			t.Errorf("mode %v missing from the render result", mode)
+		}
+	}
+}

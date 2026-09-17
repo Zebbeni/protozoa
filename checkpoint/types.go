@@ -6,6 +6,9 @@ type FileHeader struct {
 	CheckpointInterval int
 	GridUnitsWide      int
 	GridUnitsHigh      int
+	// Config is the JSON-encoded config.Globals the simulation ran with
+	// (seed resolved). Nil in files written before it was recorded.
+	Config []byte
 }
 
 // SnapshotEntry maps a cycle to its file offset for fast seeking.
@@ -30,9 +33,9 @@ type SnapshotPayload struct {
 	// its end condition live instead of re-waiting for the population to
 	// double. Absent from older files, where it decodes as false — the
 	// conservative choice, since it can only delay an end, never cause one.
-	MinOrganismsArmed     bool
-	Organisms             []OrganismRecord
-	OrganismGrid          [][]int
+	MinOrganismsArmed bool
+	Organisms         []OrganismRecord
+	OrganismGrid      [][]int
 	// CurrentPhMap and PreviousPhMap are stored as float64 to preserve
 	// the simulation's internal precision exactly. An earlier version
 	// of this format used float32 to halve snapshot size, but the
@@ -105,19 +108,18 @@ type OrganismRecord struct {
 	AttackHits  uint32
 
 	// Abilities is the organism's ability-score distribution. Scores
-	// are bounded by physiology.PointTotal (100) so a byte each is
+	// are bounded by physiology.MaxAbilityScore (100) so a byte each is
 	// ample. Stored as a fixed array rather than named fields so the
 	// restore path can loop; manager/capture.go asserts at init that
 	// this length still matches the live ability count.
 	Abilities AbilityScores
-
 }
 
 // AbilityScores is the serializable form of one organism's ability
 // distribution, in physiology.AllAbilities order. Declared locally with
 // a literal length so this package stays dependency-free like the rest
 // of the snapshot format.
-type AbilityScores [6]uint8
+type AbilityScores [7]uint8
 
 // FoodRecord is the serializable form of a food item.
 type FoodRecord struct {
@@ -205,9 +207,9 @@ type DescendantNodeRecord struct {
 	ColorR, ColorG, ColorB float32
 	// Abilities lets the population graph colour dead organisms by
 	// ability after a load, the same as live ones.
-	Abilities              AbilityScores
-	StartCycle             uint32
-	EndCycle               uint32
-	AllBranchesDeadCycle   uint32
-	Children               []DescendantNodeRecord
+	Abilities            AbilityScores
+	StartCycle           uint32
+	EndCycle             uint32
+	AllBranchesDeadCycle uint32
+	Children             []DescendantNodeRecord
 }

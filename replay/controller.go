@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simulation"
 )
@@ -22,7 +24,7 @@ type Controller struct {
 	snapshots []checkpoint.SnapshotEntry
 
 	// Pre-loaded data that survives seeks
-	treesPayload   *checkpoint.DescendantTreesPayload
+	trees          *manager.DescendantTrees
 	historyPayload *checkpoint.HistoryPayload
 
 	// Animation + timing state shared with the renderer. Owned here so the
@@ -55,6 +57,10 @@ type Controller struct {
 	// within the ring window restores from memory in O(1); outside
 	// the window we fall back to the snapshot+forward-sim path.
 	ring *stateRing
+
+	// recorded is the configuration the simulation ran with.
+	recorded config.Globals
+	closed   bool
 }
 
 // stateRingCapacity is how many recent post-Update sim states the
@@ -77,10 +83,9 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 	}
 
 	// Apply config from the checkpoint file header
-	globals := config.GetCurrentGlobals()
-	globals.GridUnitsWide = reader.Header.GridUnitsWide
-	globals.GridUnitsHigh = reader.Header.GridUnitsHigh
-	config.SetGlobals(globals)
+	recorded := recordedGlobals(reader.Header)
+	globals := recorded
+	config.SetGlobals(&globals)
 
 	// Restore from the first snapshot
 	snap, err := reader.ReadSnapshot(0)
@@ -107,12 +112,39 @@ func NewController(path string, options *config.Options) (*Controller, error) {
 		FinalCycle: lastSnap.Cycle,
 		AutoSpeed:  true,
 		ring:       newStateRing(stateRingCapacity),
+		recorded:   recorded,
 	}
 
 	// Scan for descendant trees and history sections
 	ctrl.loadEndSections()
 
 	return ctrl, nil
+}
+
+// recordedGlobals returns the settings a replay file was recorded with.
+// Files from before settings were recorded fall back to the current
+// settings with the recorded grid size and seed. Display preferences
+// (window size, theme, pH colours) always stay the viewer's own.
+func recordedGlobals(header checkpoint.FileHeader) config.Globals {
+	current := *config.GetCurrentGlobals()
+	g := current
+	if len(header.Config) == 0 || json.Unmarshal(header.Config, &g) != nil {
+		g = current
+		g.Seed = int(header.Seed)
+	}
+	g.GridUnitsWide = header.GridUnitsWide
+	g.GridUnitsHigh = header.GridUnitsHigh
+	g.ScreenWidth, g.ScreenHeight = current.ScreenWidth, current.ScreenHeight
+	g.Theme, g.PhColorScheme = current.Theme, current.PhColorScheme
+	return g
+}
+
+// Globals returns a copy of the settings the replayed simulation ran
+// with, safe for the caller to edit.
+func (c *Controller) Globals() config.Globals {
+	g := c.recorded
+	g.InitialAbilityScores = append([]int(nil), g.InitialAbilityScores...)
+	return g
 }
 
 // Simulation returns the current simulation state for rendering.
@@ -189,8 +221,8 @@ func (c *Controller) StepBackward() bool {
 	}
 	if snap, ok := c.ring.Lookup(target); ok {
 		if err := c.sim.ResetFromSnapshot(snap); err == nil {
-			if c.treesPayload != nil {
-				c.sim.RestoreDescendantTrees(c.treesPayload)
+			if c.trees != nil {
+				c.sim.InstallDescendantTrees(c.trees)
 			}
 			if c.historyPayload != nil {
 				c.sim.RestoreHistory(c.historyPayload)
@@ -221,8 +253,8 @@ func (c *Controller) SeekToSnapshot(index int) error {
 	}
 
 	// Re-inject cached end-of-sim data into the new organism manager
-	if c.treesPayload != nil {
-		c.sim.RestoreDescendantTrees(c.treesPayload)
+	if c.trees != nil {
+		c.sim.InstallDescendantTrees(c.trees)
 	}
 	if c.historyPayload != nil {
 		c.sim.RestoreHistory(c.historyPayload)
@@ -419,7 +451,12 @@ func (c *Controller) SnapshotCycles() []int {
 }
 
 // Close closes the underlying reader.
+// Safe to call more than once.
 func (c *Controller) Close() error {
+	if c.closed {
+		return nil
+	}
+	c.closed = true
 	return c.reader.Close()
 }
 
@@ -443,8 +480,8 @@ func (c *Controller) loadEndSections() {
 		switch sType {
 		case checkpoint.SectionDescendantTrees:
 			if trees, ok := payload.(*checkpoint.DescendantTreesPayload); ok {
-				c.treesPayload = trees
-				c.sim.RestoreDescendantTrees(trees)
+				c.trees = manager.BuildDescendantTrees(trees)
+				c.sim.InstallDescendantTrees(c.trees)
 			}
 		case checkpoint.SectionHistory:
 			if hist, ok := payload.(*checkpoint.HistoryPayload); ok {

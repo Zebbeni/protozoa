@@ -48,6 +48,10 @@ const (
 	// time left in the recorded run its line of descent survives:
 	// brightest when a descendant survives to the end.
 	orgColorSuccess
+	// orgColorTolerance tints each organism green→red by how well it
+	// tolerates the pH of the cell it's in: green inside its tolerance
+	// range, redder the further outside it sits.
+	orgColorTolerance
 )
 
 const (

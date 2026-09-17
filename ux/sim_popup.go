@@ -2,6 +2,7 @@ package ux
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"strings"
 	"sync"
@@ -13,7 +14,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
+	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
 // SimPopupMode is the popup's current sub-state. It swaps the body and
@@ -70,7 +73,7 @@ type SimPopup struct {
 	// Running mode log buffer; written from the sim-step path on the
 	// main goroutine but locked anyway in case future versions move
 	// stepping back to a goroutine.
-	logs    []string
+	logs    []LogLine
 	mu      sync.Mutex
 	scrollY float64
 
@@ -150,7 +153,7 @@ func (p *SimPopup) SetDisplaySeed(seed int) { p.displaySeed = seed }
 
 // AddLog appends a line to the running-mode log buffer. Safe to call
 // from any goroutine.
-func (p *SimPopup) AddLog(line string) {
+func (p *SimPopup) AddLog(line LogLine) {
 	p.mu.Lock()
 	p.logs = append(p.logs, line)
 	p.mu.Unlock()
@@ -324,20 +327,8 @@ func (p *SimPopup) handleCompleteInput() {
 // Caller is responsible for drawing the main menu first so the dim
 // reads as "menu through frosted glass".
 func (p *SimPopup) Draw(screen *ebiten.Image) {
-	// Dim layer over whatever the runner painted underneath. We
-	// paint full-screen at 60% black (or near-white in the light
-	// theme) so the menu still hints through but doesn't compete.
-	dim := chrome(
-		color.RGBA{R: 0, G: 0, B: 0, A: 160},
-		color.RGBA{R: 235, G: 235, B: 240, A: 200},
-	)
-	ebitenutil.DrawRect(screen, 0, 0, float64(c.ScreenWidth()), float64(c.ScreenHeight()), dim)
-
 	rect := p.popupRect()
-	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y),
-		float64(rect.Dx()), float64(rect.Dy()), themeBackgroundColor())
-	p.drawPopupBorder(screen, rect)
-	p.drawHeader(screen, rect)
+	drawModalChrome(screen, rect, p.title())
 
 	switch p.mode {
 	case SimPopupConfig:
@@ -386,34 +377,57 @@ func (p *SimPopup) drawLoadingOverlay(screen *ebiten.Image) {
 	text.Draw(screen, msg, r.FontSourceCodePro12, tx, ty, themedForeground())
 }
 
-func (p *SimPopup) drawPopupBorder(screen *ebiten.Image, rect popupRectT) {
+// drawModalChrome dims the whole screen, then paints a modal window at
+// rect: background, border, header and footer dividers, and the title
+// centred in the header. Shared by the New Simulation popup and the
+// replay settings viewer.
+func drawModalChrome(screen *ebiten.Image, rect popupRectT, title string) {
+	drawScreenDim(screen)
+	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y),
+		float64(rect.Dx()), float64(rect.Dy()), themeBackgroundColor())
+	drawModalBorder(screen, rect)
 	border := themedForegroundDim()
-	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y), float64(rect.Dx()), 1, border)
-	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Max.Y-1), float64(rect.Dx()), 1, border)
-	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y), 1, float64(rect.Dy()), border)
-	ebitenutil.DrawRect(screen, float64(rect.Max.X-1), float64(rect.Min.Y), 1, float64(rect.Dy()), border)
 	// Header divider
 	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y+popupHeaderH),
 		float64(rect.Dx()), 1, border)
 	// Footer divider
 	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Max.Y-popupFooterH),
 		float64(rect.Dx()), 1, border)
-}
-
-func (p *SimPopup) drawHeader(screen *ebiten.Image, rect popupRectT) {
-	var title string
-	switch p.mode {
-	case SimPopupConfig:
-		title = "NEW SIMULATION"
-	case SimPopupRunning:
-		title = fmt.Sprintf("RUNNING — SEED %d", p.displaySeed)
-	case SimPopupComplete:
-		title = fmt.Sprintf("COMPLETE — SEED %d", p.displaySeed)
-	}
 	tb := boundString(r.FontSourceCodePro12, title)
 	tx := rect.Min.X + (rect.Dx()-tb.Dx())/2
 	ty := rect.Min.Y + (popupHeaderH+tb.Dy())/2
 	text.Draw(screen, title, r.FontSourceCodePro12, tx, ty, themedForeground())
+}
+
+// drawScreenDim covers the whole screen with the modal dim layer: 60%
+// black (or near-white in the light theme) so whatever is underneath
+// still hints through but doesn't compete.
+func drawScreenDim(screen *ebiten.Image) {
+	dim := chrome(
+		color.RGBA{R: 0, G: 0, B: 0, A: 160},
+		color.RGBA{R: 235, G: 235, B: 240, A: 200},
+	)
+	ebitenutil.DrawRect(screen, 0, 0, float64(c.ScreenWidth()), float64(c.ScreenHeight()), dim)
+}
+
+// drawModalBorder outlines rect with a 1px border.
+func drawModalBorder(screen *ebiten.Image, rect popupRectT) {
+	border := themedForegroundDim()
+	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y), float64(rect.Dx()), 1, border)
+	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Max.Y-1), float64(rect.Dx()), 1, border)
+	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y), 1, float64(rect.Dy()), border)
+	ebitenutil.DrawRect(screen, float64(rect.Max.X-1), float64(rect.Min.Y), 1, float64(rect.Dy()), border)
+}
+
+// title is the header text for the popup's current mode.
+func (p *SimPopup) title() string {
+	switch p.mode {
+	case SimPopupRunning:
+		return fmt.Sprintf("RUNNING — SEED %d", p.displaySeed)
+	case SimPopupComplete:
+		return fmt.Sprintf("COMPLETE — SEED %d", p.displaySeed)
+	}
+	return "NEW SIMULATION"
 }
 
 func (p *SimPopup) drawConfigFooter(screen *ebiten.Image) {
@@ -445,7 +459,7 @@ func (p *SimPopup) drawRunningBody(screen *ebiten.Image) {
 	rect := p.popupRect()
 
 	p.mu.Lock()
-	logsCopy := make([]string, len(p.logs))
+	logsCopy := make([]LogLine, len(p.logs))
 	copy(logsCopy, p.logs)
 	p.mu.Unlock()
 
@@ -460,12 +474,16 @@ func (p *SimPopup) drawRunningBody(screen *ebiten.Image) {
 		p.scrollY = float64(totalH - logHeight)
 	}
 
+	// Clipped to the body, so the line scrolling in at the top is cut off
+	// at the header divider instead of being drawn over the title banner
+	// (and likewise at the footer).
+	body := screen.SubImage(image.Rect(rect.Min.X+1, bodyTop, rect.Max.X-1, bodyBottom)).(*ebiten.Image)
+
 	x := rect.Min.X + popupPad
 	y := bodyTop + 4 - int(p.scrollY)
 	for _, line := range logsCopy {
 		if y+lineHeight > bodyTop && y < bodyBottom {
-			text.Draw(screen, line, r.FontSourceCodePro10, x, y+lineHeight,
-				themedForegroundDim())
+			drawLogLine(body, line, x, y+lineHeight)
 		}
 		y += lineHeight
 	}
@@ -547,7 +565,11 @@ func hitRect(mx, my int, r popupRectT) bool {
 // popupRect returns the popup window's screen bounds, clamped to a
 // max size so the popup stays a sensible-sized modal even on very
 // large screens.
-func (p *SimPopup) popupRect() popupRectT {
+func (p *SimPopup) popupRect() popupRectT { return modalRect() }
+
+// modalRect is the screen rect of a full-size modal window, centred and
+// capped at popupMaxW x popupMaxH.
+func modalRect() popupRectT {
 	sw, sh := c.ScreenWidth(), c.ScreenHeight()
 	w := sw - 2*popupMargin
 	h := sh - 2*popupMargin
@@ -565,8 +587,11 @@ func (p *SimPopup) popupRect() popupRectT {
 // bodyBounds returns the inner top/bottom y-coords of the popup's
 // content area (between header and footer dividers), used by the
 // embedded config screen and the running/complete bodies.
-func (p *SimPopup) bodyBounds() (int, int) {
-	r := p.popupRect()
+func (p *SimPopup) bodyBounds() (int, int) { return modalBodyBounds(modalRect()) }
+
+// modalBodyBounds is the top and bottom of rect's content area, between
+// the header and footer dividers.
+func modalBodyBounds(r popupRectT) (int, int) {
 	return r.Min.Y + popupHeaderH + 4, r.Max.Y - popupFooterH - 4
 }
 
@@ -607,10 +632,66 @@ func (p *SimPopup) completeButtonRects() (popupRectT, popupRectT, popupRectT) {
 		newRect(editX, footerY, editW, popupBtnH)
 }
 
+// LogLine is one entry in the running-mode log: a line of text, and the
+// average ability scores drawn after it as their own columns so they can
+// be coloured by value.
+type LogLine struct {
+	Text   string
+	Scores [physiology.AbilityCount]float64
+}
+
+// String is the whole line as plain text, for the headless CLI.
+func (l LogLine) String() string {
+	out := l.Text
+	for _, a := range physiology.AllAbilities {
+		out += fmt.Sprintf("  %s %s", abilityLogLabels[a], formatAbilityScore(l.Scores[a]))
+	}
+	return out
+}
+
+// abilityLogLabels are the three-letter column headings the log uses, one
+// per ability, since a full name per column would dwarf the numbers.
+var abilityLogLabels = map[physiology.Ability]string{
+	physiology.AbilityChemosynthesis: "CHM",
+	physiology.AbilityEating:         "EAT",
+	physiology.AbilityMovement:       "MOV",
+	physiology.AbilityDigging:        "DIG",
+	physiology.AbilityAttack:         "ATK",
+	physiology.AbilityDefense:        "DEF",
+	physiology.AbilityTolerance:      "TOL",
+}
+
+func formatAbilityScore(v float64) string { return fmt.Sprintf("%4.1f", v) }
+
 // FormatLogLine creates one entry for the running-mode log buffer.
 // Shared with the headless CLI path so log output is consistent.
-func FormatLogLine(cycle, organisms, food, walls int, avgPh float64) string {
-	return fmt.Sprintf("Cycle: %6d   Organisms: %5d   Food: %6d   Walls: %5d   AvgPh: %2.2f", cycle, organisms, food, walls, avgPh)
+func FormatLogLine(cycle, organisms, food, walls int, avgPh, minPh, maxPh float64, scores [physiology.AbilityCount]float64) LogLine {
+	return LogLine{
+		// pH fields are 5 wide so a reading of 10.00 lines up with 4.66
+		// instead of pushing the ability columns along.
+		Text: fmt.Sprintf("Cycle: %6d   Organisms: %5d   Food: %6d   Walls: %5d   pH: %5.2f (%5.2f-%5.2f)",
+			cycle, organisms, food, walls, avgPh, minPh, maxPh),
+		Scores: scores,
+	}
+}
+
+// drawLogLine draws one log entry: the counts as plain text, then a
+// column per ability whose number is tinted gray→green by the score, so a
+// population's drift into one ability is visible down the column without
+// reading every figure.
+func drawLogLine(dst *ebiten.Image, line LogLine, x, baseline int) {
+	face := r.FontSourceCodePro10
+	text.Draw(dst, line.Text, face, x, baseline, themedForegroundDim())
+	cur := x + textAdvance(face, line.Text)
+	for _, a := range physiology.AllAbilities {
+		label := "  " + abilityLogLabels[a] + " "
+		text.Draw(dst, label, face, cur, baseline, themedForegroundDim())
+		cur += textAdvance(face, label)
+
+		value := formatAbilityScore(line.Scores[a])
+		text.Draw(dst, value, face, cur, baseline, gh.AbilityScoreColor(line.Scores[a]))
+		cur += textAdvance(face, value)
+	}
 }
 
 // drawAccentButton paints a button whose fill is a specific accent

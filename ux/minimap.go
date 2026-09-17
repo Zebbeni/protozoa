@@ -38,10 +38,10 @@ type Minimap struct {
 	// switches appearance without waiting for the 20-cycle refresh
 	// interval. Food isn't tracked because the minimap doesn't render
 	// food.
-	lastShowPh    bool
-	lastShowOrgs  bool
-	lastOrgColor  mode
-	lastTheme     string
+	lastShowPh   bool
+	lastShowOrgs bool
+	lastOrgColor mode
+	lastTheme    string
 
 	// replayCtrl (optional) lets the minimap detect replay seeks so the
 	// cache refreshes as soon as the playhead jumps — even backwards or

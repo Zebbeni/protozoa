@@ -31,6 +31,8 @@ type Interface struct {
 	minimap    *Minimap
 	debug      *Debug
 	replayCtrl *replay.Controller
+	// menu is the replay menu, nil outside replay mode.
+	menu *ReplayMenu
 
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
@@ -78,6 +80,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 // with cycle advancement.
 func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 	i.replayCtrl = ctrl
+	i.menu = NewReplayMenu(ctrl.Globals())
 	i.panel.SetReplayController(ctrl)
 	i.grid.SetAnimationState(ctrl.AnimState)
 	i.minimap.SetReplayController(ctrl)
@@ -138,6 +141,9 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	i.renderGrid(screen)
 	i.minimap.Draw(screen)
 	i.renderPanel(screen)
+	if i.menu != nil {
+		i.menu.Draw(screen)
+	}
 
 	i.debug.renderTime = time.Since(start)
 	if i.simulation.IsDebug() {
@@ -146,7 +152,21 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	}
 }
 
+// TakeMenuChoice returns and clears the replay menu choice the runner
+// has to act on, if any.
+func (i *Interface) TakeMenuChoice() ReplayMenuChoice {
+	if i.menu == nil {
+		return ReplayMenuNone
+	}
+	return i.menu.Take()
+}
+
 func (i *Interface) HandleUserInput() {
+	// The open replay menu takes all input.
+	if i.menu != nil && i.menu.IsOpen() {
+		i.menu.Update()
+		return
+	}
 	// Advance any in-flight smooth-pan animation before reading input.
 	// Manual pan / zoom in the input handlers will cancel it as needed.
 	i.grid.Camera.UpdatePan()
@@ -159,6 +179,9 @@ func (i *Interface) HandleUserInput() {
 		i.handleMouse()
 	}
 	i.minimap.Update()
+	if i.menu != nil && (i.panel.TakeMenuRequest() || inpututil.IsKeyJustPressed(ebiten.KeyEscape)) {
+		i.menu.Open()
+	}
 }
 
 func (i *Interface) handleKeyboard() {

@@ -125,6 +125,12 @@ func GrayGreenColor(t float64) colorful.Color {
 	return colorful.HSLuv(120.0, t, lightness)
 }
 
+// AbilityScoreColor tints a score gray→green on the same scale as the
+// ABILITY views: gray at nothing, full green at SpecialistScore.
+func AbilityScoreColor(score float64) colorful.Color {
+	return GrayGreenColor(score / float64(physiology.SpecialistScore))
+}
+
 // AbilityColor maps an organism's score in one ability onto the
 // gray→green ramp: gray at zero, green at that ability's specialist
 // score, clamped above.
@@ -142,11 +148,30 @@ func GrayGreenColor(t float64) colorful.Color {
 // rest. Shared by the grid's ABILITY colour mode and the population
 // graph so the two always agree on what a colour means.
 func AbilityColor(scores physiology.Scores, a physiology.Ability) colorful.Color {
-	specialist := physiology.SpecialistScore(a)
-	if specialist <= 0 {
-		return GrayGreenColor(1)
+	return GrayGreenColor(float64(scores[a]) / float64(physiology.SpecialistScore))
+}
+
+// Ceiling is the y-axis top to plot a series against, given its peak:
+// the peak plus a small relative headroom (12.5%, with an absolute floor
+// of 2) so the highest points don't touch the top edge but still fill
+// most of the height.
+func Ceiling(peak int) int {
+	headroom := peak / 8
+	if headroom < 2 {
+		headroom = 2
 	}
-	return GrayGreenColor(float64(scores[a]) / float64(specialist))
+	return peak + headroom
+}
+
+// PeakFraction is how much of a graph's height the data up to some point
+// occupies, when the graph was drawn against the whole run's peak. The
+// viewer stretches that band, so early cycles of a run that ends far
+// larger aren't a flat line along the bottom.
+func PeakFraction(peakSoFar, peakOverall int) float64 {
+	if peakOverall <= 0 {
+		return 1
+	}
+	return min(1, max(0, float64(Ceiling(peakSoFar))/float64(Ceiling(peakOverall))))
 }
 
 // GraphImageWidth is the pixel width to render a graph of the given number

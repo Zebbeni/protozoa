@@ -8,13 +8,14 @@ import (
 )
 
 func TestScoresFromSlice(t *testing.T) {
-	if s, err := ScoresFromSlice([]int{40, 20, 10, 10, 10, 10}); err != nil || s[AbilityEating] != 20 {
+	if s, err := ScoresFromSlice([]int{8, 4, 2, 2, 2, 1, 1}); err != nil || s[AbilityEating] != 4 {
 		t.Errorf("valid slice: %v, %v", s, err)
 	}
 	for _, bad := range [][]int{
-		{50, 10, 10, 10, 10},     // too short
-		{50, 10, 10, 10, 10, 20}, // sums to 110
-		{-10, 30, 20, 20, 20, 20},
+		{5, 1, 1, 1, 1, 1},     // too short
+		{5, 1, 1, 1, 1, 1, 2},  // sums to 12, not the budget
+		{-1, 6, 4, 4, 4, 2, 1}, // a negative entry
+		{11, 3, 2, 2, 1, 1, 0}, // one entry over the cap
 	} {
 		if _, err := ScoresFromSlice(bad); err == nil {
 			t.Errorf("%v should be rejected", bad)
@@ -49,14 +50,14 @@ func TestInitialScoresFollowsConfig(t *testing.T) {
 	rng := simrand.New(1)
 
 	g.RandomInitialAbilities = false
-	g.InitialAbilityScores = []int{20, 30, 10, 10, 20, 10}
-	if s := InitialScores(rng); s != (Scores{20, 30, 10, 10, 20, 10}) {
+	g.InitialAbilityScores = []int{4, 6, 2, 2, 4, 1, 1}
+	if s := InitialScores(rng); s != (Scores{4, 6, 2, 2, 4, 1, 1}) {
 		t.Errorf("configured scores: got %v", s)
 	}
 
-	g.InitialAbilityScores = []int{90, 10, 10, 10, 10, 10}
-	if s := InitialScores(rng); s != GenesisScores() {
-		t.Errorf("an invalid configured total should fall back to genesis, got %v", s)
+	g.InitialAbilityScores = []int{9, 1, 1, 1, 1, 1, 1}
+	if s := InitialScores(rng); s != BalancedScores() {
+		t.Errorf("an invalid configured total should fall back to balanced, got %v", s)
 	}
 
 	g.RandomInitialAbilities = true

@@ -21,8 +21,10 @@ func fingerprint(sim *Simulation) string {
 	put := func(v uint64) { binary.LittleEndian.PutUint64(buf, v); h.Write(buf) }
 	for _, o := range orgs {
 		put(uint64(o.ID))
-		put(uint64(o.Location.X)); put(uint64(o.Location.Y))
-		put(math.Float64bits(o.Health)); put(math.Float64bits(o.Size))
+		put(uint64(o.Location.X))
+		put(uint64(o.Location.Y))
+		put(math.Float64bits(o.Health))
+		put(math.Float64bits(o.Size))
 		put(uint64(o.Status))
 		for _, v := range o.Traits().Abilities {
 			put(uint64(v))

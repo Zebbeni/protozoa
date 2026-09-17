@@ -8,6 +8,10 @@ package ux
 // graph modes, which all share the time axis.
 type graphView struct {
 	start, end float64
+	// rangeStart / rangeEnd are the cycles the full range covered when
+	// the window was last synced, so a window can stay on the same cycles
+	// as the range grows. rangeEnd is 0 before the first sync.
+	rangeStart, rangeEnd int
 }
 
 // minGraphViewSpan is the narrowest window zoom allows: 1/256 of the run.
@@ -48,6 +52,14 @@ func (v graphView) toFull(visible float64) float64 {
 	return s + visible*v.span()
 }
 
+// toVisible maps a fraction of the full range to a position across the
+// visible graph, the inverse of toFull. Outside [0, 1] when that point
+// is scrolled off the zoomed window.
+func (v graphView) toVisible(full float64) float64 {
+	s, _ := v.bounds()
+	return (full - s) / v.span()
+}
+
 // zoomAt magnifies the window by factor (>1 zooms in, <1 out), keeping the
 // point under anchor — a position across the visible graph — fixed on
 // screen.
@@ -69,6 +81,27 @@ func (v *graphView) panBy(delta float64) {
 	s, _ := v.bounds()
 	v.start = s + delta*span
 	v.end = v.start + span
+	v.clamp()
+}
+
+// syncRange tells the view the full range now covers cycles [start, end].
+// A zoomed window that stops short of the latest cycle stays on the same
+// cycles, so it can't pass off an older stretch of the run as current. A
+// window reaching the right edge keeps following the latest cycle, as does
+// one pushed there because the range shrank (a backward seek).
+func (v *graphView) syncRange(start, end int) {
+	oldStart, oldEnd := v.rangeStart, v.rangeEnd
+	v.rangeStart, v.rangeEnd = start, end
+	if oldEnd <= oldStart || end <= start || (start == oldStart && end == oldEnd) || !v.zoomed() {
+		return
+	}
+	s, e := v.bounds()
+	if e >= 1-1e-9 {
+		return
+	}
+	toCycle := func(f float64) float64 { return float64(oldStart) + f*float64(oldEnd-oldStart) }
+	toFraction := func(cycle float64) float64 { return (cycle - float64(start)) / float64(end-start) }
+	v.start, v.end = toFraction(toCycle(s)), toFraction(toCycle(e))
 	v.clamp()
 }
 

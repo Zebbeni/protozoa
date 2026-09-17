@@ -77,10 +77,39 @@ func (m *OrganismManager) RestoreHistory(payload *checkpoint.HistoryPayload) {
 	m.history[HistoryWalls] = copyHistoryMap(payload.Walls)
 }
 
-// RestoreDescendantTrees rebuilds the descendant trees from a serialized payload
-// and injects them into the OrganismManager. Also rebuilds the ancestor ID list
-// and color map from the tree roots so all ancestors are available for graphing.
-func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantTreesPayload) {
+// DescendantTrees is a recording's family history, decoded from its
+// payload and pre-indexed: everything a restore installs on an organism
+// manager.
+//
+// Kept separate from installing it because a replay restores the same
+// trees on every seek, into a manager the seek just rebuilt. Decoding
+// them once and installing the same nodes each time keeps node pointers
+// stable, so views that cache anything keyed on them — the population
+// graph's alive sets, its rendered image — survive a seek.
+type DescendantTrees struct {
+	trees          map[int]*organism.DescendantNode
+	ancestorIDs    []int
+	ancestorColors map[int]color.Color
+	nodeIndex      map[int]*organism.DescendantNode
+	mostSuccessful map[int]struct{}
+	endCycle       int
+	// generation distinguishes one decoded set of trees from another, so
+	// a cache keyed on node pointers knows when they've been replaced.
+	generation int
+}
+
+// treeGenerations numbers decoded tree sets; see DescendantTrees.
+var treeGenerations int
+
+// BuildDescendantTrees decodes a serialized payload into the trees, the
+// ancestor list and colour map, the by-ID node index, the "most
+// successful" set, and each node's lineage end.
+//
+// The index makes GetTreeNodeByID O(1) for dead organisms too — it is
+// called per render frame by the descendant-highlight code, and would
+// otherwise walk every tree from its root. The other two precomputations
+// serve the Most Successful select mode and the SUCCESS organism colour.
+func BuildDescendantTrees(payload *checkpoint.DescendantTreesPayload) *DescendantTrees {
 	trees := make(map[int]*organism.DescendantNode)
 	ancestorIDs := make([]int, 0, len(payload.Trees))
 	ancestorColors := make(map[int]color.Color)
@@ -92,31 +121,55 @@ func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantT
 		ancestorColors[id] = root.Color
 	}
 
-	m.descendantTrees = trees
-	m.originalAncestors = ancestorIDs
-	m.originalAncestorColors = ancestorColors
-
-	// Persist the by-ID index so GetTreeNodeByID is O(1) for both alive
-	// and dead organisms — used per render frame by the descendant
-	// highlight code.
-	m.descendantNodeIndex = make(map[int]*organism.DescendantNode)
+	nodeIndex := make(map[int]*organism.DescendantNode)
 	for _, root := range trees {
-		indexTreeNodes(root, m.descendantNodeIndex)
+		indexTreeNodes(root, nodeIndex)
 	}
+
+	treeGenerations++
+	return &DescendantTrees{
+		trees:          trees,
+		ancestorIDs:    ancestorIDs,
+		ancestorColors: ancestorColors,
+		nodeIndex:      nodeIndex,
+		mostSuccessful: computeMostSuccessfulSet(trees),
+		endCycle:       organism.ComputeLineageEnds(trees),
+		generation:     treeGenerations,
+	}
+}
+
+// Generation identifies this decoded set of trees. See DescendantTrees.
+func (d *DescendantTrees) Generation() int { return d.generation }
+
+// RestoreDescendantTrees decodes a payload and installs it. Callers that
+// restore the same payload repeatedly should build it once with
+// BuildDescendantTrees and install that instead.
+func (m *OrganismManager) RestoreDescendantTrees(payload *checkpoint.DescendantTreesPayload) {
+	m.InstallDescendantTrees(BuildDescendantTrees(payload))
+}
+
+// InstallDescendantTrees points the manager at already-decoded trees and
+// links its organisms to their nodes.
+func (m *OrganismManager) InstallDescendantTrees(d *DescendantTrees) {
+	m.descendantTrees = d.trees
+	m.originalAncestors = d.ancestorIDs
+	m.originalAncestorColors = d.ancestorColors
+	m.descendantNodeIndex = d.nodeIndex
+	m.mostSuccessful = d.mostSuccessful
+	m.recordedEndCycle = d.endCycle
+	m.treesGeneration = d.generation
+
 	for _, o := range m.organisms {
 		if node, ok := m.descendantNodeIndex[o.ID]; ok {
 			o.TreeNode = node
 		}
 	}
-
-	// Precompute the "most successful" set so the Most Successful
-	// select mode can do an O(1) per-organism lookup each frame.
-	m.mostSuccessful = computeMostSuccessfulSet(trees)
-	// Likewise precompute each node's lineage end for the SUCCESS
-	// organism colour mode, so rendering reads a field instead of
-	// walking descendants.
-	m.recordedEndCycle = organism.ComputeLineageEnds(trees)
 }
+
+// TreesGeneration identifies the decoded trees currently installed, so
+// caches keyed on node pointers can tell when they've been replaced. 0 in
+// a live run, where the trees are grown rather than restored.
+func (m *OrganismManager) TreesGeneration() int { return m.treesGeneration }
 
 // RecordedEndCycle returns the end of the recorded run whose descendant
 // trees were restored, or 0 in a live run.
@@ -216,7 +269,7 @@ func recordToNode(rec checkpoint.DescendantNodeRecord, parent *organism.Descenda
 	if startCycle > 1<<30 {
 		startCycle = 0
 	}
-	// A pre-abilities file yields genesis scores here. Not reported: the
+	// A pre-abilities file yields balanced scores here. Not reported: the
 	// organism restore path already warns once per load about stale
 	// ability data, and a node is only ever used for display.
 	abilities, _ := AbilitiesFromRecord(rec.Abilities)

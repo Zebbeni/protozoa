@@ -7,12 +7,19 @@ import (
 	"github.com/Zebbeni/protozoa/decision"
 )
 
+// plainScores is a chemosynthesis-heavy distribution with 2 in every
+// other ability: below every appearance threshold, so it wears no
+// overlays. The base the appearance tests raise single abilities from.
+func plainScores() Scores {
+	return Scores{8, 2, 2, 2, 2, 2, 2}
+}
+
 // scoresWith builds a valid distribution with one ability raised to
 // `to`, taking the difference out of chemosynthesis so the budget still
 // sums to PointTotal.
 func scoresWith(t *testing.T, a Ability, to int) Scores {
 	t.Helper()
-	s := GenesisScores()
+	s := plainScores()
 	delta := to - s[a]
 	s[a] = to
 	s[AbilityChemosynthesis] -= delta
@@ -22,15 +29,14 @@ func scoresWith(t *testing.T, a Ability, to int) Scores {
 	return s
 }
 
-// TestGenesisLooksPlain is the property that keeps appearance honest:
-// a newborn has specialised in nothing, so it should wear nothing.
-// Any threshold set at or below GenesisMinorAbilityScore would hand
-// every organism in the world an overlay for free, which reads as "the
-// thresholds aren't working" rather than as a config mistake.
-func TestGenesisLooksPlain(t *testing.T) {
+// TestPlainScoresLookPlain: an organism sitting near the even split in
+// every non-chemo ability has specialised in nothing, so it should wear
+// nothing. A threshold at or below the starting score would hand almost
+// every organism an overlay for free.
+func TestPlainScoresLookPlain(t *testing.T) {
 	loadGlobals(t)
 
-	app := AppearanceFor(GenesisScores(), nil)
+	app := AppearanceFor(plainScores(), nil)
 	if app.Body != BodyBasic {
 		t.Errorf("genesis body = %v, want BodyBasic", app.Body)
 	}
@@ -45,23 +51,46 @@ func TestGenesisLooksPlain(t *testing.T) {
 	}
 }
 
+// TestBodyAndMotorThresholds: a shell comes from Tolerance and spikes
+// from Defense, each past its own threshold.
 func TestBodyAndMotorThresholds(t *testing.T) {
 	loadGlobals(t)
 
 	shell, spikes := config.ShellBodyThreshold(), config.SpikesBodyThreshold()
 	for _, tc := range []struct {
-		score int
-		want  BodyClass
+		ability Ability
+		score   int
+		want    BodyClass
 	}{
-		{shell - 1, BodyBasic},
-		{shell, BodyShell},
-		{spikes - 1, BodyShell},
-		{spikes, BodySpikes},
+		{AbilityTolerance, shell - 1, BodyBasic},
+		{AbilityTolerance, shell, BodyShell},
+		{AbilityDefense, spikes - 1, BodyBasic},
+		{AbilityDefense, spikes, BodySpikes},
 	} {
-		got := AppearanceFor(scoresWith(t, AbilityDefense, tc.score), nil).Body
+		got := AppearanceFor(scoresWith(t, tc.ability, tc.score), nil).Body
 		if got != tc.want {
-			t.Errorf("defense %d: body = %v, want %v", tc.score, got, tc.want)
+			t.Errorf("%s %d: body = %v, want %v", tc.ability.Name(), tc.score, got, tc.want)
 		}
+	}
+
+	// With both past their thresholds the higher score wins, and a tie
+	// goes to the shell. The high score clears both thresholds, so this
+	// holds whichever of the two is configured higher.
+	both := plainScores()
+	hi, lo := max(shell, spikes)+1, spikes
+	both[AbilityChemosynthesis] -= hi + lo - both[AbilityTolerance] - both[AbilityDefense]
+	both[AbilityTolerance], both[AbilityDefense] = hi, lo
+	if err := both.Validate(); err != nil {
+		t.Fatalf("test scores invalid: %v", err)
+	}
+	if got := AppearanceFor(both, nil).Body; got != BodyShell {
+		t.Errorf("tolerance %d over defense %d: body = %v, want BodyShell",
+			both[AbilityTolerance], both[AbilityDefense], got)
+	}
+	both[AbilityTolerance], both[AbilityDefense] = both[AbilityDefense], both[AbilityTolerance]
+	if got := AppearanceFor(both, nil).Body; got != BodySpikes {
+		t.Errorf("defense %d over tolerance %d: body = %v, want BodySpikes",
+			both[AbilityDefense], both[AbilityTolerance], got)
 	}
 
 	pili, flagella := config.PiliMotorThreshold(), config.FlagellaMotorThreshold()
@@ -87,25 +116,26 @@ func TestBodyAndMotorThresholds(t *testing.T) {
 func TestMouthPicksDominantAbility(t *testing.T) {
 	loadGlobals(t)
 
-	s := GenesisScores()
-	s[AbilityChemosynthesis] = 10
-	s[AbilityEating] = 25
-	s[AbilityAttack] = 45
+	s := plainScores()
+	s[AbilityChemosynthesis] = 2
+	s[AbilityEating] = 5
+	s[AbilityAttack] = 9
 	s[AbilityDigging] = 0
-	s[AbilityMovement] = 10
-	s[AbilityDefense] = 10
+	s[AbilityMovement] = 2
+	s[AbilityDefense] = 2
+	s[AbilityTolerance] = 0
 	if err := s.Validate(); err != nil {
 		t.Fatalf("test scores invalid: %v", err)
 	}
 
 	if got := AppearanceFor(s, nil).Mouth; got != MouthFangs {
-		t.Errorf("attack 45 should beat eating 25: mouth = %v, want MouthFangs", got)
+		t.Errorf("attack 9 should beat eating 5: mouth = %v, want MouthFangs", got)
 	}
 
 	// Flip the two and the mouth follows.
 	s[AbilityEating], s[AbilityAttack] = s[AbilityAttack], s[AbilityEating]
 	if got := AppearanceFor(s, nil).Mouth; got != MouthTeeth {
-		t.Errorf("eating 45 should beat attack 25: mouth = %v, want MouthTeeth", got)
+		t.Errorf("eating 9 should beat attack 5: mouth = %v, want MouthTeeth", got)
 	}
 }
 
@@ -116,13 +146,14 @@ func TestMouthPicksDominantAbility(t *testing.T) {
 func TestMouthTiesAreStable(t *testing.T) {
 	loadGlobals(t)
 
-	s := GenesisScores()
-	s[AbilityChemosynthesis] = 20
-	s[AbilityEating] = 25
-	s[AbilityAttack] = 25
-	s[AbilityDigging] = 25
-	s[AbilityMovement] = 5
+	s := plainScores()
+	s[AbilityChemosynthesis] = 4
+	s[AbilityEating] = 5
+	s[AbilityAttack] = 5
+	s[AbilityDigging] = 5
+	s[AbilityMovement] = 1
 	s[AbilityDefense] = 0
+	s[AbilityTolerance] = 0
 	if err := s.Validate(); err != nil {
 		t.Fatalf("test scores invalid: %v", err)
 	}
@@ -158,7 +189,7 @@ func TestSensorFollowsTreeConditions(t *testing.T) {
 	loadGlobals(t)
 
 	minimum := config.SensorMinConditions()
-	genesis := GenesisScores()
+	genesis := plainScores()
 
 	food := make([]decision.Condition, minimum)
 	for i := range food {
@@ -207,7 +238,7 @@ func TestSelfChecksGrowNoSensors(t *testing.T) {
 		decision.IsAgeMultipleOfTen,
 		decision.IsHealthAboveFiftyPercent,
 	)
-	if got := AppearanceFor(GenesisScores(), tree).Sensor; got != SensorNone {
+	if got := AppearanceFor(plainScores(), tree).Sensor; got != SensorNone {
 		t.Errorf("self-checks should need no sense organ, got %v", got)
 	}
 }
@@ -223,7 +254,7 @@ func TestSensorPicksDominantCategory(t *testing.T) {
 		decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight, decision.IsFoodAhead,
 		decision.IsWallAhead, decision.IsWallLeft,
 	)
-	if got := AppearanceFor(GenesisScores(), tree).Sensor; got != SensorAntennae {
+	if got := AppearanceFor(plainScores(), tree).Sensor; got != SensorAntennae {
 		t.Errorf("4 food vs 2 wall checks should give antennae, got %v", got)
 	}
 }

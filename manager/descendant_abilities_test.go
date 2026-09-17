@@ -16,8 +16,8 @@ import (
 func TestDescendantNodeAbilitiesRoundTrip(t *testing.T) {
 	loadDefaultGlobals(t)
 
-	parentScores := physiology.Scores{30, 5, 25, 10, 20, 10}
-	childScores := physiology.Scores{10, 40, 5, 5, 20, 20}
+	parentScores := physiology.Scores{6, 1, 5, 2, 4, 1, 1}
+	childScores := physiology.Scores{2, 8, 1, 1, 4, 2, 2}
 	for _, s := range []physiology.Scores{parentScores, childScores} {
 		if err := s.Validate(); err != nil {
 			t.Fatalf("test scores invalid: %v", err)
@@ -41,8 +41,8 @@ func TestDescendantNodeAbilitiesRoundTrip(t *testing.T) {
 }
 
 // TestPreAbilitiesNodeRecordFallsBack: a node saved before ability scores
-// existed has an all-zero record. It must come back as a valid genesis
-// distribution, not as zeros that break the budget invariant.
+// existed has an all-zero record. It must come back as a valid
+// balanced distribution, not as zeros that break the budget invariant.
 func TestPreAbilitiesNodeRecordFallsBack(t *testing.T) {
 	loadDefaultGlobals(t)
 
@@ -50,7 +50,7 @@ func TestPreAbilitiesNodeRecordFallsBack(t *testing.T) {
 	if err := node.Abilities.Validate(); err != nil {
 		t.Errorf("stale node restored with invalid scores: %v", err)
 	}
-	if node.Abilities != physiology.GenesisScores() {
-		t.Errorf("stale node abilities = %v, want genesis %v", node.Abilities, physiology.GenesisScores())
+	if node.Abilities != physiology.BalancedScores() {
+		t.Errorf("stale node abilities = %v, want balanced %v", node.Abilities, physiology.BalancedScores())
 	}
 }

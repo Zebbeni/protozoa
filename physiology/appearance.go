@@ -22,7 +22,8 @@ type Appearance struct {
 	Sensor SensorClass
 }
 
-// BodyClass is the body silhouette, from the Defense score.
+// BodyClass is the body silhouette: a shell for pH tolerance, spikes for
+// Defense.
 type BodyClass int
 
 const (
@@ -82,15 +83,24 @@ func AppearanceFor(scores Scores, tree *decision.Tree) Appearance {
 	}
 }
 
+// bodyClassFor picks the body an organism has most earned: a shell for
+// riding out bad water (Tolerance), spikes for surviving other organisms
+// (Defense). Each has its own threshold and the renderer draws one body,
+// so the higher qualifying score wins.
+//
+// Ties go to the shell, via strict greater-than on the spikes check, so
+// the choice stays deterministic — a body that flickered between two
+// sprites on equal scores would read as a rendering bug.
 func bodyClassFor(s Scores) BodyClass {
-	switch d := s[AbilityDefense]; {
-	case d >= config.SpikesBodyThreshold():
-		return BodySpikes
-	case d >= config.ShellBodyThreshold():
-		return BodyShell
-	default:
-		return BodyBasic
+	best, bestScore := BodyBasic, 0
+
+	if v := s[AbilityTolerance]; v >= config.ShellBodyThreshold() && v > bestScore {
+		best, bestScore = BodyShell, v
 	}
+	if v := s[AbilityDefense]; v >= config.SpikesBodyThreshold() && v > bestScore {
+		best, bestScore = BodySpikes, v
+	}
+	return best
 }
 
 func motorClassFor(s Scores) MotorClass {

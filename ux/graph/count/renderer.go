@@ -1,6 +1,8 @@
 package count
 
 import (
+	"sync/atomic"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/lucasb-eyer/go-colorful"
 
@@ -30,6 +32,23 @@ var WallColor = colorful.HSLuv(0, 0, 0.6)
 type Renderer struct {
 	history manager.HistoryType
 	fill    colorful.Color
+
+	// peaks is the highest count up to each bar, published for the
+	// viewer to scale the visible stretch of the graph by. Replaced,
+	// never written in place: renders run on a background goroutine.
+	peaks atomic.Pointer[[]int]
+}
+
+// HeightFraction is how much of the rendered image's height the series up
+// to throughBar occupies, the image being drawn against the whole run's
+// peak.
+func (r *Renderer) HeightFraction(throughBar int) float64 {
+	peaks := r.peaks.Load()
+	if peaks == nil || len(*peaks) == 0 {
+		return 1
+	}
+	idx := min(max(throughBar, 0), len(*peaks)-1)
+	return gh.PeakFraction((*peaks)[idx], (*peaks)[len(*peaks)-1])
 }
 
 // NewRenderer returns a renderer plotting the given history series in
@@ -66,19 +85,16 @@ func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int, _ *gh
 		return 0
 	}
 
-	// y-axis ceiling: peak count + 12.5% headroom (min 2) so the
-	// highest point doesn't touch the top edge of the graph.
+	// y-axis ceiling: the run's peak plus headroom, and the running peak
+	// per bar for the viewer to scale a cropped view by.
 	peak := 0
+	peaks := make([]int, newBarCount)
 	for barIdx := 0; barIdx < newBarCount; barIdx++ {
-		if cnt := countAt(barIdx); cnt > peak {
-			peak = cnt
-		}
+		peak = max(peak, countAt(barIdx))
+		peaks[barIdx] = peak
 	}
-	headroom := peak / 8
-	if headroom < 2 {
-		headroom = 2
-	}
-	ceiling := float64(peak + headroom)
+	r.peaks.Store(&peaks)
+	ceiling := float64(gh.Ceiling(peak))
 
 	barWidth := width / float64(newBarCount)
 	bottom := float32(gh.RealGraphHeight)

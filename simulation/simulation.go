@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"encoding/json"
 	"fmt"
 	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -93,6 +95,7 @@ func NewSimulation(options *config.Options) *Simulation {
 		CheckpointInterval: options.CheckpointInterval,
 		GridUnitsWide:      config.GridUnitsWide(),
 		GridUnitsHigh:      config.GridUnitsHigh(),
+		Config:             recordedConfig(seed),
 	}
 	w, err := checkpoint.NewWriter(options.CheckpointFile, header)
 	if err != nil {
@@ -180,6 +183,18 @@ func (s *Simulation) writeSnapshot() {
 	if err := s.recorder.WriteSnapshot(snap); err != nil {
 		fmt.Printf("\nWarning: failed to write snapshot at cycle %d: %v", s.cycle, err)
 	}
+}
+
+// InstallDescendantTrees points the organism manager at already-decoded
+// trees, keeping node pointers stable across a seek.
+func (s *Simulation) InstallDescendantTrees(d *manager.DescendantTrees) {
+	s.organismManager.InstallDescendantTrees(d)
+}
+
+// TreesGeneration identifies the descendant trees currently installed;
+// see manager.OrganismManager.TreesGeneration.
+func (s *Simulation) TreesGeneration() int {
+	return s.organismManager.TreesGeneration()
 }
 
 // RestoreDescendantTrees injects pre-built descendant trees into the organism manager.
@@ -566,8 +581,19 @@ func (s *Simulation) OrganismCount() int {
 	return s.organismManager.OrganismCount()
 }
 
+// AverageAbilityScores is the mean of every living organism's scores,
+// ability by ability.
+func (s *Simulation) AverageAbilityScores() [physiology.AbilityCount]float64 {
+	return s.organismManager.AverageAbilityScores()
+}
+
 func (s *Simulation) AveragePh() float64 {
 	return s.environmentManager.GetAveragePh()
+}
+
+// PhRange returns the lowest and highest pH anywhere on the grid.
+func (s *Simulation) PhRange() (float64, float64) {
+	return s.environmentManager.GetPhRange()
 }
 
 // GetFoodAtPoint returns the value of any food at a given point and whether
@@ -662,4 +688,17 @@ func (s *Simulation) GetPhAtPoint(point utils.Point) float64 {
 // AddPhChangeAtPoint adds a given value to the environment's Ph at a given location
 func (s *Simulation) AddPhChangeAtPoint(point utils.Point, change float64) {
 	s.environmentManager.AddPhChangeAtPoint(point, change)
+}
+
+// recordedConfig encodes the active settings, with the seed actually
+// used, for the replay file header so a replay can show and re-run the
+// exact configuration.
+func recordedConfig(seed int) []byte {
+	g := *config.GetCurrentGlobals()
+	g.Seed = seed
+	data, err := json.Marshal(g)
+	if err != nil {
+		return nil
+	}
+	return data
 }

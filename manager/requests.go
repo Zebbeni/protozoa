@@ -19,14 +19,11 @@ type RequestManager struct {
 
 // HealthEffect is one pending health change aimed at a cell, tagged
 // with its source so the receiving organism can respond to the
-// originator. SourceID is -1 for effects with no organism behind them.
-//
-// Predatory marks damage from an attack, which can feed the attacker (see
-// AttackHealthGain). Other damage, such as a shove, feeds nobody.
+// originator — which thorns need, to know who to hurt back. SourceID is
+// -1 for effects with no organism behind them.
 type HealthEffect struct {
-	Amount    float64
-	SourceID  int
-	Predatory bool
+	Amount   float64
+	SourceID int
 }
 
 func (m *RequestManager) ClearMaps() {
@@ -37,6 +34,15 @@ func (m *RequestManager) ClearMaps() {
 
 func (m *RequestManager) GetPositionRequest(p utils.Point) int {
 	return m.positionRequests[p]
+}
+
+// HasPositionRequest reports whether anyone claimed this cell during the
+// decide phase. A claim is only staked on a cell that was empty then, so
+// no claim at all means the cell was already blocked — which is what
+// separates walking into a wall from losing a race for open water.
+func (m *RequestManager) HasPositionRequest(p utils.Point) bool {
+	_, ok := m.positionRequests[p]
+	return ok
 }
 
 func (m *RequestManager) GetFoodRequests(p utils.Point) food.Item {
@@ -72,16 +78,12 @@ func (m *RequestManager) AddFoodRequest(p utils.Point, value int) {
 	m.foodRequests[p] = food.Item{Point: p, Value: value}
 }
 
-func (m *RequestManager) AddHealthEffectRequest(p utils.Point, v float64, sourceID int) {
-	m.healthEffectRequests[p] = append(m.healthEffectRequests[p],
-		HealthEffect{Amount: v, SourceID: sourceID})
-}
-
-// AddAttackRequest queues attack damage, marked predatory so the attacker
-// can gain health from what lands.
+// AddAttackRequest queues attack damage against whatever is in the cell,
+// carrying the attacker's ID so the defender's thorns know who hit it.
+// Attacks are the only source of queued health effects.
 func (m *RequestManager) AddAttackRequest(p utils.Point, v float64, sourceID int) {
 	m.healthEffectRequests[p] = append(m.healthEffectRequests[p],
-		HealthEffect{Amount: v, SourceID: sourceID, Predatory: true})
+		HealthEffect{Amount: v, SourceID: sourceID})
 }
 
 // MergeFrom merges another RequestManager's data into this one using the

@@ -11,8 +11,8 @@ import (
 // Wall-strength bounds. Walls are placed and damaged by ActDig — the
 // digging organism damages the wall in front (negative delta) while
 // reinforcing or creating walls on its left and right (positive
-// delta). Organisms also wear walls down by moving into or attacking
-// them (see manager.wallDamage). A 0-strength wall is removed from the map entirely so
+// delta). Digging is the only thing that wears a wall down. A 0-strength
+// wall is removed from the map entirely so
 // IsWallAtPoint returns false. The cap at 7 keeps the strength
 // visualisable as a small set of alpha tiers without making walls
 // indestructibly expensive to dig.

@@ -105,6 +105,17 @@ type Graph struct {
 	// not the sim is paused. Every already painted column is stale after
 	// an invalidation, and a paused sim would otherwise never repaint.
 	forceRender bool
+	// popOnlyRender limits the forced repaint to the population graphs,
+	// carrying the pH, food and wall images over untouched. A population
+	// colour change doesn't alter a single pixel of those, and
+	// re-rendering them made switching colour cost more than it had to.
+	popOnlyRender bool
+
+	// aliveCache is shared by the population renderers of every
+	// colouring, so switching colour redraws from cached alive sets
+	// instead of walking the descendant trees again. See
+	// population.AliveCache.
+	aliveCache *population.AliveCache
 }
 
 // PopulationColor selects how the population graphs colour organisms.
@@ -140,7 +151,8 @@ func NewGraph(sim *s.Simulation) *Graph {
 		now:           time.Now,
 	}
 
-	g.renderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), nil, 0)
+	g.aliveCache = population.NewAliveCache()
+	g.renderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), nil, 0, g.aliveCache)
 	g.renderers[ModePh] = ph.NewRenderer()
 	g.renderers[ModeFood] = count.NewRenderer(manager.HistoryFood, count.FoodColor)
 	g.renderers[ModeWalls] = count.NewRenderer(manager.HistoryWalls, count.WallColor)
@@ -184,7 +196,9 @@ func (g *Graph) SetPopulationColor(pc PopulationColor) {
 		return
 	}
 	g.popColor = pc
-	g.discardCachedRenders()
+	// Only the population images are stale; the alive sets behind them
+	// are the same organisms in a different colour.
+	g.discardCachedRenders(true)
 }
 
 // discardCachedRenders throws away every cached population render and
@@ -193,10 +207,11 @@ func (g *Graph) SetPopulationColor(pc PopulationColor) {
 //
 // Bumping renderGen makes an in-flight render's result stale, so it is
 // dropped on arrival rather than restoring images of the old state.
-func (g *Graph) discardCachedRenders() {
+func (g *Graph) discardCachedRenders(popOnly bool) {
 	g.renderGen++
 	g.replacePopulationRenderers()
 	g.forceRender = true
+	g.popOnlyRender = popOnly
 }
 
 // replacePopulationRenderers installs fresh population renderers —
@@ -218,7 +233,7 @@ func (g *Graph) replacePopulationRenderers() {
 	for mode, r := range g.renderers {
 		renderers[mode] = r
 	}
-	renderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), nil, 0)
+	renderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), nil, 0, g.aliveCache)
 	g.renderers = renderers
 
 	selRenderers := make(map[Mode]Renderer, len(g.selRenderers))
@@ -227,7 +242,7 @@ func (g *Graph) replacePopulationRenderers() {
 	}
 	if g.selectedSubTreeRoot != nil {
 		startBar := g.selStartCycle / c.PopulationUpdateInterval()
-		selRenderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), g.selectedSubTreeRoot, startBar)
+		selRenderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), g.selectedSubTreeRoot, startBar, nil)
 	}
 	g.selRenderers = selRenderers
 }
@@ -255,7 +270,16 @@ func (g *Graph) ShowSelected() bool {
 // in-flight result is discarded as stale. The previous images stay on
 // screen until the repaint lands, rather than the graph going blank.
 func (g *Graph) Invalidate() {
-	g.discardCachedRenders()
+	g.discardCachedRenders(false)
+}
+
+// InvalidateTrees discards every cached render AND the cached alive
+// sets. Used when the descendant trees themselves are rebuilt — a replay
+// seek restores them from a snapshot — after which a cached alive set
+// holds pointers into trees that no longer exist.
+func (g *Graph) InvalidateTrees() {
+	g.aliveCache.Invalidate()
+	g.discardCachedRenders(false)
 }
 
 // Mode returns the currently-displayed graph mode.
@@ -286,10 +310,18 @@ func (g *Graph) Render() *ebiten.Image {
 
 	if g.forceRender && !g.rendering {
 		g.forceRender = false
+		popOnly := g.popOnlyRender
+		g.popOnlyRender = false
 		progress := g.beginRender()
-		barCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
+		barCount := g.targetBarCount()
 		hasSelection := g.selectedSubTreeRoot != nil
-		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, barCount, 0, g.renderGen, progress)
+		renderers := g.renderers
+		carried := map[Mode]*ebiten.Image(nil)
+		if popOnly {
+			renderers = map[Mode]Renderer{ModePopulation: g.renderers[ModePopulation]}
+			carried = g.images
+		}
+		go g.renderInBackground(renderers, g.selRenderers, hasSelection, 0, barCount, 0, g.renderGen, progress, carried)
 		return g.currentImage()
 	}
 
@@ -298,9 +330,12 @@ func (g *Graph) Render() *ebiten.Image {
 	// shouldUpdate() will catch this (both assume monotonic forward motion),
 	// so handle it explicitly here. At this point g.rendering is false, so
 	// calling Reset() on the renderers is safe.
-	targetBarCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
+	targetBarCount := g.targetBarCount()
 	seekedBack := g.images[ModePopulation] != nil && targetBarCount < g.currentBarCount
 	if seekedBack && !g.rendering {
+		// A backward seek restores the descendant trees from a snapshot,
+		// so cached alive sets point into trees that no longer exist.
+		g.aliveCache.Invalidate()
 		for _, r := range g.renderers {
 			r.Reset()
 		}
@@ -309,7 +344,7 @@ func (g *Graph) Render() *ebiten.Image {
 		}
 		progress := g.beginRender()
 		hasSelection := g.selectedSubTreeRoot != nil
-		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, targetBarCount, 0, g.renderGen, progress)
+		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, targetBarCount, 0, g.renderGen, progress, nil)
 		return g.currentImage()
 	}
 
@@ -326,14 +361,14 @@ func (g *Graph) Render() *ebiten.Image {
 
 	if g.shouldUpdate() && !g.rendering {
 		progress := g.beginRender()
-		newBarCount := 1 + (g.simulation.Cycle() / c.PopulationUpdateInterval())
+		newBarCount := g.targetBarCount()
 		oldBarCount := g.currentBarCount
 		selOldBarCount := g.selBarCount
 		// Capture renderer references to avoid racing with selection changes
 		renderers := g.renderers
 		selRenderers := g.selRenderers
 		hasSelection := g.selectedSubTreeRoot != nil
-		go g.renderInBackground(renderers, selRenderers, hasSelection, oldBarCount, newBarCount, selOldBarCount, g.renderGen, progress)
+		go g.renderInBackground(renderers, selRenderers, hasSelection, oldBarCount, newBarCount, selOldBarCount, g.renderGen, progress, nil)
 	}
 
 	return g.currentImage()
@@ -386,10 +421,25 @@ func (g *Graph) updateSelection() bool {
 			g.selStartCycle = root.StartCycle
 			startBar := g.selStartCycle / c.PopulationUpdateInterval()
 
-			g.selRenderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), root, startBar)
+			g.selRenderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), root, startBar, nil)
 		}
 	}
 	return true
+}
+
+// RenderedEndCycle is the cycle the graph image currently on show runs
+// up to, or -1 before the first render. Renders land every few cycles, so
+// this lags the simulation; anything mapping positions on the image to
+// cycles should use it rather than the live cycle.
+func (g *Graph) RenderedEndCycle() int {
+	bars := g.currentBarCount
+	if g.showSelected && g.selectedSubTreeRoot != nil && g.selImages[g.mode] != nil {
+		bars = g.selBarCount
+	}
+	if bars <= 0 {
+		return -1
+	}
+	return bars * c.PopulationUpdateInterval()
 }
 
 func (g *Graph) currentImage() *ebiten.Image {
@@ -405,17 +455,64 @@ func (g *Graph) shouldUpdate() bool {
 	if g.images[ModePopulation] == nil {
 		return true
 	}
-	if g.simulation.Cycle()%c.PopulationUpdateInterval() != 0 {
+	if g.endCycle() == g.simulation.Cycle() && g.simulation.Cycle()%c.PopulationUpdateInterval() != 0 {
 		return false
 	}
-	return 1+(g.simulation.Cycle()/c.PopulationUpdateInterval()) > g.currentBarCount
+	return g.targetBarCount() > g.currentBarCount
 }
 
+// endCycle is the last cycle the graphs cover. Replaying a recording,
+// that's the end of the whole recording — its family history and
+// per-cycle counts are all loaded up front, so the graphs are drawn once
+// for the entire run and stay on show in full, with the viewer marking
+// the playhead rather than cropping to it. A live run only knows up to
+// the current cycle.
+func (g *Graph) endCycle() int {
+	if recorded := g.simulation.RecordedEndCycle(); recorded > 0 {
+		return recorded
+	}
+	return g.simulation.Cycle()
+}
+
+// targetBarCount is how many bars the graphs should cover.
+func (g *Graph) targetBarCount() int {
+	return 1 + (g.endCycle() / c.PopulationUpdateInterval())
+}
+
+// heightScaler is implemented by renderers whose y-axis is scaled to the
+// whole run, so the viewer can stretch the part of the image the data has
+// actually reached. See population.Renderer.HeightFraction.
+type heightScaler interface {
+	HeightFraction(throughBar int) float64
+}
+
+// HeightFraction is how much of the current graph image's height holds
+// data up to throughBar: 1 for renderers with a fixed y-axis.
+func (g *Graph) HeightFraction(throughBar int) float64 {
+	renderers := g.renderers
+	if g.showSelected && g.selectedSubTreeRoot != nil {
+		if _, ok := g.selImages[g.mode]; ok {
+			renderers = g.selRenderers
+		}
+	}
+	if scaler, ok := renderers[g.mode].(heightScaler); ok {
+		return scaler.HeightFraction(throughBar)
+	}
+	return 1
+}
+
+// carried, when non-nil, supplies the images for modes that aren't being
+// re-rendered, so a population-only repaint keeps the pH, food and wall
+// graphs it already has.
 func (g *Graph) renderInBackground(
 	renderers map[Mode]Renderer, selRenderers map[Mode]Renderer, hasSelection bool,
 	oldBarCount, newBarCount, selOldBarCount, renderGen int, progress *gh.Progress,
+	carried map[Mode]*ebiten.Image,
 ) {
 	images := make(map[Mode]*ebiten.Image)
+	for mode, img := range carried {
+		images[mode] = img
+	}
 	for mode, renderer := range renderers {
 		images[mode] = renderer.Render(g.simulation, oldBarCount, newBarCount, progress)
 	}

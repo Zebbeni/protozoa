@@ -3,15 +3,84 @@ package config
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"os"
+	"reflect"
 )
 
 var defaultFilePath = "settings/default.json"
 var constants *Globals
 
-// SetGlobals initializes all globally-referenced constants.
+// SetGlobals initializes all globally-referenced constants. It
+// normalises the sign-bound settings first, so a file written under an
+// older convention still means what it meant.
 func SetGlobals(g *Globals) {
+	g.NormalizeSigns()
 	constants = g
+}
+
+// settingSigns lists the settings that only make sense on one side of
+// zero: the cost of an action is always a loss, damage is always damage.
+// A slider that can cross zero there offers a setting that turns a cost
+// into free health or an attack into a heal, which is never what the
+// user is reaching for.
+//
+// Damage is stored as a positive magnitude and subtracted where it
+// lands, so the settings read the way they're spoken about ("650 damage"
+// rather than "-650 health"). NormalizeSigns is what keeps files written
+// under the old negative convention working.
+var settingSigns = map[string]int{
+	"health_change_from_idle":           -1,
+	"health_change_from_turning":        -1,
+	"health_change_from_moving":         -1,
+	"health_change_from_moving_at_max":  -1,
+	"health_change_from_digging_at_max": -1,
+	"health_change_from_turning_at_max": -1,
+	"health_change_from_eating_attempt": -1,
+	"health_change_from_spawning":       -1,
+	"health_change_from_attacking":      -1,
+	"health_change_from_digging":        -1,
+	"health_change_from_blocked_move":   -1,
+	"health_change_inflicted_by_attack": 1,
+	"health_change_inflicted_by_thorns": 1,
+	"max_chemosynthesis_gain":           1,
+	"health_per_food_unit":              1,
+	"unhealthy_ph_damage":               1,
+	"chemo_ph_effect":                   1,
+	"eating_ph_effect":                  1,
+}
+
+// SettingSign is 1 for a setting that must be positive, -1 for one that
+// must be negative, and 0 for one that is genuinely signed.
+func SettingSign(jsonTag string) int { return settingSigns[jsonTag] }
+
+// NormalizeSigns puts every sign-bound float on its own side of zero,
+// keeping the magnitude. Called on every path that installs settings, so
+// a value typed, loaded or replayed from a file under the old convention
+// (attack damage was stored as -650) lands as the same amount of damage
+// rather than as healing.
+func NormalizeSign(v float64, jsonTag string) float64 {
+	if sign := SettingSign(jsonTag); sign != 0 {
+		return float64(sign) * math.Abs(v)
+	}
+	return v
+}
+
+// NormalizeSigns applies the sign convention to every field that has
+// one.
+func (g *Globals) NormalizeSigns() {
+	val := reflect.ValueOf(g).Elem()
+	t := val.Type()
+	for i := 0; i < t.NumField(); i++ {
+		if t.Field(i).Type.Kind() != reflect.Float64 {
+			continue
+		}
+		tag := t.Field(i).Tag.Get("json")
+		if SettingSign(tag) == 0 {
+			continue
+		}
+		val.Field(i).SetFloat(NormalizeSign(val.Field(i).Float(), tag))
+	}
 }
 
 // GetCurrentGlobals returns a pointer to the current globals for modification.
@@ -49,30 +118,31 @@ func MaxFoodValue() int            { return constants.MaxFoodValue }
 const (
 	minPh = 0.0
 	maxPh = 10.0
+	// initialPh is the pH every cell starts at: the middle of the scale.
+	// Not configurable — a world that starts uniform and drifts from
+	// whatever its organisms do is the interesting case, and a starting
+	// offset only shifts which way it drifts first.
+	initialPh = (minPh + maxPh) / 2
 )
 
-func MinPh() float64                   { return minPh }
-func MaxPh() float64                   { return maxPh }
-func MinInitialPh() float64            { return constants.MinInitialPh }
-func MaxInitialPh() float64            { return constants.MaxInitialPh }
-func MinIdealPh() float64              { return constants.MinIdealPh }
-func MaxIdealPh() float64              { return constants.MaxIdealPh }
-func PhTolerance() float64             { return constants.PhTolerance }
-func ChemosynthesisTolerance() float64 { return constants.ChemosynthesisTolerance }
+func MinPh() float64        { return minPh }
+func MaxPh() float64        { return maxPh }
+func InitialPh() float64    { return initialPh }
+func IdealPhRange() float64 { return constants.IdealPhRange }
 
-// ChemosynthesisPhWindow is how far an organism's cell pH may sit from its
-// ideal and still allow chemosynthesis. The single source for that window:
-// the chemosynthesis action and the CanChemosynthesizeHere condition both
-// read it, so what a decision tree tests can never disagree with what the
-// action does. Wider than PhTolerance when ChemosynthesisTolerance > 1, in
-// which case chemosynthesis works in water that is also damaging.
-func ChemosynthesisPhWindow() float64 { return PhTolerance() * ChemosynthesisTolerance() }
-func ChemoPhFalloff() float64         { return constants.ChemoPhFalloff }
-func ChemoCurveExponent() float64     { return constants.ChemoCurveExponent }
-func ChemoPhEffectPerSize() float64   { return constants.ChemoPhEffectPerSize }
-func EatingPhEffectPerFood() float64  { return constants.EatingPhEffectPerFood }
-func PhDiffuseFactor() float64        { return constants.PhDiffuseFactor }
-func PhIncrementToDisplay() float64   { return constants.PhIncrementToDisplay }
+// MinIdealPh and MaxIdealPh are the ends of the ideal-pH range lineages
+// can evolve within: IdealPhRange wide, centred on the middle of the pH
+// scale. One setting rather than two ends, since an off-centre range
+// would just bias every lineage the same way.
+func MinIdealPh() float64          { return initialPh - constants.IdealPhRange/2 }
+func MaxIdealPh() float64          { return initialPh + constants.IdealPhRange/2 }
+func IdealPhMutationStep() float64 { return constants.IdealPhMutationStep }
+func MaxPhToleranceWidth() float64 { return constants.MaxPhToleranceWidth }
+
+func ChemoPhEffect() float64        { return constants.ChemoPhEffect }
+func EatingPhEffect() float64       { return constants.EatingPhEffect }
+func PhDiffuseFactor() float64      { return constants.PhDiffuseFactor }
+func PhIncrementToDisplay() float64 { return constants.PhIncrementToDisplay }
 
 // --- Organisms ---
 func MinOrganisms() int                  { return constants.MinOrganisms }
@@ -97,53 +167,43 @@ func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize
 // --- Health Changes ---
 // Per-action costs/gains paid by the actor; size-scaled at the apply
 // site. Signed: negative = cost, positive = gain (only chemo today).
-func HealthChangeFromChemosynthesis() float64 { return constants.HealthChangeFromChemosynthesis }
-func HealthChangeFromFailedChemosynthesis() float64 {
-	return constants.HealthChangeFromFailedChemosynthesis
-}
+func MaxChemosynthesisGain() float64         { return constants.MaxChemosynthesisGain }
 func HealthChangeFromIdle() float64          { return constants.HealthChangeFromIdle }
 func HealthChangeFromTurning() float64       { return constants.HealthChangeFromTurning }
+func HealthChangeFromMovingAtMax() float64   { return constants.HealthChangeFromMovingAtMax }
+func HealthChangeFromTurningAtMax() float64  { return constants.HealthChangeFromTurningAtMax }
+func HealthChangeFromDiggingAtMax() float64  { return constants.HealthChangeFromDiggingAtMax }
 func HealthChangeFromMoving() float64        { return constants.HealthChangeFromMoving }
 func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFromEatingAttempt }
 func HealthChangeFromSpawning() float64      { return constants.HealthChangeFromSpawning }
 func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
 func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
+func HealthChangeFromBlockedMove() float64   { return constants.HealthChangeFromBlockedMove }
 
-// Damage delivered to targets — size-scaled, always negative.
-func HealthChangeInflictedByAttack() float64  { return constants.HealthChangeInflictedByAttack }
-func HealthChangeInflictedByShoving() float64 { return constants.HealthChangeInflictedByShoving }
-func AttackHealthGain() float64               { return constants.AttackHealthGain }
-func ChemoCrowdingPenalty() float64           { return constants.ChemoCrowdingPenalty }
-func CorpseFoodMultiplier() float64           { return constants.CorpseFoodMultiplier }
+// Damage delivered to targets — size-scaled positive magnitudes,
+// subtracted where they land.
+func AttackDamageAtFullAttack() float64 { return constants.AttackDamageAtFullAttack }
+func CorpseFoodMultiplier() float64     { return constants.CorpseFoodMultiplier }
 
 // Environmental health changes.
-func HealthChangePerUnhealthyPh() float64 { return constants.HealthChangePerCycleUnhealthyPh }
+func UnhealthyPhDamage() float64 { return constants.UnhealthyPhDamage }
 
 // --- Ability scores ---
-// Every organism distributes a fixed budget (physiology.PointTotal)
-// across six ability scores. Each score maps to an effect multiplier
-// via two linear segments pinned to 1.0 at the even-split score, so
-// the *AtZero / *AtMax pairs below are the full balance surface.
-//
-// Cost-style abilities (movement, and the cost half of digging) invert:
-// their AtZero is above 1 and AtMax below, so a high score means the
-// action is cheaper rather than stronger.
-func GenesisMinorAbilityScore() int    { return constants.GenesisMinorAbilityScore }
-func InitialAbilityScores() []int      { return constants.InitialAbilityScores }
-func RandomInitialAbilities() bool     { return constants.RandomInitialAbilities }
-func ChanceToMutateAbilities() float64 { return constants.ChanceToMutateAbilities }
-func MaxAbilityShift() int             { return constants.MaxAbilityShift }
-func AbilitySpecializationSpan() int   { return constants.AbilitySpecializationSpan }
-func ThornsThreshold() int             { return constants.ThornsThreshold }
-func ThornsDamagePerPoint() float64    { return constants.ThornsDamagePerPoint }
-func DefensePhProtection() float64     { return constants.DefensePhProtection }
+// Every organism distributes a fixed budget (physiology.PointTotal, 200)
+// across seven ability scores, each capped at physiology.MaxAbilityScore
+// (100), which drive multiplier curves between 0 and 1 across scores 0 to
+// 100 (see physiology.CurveFor and the per-shape K settings).
+func HealthPerFoodUnit() float64         { return constants.HealthPerFoodUnit }
+func InitialAbilityScores() []int        { return constants.InitialAbilityScores }
+func RandomInitialAbilities() bool       { return constants.RandomInitialAbilities }
+func ChanceToMutateAbilities() float64   { return constants.ChanceToMutateAbilities }
+func ThornsDamageAtFullDefense() float64 { return constants.ThornsDamageAtFullDefense }
 
 // --- Appearance thresholds ---
 // Sprite overlays are derived from ability scores, not inherited, so
 // these decide at what point an organism starts *looking* like what it
-// has specialised in. Genesis organisms sit at GenesisMinorAbilityScore
-// in every non-chemo ability, so a threshold at or below that would
-// give every newborn the overlay for free.
+// has specialised in. A threshold at or below the initial scores
+// gives every founder the overlay from the start.
 func ShellBodyThreshold() int     { return constants.ShellBodyThreshold }
 func SpikesBodyThreshold() int    { return constants.SpikesBodyThreshold }
 func PiliMotorThreshold() int     { return constants.PiliMotorThreshold }
@@ -152,26 +212,11 @@ func TeethMouthThreshold() int    { return constants.TeethMouthThreshold }
 func FangsMouthThreshold() int    { return constants.FangsMouthThreshold }
 func TusksMouthThreshold() int    { return constants.TusksMouthThreshold }
 func SensorMinConditions() int    { return constants.SensorMinConditions }
-func ChemoMultAtZero() float64    { return constants.ChemoMultAtZero }
-func ChemoMultAtMax() float64     { return constants.ChemoMultAtMax }
-func EatingMultAtZero() float64   { return constants.EatingMultAtZero }
-func EatingMultAtMax() float64    { return constants.EatingMultAtMax }
-func MovementMultAtZero() float64 { return constants.MovementMultAtZero }
-func MovementMultAtMax() float64  { return constants.MovementMultAtMax }
-func DiggingMultAtZero() float64  { return constants.DiggingMultAtZero }
-func DiggingMultAtMax() float64   { return constants.DiggingMultAtMax }
-func AttackMultAtZero() float64   { return constants.AttackMultAtZero }
-func AttackMultAtMax() float64    { return constants.AttackMultAtMax }
-func DefenseMultAtZero() float64  { return constants.DefenseMultAtZero }
-func DefenseMultAtMax() float64   { return constants.DefenseMultAtMax }
 
 // --- Physiology ---
 func WallStrengthDeltaSmall() int  { return constants.WallStrengthDeltaSmall }
 func WallStrengthDeltaMedium() int { return constants.WallStrengthDeltaMedium }
 func WallStrengthDeltaLarge() int  { return constants.WallStrengthDeltaLarge }
-func WallBreakScoreSmall() int     { return constants.WallBreakScoreSmall }
-func WallBreakScoreMedium() int    { return constants.WallBreakScoreMedium }
-func WallBreakScoreLarge() int     { return constants.WallBreakScoreLarge }
 
 // Sensors tree
 
@@ -330,44 +375,33 @@ type Globals struct {
 	MaxFoodValue        int     `json:"max_food_value"`
 
 	// --- pH ---
-	MinInitialPh float64 `json:"min_initial_ph"`
-	MaxInitialPh float64 `json:"max_initial_ph"`
-	MinIdealPh   float64 `json:"min_ideal_ph"`
-	MaxIdealPh   float64 `json:"max_ideal_ph"`
+	// IdealPhRange is how wide a band of ideal pH values lineages can
+	// evolve across, centred on the middle of the pH scale: 9 gives
+	// 0.5-9.5. Every cell starts at that middle (config.InitialPh).
+	IdealPhRange float64 `json:"ideal_ph_range"`
+	// IdealPhMutationStep is the furthest a child's ideal pH can land
+	// from its parent's, up or down. It sets how fast a lineage can
+	// follow a drifting world: 0 pins every lineage to the pH it started
+	// at, so a world that drifts far enough kills them.
+	IdealPhMutationStep float64 `json:"ideal_ph_mutation_step"`
 	// PhTolerance is the absolute pH distance every organism can sit
 	// from its IdealPh without taking unhealthy-pH damage. Global
 	// rather than per-organism — variation between organisms now
 	// comes from IdealPh alone.
-	PhTolerance float64 `json:"ph_tolerance"`
-	// ChemosynthesisTolerance multiplies PhTolerance to define the
-	// pH window in which chemosynthesis succeeds. Values below 1
-	// narrow chemo-viable pH relative to general survival tolerance;
-	// values above 1 widen it.
-	ChemosynthesisTolerance float64 `json:"chemosynthesis_tolerance"`
-	// ChemoPhFalloff shapes how chemosynthesis efficiency drops as a
-	// cell's pH moves away from the organism's ideal, inside the
-	// chemosynthesis window: efficiency = 1 - (distance/window)^k. Both
-	// the health gained and the acid produced scale with it, so a
-	// population chemosynthesizing in increasingly poor water also slows
-	// the acidification that made it poor. 1 is a linear decline, 2
-	// forgives small offsets and drops steeply near the edge, 0.5 drops
-	// quickly from the start. 0 disables it: full efficiency anywhere
-	// inside the window, the original flat behaviour.
-	ChemoPhFalloff float64 `json:"chemo_ph_falloff"`
-	// ChemoCurveExponent shapes the Chemosynthesis ability curve above an
-	// organism's genesis allocation. 1 is linear. Below 1 gives
-	// diminishing returns: the first points invested past genesis pay
-	// most, and stacking chemosynthesis toward the top of the budget pays
-	// progressively less, leaving more reason to spend points elsewhere.
-	ChemoCurveExponent float64 `json:"chemo_curve_exponent"`
-	// Chemosynthesis pushes the local pH down by ChemoPhEffectPerSize
-	// * organism.Size on each successful chemo cycle. Eating pushes
-	// the local pH up by EatingPhEffectPerFood * food_amount_eaten
-	// on each successful eat.
-	ChemoPhEffectPerSize  float64 `json:"chemosynthesis_ph_effect_per_size"`
-	EatingPhEffectPerFood float64 `json:"eating_ph_effect_per_food"`
-	PhDiffuseFactor       float64 `json:"ph_diffuse_factor"`
-	PhIncrementToDisplay  float64 `json:"ph_increment_to_display"`
+	// MaxPhToleranceWidth is T at 100 Tolerance: the pH offset an
+	// organism can bear for one unit of damage. Lower scores bear less,
+	// along the pH tolerance curve.
+	MaxPhToleranceWidth float64 `json:"max_ph_tolerance_width"`
+	// ChemoPhEffect and EatingPhEffect are how much pH an action moves
+	// per unit of health it gained: chemosynthesis pushes the local pH
+	// down, eating pushes it up. Tied to the health gained rather than to
+	// size or food value, so an action that barely paid off barely moves
+	// the water — the feedback that stops a population from driving its
+	// own pH away without limit. Actions that gain nothing move nothing.
+	ChemoPhEffect        float64 `json:"chemo_ph_effect"`
+	EatingPhEffect       float64 `json:"eating_ph_effect"`
+	PhDiffuseFactor      float64 `json:"ph_diffuse_factor"`
+	PhIncrementToDisplay float64 `json:"ph_increment_to_display"`
 
 	// --- Organisms ---
 	// MinOrganisms ends a run once the living population falls below it,
@@ -381,6 +415,19 @@ type Globals struct {
 	MinOrganisms int     `json:"min_organisms"`
 	MaxOrganisms int     `json:"max_organisms"`
 	GrowthFactor float64 `json:"growth_factor"`
+	// MaxFoodPerEatAtFullEating is the most food an organism with 100
+	// Eating removes in one eating action, as a multiple of its size.
+	// Lower Eating scores remove a fraction of this along the Eating
+	// curve. The json tag still says "bite": renaming it would drop the
+	// setting from every settings file and replay header already written.
+	MaxFoodPerEatAtFullEating float64 `json:"max_bite_at_full_eating"`
+	// HealthPerFoodUnit is the health one unit of food is worth to
+	// whoever eats it. Flat — how much an organism can swallow is what
+	// its Eating score buys, and what the food is worth is a property of
+	// the food, so this doesn't ride the Eating curve. It used to be
+	// implicitly 1, which made "max food per eat" read as a health
+	// number and hid how far above the food supply the cap sat.
+	HealthPerFoodUnit float64 `json:"health_per_food_unit"`
 	// EatingGrowthFactor is the share of health gained from eating, beyond
 	// an organism's current size, that turns into growth. GrowthFactor
 	// plays the same role for every other gain. At 1 an eater keeps all of
@@ -409,53 +456,53 @@ type Globals struct {
 	//   - HealthChangeFrom<Action> — size-scaled health delta the
 	//     actor pays (negative cost) or gains (positive). One per
 	//     action.
-	//   - HealthChangeInflictedBy<Action> — size-scaled damage
-	//     delivered to targets (always negative).
+	//   - <Thing>Damage — size-scaled damage delivered to a target,
+	//     stored as a positive magnitude and subtracted where it lands.
 	//   - HealthChangePer<Source> — environmental health delta.
-	HealthChangeFromChemosynthesis       float64 `json:"health_change_from_chemosynthesis"`
-	HealthChangeFromFailedChemosynthesis float64 `json:"health_change_from_failed_chemosynthesis"`
-	HealthChangeFromIdle                 float64 `json:"health_change_from_idle"`
-	HealthChangeFromTurning              float64 `json:"health_change_from_turning"`
-	HealthChangeFromMoving               float64 `json:"health_change_from_moving"`
-	HealthChangeFromEatingAttempt        float64 `json:"health_change_from_eating_attempt"`
-	HealthChangeFromSpawning             float64 `json:"health_change_from_spawning"`
-	HealthChangeFromAttacking            float64 `json:"health_change_from_attacking"`
-	HealthChangeFromDigging              float64 `json:"health_change_from_digging"`
-	HealthChangeInflictedByAttack        float64 `json:"health_change_inflicted_by_attack"`
-	// HealthChangeInflictedByShoving is the damage per unit of size a
-	// large organism deals when it tries to move into an occupied cell,
-	// scaled by its Digging multiplier and reduced by the target's
-	// Defense like any other damage. See manager.shoveEffect.
-	HealthChangeInflictedByShoving float64 `json:"health_change_inflicted_by_shoving"`
-	// AttackHealthGain is the share of attack damage landed on a victim
-	// that the attacker gains as health, capped at the health the victim
-	// had left: predation. 0 disables it, leaving corpses as the only
-	// payoff from an attack.
-	AttackHealthGain float64 `json:"attack_health_gain"`
-	// ChemoCrowdingPenalty is the share of chemosynthesis efficiency lost
-	// per adjacent organism (up to four), modelling competition for the
-	// same dissolved nutrients. 0 disables it.
-	ChemoCrowdingPenalty float64 `json:"chemo_crowding_penalty"`
+	// The costs are held negative and the damages positive by
+	// settingSigns; their json tags predate the split.
+	MaxChemosynthesisGain   float64 `json:"max_chemosynthesis_gain"`
+	HealthChangeFromIdle    float64 `json:"health_change_from_idle"`
+	HealthChangeFromTurning float64 `json:"health_change_from_turning"`
+	// The far end of the cost curves: what each action costs at full
+	// ability, where the curve alone would have taken it to nothing. No
+	// action is ever free — a body still has to move itself, and still
+	// has to shift the terrain — so the ability buys a discount, not
+	// exemption. The curve carries each cost from the value at ability 0
+	// down to the value here.
+	HealthChangeFromMovingAtMax   float64 `json:"health_change_from_moving_at_max"`
+	HealthChangeFromTurningAtMax  float64 `json:"health_change_from_turning_at_max"`
+	HealthChangeFromDiggingAtMax  float64 `json:"health_change_from_digging_at_max"`
+	HealthChangeFromMoving        float64 `json:"health_change_from_moving"`
+	HealthChangeFromEatingAttempt float64 `json:"health_change_from_eating_attempt"`
+	HealthChangeFromSpawning      float64 `json:"health_change_from_spawning"`
+	HealthChangeFromAttacking     float64 `json:"health_change_from_attacking"`
+	HealthChangeFromDigging       float64 `json:"health_change_from_digging"`
+	// HealthChangeFromBlockedMove is charged on top of the move cost,
+	// per unit of size, when an organism walks into something that was
+	// already there — a wall, food, or another organism — so misreading
+	// the world ahead costs more than reading it right. Size-scaled like
+	// every other health change, so it keeps biting as an organism grows,
+	// but no ability scales it: no score makes a wall passable. It is NOT
+	// charged when the cell was empty at decision time and someone else
+	// reached it first; losing a race is luck, not a misread.
+	HealthChangeFromBlockedMove float64 `json:"health_change_from_blocked_move"`
+	// AttackDamageAtFullAttack is the damage an attacker with 100 Attack
+	// deals per unit of its size, before the target's Defense. A positive
+	// magnitude: applyAttack subtracts it.
+	AttackDamageAtFullAttack float64 `json:"health_change_inflicted_by_attack"`
 	// CorpseFoodMultiplier scales the food a dead organism leaves behind,
 	// as a multiple of its size.
-	CorpseFoodMultiplier            float64 `json:"corpse_food_multiplier"`
-	HealthChangePerCycleUnhealthyPh float64 `json:"health_change_per_unhealthy_ph"`
+	CorpseFoodMultiplier float64 `json:"corpse_food_multiplier"`
+	UnhealthyPhDamage    float64 `json:"unhealthy_ph_damage"`
 
 	// --- Ability scores ---
-	// GenesisMinorAbilityScore is the score every non-chemosynthesis
-	// ability starts at for a genesis organism; chemosynthesis takes
-	// the whole remainder of the budget. Genesis organisms are pure
-	// chemosynthesizers, and every point of movement / attack / defense
-	// a lineage later evolves is a point taken off self-feeding.
-	GenesisMinorAbilityScore int `json:"genesis_minor_ability_score"`
 	// InitialAbilityScores is the ability distribution the simulation's
 	// initial organisms start with, in physiology.AllAbilities order
-	// (chemosynthesis, eating, movement, digging, attack, defense). It
-	// must sum to the 100-point budget; the config screen refuses to
-	// start otherwise, and a bad value loaded from a file falls back to
-	// the genesis distribution. It sets only where organisms start —
-	// the multiplier curves still pivot on the genesis distribution
-	// from GenesisMinorAbilityScore.
+	// (chemosynthesis, eating, movement, digging, attack, defense,
+	// tolerance). It must sum to the 200-point budget with no entry over
+	// 100; the config screen refuses to start otherwise, and a bad value
+	// loaded from a file falls back to the balanced distribution.
 	InitialAbilityScores []int `json:"initial_ability_scores"`
 	// RandomInitialAbilities gives each initial organism its own random
 	// split of the budget instead of InitialAbilityScores.
@@ -465,37 +512,15 @@ type Globals struct {
 	// gain rate because a transfer is a small nudge rather than a whole
 	// new capability.
 	ChanceToMutateAbilities float64 `json:"chance_to_mutate_abilities"`
-	// MaxAbilityShift caps how many points one mutation can move. The
-	// actual shift is 1..MaxAbilityShift, clamped to the donor balance.
-	MaxAbilityShift int `json:"max_ability_shift"`
-	// AbilitySpecializationSpan is how many points above its genesis
-	// allocation an ability must gain to reach its full multiplier.
-	// Fixed across abilities on purpose: anchoring the top of the curve
-	// at the 100-point budget instead made non-chemo abilities nine
-	// times harder to grow into than to abandon, which put every
-	// specialist behind a fitness valley no lineage could cross.
-	AbilitySpecializationSpan int `json:"ability_specialization_span"`
-	// ThornsThreshold is the Defense score above which a
-	// defender starts returning damage to its attacker. Gated rather
-	// than scaled from zero so light armour absorbs damage while heavy
-	// armour punishes — the counter-attack should read as its own
-	// strategy, not as a small bonus everyone gets.
-	ThornsThreshold int `json:"thorns_threshold"`
-	// ThornsDamagePerPoint is the damage a defender deals back to each
-	// organism that hits it, per point of Defense above ThornsThreshold
-	// and per unit of the defender's size. Independent of the attack: at
-	// 0.005 a size-50 defender with 80 Defense deals 10 per hit taken,
-	// however hard or soft the hit was.
-	ThornsDamagePerPoint float64 `json:"thorns_damage_per_point"`
-	// DefensePhProtection is how much of Defense's protection against
-	// attacks also applies to unhealthy-pH damage, from 0 (none — pH
-	// damage ignores Defense) to 1 (pH damage is reduced exactly as much
-	// as attack damage).
-	DefensePhProtection float64 `json:"defense_ph_protection"`
+	// ThornsDamageAtFullDefense is the damage a defender with 100
+	// Defense deals back to each organism that hits it, per unit of the
+	// defender's size, along the Thorns curve. Independent of the attack:
+	// the counter-attack is the defender's, so a soft hit is answered as
+	// hard as a heavy one.
+	ThornsDamageAtFullDefense float64 `json:"health_change_inflicted_by_thorns"`
 
 	// --- Appearance thresholds ---
-	// Score at which each overlay starts being drawn. Must sit above
-	// GenesisMinorAbilityScore or newborns get the sprite for nothing.
+	// Score at which each overlay starts being drawn.
 	ShellBodyThreshold     int `json:"shell_body_threshold"`
 	SpikesBodyThreshold    int `json:"spikes_body_threshold"`
 	PiliMotorThreshold     int `json:"pili_motor_threshold"`
@@ -510,21 +535,48 @@ type Globals struct {
 	// actually checks for.
 	SensorMinConditions int `json:"sensor_min_conditions"`
 
-	// Per-ability multiplier curve endpoints. Each pair is
-	// (multiplier at score 0, multiplier at score PointTotal); the
-	// curve passes through exactly 1.0 at the even-split score.
-	ChemoMultAtZero    float64 `json:"chemo_mult_at_zero"`
-	ChemoMultAtMax     float64 `json:"chemo_mult_at_max"`
-	EatingMultAtZero   float64 `json:"eating_mult_at_zero"`
-	EatingMultAtMax    float64 `json:"eating_mult_at_max"`
-	MovementMultAtZero float64 `json:"movement_mult_at_zero"`
-	MovementMultAtMax  float64 `json:"movement_mult_at_max"`
-	DiggingMultAtZero  float64 `json:"digging_mult_at_zero"`
-	DiggingMultAtMax   float64 `json:"digging_mult_at_max"`
-	AttackMultAtZero   float64 `json:"attack_mult_at_zero"`
-	AttackMultAtMax    float64 `json:"attack_mult_at_max"`
-	DefenseMultAtZero  float64 `json:"defense_mult_at_zero"`
-	DefenseMultAtMax   float64 `json:"defense_mult_at_max"`
+	// Ability curves. Each ability multiplier is a dampened cosine curve
+	// between 0 and 1 across scores 0 to 100 — rising for effects, falling
+	// for costs — scaling the health change or damage setting that defines
+	// its full value. These K values set how strongly each curve suppresses
+	// early values, from 0 (a pure cosine S-curve) to 1 (the most). See
+	// physiology.Curve.
+	ChemosynthesisCosineK      float64 `json:"chemosynthesis_cosine_k"`
+	ChemosynthesisSaturatingK  float64 `json:"chemosynthesis_saturating_k"`
+	EatingCosineK              float64 `json:"eating_cosine_k"`
+	EatingSaturatingK          float64 `json:"eating_saturating_k"`
+	MovementCostCosineK        float64 `json:"movement_cost_cosine_k"`
+	MovementCostSaturatingK    float64 `json:"movement_cost_saturating_k"`
+	DiggingCostCosineK         float64 `json:"digging_cost_cosine_k"`
+	DiggingCostSaturatingK     float64 `json:"digging_cost_saturating_k"`
+	DiggingStrengthCosineK     float64 `json:"digging_strength_cosine_k"`
+	DiggingStrengthSaturatingK float64 `json:"digging_strength_saturating_k"`
+	DiggingCreationCosineK     float64 `json:"digging_creation_cosine_k"`
+	DiggingCreationSaturatingK float64 `json:"digging_creation_saturating_k"`
+	AttackCosineK              float64 `json:"attack_cosine_k"`
+	AttackSaturatingK          float64 `json:"attack_saturating_k"`
+	DamageTakenCosineK         float64 `json:"damage_taken_cosine_k"`
+	DamageTakenSaturatingK     float64 `json:"damage_taken_saturating_k"`
+	ThornsCosineK              float64 `json:"thorns_cosine_k"`
+	ThornsSaturatingK          float64 `json:"thorns_saturating_k"`
+	PhToleranceCosineK         float64 `json:"ph_tolerance_cosine_k"`
+	PhToleranceSaturatingK     float64 `json:"ph_tolerance_saturating_k"`
+
+	// Curve shapes. Each names how its curve climbs from 0 to 1 —
+	// "linear", "quadratic", "cosine" or "saturating" — so an ability can
+	// be made an early buy or a late commitment without touching the
+	// values it scales. Anything else falls back to the curve's default.
+	// See physiology.ShapeKind.
+	ChemosynthesisCurveShape  string `json:"chemosynthesis_curve_shape"`
+	EatingCurveShape          string `json:"eating_curve_shape"`
+	MovementCostCurveShape    string `json:"movement_cost_curve_shape"`
+	DiggingCostCurveShape     string `json:"digging_cost_curve_shape"`
+	DiggingStrengthCurveShape string `json:"digging_strength_curve_shape"`
+	DiggingCreationCurveShape string `json:"digging_creation_curve_shape"`
+	AttackCurveShape          string `json:"attack_curve_shape"`
+	DamageTakenCurveShape     string `json:"damage_taken_curve_shape"`
+	ThornsCurveShape          string `json:"thorns_curve_shape"`
+	PhToleranceCurveShape     string `json:"ph_tolerance_curve_shape"`
 
 	// --- Physiology ---
 	// ChanceToGainFeature is the per-spawn probability that a child
@@ -542,18 +594,40 @@ type Globals struct {
 	// WallStrengthDeltaSmall/Medium/Large set how much wall strength
 	// a single ActDig adds or removes, bucketed by the
 	// organism's size class (thirds of MaximumMaxSize).
+	// Wall strength one dig moves, and food one dig roots up, by the
+	// digger's size class. Both are whole units — wall strength and food
+	// values are ints — so each is the value at 100 Digging, and the
+	// *AtZero setting beside it is the value at 0. The Digging strength
+	// curve interpolates between the two and the result is rounded, which
+	// is what makes these step from one whole unit to the next rather
+	// than fading to a fraction nothing can hold.
 	WallStrengthDeltaSmall  int `json:"wall_strength_delta_small"`
 	WallStrengthDeltaMedium int `json:"wall_strength_delta_medium"`
 	WallStrengthDeltaLarge  int `json:"wall_strength_delta_large"`
-	// WallBreakScoreSmall/Medium/Large calibrate how hard organisms wear
-	// down walls by moving into them (Digging) or attacking them
-	// (Attack): the ability score at which an organism of that size
-	// class removes exactly one point of wall strength per hit. Higher
-	// scores remove proportionally more, following the ability's
-	// multiplier curve. See manager.wallDamage.
-	WallBreakScoreSmall  int `json:"wall_break_score_small"`
-	WallBreakScoreMedium int `json:"wall_break_score_medium"`
-	WallBreakScoreLarge  int `json:"wall_break_score_large"`
+	// WallStrengthDeltaAtZero is what a dig clears with no Digging at all.
+	// 1 keeps a scratch from doing literally nothing, which would read as
+	// a bug from the outside: the dig still costs health.
+	WallStrengthDeltaAtZero int `json:"wall_strength_delta_at_zero"`
+	// Wall strength a dig packs into the cell either side of it, by size
+	// class, along its own curve. Separate from what the dig clears ahead
+	// so the two can differ: a small organism can tunnel slowly without
+	// being able to raise walls at all (set its class to 0), which one
+	// shared number could never express.
+	WallCreatedSmall  int `json:"wall_created_small"`
+	WallCreatedMedium int `json:"wall_created_medium"`
+	WallCreatedLarge  int `json:"wall_created_large"`
+	// WallCreatedAtZero is what a dig raises with no Digging at all.
+	WallCreatedAtZero int `json:"wall_created_at_zero"`
+	// Food a dig roots up in the cell ahead when it isn't a wall or
+	// occupied. The only food source besides random spawns and corpses,
+	// so energy can enter the world without chemosynthesis.
+	FoodFromDiggingSmall  int `json:"food_from_digging_small"`
+	FoodFromDiggingMedium int `json:"food_from_digging_medium"`
+	FoodFromDiggingLarge  int `json:"food_from_digging_large"`
+	// FoodFromDiggingAtZero is what a dig roots up with no Digging at
+	// all. 0 by default: rooting for nutrients is the ability's payoff,
+	// so an organism that hasn't invested in it gets nothing.
+	FoodFromDiggingAtZero int `json:"food_from_digging_at_zero"`
 
 	// Sensors tree
 

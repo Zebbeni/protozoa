@@ -10,6 +10,7 @@ import (
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
@@ -71,7 +72,10 @@ type OrganismManager struct {
 	// recordedEndCycle is the end of the recorded run, set alongside each
 	// node's LineageEndCycle when trees are restored. 0 in a live run.
 	recordedEndCycle int
-	history          map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
+	// treesGeneration identifies the decoded trees installed here; see
+	// DescendantTrees.
+	treesGeneration int
+	history         map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
 
 	UpdateDuration, ResolveDuration, SortDuration, HistoryDuration time.Duration
 
@@ -354,13 +358,6 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		target := o.Location.Add(o.Direction)
 		if m.isGridLocationEmpty(target) {
 			rm.AddPositionRequest(target, o.ID)
-		} else if m.isOrganismAtLocation(target) {
-			// A large organism pushing into an occupied cell shoves
-			// whoever is there. Queued like an attack, so the target's
-			// Defense mitigates it and thorns can answer it.
-			if effect, ok := shoveEffect(o); ok {
-				rm.AddHealthEffectRequest(target, effect, o.ID)
-			}
 		}
 	case d.ActSpawn:
 		if target, _, ok := m.getChildSpawnLocation(o); ok {
@@ -898,6 +895,28 @@ func (m *OrganismManager) GetMostSuccessfulId() int {
 }
 
 // OrganismCount returns the current number of organisms alive in the simulation
+// AverageAbilityScores is the mean of every living organism's scores,
+// ability by ability. All zeroes when nothing is alive.
+func (m *OrganismManager) AverageAbilityScores() [physiology.AbilityCount]float64 {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+
+	var totals [physiology.AbilityCount]float64
+	if len(m.organisms) == 0 {
+		return totals
+	}
+	for _, o := range m.organisms {
+		scores := o.Abilities()
+		for _, a := range physiology.AllAbilities {
+			totals[a] += float64(scores[a])
+		}
+	}
+	for i := range totals {
+		totals[i] /= float64(len(m.organisms))
+	}
+	return totals
+}
+
 func (m *OrganismManager) OrganismCount() int {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -940,13 +959,10 @@ func (m *OrganismManager) applyAction(o *organism.Organism) {
 
 func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	traits := o.TraitsRef()
-	phEffect := 0.0
-	tolerance := c.PhTolerance()
-	// Subtract health if organism is too far away from its ideal ph
+	// Water away from an organism's ideal pH costs it health, more
+	// sharply the further off it is, less so the more Tolerance it has.
 	phDist := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
-	if phDist > tolerance {
-		phEffect = (phDist - tolerance) * c.HealthChangePerUnhealthyPh()
-	}
+	phEffect := effects.PhDamage(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityTolerance], o.Size, phDist)
 	// Add effects due to attack (not related to organism size).
 	// The defender's Defense score sets how much incoming damage
 	// lands. healthEffects is already negative for damage, so
@@ -954,25 +970,13 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	defense := o.Abilities()[physiology.AbilityDefense]
 	damageMult := defenseDamageMult(o.Abilities())
 
-	// Defense also shields against unhealthy pH, at a configurable share
-	// of its attack protection (see defensePhMult). phEffect is already
-	// negative when the organism is outside its tolerance.
-	phEffect *= defensePhMult(damageMult)
-
 	// Walk the incoming effects individually rather than taking the
 	// sum: each still carries the ID of whoever caused it, which thorns
 	// need to know who to hurt back.
 	healthEffects := 0.0
-	// remaining tracks how much health the defender has left to lose as
-	// each hit lands, so predation can't feed on overkill.
-	remaining := max(0, o.Health)
 	for _, e := range m.requestManager.GetHealthEffects(o.Location) {
-		landed := e.Amount * damageMult
-		healthEffects += landed
+		healthEffects += e.Amount * damageMult
 		m.applyThorns(o, e, defense)
-		if e.Predatory {
-			remaining = m.applyPredation(o, e.SourceID, landed, remaining)
-		}
 	}
 	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
 
@@ -984,50 +988,10 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	}
 }
 
-// applyPredation feeds an attacker a share of the attack damage that landed
-// on its victim, AttackHealthGain of it, and returns the victim's health
-// left after this hit.
-//
-// The gain is capped at the health the victim actually had: attacks can
-// deal far more damage than a victim holds, and feeding on that overkill
-// would pay an attacker most for hitting the smallest prey.
-func (m *OrganismManager) applyPredation(victim *organism.Organism, attackerID int, landed, remaining float64) float64 {
-	taken := min(max(0, -landed), remaining)
-	gain := c.AttackHealthGain()
-	if taken <= 0 || gain <= 0 || attackerID < 0 || attackerID == victim.ID {
-		return remaining - taken
-	}
-	if attacker, ok := m.organisms[attackerID]; ok {
-		m.applyHealthChange(attacker, taken*gain)
-		m.addUpdatedPoint(attacker.Location)
-	}
-	return remaining - taken
-}
-
 // defenseDamageMult is the multiplier a defender applies to incoming
-// damage: its Defense multiplier, floored at zero.
-//
-// The floor matters. The Defense curve stays linear past full
-// specialisation, and unfloored it crosses zero at a score of about 96.
-// A negative multiplier turns damage into healing: attacks would heal
-// the defender, and (since Defense also scales pH damage) so would
-// standing in unhealthy water. Zero is full immunity, the natural limit.
+// damage. See effects.DamageTakenMultiplier.
 func defenseDamageMult(scores physiology.Scores) float64 {
-	return max(0, scores.Multiplier(physiology.AbilityDefense))
-}
-
-// defensePhMult converts a defender's attack damage multiplier into its
-// unhealthy-pH damage multiplier, applying DefensePhProtection of the
-// same effect: 1 gives pH damage exactly the protection attacks get, 0
-// leaves pH damage untouched.
-//
-// Scaled as a share of the deviation from 1.0 rather than of the
-// multiplier itself, so it works symmetrically: a heavily defended
-// organism takes less pH damage, and one with less Defense than it was
-// born with takes proportionally more — the same way Defense treats
-// attacks.
-func defensePhMult(damageMult float64) float64 {
-	return max(0, 1+(damageMult-1)*c.DefensePhProtection())
+	return effects.DamageTakenMultiplier(c.GetCurrentGlobals(), scores[physiology.AbilityDefense])
 }
 
 // applyIdle is the resolution for ActIdle: the organism holds its current
@@ -1047,70 +1011,28 @@ func (m *OrganismManager) applyIdle(o *organism.Organism) {
 // easier (factor > 1). Also records whether the attempt failed so the
 // renderer can play the chemofail sprite in place of the normal one.
 func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
+	g := c.GetCurrentGlobals()
 	traits := o.TraitsRef()
-	ph := m.api.GetPhAtPoint(o.Location)
-	distance := math.Abs(traits.IdealPh - ph)
-	if window := c.ChemosynthesisPhWindow(); distance < window {
-		// Gain scales with the organism's Chemosynthesis ability and with
-		// how close the cell's pH is to its ideal (chemoPhEfficiency). The
-		// window can be set wider than PhTolerance, in which case an
-		// organism can chemosynthesize in water that is also damaging
-		// it — pH damage is applied separately in
-		// applyCycleHealthChanges, scaled down by Defense.
-		efficiency := chemoPhEfficiency(distance, window) * m.chemoCrowdingFactor(o)
-		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size*o.AbilityMultiplier(physiology.AbilityChemosynthesis)*efficiency)
-		o.Status = organism.StatusChemoSuccess
-		// Successful chemo pushes local pH down, scaled by organism
-		// size — bigger organisms acidify faster — and by the same
-		// efficiency: less chemosynthesis produces less acid, which is
-		// the negative feedback that stops a chemosynthesizing population
-		// from driving its own water ever further from ideal.
-		// Accumulate the magnitude on the organism for the per-organism
-		// tinting.
-		delta := c.ChemoPhEffectPerSize() * o.Size * efficiency
-		m.api.AddPhChangeAtPoint(o.Location, -delta)
-		o.PhNegative += delta
-	} else {
-		m.applyHealthChange(o, c.HealthChangeFromFailedChemosynthesis()*o.Size)
+	distance := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
+	// One curve covers the whole attempt: a gain near the organism's ideal
+	// pH, falling through zero at the edge of its Chemosynthesis width and
+	// into a loss beyond it. Nothing separate to fail.
+	gain := effects.ChemosynthesisGain(g, o.Abilities()[physiology.AbilityChemosynthesis], o.Size, distance)
+	m.applyHealthChange(o, gain)
+	if gain <= 0 {
 		o.Status = organism.StatusChemoFailed
+		return
 	}
-}
+	o.Status = organism.StatusChemoSuccess
 
-// chemoPhEfficiency is the fraction of full chemosynthesis an organism
-// achieves at a given pH distance from its ideal, inside a window of the
-// given width: 1 - (distance/window)^k with k = ChemoPhFalloff.
-//
-// k = 0 disables the falloff entirely (full efficiency anywhere in the
-// window), which is the original behaviour; (d/w)^0 would otherwise
-// evaluate to 1 and zero out every organism. Clamped to [0, 1] so a
-// distance at or past the window edge can never yield negative gain.
-func chemoPhEfficiency(distance, window float64) float64 {
-	k := c.ChemoPhFalloff()
-	if k <= 0 || window <= 0 {
-		return 1
-	}
-	return max(0, min(1, 1-math.Pow(distance/window, k)))
-}
-
-// chemoCrowdingFactor is the share of chemosynthesis an organism keeps
-// given how many of its four neighbours are occupied by other organisms:
-// 1 - ChemoCrowdingPenalty per neighbour, floored at zero. Crowded
-// chemosynthesizers compete for the same dissolved nutrients, so a solid
-// colony can't all feed at full rate.
-func (m *OrganismManager) chemoCrowdingFactor(o *organism.Organism) float64 {
-	penalty := c.ChemoCrowdingPenalty()
-	if penalty <= 0 {
-		return 1
-	}
-	neighbours := 0
-	dir := utils.Point{X: 0, Y: -1}
-	for i := 0; i < 4; i++ {
-		if m.isOrganismAtLocation(o.Location.Add(dir)) {
-			neighbours++
-		}
-		dir = dir.Left()
-	}
-	return max(0, 1-penalty*float64(neighbours))
+	// Chemosynthesis pushes local pH down in proportion to the health it
+	// just gained, so a marginal attempt produces little acid — the
+	// feedback that stops a chemosynthesizing population from driving its
+	// own water ever further from ideal. Accumulate the magnitude on the
+	// organism for the per-organism tinting.
+	delta := g.ChemoPhEffect * gain
+	m.api.AddPhChangeAtPoint(o.Location, -delta)
+	o.PhNegative += delta
 }
 
 func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64) {
@@ -1125,155 +1047,16 @@ func (m *OrganismManager) applyAttack(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
 	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size)
 	o.Status = organism.StatusAttacking
-	// An attack aimed at a wall batters it. Attacks on organisms are
-	// resolved through the health-effect request map instead; a wall
-	// cell can never hold an organism, so the two never overlap.
-	m.damageWallAhead(o, physiology.AbilityAttack)
+	// Attacks land on organisms only, through the health-effect request
+	// map. Walls are worn down by digging, which is the one action that
+	// reshapes terrain.
 }
 
-// damageWallAhead wears down the wall directly in front of o, if there is
-// one, using the given ability. See wallDamage.
-func (m *OrganismManager) damageWallAhead(o *organism.Organism, ability physiology.Ability) {
-	target := o.Location.Add(o.Direction)
-	if m.api.GetWallStrengthAtPoint(target) <= 0 {
-		return
-	}
-	damage := wallDamage(o.Size, o.Abilities(), ability, m.rng.Float64())
-	if damage <= 0 {
-		return
-	}
-	m.api.AddWallStrength(target, -damage)
-	m.api.AddWallUpdate(target)
-}
-
-// wallDamage returns how many points of strength an organism knocks off
-// a wall with one hit, by moving into it (ability = Digging) or attacking
-// it (ability = Attack):
-//
-//	damage = multiplier(score) / multiplier(breakScore(size class))
-//
-// The break score is the ability score at which an organism of its size
-// class removes exactly one point per hit (WallBreakScoreSmall/Medium/
-// Large). At the defaults a large organism with 10 points and a small
-// organism with 50 points both take exactly 7 hits to destroy a
-// strength-7 wall. Calibrating against the ability's own multiplier
-// curve, rather than a hand-picked factor per size, keeps those
-// reference points exact however the curve endpoints are tuned; scores
-// above or below the break score hit proportionally harder or softer.
-//
-// Stronger walls take more hits simply by having more points to remove.
-// Damage per hit deliberately doesn't shrink as strength rises, so the
-// hit count is a clean multiple of strength.
-//
-// Strength is an integer, so the fractional part of the damage is applied
-// as a chance, rolled against roll (a uniform [0, 1) draw). A weak hitter
-// still wears walls down eventually instead of rounding to zero, and the
-// average stays exactly the formula above. roll comes from the simulation
-// RNG, and actions resolve in a fixed order, so outcomes are deterministic.
-func wallDamage(size float64, scores physiology.Scores, ability physiology.Ability, roll float64) int {
-	reference := physiology.MultiplierAt(ability, wallBreakScore(size))
-	if reference <= 0 {
-		return 0
-	}
-	damage := max(0, scores.Multiplier(ability)) / reference
-	// Snap values within float noise of a whole number, so a hit that is
-	// exactly one point by construction never rolls for a second.
-	whole := math.Floor(damage)
-	if nearest := math.Round(damage); math.Abs(damage-nearest) < 1e-9 {
-		return int(nearest)
-	}
-	if roll < damage-whole {
-		whole++
-	}
-	return int(whole)
-}
-
-// wallBreakScore picks the break score for an organism's size class,
-// using the same thirds-of-MaximumMaxSize brackets as digging and the
-// sprite size buckets.
-func wallBreakScore(size float64) int {
-	switch sizeBracket(size) {
-	case 0:
-		return c.WallBreakScoreSmall()
-	case 1:
-		return c.WallBreakScoreMedium()
-	default:
-		return c.WallBreakScoreLarge()
-	}
-}
-
-// sizeBracket returns 0, 1 or 2 for small, medium or large organisms:
-// thirds of MaximumMaxSize, matching the renderer's size buckets.
-func sizeBracket(size float64) int {
-	maxSize := c.MaximumMaxSize()
-	switch {
-	case size < maxSize*(1.0/3.0):
-		return 0
-	case size < maxSize*(2.0/3.0):
-		return 1
-	default:
-		return 2
-	}
-}
-
-// shoveEffect returns the damage a mover deals to the organism blocking
-// its path, and whether it deals any. Only large organisms shove —
-// sizeBracket 2, the top third of MaximumMaxSize — so small and medium
-// organisms still just bump into each other.
-//
-//	damage = HealthChangeInflictedByShoving × size × Digging multiplier
-//
-// The Digging multiplier makes burrowers the ones who plough through a
-// crowd, as they do through walls. The result is negative (damage) and is
-// reduced on the receiving side by the target's Defense, exactly like an
-// attack, in applyCycleHealthChanges.
-func shoveEffect(o *organism.Organism) (float64, bool) {
-	if sizeBracket(o.Size) < 2 {
-		return 0, false
-	}
-	effect := c.HealthChangeInflictedByShoving() * o.Size * max(0, o.AbilityMultiplier(physiology.AbilityDigging))
-	return effect, effect != 0
-}
-
+// calculateAttackEffect is the health change o's attack inflicts before
+// the target's Defense: the damage from effects.AttackDamage, negated
+// here because the request map carries health changes, not damage.
 func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
-	// AttackDamageDealtMult is the attacker's passive tradeoff
-	// The defender's Defense score is applied on the receive side in
-	// applyCycleHealthChanges.
-	mult := o.AbilityMultiplier(physiology.AbilityAttack)
-	return c.HealthChangeInflictedByAttack() * o.Size * mult
-}
-
-// sizeStrengthDelta returns the amount of wall strength a digger
-// of the given Size adds or removes per action, looked up
-// from the WallStrengthDelta* config knobs. Bracket cutoffs match
-// the renderer's thirds-of-MaximumMaxSize bins so the size class an
-// organism reads as visually maps 1:1 to the strength delta it does.
-func sizeStrengthDelta(size float64) int {
-	switch sizeBracket(size) {
-	case 0:
-		return c.WallStrengthDeltaSmall()
-	case 1:
-		return c.WallStrengthDeltaMedium()
-	default:
-		return c.WallStrengthDeltaLarge()
-	}
-}
-
-// scaledStrengthDelta applies an organism's Digging ability to the
-// size-derived wall-strength delta. Rounded away from zero so a
-// low-ability digger still shifts at least one point of strength
-// rather than silently doing nothing — a dig that costs health and
-// moves no terrain would read as a bug from the outside.
-func scaledStrengthDelta(size float64, digMult float64) int {
-	base := sizeStrengthDelta(size)
-	scaled := int(math.Round(float64(base) * digMult))
-	if scaled == 0 && base != 0 {
-		if base > 0 {
-			return 1
-		}
-		return -1
-	}
-	return scaled
+	return -effects.AttackDamage(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityAttack], o.Size)
 }
 
 // applyDig resolves ActDig: pays the dig cost, damages any wall (or
@@ -1282,11 +1065,11 @@ func scaledStrengthDelta(size float64, digMult float64) int {
 // lineage gets the full toolkit from one decision.
 //
 // Front cell:
-//   - wall present  → strength -= size delta (clamped at 0; the
+//   - wall present     → strength -= size delta (clamped at 0; the
 //     WallManager removes the entry when it hits 0)
-//   - food present  → food deleted (the digger doesn't eat, just
-//     clears terrain)
-//   - empty         → nothing happens at the front
+//   - organism present → nothing happens at the front
+//   - otherwise        → food rooted up there, added to any food already
+//     in the cell (see effects.DigFood)
 //
 // Side cells (left + right, each treated independently):
 //   - organism present → skip (no wall placed, no food destroyed)
@@ -1302,20 +1085,33 @@ func (m *OrganismManager) applyDig(o *organism.Organism) {
 	// Digging cuts both ways: a specialist pays less per dig AND
 	// shifts more wall strength, so terrain-shapers reshape the map
 	// far faster than a generalist scratching at it.
-	digMult := o.AbilityMultiplier(physiology.AbilityDigging)
-	m.applyHealthChange(o, c.HealthChangeFromDigging()*o.Size/digMult)
+	g := c.GetCurrentGlobals()
+	digScore := o.Abilities()[physiology.AbilityDigging]
+	m.applyHealthChange(o, effects.DigCost(g, digScore, o.Size))
 	o.Status = organism.StatusDigging
 
-	delta := scaledStrengthDelta(o.Size, digMult)
+	removed := effects.DigWallRemoved(g, digScore, o.Size)
+	created := effects.DigWallCreated(g, digScore, o.Size)
 
 	target := o.Location.Add(o.Direction)
 	if m.api.IsWallAtPoint(target) {
-		m.api.AddWallStrength(target, -delta)
+		m.api.AddWallStrength(target, -removed)
 		m.api.AddWallUpdate(target)
-	} else if item, ok := m.api.GetFoodAtPoint(target); ok && item != nil {
-		m.api.RemoveFoodAtPoint(target, item.Value)
+	} else if !m.isOrganismAtLocation(target) {
+		// Rooting for nutrients: a source of food that doesn't come from
+		// chemosynthesis, so energy can enter the world another way.
+		// Skipped under an organism, since food blocks movement.
+		if amount := effects.DigFood(g, digScore, o.Size); amount > 0 {
+			m.api.AddFoodAtPoint(target, amount)
+		}
 	}
 
+	// An organism that raises nothing leaves its flanks alone entirely —
+	// including the food there, which only gets cleared to make room for
+	// a wall that is actually going up.
+	if created <= 0 {
+		return
+	}
 	for _, side := range []utils.Point{
 		o.Location.Add(o.Direction.Left()),
 		o.Location.Add(o.Direction.Right()),
@@ -1326,24 +1122,19 @@ func (m *OrganismManager) applyDig(o *organism.Organism) {
 		if item, ok := m.api.GetFoodAtPoint(side); ok && item != nil {
 			m.api.RemoveFoodAtPoint(side, item.Value)
 		}
-		m.api.AddWallStrength(side, delta)
+		m.api.AddWallStrength(side, created)
 		m.api.AddWallUpdate(side)
 	}
 }
 
-// applyThorns hurts whoever dealt an incoming hit, for defenders whose
-// Defense score clears ThornsThreshold. The damage comes from the
-// defender alone — see thornsDamage — and triggers once per hit, even a
-// hit the defender's armour absorbed completely.
+// applyThorns hurts whoever dealt an incoming hit. The damage comes from
+// the defender alone — see thornsDamage — and triggers once per hit, even
+// a hit the defender's armour absorbed completely.
 //
 // Thorns used to reflect a share of the damage that landed. That tied the
 // counter-attack to the attack's strength, so against heavy armour a
 // stronger attack only killed the attacker faster, and no attack setting
 // could let predators thin a well-defended population.
-//
-// Gated on a threshold rather than scaling from zero: a little armour
-// should absorb damage, not punish the attacker, so the counter-attack
-// reads as a distinct thing a heavily defensive organism does.
 //
 // Applied directly rather than through the request map because the
 // request map for this cycle has already been consumed by the time
@@ -1368,15 +1159,11 @@ func (m *OrganismManager) applyThorns(defender *organism.Organism, hit HealthEff
 	m.addUpdatedPoint(attacker.Location)
 }
 
-// thornsDamage is the (negative) damage a defender deals back per hit:
-// ThornsDamagePerPoint for each point of Defense above ThornsThreshold,
-// scaled by the defender's size. Zero at or below the threshold.
+// thornsDamage is the health change a defender's thorns inflict per hit
+// taken: effects.ThornsDamage negated, since what lands on the attacker
+// is a health change.
 func thornsDamage(defense int, defenderSize float64) float64 {
-	excess := defense - c.ThornsThreshold()
-	if excess <= 0 {
-		return 0
-	}
-	return -c.ThornsDamagePerPoint() * float64(excess) * defenderSize
+	return -effects.ThornsDamage(c.GetCurrentGlobals(), defense, defenderSize)
 }
 
 // deathHealthEpsilon is the smallest Health value that still counts as
@@ -1476,22 +1263,26 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	// the eat request altogether or coming up with some perfect way to divvy it up.
 	amountToEat := m.calculateValueToEat(o, target)
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
+	// Food removed and health gained are two different quantities: the
+	// Eating score decides how much of the pile goes down, and
+	// HealthPerFoodUnit what it's worth.
+	gain := effects.HealthFromFood(c.GetCurrentGlobals(), amountToEat)
 	// A meal's overflow past the eater's size grows it at
 	// EatingGrowthFactor rather than the general GrowthFactor, so a big
-	// bite can be kept as body instead of mostly wasted.
+	// meal can be kept as body instead of mostly wasted.
 	prevSize := o.Size
-	o.ApplyHealthChangeWithGrowth(amountToEat, c.EatingGrowthFactor())
+	o.ApplyHealthChangeWithGrowth(gain, c.EatingGrowthFactor())
 	if o.Size > prevSize {
 		m.addUpdatedPoint(o.Location)
 	}
 	if amountToEat > 0 {
 		o.Status = organism.StatusEatSuccess
-		// Successful eating pushes pH up, scaled by amount eaten, as a
-		// waste product left behind the organism rather than at the
-		// food it just ate — so a meal doesn't instantly skew the pH
-		// the eater's own forward sensors are reading. Accumulate the
-		// magnitude on the organism for the per-organism tinting.
-		delta := c.EatingPhEffectPerFood() * amountToEat
+		// Successful eating pushes pH up in proportion to the health the
+		// meal gave, as a waste product left behind the organism rather
+		// than at the food it just ate — so a meal doesn't instantly skew
+		// the pH the eater's own forward sensors are reading. Accumulate
+		// the magnitude on the organism for the per-organism tinting.
+		delta := c.EatingPhEffect() * gain
 		m.api.AddPhChangeAtPoint(wasteLocation(o, m.api.IsWallAtPoint), delta)
 		o.PhPositive += delta
 	} else {
@@ -1517,9 +1308,9 @@ func wasteLocation(o *organism.Organism, isWall func(utils.Point) bool) utils.Po
 
 func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils.Point) float64 {
 	if item, found := m.api.GetFoodAtPoint(target); found {
-		// A high Eating score means bigger bites, so a specialist
+		// A high Eating score means more health per action, so a specialist
 		// converts a food pile in fewer cycles than a generalist.
-		maxCanEat := o.Size * o.AbilityMultiplier(physiology.AbilityEating)
+		maxCanEat := effects.MaxFoodPerEat(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityEating], o.Size)
 		return math.Min(float64(item.Value), maxCanEat)
 	}
 	return 0
@@ -1528,14 +1319,27 @@ func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils
 func (m *OrganismManager) applyMove(o *organism.Organism) {
 	// A high Movement score makes travel cheap; a low one still moves
 	// the organism, just at a steep price.
-	m.applyHealthChange(o, c.HealthChangeFromMoving()*o.Size*o.AbilityMultiplier(physiology.AbilityMovement))
+	m.applyHealthChange(o, effects.MoveCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size))
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isMatchingPositionRequest(targetPoint, o.ID) == false {
+		// Nobody claimed the cell, so nobody found it empty when they
+		// decided: this organism walked into something that was already
+		// there. A claim that exists but isn't this organism's means the
+		// cell was open and someone else got there first, which costs
+		// nothing extra — it had no way to know.
+		if !m.requestManager.HasPositionRequest(targetPoint) {
+			m.applyHealthChange(o, c.HealthChangeFromBlockedMove()*o.Size)
+		}
 		o.Status = organism.StatusMoveBlocked
-		// Pushing against a wall wears it down, so a boxed-in organism
-		// can eventually break out. How fast depends on its Digging.
-		m.damageWallAhead(o, physiology.AbilityDigging)
+		return
+	}
+	// The claim was staked in the decide phase, against the world as it
+	// was then. Another organism resolving earlier this cycle may have
+	// dug a wall into the cell since, so check again before stepping in —
+	// otherwise the mover ends up standing on the wall.
+	if m.api.IsWallAtPoint(targetPoint) || m.isOrganismAtLocation(targetPoint) {
+		o.Status = organism.StatusMoveBlocked
 		return
 	}
 
@@ -1554,14 +1358,14 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 }
 
 func (m *OrganismManager) applyRightTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size*o.AbilityMultiplier(physiology.AbilityMovement))
+	m.applyHealthChange(o, effects.TurnCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size))
 
 	o.Direction = o.Direction.Right()
 	o.Status = organism.StatusTurnRight
 }
 
 func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size*o.AbilityMultiplier(physiology.AbilityMovement))
+	m.applyHealthChange(o, effects.TurnCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size))
 
 	o.Direction = o.Direction.Left()
 	o.Status = organism.StatusTurnLeft

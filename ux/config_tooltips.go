@@ -1,5 +1,11 @@
 package ux
 
+import (
+	"fmt"
+
+	"github.com/Zebbeni/protozoa/physiology"
+)
+
 // configTooltips explains each config-screen setting, keyed by JSON tag.
 // Shown when the mouse rests on a row. TestEveryConfigFieldHasTooltip
 // fails if a field on the screen is missing one, so add an entry here
@@ -23,23 +29,20 @@ var configTooltips = map[string]string{
 	"max_food_value":          "Largest amount a food item can be worth. New food gets a random value up to this.",
 
 	// pH
-	"min_initial_ph":                    "Together with Max Initial pH, sets the starting pH of the world: every cell starts at the midpoint of the two.",
-	"max_initial_ph":                    "Together with Min Initial pH, sets the starting pH of the world: every cell starts at the midpoint of the two.",
-	"min_ideal_ph":                      "Lowest ideal pH an organism can evolve. Initial organisms start at the midpoint of the min and max.",
-	"max_ideal_ph":                      "Highest ideal pH an organism can evolve. Initial organisms start at the midpoint of the min and max.",
-	"ph_tolerance":                      "How far a cell's pH can be from an organism's ideal pH before the organism starts taking damage.",
-	"chemosynthesis_tolerance":          "Sets the pH range where chemosynthesis works, as a multiple of pH Tolerance. Above 1, organisms can chemosynthesize in water that is also hurting them.",
-	"chemo_ph_falloff":                  "How quickly chemosynthesis weakens as pH moves away from ideal: efficiency = 1 - (distance / window)^falloff. 1 is a straight-line decline; 0 turns it off (full strength anywhere in the window).",
-	"chemo_curve_exponent":              "Shapes the Chemosynthesis ability curve above its starting score. 1 is linear; below 1, extra points pay off less and less.",
-	"chemosynthesis_ph_effect_per_size": "How much a successful chemosynthesis lowers the pH of the organism's cell, per unit of the organism's size.",
-	"eating_ph_effect_per_food":         "How much eating raises pH, per unit of food eaten. The waste lands in the cell behind the eater.",
-	"ph_diffuse_factor":                 "How fast pH spreads between neighbouring cells each cycle. Higher values even out differences sooner.",
-	"ph_increment_to_display":           "Size of the pH steps the grid redraws at: a cell is redrawn when its pH crosses into a new step. Only affects drawing, not the simulation.",
+	"ideal_ph_range":          "How wide a band of ideal pH values lineages can evolve across, centred on the middle of the pH scale: 9 gives 0.5 to 9.5. Every organism starts at that middle, and the world's water does too.",
+	"ideal_ph_mutation_step":  "How far a child's ideal pH can shift from its parent's, up or down. Sets how fast a lineage can follow a drifting world: 0 pins every lineage to the pH it started at, so a world that drifts far enough wipes them out.",
+	"max_ph_tolerance_width":  "The pH offset an organism with 100 Tolerance bears for one unit of damage. Lower scores bear less, along the pH tolerance curve.",
+	"chemo_ph_effect":         "How far chemosynthesis pushes the local pH down, per unit of health it gained. An attempt that gained nothing moves nothing.",
+	"eating_ph_effect":        "How far eating pushes the local pH up, per unit of health the meal gave. Dropped behind the eater rather than where the food was.",
+	"ph_diffuse_factor":       "How fast pH spreads between neighbouring cells each cycle. Higher values even out differences sooner.",
+	"ph_increment_to_display": "Size of the pH steps the grid redraws at: a cell is redrawn when its pH crosses into a new step. Only affects drawing, not the simulation.",
 
 	// Organisms
 	"min_organisms":                     "Ends the run once the population falls below this, after it has first grown to twice this number. 0 disables it, so only extinction ends a run.",
 	"max_organisms":                     "Population cap. Organisms can't reproduce while the population is at this size.",
 	"growth_factor":                     "Share of health gained beyond an organism's current size that becomes growth, for every gain except eating.",
+	"max_bite_at_full_eating":           "Most food an organism with 100 Eating removes in one eating attempt, as a multiple of its size. Lower Eating removes less along the Eating curve. Food piles hold 5-100, so a cap far above that leaves Eating with nothing to decide.",
+	"health_per_food_unit":              "Health one unit of food is worth to whoever eats it. Flat: the Eating score buys how much an organism can swallow, not how much the food nourishes it.",
 	"eating_growth_factor":              "Share of health gained from eating, beyond an organism's current size, that becomes growth. At 1 an eater keeps a whole meal instead of losing the overflow.",
 	"maximum_max_size":                  "Largest max size any organism can evolve. Also sets the small / medium / large size classes (thirds of this).",
 	"minimum_max_size":                  "Smallest max size an organism's descendants can evolve.",
@@ -57,53 +60,62 @@ var configTooltips = map[string]string{
 	"max_decision_tree_size":                   "Largest number of nodes a decision tree can grow to.",
 
 	// Health changes
-	"health_change_from_chemosynthesis":        "Health gained from a successful chemosynthesis, per unit of size, before the Chemosynthesis ability and pH efficiency scale it.",
-	"health_change_from_failed_chemosynthesis": "Health change when chemosynthesis fails because the pH is outside the chemosynthesis range, per unit of size.",
-	"health_change_from_idle":                  "Health change for idling, per unit of size.",
-	"health_change_from_turning":               "Health cost of turning, per unit of size, scaled by the Movement ability.",
-	"health_change_from_moving":                "Health cost of moving (or trying to), per unit of size, scaled by the Movement ability.",
-	"health_change_from_eating_attempt":        "Health cost of each eating attempt, whether or not there is food, per unit of size.",
-	"health_change_from_spawning":              "Health cost of reproducing, per unit of size, on top of the health given to the child.",
-	"health_change_from_attacking":             "Health cost of attacking, per unit of the attacker's size.",
-	"health_change_from_digging":               "Health cost of digging, per unit of size. Better diggers pay less.",
-	"health_change_inflicted_by_attack":        "Damage an attack deals, per unit of the attacker's size, scaled by its Attack ability and reduced by the target's Defense.",
-	"health_change_inflicted_by_shoving":       "Damage a large organism deals when it pushes into an occupied cell, per unit of its size, scaled by its Digging ability and reduced by the target's Defense.",
-	"attack_health_gain":                       "Share of attack damage the attacker gains as health, up to the victim's remaining health. 0 means attackers only benefit by eating the corpse.",
-	"chemo_crowding_penalty":                   "Share of chemosynthesis lost for each neighbouring organism (up to four). 0 turns crowding off.",
-	"corpse_food_multiplier":                   "Food a dead organism leaves behind, as a multiple of its size.",
-	"health_change_per_unhealthy_ph":           "Damage per cycle for each pH unit a cell is beyond an organism's tolerance, per unit of size. Reduced by Defense, depending on Defense pH Protection.",
+	"max_chemosynthesis_gain":           "The health an organism gains for chemosynthesizing at exactly its ideal pH, per unit of size. Water further off gains less, and past the organism's Chemosynthesis width the attempt costs health instead.",
+	"health_change_from_idle":           "Health change for idling, per unit of size.",
+	"health_change_from_turning":        "Health cost of turning with 0 Movement, per unit of size. Higher Movement pays less along the Movement cost curve.",
+	"health_change_from_moving_at_max":  "Health a move costs at full Movement, per unit of size. The curve runs from the 0-Movement cost down to this, so the ability buys a discount rather than free travel.",
+	"health_change_from_turning_at_max": "Health a turn costs at full Movement, per unit of size. The curve runs from the 0-Movement cost down to this.",
+	"health_change_from_moving":         "Health cost of moving (or trying to) with 0 Movement, per unit of size. Higher Movement pays less along the Movement cost curve.",
+	"health_change_from_eating_attempt": "Health cost of each eating attempt, whether or not there is food, per unit of size.",
+	"health_change_from_blocked_move":   "Extra health lost, per unit of size, when an organism moves into a wall, food or another organism that was already there, on top of the move cost. No ability reduces it — nothing makes a wall passable. Not charged when the cell was empty at decision time and another organism reached it first.",
+	"health_change_from_spawning":       "Health cost of reproducing, per unit of size, on top of the health given to the child.",
+	"health_change_from_attacking":      "Health cost of attacking, per unit of the attacker's size.",
+	"health_change_from_digging":        "Health cost of digging with 0 Digging, per unit of size. Higher Digging pays less along the Digging cost curve.",
+	"health_change_from_digging_at_max": "Health a dig costs at full Digging, per unit of size. The curve runs from the 0-Digging cost down to this, so the ability buys a discount rather than free digging.",
+	"health_change_inflicted_by_attack": "Damage an attack deals with 100 Attack, per unit of the attacker's size, before the target's Defense. Lower Attack deals less along the Attack curve. Damage is a positive amount; it's subtracted from the target.",
+	"corpse_food_multiplier":            "Food a dead organism leaves behind, as a multiple of its size.",
+	"unhealthy_ph_damage":               "Health lost per cycle, per unit of size, for water 1 pH-width from an organism's ideal. The cost grows with the square of the distance and shrinks with Tolerance, but never reaches zero.",
 
 	// Terrain
-	"wall_strength_delta_small":  "Wall strength a small organism adds or removes with one dig, before its Digging ability scales it.",
-	"wall_strength_delta_medium": "Wall strength a medium organism adds or removes with one dig, before its Digging ability scales it.",
-	"wall_strength_delta_large":  "Wall strength a large organism adds or removes with one dig, before its Digging ability scales it.",
-	"wall_break_score_small":     "Digging or Attack score at which a small organism removes exactly 1 point of wall strength per hit when it pushes into or attacks a wall. Higher scores hit harder.",
-	"wall_break_score_medium":    "Digging or Attack score at which a medium organism removes exactly 1 point of wall strength per hit when it pushes into or attacks a wall. Higher scores hit harder.",
-	"wall_break_score_large":     "Digging or Attack score at which a large organism removes exactly 1 point of wall strength per hit when it pushes into or attacks a wall. Higher scores hit harder.",
+	"wall_strength_delta_small":   "Wall strength a small organism at full Digging clears from the cell ahead with one dig. Lower Digging clears less, down to the clear @0 value.",
+	"wall_strength_delta_medium":  "Wall strength a medium organism at full Digging clears from the cell ahead with one dig. Lower Digging clears less, down to the clear @0 value.",
+	"wall_strength_delta_large":   "Wall strength a large organism at full Digging clears from the cell ahead with one dig. Lower Digging clears less, down to the clear @0 value.",
+	"wall_strength_delta_at_zero": "Wall strength one dig clears with no Digging at all. The removal curve runs from here up to the size-class value at full Digging, rounded to whole units. 1 keeps a scratch from doing nothing at all.",
+	"wall_created_small":          "Wall strength a small organism at full Digging packs into EACH cell beside it with one dig. 0 means it can tunnel but not build.",
+	"wall_created_medium":         "Wall strength a medium organism at full Digging packs into EACH cell beside it with one dig. 0 means it can tunnel but not build.",
+	"wall_created_large":          "Wall strength a large organism at full Digging packs into EACH cell beside it with one dig. 0 means it can tunnel but not build.",
+	"wall_created_at_zero":        "Wall strength one dig raises beside it with no Digging at all. The creation curve runs from here up to the size-class value at full Digging.",
+	"food_from_digging_small":     "Food a small organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
+	"food_from_digging_medium":    "Food a medium organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
+	"food_from_digging_large":     "Food a large organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
+	"food_from_digging_at_zero":   "Food one dig roots up with no Digging at all. The curve runs from here up to the size-class value at 100 Digging, and the result is rounded to whole units. 0 means rooting for nutrients pays only what the ability is worth.",
 
 	// Initial abilities
-	"random_initial_abilities": "Give each initial organism its own random split of the 100 ability points, instead of the scores below.",
+	"random_initial_abilities": "Give each initial organism its own random split of the 200 ability points (100 max per ability), instead of the scores below.",
 
 	// Ability scores
-	"genesis_minor_ability_score": "Score where each non-chemosynthesis ability's multiplier is exactly 1; chemosynthesis pivots on the remainder of the 100 points. Starting scores are set under Initial Abilities.",
-	"chance_to_mutate_abilities":  "Chance that a child shifts some ability points from one ability to another.",
-	"max_ability_shift":           "Most ability points a single mutation can move.",
-	"ability_specialization_span": "Points above its pivot an ability needs to reach its full '@100' multiplier. The multiplier keeps growing in a straight line past that.",
-	"thorns_threshold":            "Defense score above which an organism hurts whoever attacks it.",
-	"thorns_damage_per_point":     "Damage dealt back to an attacker per hit, for each Defense point above the threshold, per unit of the defender's size.",
-	"defense_ph_protection":       "How much of Defense's protection against attacks also applies to unhealthy-pH damage: 0 none, 1 the same.",
-	"chemo_mult_at_zero":          "Chemosynthesis multiplier with 0 points in it.",
-	"chemo_mult_at_max":           "Chemosynthesis multiplier once the score is Specialization Span points above its pivot.",
-	"eating_mult_at_zero":         "Eating multiplier (bite size) with 0 points in it.",
-	"eating_mult_at_max":          "Eating multiplier (bite size) once the score is Specialization Span points above its pivot.",
-	"movement_mult_at_zero":       "Cost multiplier for moving and turning with 0 Movement points. Above 1 makes moving more expensive.",
-	"movement_mult_at_max":        "Cost multiplier for moving and turning once Movement is Specialization Span points above its pivot. Below 1 makes moving cheaper.",
-	"digging_mult_at_zero":        "Digging multiplier with 0 points in it: how much terrain a dig moves and how cheap it is.",
-	"digging_mult_at_max":         "Digging multiplier once the score is Specialization Span points above its pivot.",
-	"attack_mult_at_zero":         "Attack damage multiplier with 0 Attack points.",
-	"attack_mult_at_max":          "Attack damage multiplier once Attack is Specialization Span points above its pivot.",
-	"defense_mult_at_zero":        "Damage-taken multiplier with 0 Defense points. Above 1 means taking extra damage.",
-	"defense_mult_at_max":         "Damage-taken multiplier once Defense is Specialization Span points above its pivot. Below 1 means taking less damage.",
+	"chance_to_mutate_abilities":        "Chance that a child shifts some ability points from one ability to another.",
+	"health_change_inflicted_by_thorns": "Damage an organism with 100 Defense deals back to whoever hits it, per unit of its own size, as a positive amount. Independent of how hard the hit was.",
+	"chemosynthesis_cosine_k":           "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"chemosynthesis_saturating_k":       "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"eating_cosine_k":                   "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"eating_saturating_k":               "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"movement_cost_cosine_k":            "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"movement_cost_saturating_k":        "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"digging_cost_cosine_k":             "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"digging_cost_saturating_k":         "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"digging_strength_cosine_k":         "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"digging_strength_saturating_k":     "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"digging_creation_cosine_k":         "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine) to 1 (the most suppression). Open the graphs to see it.",
+	"digging_creation_saturating_k":     "K: how early the saturating shape delivers its gains. Half the benefit arrives by score √K. Open the graphs to see it.",
+	"attack_cosine_k":                   "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"attack_saturating_k":               "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"damage_taken_cosine_k":             "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"damage_taken_saturating_k":         "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"thorns_cosine_k":                   "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"thorns_saturating_k":               "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"ph_tolerance_cosine_k":             "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
+	"ph_tolerance_saturating_k":         "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
 
 	// Appearance
 	"shell_body_threshold":     "Defense score at which an organism is drawn with a shell.",
@@ -121,19 +133,37 @@ var configTooltips = map[string]string{
 
 // abilityScoreTooltip explains one of the INITIAL ABILITIES score rows.
 func abilityScoreTooltip(name string) string {
-	return "Starting " + name + " score for the initial organisms. Click - / + to change it by 1, or shift-click for 10. All six scores must add up to 100."
+	return fmt.Sprintf("Starting %s score for the initial organisms. Click - / + to change it by 1, "+
+		"or shift-click for 10. Each score caps at %d, and all seven must add up to %d.",
+		name, physiology.MaxAbilityScore, physiology.PointTotal)
 }
 
 // abilityTotalTooltip explains the INITIAL ABILITIES total row.
 const abilityTotalTooltip = "Sum of the starting ability scores. The simulation won't start until it's exactly 100, unless Random Initial Abilities is on."
 
 // tooltipFor returns the tooltip text for a config row, or "" if none.
+// curveShapeTooltip explains the shape picker, which is one control
+// repeated per curve rather than a setting of its own.
+const curveShapeTooltip = "How this curve climbs from nothing at score 0 to the full value at 100. " +
+	"saturating: most of the benefit arrives in the first few points (K sets how early). " +
+	"linear: every point buys the same amount. " +
+	"quadratic: slow at first, then accelerating, so the ability rewards committing to it. " +
+	"cosine: an S-curve, slow at both ends and fastest in the middle (K holds back low scores). " +
+	"Linear and quadratic ignore K. Open the graphs to see the shape."
+
 func tooltipFor(field configField) string {
 	switch field.row {
 	case rowAbilityScore:
 		return abilityScoreTooltip(field.label)
 	case rowAbilityTotal:
 		return abilityTotalTooltip
+	case rowCurveGraph:
+		return ""
+	case rowCurveHeader:
+		return curveShapeTooltip
+	}
+	if field.graphToggle {
+		return configTooltips[field.jsonTag] + " Click the arrow to show or hide graphs of how the score changes these actions."
 	}
 	return configTooltips[field.jsonTag]
 }

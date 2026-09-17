@@ -7,6 +7,7 @@ import (
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
@@ -233,6 +234,7 @@ func (o *Organism) Info() *Info {
 		BornThisCycle:   o.BornThisCycle,
 		AttackTotal:     o.AttackTotal,
 		AttackHits:      o.AttackHits,
+		IdealPh:         o.traits.IdealPh,
 		Abilities:       o.traits.Abilities,
 		Appearance:      o.appearance,
 		LineageEndCycle: lineageEndCycle(o.TreeNode),
@@ -399,15 +401,6 @@ func (o *Organism) Abilities() physiology.Scores {
 	return o.traits.Abilities
 }
 
-// AbilityMultiplier is the effect multiplier for one ability: how much
-// better or worse this organism is at that kind of action than an
-// evenly-split one. Effect-style abilities scale the result up;
-// cost-style abilities (movement, and the cost half of digging) scale
-// the price down.
-func (o *Organism) AbilityMultiplier(a physiology.Ability) float64 {
-	return o.traits.Abilities.Multiplier(a)
-}
-
 // InitialHealth returns the health an organism and its children start life with
 func (o Organism) InitialHealth() float64 { return o.traits.SpawnHealth }
 
@@ -508,19 +501,23 @@ func (o *Organism) isOrganismRight() bool {
 	return o.isOrganismAtPoint(o.Location.Add(o.Direction.Right()))
 }
 
-// isHealthyPhHere reports whether this cell's pH is inside the organism's
-// damage-free tolerance, i.e. staying put won't cost health to pH.
+// isHealthyPhHere reports whether this cell's pH is inside the band the
+// organism's Tolerance lets it bear: within T, where the cost stays under
+// one unit of damage. Its own ability decides, the same way
+// canChemosynthesizeHere asks about its Chemosynthesis.
 func (o *Organism) isHealthyPhHere() bool {
-	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.PhTolerance())
+	width := effects.PhToleranceWidth(c.GetCurrentGlobals(), o.traits.Abilities[physiology.AbilityTolerance])
+	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, width)
 }
 
-// canChemosynthesizeHere reports whether chemosynthesis would succeed in
-// this cell. Distinct from isHealthyPhHere: the chemosynthesis window can
-// be wider than the damage-free tolerance, so an organism may be able to
-// feed somewhere that is also hurting it — the trade a well-defended
-// lineage is positioned to take.
+// canChemosynthesizeHere reports whether chemosynthesizing in this cell
+// would gain health rather than cost it: the water is closer to the
+// organism's ideal pH than its Chemosynthesis multiplier. Distinct from
+// isHealthyPhHere, which is about the damage bad water does regardless of
+// what the organism is doing.
 func (o *Organism) canChemosynthesizeHere() bool {
-	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, c.ChemosynthesisPhWindow())
+	width := effects.ChemoWidth(c.GetCurrentGlobals(), o.traits.Abilities[physiology.AbilityChemosynthesis])
+	return o.isPhHealthyAtPoint(o.Location, o.Traits().IdealPh, width)
 }
 
 func (o *Organism) isHealthierPhAhead() bool {

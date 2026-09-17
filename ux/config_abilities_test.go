@@ -21,26 +21,29 @@ func abilityConfigScreen(t *testing.T) (*ConfigScreen, *config.Globals) {
 		t.Fatal(err)
 	}
 	config.SetGlobals(&g)
+	defaults := g
+	defaults.InitialAbilityScores = append([]int(nil), g.InitialAbilityScores...)
+	loadConfigDefaults = func() config.Globals { return defaults }
 	form := g // what the popup edits: a copy of the active globals
 	return NewConfigScreen(&form), &g
 }
 
-func TestInitialAbilitiesBlockStartUntilTheyTotal100(t *testing.T) {
+func TestInitialAbilitiesBlockStartUntilTheyTotalTheBudget(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	if reason := cs.StartBlockedReason(); reason != "" {
 		t.Fatalf("default scores should be startable, got %q", reason)
 	}
 
-	cs.adjustAbilityScore(int(physiology.AbilityAttack), 5)
+	cs.adjustAbilityScore(int(physiology.AbilityAttack), 2)
 	if cs.StartBlockedReason() == "" {
-		t.Error("a total of 105 should block the start")
+		t.Errorf("a total of %d should block the start", physiology.PointTotal+2)
 	}
-	cs.adjustAbilityScore(int(physiology.AbilityChemosynthesis), -5)
+	cs.adjustAbilityScore(int(physiology.AbilityChemosynthesis), -2)
 	if reason := cs.StartBlockedReason(); reason != "" {
-		t.Errorf("rebalanced to 100 should start, got %q", reason)
+		t.Errorf("rebalanced to %d should start, got %q", physiology.PointTotal, reason)
 	}
 
-	cs.adjustAbilityScore(int(physiology.AbilityDefense), -3)
+	cs.adjustAbilityScore(int(physiology.AbilityDefense), -1)
 	cs.globals.RandomInitialAbilities = true
 	if reason := cs.StartBlockedReason(); reason != "" {
 		t.Errorf("Random ignores the fixed scores, got %q", reason)
@@ -54,7 +57,7 @@ func TestInitialAbilityScoresClamp(t *testing.T) {
 	if got := cs.globals.InitialAbilityScores[physiology.AbilityEating]; got != 0 {
 		t.Errorf("score below 0 should clamp to 0, got %d", got)
 	}
-	if got := cs.globals.InitialAbilityScores[physiology.AbilityMovement]; got != physiology.PointTotal {
+	if got := cs.globals.InitialAbilityScores[physiology.AbilityMovement]; got != physiology.MaxAbilityScore {
 		t.Errorf("score above 100 should clamp to 100, got %d", got)
 	}
 }

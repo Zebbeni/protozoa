@@ -129,15 +129,15 @@ func (g *Grid) stampPhBorderedFromBuffer() {
 	// Interior: full buffer at (1, 1).
 	stamp(image.Rect(0, 0, W, H), 1, 1)
 	// Edges: opposite-side row / column copies (no corners).
-	stamp(image.Rect(0, H-1, W, H), 1, 0)      // top   ← bottom row
-	stamp(image.Rect(0, 0, W, 1), 1, bh-1)     // bottom ← top row
-	stamp(image.Rect(W-1, 0, W, H), 0, 1)      // left  ← right column
-	stamp(image.Rect(0, 0, 1, H), bw-1, 1)     // right ← left column
+	stamp(image.Rect(0, H-1, W, H), 1, 0)  // top   ← bottom row
+	stamp(image.Rect(0, 0, W, 1), 1, bh-1) // bottom ← top row
+	stamp(image.Rect(W-1, 0, W, H), 0, 1)  // left  ← right column
+	stamp(image.Rect(0, 0, 1, H), bw-1, 1) // right ← left column
 	// Corners: diagonal-opposite cell at each world corner.
-	stamp(image.Rect(W-1, H-1, W, H), 0, 0)    // top-left     ← bottom-right
-	stamp(image.Rect(0, H-1, 1, H), bw-1, 0)   // top-right    ← bottom-left
-	stamp(image.Rect(W-1, 0, W, 1), 0, bh-1)   // bottom-left  ← top-right
-	stamp(image.Rect(0, 0, 1, 1), bw-1, bh-1)  // bottom-right ← top-left
+	stamp(image.Rect(W-1, H-1, W, H), 0, 0)   // top-left     ← bottom-right
+	stamp(image.Rect(0, H-1, 1, H), bw-1, 0)  // top-right    ← bottom-left
+	stamp(image.Rect(W-1, 0, W, 1), 0, bh-1)  // bottom-left  ← top-right
+	stamp(image.Rect(0, 0, 1, 1), bw-1, bh-1) // bottom-right ← top-left
 }
 
 // phToColor maps a pH value to its display colour.

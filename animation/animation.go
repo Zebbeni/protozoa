@@ -283,7 +283,7 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 		frames[id] = Frame{
 			FromLocation: from,
 			ToLocation:   info.Location,
-			Direction:    info.Direction,
+			Direction:    drawDirection(info.Direction, status),
 			Action:       action,
 			Color:        info.Color,
 			Size:         info.Size,
@@ -303,6 +303,25 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 	if time.Since(s.cycleStart) > time.Second {
 		s.cycleStart = time.Now()
 	}
+}
+
+// drawDirection is the heading a frame's sprite is drawn at, which for a
+// turn is the heading the organism turned *from*.
+//
+// The turn sprites animate the rotation themselves: the first frame faces
+// where the organism was heading and the last faces where it ended up. By
+// the time a frame is built the organism already holds its new direction,
+// so drawing a turn at that heading rotated it twice — a left turn's last
+// frame landed 180° from where it started, then snapped back on the next
+// cycle. Every other animation is drawn at the organism's own heading.
+func drawDirection(direction utils.Point, status organism.Status) utils.Point {
+	switch status {
+	case organism.StatusTurnLeft:
+		return direction.Right()
+	case organism.StatusTurnRight:
+		return direction.Left()
+	}
+	return direction
 }
 
 // ResetClock re-anchors the cycle clock to now. Callers use this after

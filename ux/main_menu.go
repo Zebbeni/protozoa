@@ -137,7 +137,7 @@ func (m *MainMenu) buttonRect(i int) (int, int) {
 // look-and-feel without each rolling its own button drawer.
 func drawMenuButton(screen *ebiten.Image, x, y, w, h int, label string, hovered, pressed, dim bool) {
 	base := chrome(
-		color.RGBA{R: 50, G: 50, B: 70, A: 255},   // dark theme
+		color.RGBA{R: 50, G: 50, B: 70, A: 255},    // dark theme
 		color.RGBA{R: 220, G: 220, B: 230, A: 255}, // light theme
 	)
 	fill := base

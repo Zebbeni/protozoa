@@ -50,10 +50,10 @@ type Runner struct {
 	// is non-nil at any given moment, but we hold them across frames
 	// rather than rebuilding so transient state (scroll position,
 	// scroll Y, edit selection) survives mode swaps within the popup.
-	splash    *ux.Splash
-	mainMenu  *ux.MainMenu
-	rules     *ux.RulesScreen
-	simPopup  *ux.SimPopup
+	splash   *ux.Splash
+	mainMenu *ux.MainMenu
+	rules    *ux.RulesScreen
+	simPopup *ux.SimPopup
 
 	// Replay-mode UI.
 	sim        *simulation.Simulation
@@ -136,8 +136,10 @@ func (r *Runner) Update() error {
 		r.simPopup.Update()
 		switch r.simPopup.Take() {
 		case ux.PopupReqCancel:
+			// Rebuilt rather than reused: a popup opened from the replay
+			// viewer or --config has no menu behind it yet.
 			r.simPopup = nil
-			r.state = stateMainMenu
+			r.enterMainMenu()
 		case ux.PopupReqStart, ux.PopupReqRetry:
 			r.startSimFromPopup()
 		case ux.PopupReqView:
@@ -147,6 +149,9 @@ func (r *Runner) Update() error {
 		r.checkReplayLoad()
 	case stateReplay:
 		r.ui.HandleUserInput()
+		if r.handleReplayMenuChoice() {
+			return nil
+		}
 		r.replayCtrl.Update()
 		r.ui.UpdateSelected()
 		r.logReplayHealth()
@@ -256,6 +261,48 @@ func (r *Runner) installReplayController(ctrl *replay.Controller) {
 	r.simPopup = nil
 	r.state = stateReplay
 	ebiten.SetScreenClearedEveryFrame(false)
+}
+
+// handleReplayMenuChoice carries out a replay menu choice that leaves
+// the replay viewer. Returns true if it left.
+func (r *Runner) handleReplayMenuChoice() bool {
+	choice := r.ui.TakeMenuChoice()
+	if choice == ux.ReplayMenuNone {
+		return false
+	}
+	globals := r.replayCtrl.Globals()
+	r.leaveReplay()
+	switch choice {
+	case ux.ReplayMenuRunAgain:
+		// Same settings, new seed: the same seed would replay the same
+		// simulation.
+		globals.Seed = 0
+		r.simPopup = ux.NewSimPopup(&globals)
+		r.state = stateMainMenuPopup
+		r.startSimFromPopup()
+	case ux.ReplayMenuEditSettings:
+		// The form keeps the replay's seed, like Edit Settings after a
+		// run, so a single changed setting can be compared on the same
+		// world; clearing it to 0 picks a new one.
+		r.simPopup = ux.NewSimPopup(&globals)
+		r.state = stateMainMenuPopup
+	case ux.ReplayMenuMainMenu:
+		r.enterMainMenu()
+	}
+	return true
+}
+
+// leaveReplay closes the replay viewer. The replay file is closed first
+// because a new simulation records to the same path.
+func (r *Runner) leaveReplay() {
+	r.replayCtrl.Close()
+	r.replayCtrl = nil
+	r.sim = nil
+	r.ui = nil
+	// A CLI --seed would otherwise override the seed of every simulation
+	// started from here on (NewSimulation prefers options.Seed).
+	r.opts.Seed = 0
+	ebiten.SetScreenClearedEveryFrame(true)
 }
 
 // startSimFromPopup resolves the seed, promotes the popup's globals
@@ -378,8 +425,10 @@ func (r *Runner) stepSimulation() {
 	for !stopRequested && !r.activeSim.IsDone() && time.Now().Before(deadline) {
 		r.activeSim.Update()
 		if r.activeSim.Cycle()%100 == 0 {
+			minPh, maxPh := r.activeSim.PhRange()
 			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(),
-				r.activeSim.FoodCount(), r.activeSim.WallCount(), r.activeSim.AveragePh())
+				r.activeSim.FoodCount(), r.activeSim.WallCount(), r.activeSim.AveragePh(), minPh, maxPh,
+				r.activeSim.AverageAbilityScores())
 			r.simPopup.AddLog(line)
 		}
 		stopRequested = r.simPopup.StopRequested()
@@ -560,7 +609,10 @@ func runHeadless(opts *c.Options) {
 		for !sim.IsDone() {
 			sim.Update()
 			if sim.Cycle()%100 == 0 {
-				fmt.Printf("\nCycle: %6d   Organisms: %d   AvgPh: %2.2f", sim.Cycle(), sim.OrganismCount(), sim.AveragePh())
+				minPh, maxPh := sim.PhRange()
+				fmt.Printf("\n%s", ux.FormatLogLine(sim.Cycle(), sim.OrganismCount(),
+					sim.FoodCount(), sim.WallCount(), sim.AveragePh(), minPh, maxPh,
+					sim.AverageAbilityScores()))
 			}
 			if sim.Cycle()%1000 == 0 {
 				if summary := sim.TimingSummary(); summary != "" {

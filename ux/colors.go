@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
 	"golang.org/x/image/font"
 
@@ -196,56 +197,27 @@ func healthColor(health, size float64) colorful.Color {
 	return gh.GreenRedColor(health / size)
 }
 
-// phIdealTextColor returns a text colour for the PH TOL stat, based
-// on the organism's ideal pH (the centre of its tolerance range).
-// Mirrors how the grid renders pH cells — acid extremes pull toward
-// the scheme's acid hue, base extremes toward the base hue — but
-// blends toward the themed foreground at neutral instead of the
-// background, so a neutral-pH organism's value still reads as plain
-// white-on-dark or black-on-light text. The blend ramps via sqrt and
-// uses the world's MinIdealPh/MaxIdealPh range (not the full pH map)
-// so realistic ideal-pH values reach the saturated extremes — using
-// the full pH map would clip the weight at ~0.78 and wash everything
-// out.
-func phIdealTextColor(idealPh float64) color.Color {
-	minIdeal := config.MinIdealPh()
-	maxIdeal := config.MaxIdealPh()
-	mid := (minIdeal + maxIdeal) / 2.0
-	half := (maxIdeal - minIdeal) / 2.0
-	weight := 0.0
-	if half > 0 {
-		diff := idealPh - mid
-		if diff < 0 {
-			diff = -diff
-		}
-		weight = diff / half
-		if weight > 1 {
-			weight = 1
-		}
-	}
-	weight = math.Sqrt(weight)
+// phToleranceMidpointDamage is the health an organism loses per cycle to
+// the water it is sitting in at the middle of the TOLERANCE view's
+// green→red ramp. An absolute rate, not a fraction of any setting: the
+// question the view answers is "how fast is this costing it", and that
+// reads the same however the pH settings are tuned.
+const phToleranceMidpointDamage = 0.01
 
-	acidHue, baseHue := config.PhEffectHueRange()
-	hue := acidHue
-	if idealPh >= mid {
-		hue = baseHue
-	}
-	sat := 1.0
-	light := 0.65
-	if config.IsLightTheme() {
-		light = 0.4
-	}
-	accent := colorful.HSLuv(hue, sat, light)
+// phToleranceColor tints an organism green→red by the health per cycle
+// the water is costing it: green when it costs nothing, half way at
+// phToleranceMidpointDamage, redder from there.
+func phToleranceColor(damage float64) colorful.Color {
+	return gh.GreenRedColor(phToleranceFraction(damage))
+}
 
-	fgR, fgG, fgB := 1.0, 1.0, 1.0
-	if config.IsLightTheme() {
-		fgR, fgG, fgB = 30.0/255.0, 30.0/255.0, 35.0/255.0
-	}
-	return colorful.Color{
-		R: weight*accent.R + (1-weight)*fgR,
-		G: weight*accent.G + (1-weight)*fgG,
-		B: weight*accent.B + (1-weight)*fgB,
-	}
+// phToleranceFraction maps a per-cycle health loss to 1 (green) at zero
+// and 0.5 at phToleranceMidpointDamage, approaching 0 without reaching
+// it. Asymptotic rather than clamped at a reference: a linear ramp
+// painted everything past its reference the same red, so an organism
+// merely uncomfortable looked identical to one being killed.
+func phToleranceFraction(damage float64) float64 {
+	return phToleranceMidpointDamage / (phToleranceMidpointDamage + math.Abs(damage))
 }
 
 // phEffectTextColor returns a text colour for the PH EFFECT stat
@@ -300,6 +272,41 @@ func boundString(face font.Face, s string) image.Rectangle {
 // when positioning text relative to a prefix; boundString returns the
 // visual bounding box and ignores trailing spaces, so it's not safe
 // for layout offsets.
+// drawTextBottomUp draws s rotated a quarter turn anticlockwise, so it
+// reads from the bottom up, with the top-left corner of the rotated text
+// at (x, y). Used for the ability bar labels, where names are far longer
+// than the bars are wide.
+//
+// The text is drawn into an offscreen image and rotated on the way out,
+// cached per string since these labels are fixed and redrawn every frame.
+func drawTextBottomUp(dst *ebiten.Image, s string, face font.Face, x, y int, col color.Color) {
+	img := verticalTextImage(s, face)
+	op := &ebiten.DrawImageOptions{}
+	// A -90° turn maps (x, y) to (y, -x), so the rotated text sits above
+	// the origin: shift it back down by its width to place its corner.
+	op.GeoM.Rotate(-math.Pi / 2)
+	op.GeoM.Translate(float64(x), float64(y+img.Bounds().Dx()))
+	op.ColorScale.ScaleWithColor(col)
+	dst.DrawImage(img, op)
+}
+
+// verticalTextImage renders s white-on-transparent, ready to be tinted
+// and rotated by drawTextBottomUp. Cached by string: the labels are a
+// fixed handful and the panel redraws every frame.
+func verticalTextImage(s string, face font.Face) *ebiten.Image {
+	if img, ok := verticalTextCache[s]; ok {
+		return img
+	}
+	w := textAdvance(face, s)
+	h := face.Metrics().Height.Round()
+	img := ebiten.NewImage(max(w, 1), max(h, 1))
+	text.Draw(img, s, face, 0, face.Metrics().Ascent.Round(), color.White)
+	verticalTextCache[s] = img
+	return img
+}
+
+var verticalTextCache = map[string]*ebiten.Image{}
+
 func textAdvance(face font.Face, s string) int {
 	return font.MeasureString(face, s).Round()
 }

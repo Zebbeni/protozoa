@@ -38,7 +38,7 @@ func TestAbilitiesDivergeAndStayValid(t *testing.T) {
 		IsHeadless: true, Seed: 101, CheckpointInterval: 1 << 30,
 	})
 
-	genesis := physiology.GenesisScores()
+	genesis := physiology.BalancedScores()
 	distinct := map[physiology.Scores]struct{}{}
 
 	for i := 0; i < 4000; i++ {
@@ -88,7 +88,7 @@ func TestAbilitiesSurviveSnapshotRoundtrip(t *testing.T) {
 
 	before := map[int]physiology.Scores{}
 	offGenesis := 0
-	genesis := physiology.GenesisScores()
+	genesis := physiology.BalancedScores()
 	for _, o := range sim.organismManager.Organisms() {
 		before[o.ID] = o.Traits().Abilities
 		if o.Traits().Abilities != genesis {
@@ -160,7 +160,7 @@ func TestAppearanceVariesInLiveSim(t *testing.T) {
 	t.Logf("sensors %v", sensors)
 
 	for _, tc := range []struct {
-		name    string
+		name     string
 		distinct int
 	}{
 		{"body", len(bodies)},
@@ -188,8 +188,7 @@ func TestAppearanceVariesInLiveSim(t *testing.T) {
 func TestEverySpecialistIsReachable(t *testing.T) {
 	loadDefaultGlobals(t)
 
-	// "Specialist" = physiology.SpecialistScore, the point at which an
-	// ability reaches its full multiplier.
+	// "Specialist" = physiology.SpecialistScore (60 of a possible 100).
 	peak := map[physiology.Ability]int{}
 	specialists := map[physiology.Ability]int{}
 
@@ -212,7 +211,7 @@ func TestEverySpecialistIsReachable(t *testing.T) {
 					if s[a] > peak[a] {
 						peak[a] = s[a]
 					}
-					if s[a] >= physiology.SpecialistScore(a) {
+					if s[a] >= physiology.SpecialistScore {
 						specialists[a]++
 					}
 				}

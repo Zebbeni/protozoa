@@ -181,4 +181,3 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*o
 		api,
 	), abilitiesOK
 }
-

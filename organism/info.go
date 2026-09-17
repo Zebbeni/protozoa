@@ -46,6 +46,9 @@ type Info struct {
 	// a birth Frame (2-cell move from the parent's cell into the
 	// child's cell) without needing to carry the parent's location.
 	BornThisCycle bool
+	// IdealPh is the centre of the organism's pH tolerance range, so the
+	// renderer can tell how well it tolerates the pH where it sits.
+	IdealPh float64
 	// Abilities is the organism's ability-score distribution, shown by
 	// the panel.
 	Abilities physiology.Scores

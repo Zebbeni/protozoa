@@ -1,12 +1,16 @@
 package ux
 
 import (
+	"math"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/utils"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
@@ -82,6 +86,14 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 		overlayColor = bodyColor
 	case orgColorAbility:
 		bodyColor = gh.AbilityColor(info.Abilities, g.colorAbility)
+		overlayColor = bodyColor
+	case orgColorTolerance:
+		distance := math.Abs(info.IdealPh - g.simulation.GetPhAtPoint(info.Location))
+		// The organism's real size: what the view answers is how much
+		// health the water is costing it per cycle, and a bigger organism
+		// pays more for the same water.
+		damage := effects.PhDamage(config.GetCurrentGlobals(), info.Abilities[physiology.AbilityTolerance], info.Size, distance)
+		bodyColor = phToleranceColor(damage)
 		overlayColor = bodyColor
 	case orgColorSuccess:
 		success := organism.LineageSuccess(info.LineageEndCycle, g.simulation.Cycle(), g.simulation.RecordedEndCycle())
