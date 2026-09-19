@@ -137,11 +137,24 @@ func curveCtrlHeight(id physiology.CurveID) int {
 // curveRowHeight is one graph and the controls beside it.
 const curveRowHeight = curveGraphHeight
 
+// shapeButtonCount has to match physiology.AllShapeKinds. It is spelled
+// out as a constant because the controls column's height is a constant,
+// and a constant can't be taken from a slice's length.
+const shapeButtonCount = 5
+
 // shapeButtonOrder is a fixed-size view of physiology.AllShapeKinds, so
 // the controls column's height is a constant.
-var shapeButtonOrder = [4]physiology.ShapeKind{}
+var shapeButtonOrder = [shapeButtonCount]physiology.ShapeKind{}
 
+// init panics at startup rather than letting copy truncate in silence: a
+// shape missing from the array has no button, so it can be read off a
+// config file and drawn in the header but never chosen — which is what
+// happened when a fifth shape was added to a four-slot array.
 func init() {
+	if len(physiology.AllShapeKinds) != shapeButtonCount {
+		panic(fmt.Sprintf("ux: shapeButtonCount is %d but physiology.AllShapeKinds has %d",
+			shapeButtonCount, len(physiology.AllShapeKinds)))
+	}
 	copy(shapeButtonOrder[:], physiology.AllShapeKinds)
 }
 
@@ -208,6 +221,37 @@ func atScore(score int, f func(g *c.Globals, score int, offset float64) float64)
 	}
 }
 
+// phPushSeries plots how far an action shifts the pH around it, across
+// pH offset from ideal, at the same sample scores the gain graph above it
+// uses — so the push can be read against the yield that produced it.
+//
+// Composed from the two functions rather than given its own formula: the
+// push is the gain run through the push curve, and a graph that
+// recomputed either would be the place they silently diverge.
+func phPushSeries(
+	gain func(g *c.Globals, score int, size, distance float64) float64,
+	push func(g *c.Globals, score int, gain float64) float64,
+) []curveGraphSeries {
+	var out []curveGraphSeries
+	for _, score := range []int{1, 3, physiology.MaxAbilityScore / 2, physiology.MaxAbilityScore} {
+		score := score
+		out = append(out, curveGraphSeries{
+			label: fmt.Sprintf("%d", score),
+			phValue: func(g *c.Globals, offset float64) float64 {
+				got := gain(g, score, 1, math.Abs(offset))
+				if got <= 0 {
+					// A failed attempt leaves the environment alone, which
+					// is the whole reason the push is tied to the gain.
+					return 0
+				}
+				return push(g, score, got)
+			},
+			color: scoreSeriesColor(score),
+		})
+	}
+	return out
+}
+
 // magnitude wraps an effect the simulation expresses as a negative health
 // change — damage dealt, the cost of an action — and plots how much it
 // takes off. Plotting the raw value instead made these graphs read
@@ -258,14 +302,28 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 			}},
 		}
 	case physiology.CurveEating:
+		// Health per food unit is deliberately not a graph: the Eating
+		// score buys capacity, not nourishment, so the line cannot move.
+		// A plot whose line can't move is a number drawn the long way
+		// round — it costs a whole graph row and invites the reader to
+		// look for a trend in it, while the "health/food" slider beside
+		// it already shows the value.
 		return []curveGraph{
 			{title: "Max food removed per eating attempt", series: bySizeClass(effects.MaxFoodPerEat)},
-			// Flat by design — the Eating score buys capacity, not
-			// nourishment — and drawn across the score axis anyway so
-			// the two halves of an eat sit side by side.
-			{title: "Health gained per food unit eaten", series: []curveGraphSeries{
-				{label: "health", value: func(g *c.Globals, score int) float64 {
-					return effects.HealthFromFood(g, 1)
+		}
+	case physiology.CurveChemoPhEffect:
+		return []curveGraph{
+			{title: "pH pushed down per chemosynthesis, at Chemosynthesis 1 / 3 / 5 / 10 (per unit of size)",
+				phSpan: 2, series: phPushSeries(effects.ChemosynthesisGain, effects.ChemoPhPush)},
+		}
+	case physiology.CurveEatingPhEffect:
+		return []curveGraph{
+			// Against the score rather than against pH: a meal's worth
+			// doesn't depend on where the organism is standing, so the
+			// only axis that says anything is the ability itself.
+			{title: "pH pushed up per unit of food eaten", series: []curveGraphSeries{
+				{label: "push", value: func(g *c.Globals, score int) float64 {
+					return effects.EatingPhPush(g, score, effects.HealthFromFood(g, 1))
 				}},
 			}},
 		}
@@ -291,6 +349,12 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 		}
 	case physiology.CurveDiggingCreate:
 		return []curveGraph{
+			// Not wholeUnits: the threshold is continuous (size is), even
+			// though the wall strength it is compared against is an int.
+			{title: "Wall strength it can burrow straight through",
+				series: bySizeClass(func(g *c.Globals, score int, size float64) float64 {
+					return effects.WallBreakStrength(g, score, size)
+				})},
 			{title: "Wall strength raised per dig (each side)", wholeUnits: true,
 				series: bySizeClass(func(g *c.Globals, s int, size float64) float64 {
 					return float64(effects.DigWallCreated(g, s, size))
@@ -451,11 +515,14 @@ func drawCurveControls(dst *ebiten.Image, ctrlX, top int, id physiology.CurveID,
 	active := physiology.ShapeFor(g, id)
 	for i, kind := range physiology.AllShapeKinds {
 		bx, by, bw, bh := curveShapeButtonRect(ctrlX, top, i)
-		bg := color.RGBA{R: 45, G: 45, B: 55, A: 255}
-		fg := color.RGBA{R: 170, G: 170, B: 180, A: 255}
+		bg := themedControlDim()
+		fg := themedLabel()
 		if kind == active {
-			bg = color.RGBA{R: 70, G: 70, B: 110, A: 255}
-			fg = color.RGBA{R: 235, G: 235, B: 245, A: 255}
+			bg = chrome(
+				color.RGBA{R: 70, G: 70, B: 110, A: 255},
+				color.RGBA{R: 178, G: 182, B: 222, A: 255},
+			)
+			fg = themedValue()
 		}
 		vector.DrawFilledRect(dst, float32(bx), float32(by), float32(bw), float32(bh), bg, false)
 		tb := boundString(curveCtrlFont(), string(kind))
@@ -465,25 +532,25 @@ func drawCurveControls(dst *ebiten.Image, ctrlX, top int, id physiology.CurveID,
 	for i, s := range sliders {
 		lx, ly, lw, lh := curveSliderLabelRect(ctrlX, top, i)
 		value := s.value
-		labelCol := color.Color(color.RGBA{R: 175, G: 175, B: 190, A: 255})
-		valueCol := color.Color(color.RGBA{R: 225, G: 225, B: 235, A: 255})
+		labelCol := color.Color(themedLabel())
+		valueCol := color.Color(themedValue())
 		if s.selected {
 			// The line is lit and carries a caret for as long as it's
 			// open for typing, whether or not anything has been typed.
 			vector.DrawFilledRect(dst, float32(lx-2), float32(ly), float32(lw+4), float32(lh),
-				color.RGBA{R: 50, G: 50, B: 85, A: 255}, false)
-			labelCol = color.RGBA{R: 200, G: 200, B: 215, A: 255}
-			value, valueCol = s.editing+"_", color.RGBA{R: 120, G: 255, B: 120, A: 255}
+				themedSelectedRow(), false)
+			labelCol = themedValue()
+			value, valueCol = s.editing+"_", themedSelectedInk()
 		}
 		text.Draw(dst, s.label, curveCtrlFont(), lx, ly+lh-4, labelCol)
 		vb := boundString(curveCtrlFont(), value)
 		text.Draw(dst, value, curveCtrlFont(), lx+lw-vb.Dx(), ly+lh-4, valueCol)
 
 		sx, sy, sw, sh := curveSliderRect(ctrlX, top, i)
-		vector.DrawFilledRect(dst, float32(sx), float32(sy), float32(sw), float32(sh), color.RGBA{R: 50, G: 50, B: 60, A: 255}, false)
+		vector.DrawFilledRect(dst, float32(sx), float32(sy), float32(sw), float32(sh), themedTrack(), false)
 		fill := float32(float64(sw) * min(1, max(0, s.ratio)))
-		vector.DrawFilledRect(dst, float32(sx), float32(sy), fill, float32(sh), color.RGBA{R: 80, G: 80, B: 120, A: 255}, false)
-		vector.DrawFilledRect(dst, float32(sx)+max(0, fill-2), float32(sy), 4, float32(sh), color.RGBA{R: 150, G: 150, B: 200, A: 255}, false)
+		vector.DrawFilledRect(dst, float32(sx), float32(sy), fill, float32(sh), themedTrackFill(), false)
+		vector.DrawFilledRect(dst, float32(sx)+max(0, fill-2), float32(sy), 4, float32(sh), themedTrackHandle(), false)
 	}
 }
 
@@ -497,7 +564,7 @@ func drawAbilityBlock(dst *ebiten.Image, x, y, w int, a physiology.Ability, g *c
 		// Digging's cost and strength sections don't read as one graph
 		// pile.
 		if len(physiology.CurvesFor(a)) > 1 {
-			text.Draw(dst, id.Name(), curveGraphTitleFont(), x, top+13, color.RGBA{R: 200, G: 200, B: 215, A: 255})
+			text.Draw(dst, id.Name(), curveGraphTitleFont(), x, top+13, themedValue())
 		}
 		drawCurveControls(dst, ctrlX, top+curveHeadingH, id, g, sliders[id])
 		for i, graph := range curveGraphsFor(id) {
@@ -519,8 +586,10 @@ var curveGraphMarks = []int{0, physiology.MaxAbilityScore / 2, physiology.MaxAbi
 func drawCurveGraph(dst *ebiten.Image, x, y, w int, graph curveGraph, g *c.Globals) {
 	face := curveGraphTitleFont()
 	small := curveGraphLabelFont()
-	labelCol := color.RGBA{R: 185, G: 185, B: 198, A: 255}
+	onCard := color.RGBA{R: 185, G: 185, B: 198, A: 255}
 	dimCol := color.RGBA{R: 90, G: 90, B: 105, A: 255}
+	labelCol := themedLabel()
+	tickCol := themedMuted()
 
 	plotX := x + curveGraphLeft
 	plotY := y + curveGraphTitleH
@@ -614,7 +683,7 @@ func drawCurveGraph(dst *ebiten.Image, x, y, w int, graph curveGraph, g *c.Globa
 		lb := boundString(small, m.label)
 		lx := int(mx) - lb.Dx()/2
 		lx = min(max(lx, plotX), plotX+plotW-lb.Dx())
-		text.Draw(dst, m.label, small, lx, plotY+plotH+12, dimCol)
+		text.Draw(dst, m.label, small, lx, plotY+plotH+12, tickCol)
 	}
 
 	// Y-axis range labels.
@@ -657,7 +726,7 @@ func drawCurveGraph(dst *ebiten.Image, x, y, w int, graph curveGraph, g *c.Globa
 		for i, s := range graph.series {
 			col := seriesColor(s, i)
 			vector.DrawFilledRect(dst, float32(lx), float32(plotY+7), 8, 3, col, false)
-			text.Draw(dst, s.label, small, lx+11, plotY+12, labelCol)
+			text.Draw(dst, s.label, small, lx+11, plotY+12, onCard)
 			lx += 11 + boundString(small, s.label).Dx() + 10
 		}
 	}
@@ -697,8 +766,16 @@ func wrapGraphTitle(title string, face font.Face, w int) []string {
 func paddedGraphRange(lo, hi float64) (float64, float64) {
 	pad := (hi - lo) * 0.08
 	if hi-lo < 1e-9 {
-		// A flat line has no range to take a fraction of.
-		pad = max(math.Abs(hi)*0.1, 0.5)
+		// A flat line has no range to take a fraction of, so the pad is
+		// relative to the value itself. It used to have an absolute floor
+		// of 0.5, which for a small constant drew an axis from 0 to 0.501
+		// with the line flat along the bottom — reading as zero rather
+		// than as the number it is. The floor is only for a line at
+		// exactly zero, where there is no magnitude to scale by.
+		pad = math.Abs(hi) * 0.1
+		if pad < 1e-9 {
+			pad = 0.5
+		}
 	}
 	outLo, outHi := lo-pad, hi+pad
 	if lo >= 0 {
@@ -772,6 +849,10 @@ var curveKTags = map[string]struct {
 	"thorns_saturating_k":           {physiology.CurveThorns, physiology.ShapeSaturating},
 	"ph_tolerance_cosine_k":         {physiology.CurvePhTolerance, physiology.ShapeCosine},
 	"ph_tolerance_saturating_k":     {physiology.CurvePhTolerance, physiology.ShapeSaturating},
+	"chemo_ph_effect_cosine_k":      {physiology.CurveChemoPhEffect, physiology.ShapeCosine},
+	"chemo_ph_effect_saturating_k":  {physiology.CurveChemoPhEffect, physiology.ShapeSaturating},
+	"eating_ph_effect_cosine_k":     {physiology.CurveEatingPhEffect, physiology.ShapeCosine},
+	"eating_ph_effect_saturating_k": {physiology.CurveEatingPhEffect, physiology.ShapeSaturating},
 }
 
 // withCurveGraphs gives each curve's K row a graph toggle, a shape picker
@@ -897,9 +978,9 @@ func globalsField(jsonTag string) (int, reflect.Kind) {
 // ability be tuned in one place: the curve, its shape, and the numbers it
 // multiplies, side by side with the graphs of the result.
 var curveSettingTags = map[physiology.CurveID][]string{
-	physiology.CurveChemosynthesis: {"max_chemosynthesis_gain", "chemo_ph_effect"},
+	physiology.CurveChemosynthesis: {"max_chemosynthesis_gain"},
 	physiology.CurveEating: {"max_bite_at_full_eating", "health_per_food_unit", "health_change_from_eating_attempt",
-		"eating_growth_factor", "eating_ph_effect"},
+		"eating_growth_factor"},
 	physiology.CurveMovementCost: {"health_change_from_moving", "health_change_from_moving_at_max",
 		"health_change_from_turning", "health_change_from_turning_at_max"},
 	physiology.CurveDiggingCost: {"health_change_from_digging", "health_change_from_digging_at_max"},
@@ -907,10 +988,12 @@ var curveSettingTags = map[physiology.CurveID][]string{
 		"wall_strength_delta_at_zero", "food_from_digging_small", "food_from_digging_medium", "food_from_digging_large",
 		"food_from_digging_at_zero"},
 	physiology.CurveDiggingCreate: {"wall_created_small", "wall_created_medium", "wall_created_large",
-		"wall_created_at_zero"},
-	physiology.CurveAttack:      {"health_change_inflicted_by_attack", "health_change_from_attacking"},
-	physiology.CurveThorns:      {"health_change_inflicted_by_thorns"},
-	physiology.CurvePhTolerance: {"unhealthy_ph_damage", "max_ph_tolerance_width"},
+		"wall_created_at_zero", "wall_break_multiplier"},
+	physiology.CurveAttack:         {"health_change_inflicted_by_attack", "health_change_from_attacking"},
+	physiology.CurveThorns:         {"health_change_inflicted_by_thorns"},
+	physiology.CurvePhTolerance:    {"unhealthy_ph_damage", "max_ph_tolerance_width"},
+	physiology.CurveChemoPhEffect:  {"chemo_ph_effect"},
+	physiology.CurveEatingPhEffect: {"eating_ph_effect"},
 }
 
 // curveSettingLabels are the short names the curve blocks give the
@@ -918,12 +1001,12 @@ var curveSettingTags = map[physiology.CurveID][]string{
 // the graphs.
 var curveSettingLabels = map[string]string{
 	"max_chemosynthesis_gain":           "max gain",
-	"chemo_ph_effect":                   "pH effect",
+	"chemo_ph_effect":                   "pH push",
+	"eating_ph_effect":                  "pH push",
 	"max_bite_at_full_eating":           "max food",
 	"health_per_food_unit":              "health/food",
 	"health_change_from_eating_attempt": "attempt",
 	"eating_growth_factor":              "growth",
-	"eating_ph_effect":                  "pH effect",
 	"health_change_from_moving":         "move @0",
 	"health_change_from_moving_at_max":  "move @max",
 	"health_change_from_turning":        "turn @0",
@@ -942,6 +1025,7 @@ var curveSettingLabels = map[string]string{
 	"wall_created_medium":               "raise M",
 	"wall_created_large":                "raise L",
 	"wall_created_at_zero":              "raise @0",
+	"wall_break_multiplier":             "burrow",
 	"health_change_inflicted_by_attack": "damage",
 	"health_change_from_attacking":      "cost",
 	"health_change_inflicted_by_thorns": "thorns",
@@ -962,6 +1046,8 @@ var curveShapeTags = map[physiology.CurveID]string{
 	physiology.CurveDamageTaken:     "damage_taken_curve_shape",
 	physiology.CurveThorns:          "thorns_curve_shape",
 	physiology.CurvePhTolerance:     "ph_tolerance_curve_shape",
+	physiology.CurveChemoPhEffect:   "chemo_ph_effect_curve_shape",
+	physiology.CurveEatingPhEffect:  "eating_ph_effect_curve_shape",
 }
 
 var curveFieldTags = map[physiology.CurveID]struct{ last string }{
@@ -975,6 +1061,8 @@ var curveFieldTags = map[physiology.CurveID]struct{ last string }{
 	physiology.CurveDamageTaken:     {"damage_taken_saturating_k"},
 	physiology.CurveThorns:          {"thorns_saturating_k"},
 	physiology.CurvePhTolerance:     {"ph_tolerance_saturating_k"},
+	physiology.CurveChemoPhEffect:   {"chemo_ph_effect_saturating_k"},
+	physiology.CurveEatingPhEffect:  {"eating_ph_effect_saturating_k"},
 }
 
 var curveFieldNames = map[physiology.CurveID]struct{ cosineK, saturatingK, shape string }{
@@ -988,6 +1076,8 @@ var curveFieldNames = map[physiology.CurveID]struct{ cosineK, saturatingK, shape
 	physiology.CurveDamageTaken:     {"DamageTakenCosineK", "DamageTakenSaturatingK", "DamageTakenCurveShape"},
 	physiology.CurveThorns:          {"ThornsCosineK", "ThornsSaturatingK", "ThornsCurveShape"},
 	physiology.CurvePhTolerance:     {"PhToleranceCosineK", "PhToleranceSaturatingK", "PhToleranceCurveShape"},
+	physiology.CurveChemoPhEffect:   {"ChemoPhEffectCosineK", "ChemoPhEffectSaturatingK", "ChemoPhEffectCurveShape"},
+	physiology.CurveEatingPhEffect:  {"EatingPhEffectCosineK", "EatingPhEffectSaturatingK", "EatingPhEffectCurveShape"},
 }
 
 // graphCanvasFor returns a reusable offscreen image at least w × h, so a
@@ -1037,7 +1127,7 @@ func (cs *ConfigScreen) drawGraphToggle(screen *ebiten.Image, px, py int, a phys
 	if cs.graphExpanded[a] {
 		marker = "▼"
 	}
-	vector.DrawFilledRect(screen, float32(px), float32(py), graphToggleW-2, cfgRowHeight-4, color.RGBA{R: 55, G: 55, B: 80, A: 255}, false)
+	vector.DrawFilledRect(screen, float32(px), float32(py), graphToggleW-2, cfgRowHeight-4, themedControlFill(), false)
 	mb := boundString(r.FontSourceCodePro8, marker)
-	text.Draw(screen, marker, r.FontSourceCodePro8, px+(graphToggleW-2-mb.Dx())/2, py+10, color.RGBA{R: 220, G: 220, B: 240, A: 255})
+	text.Draw(screen, marker, r.FontSourceCodePro8, px+(graphToggleW-2-mb.Dx())/2, py+10, themedValue())
 }

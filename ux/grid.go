@@ -52,7 +52,43 @@ const (
 	// tolerates the pH of the cell it's in: green inside its tolerance
 	// range, redder the further outside it sits.
 	orgColorTolerance
+	// orgColorFamily tints each organism by how it is related to the
+	// selected one: green at the selection, green→blue down its line of
+	// descent, green→yellow up its ancestry, fading through red to gray
+	// across cousin branches. See family.go.
+	orgColorFamily
+	// orgColorAge tints each organism gray→green by how far through its
+	// life it is, against max_lifespan — or, when that is off, against
+	// the oldest organism currently alive, so the view still separates
+	// the old from the young in a world with no fixed span.
+	orgColorAge
+	// orgColorSize tints each organism gray→green by its size against
+	// maximum_max_size. A fixed scale rather than the largest organism
+	// alive: size is the one quantity worth comparing between one frame
+	// and the next, and a scale that rescaled itself every frame would
+	// make a growing population look static.
+	orgColorSize
 )
+
+// allOrgColorModes is every organism colour mode, so anything that has to
+// cover all of them can iterate rather than list them again. `mode` is
+// shared with the selection modes below and their values overlap, so this
+// can't be derived from a count.
+//
+// A new mode belongs here as well as in the const block: it's what
+// TestEveryColorModeHasAKey walks, and a mode missing from it would ship
+// with a blank legend in the corner and no test to say so.
+var allOrgColorModes = []mode{
+	orgColorTrue,
+	orgColorPhEffect,
+	orgColorHealth,
+	orgColorAbility,
+	orgColorSuccess,
+	orgColorTolerance,
+	orgColorFamily,
+	orgColorAge,
+	orgColorSize,
+}
 
 const (
 	selectOldest mode = iota
@@ -86,7 +122,19 @@ type Grid struct {
 	// the colour mode changes, so returning to ABILITY restores the
 	// last ability viewed rather than resetting to the first.
 	colorAbility physiology.Ability
-	clearImg     *ebiten.Image
+
+	// familyTint answers the FAMILY colour mode's "how is this organism
+	// related to the selected one". Rebuilt when the selection changes or
+	// a replay seek rebuilds the trees; see family.go for why it is
+	// memoised rather than recomputed.
+	familyTint *familyTinter
+
+	// oldestAlive is the age of the oldest living organism, refreshed
+	// once per organism-layer pass. The AGE view needs a denominator
+	// when max_lifespan is off, and asking for it per organism would be
+	// a scan of the whole population per organism.
+	oldestAlive int
+	clearImg    *ebiten.Image
 	// selectionBoxImg is the source bitmap stamped onto layerSelection
 	// for every highlighted organism. Authored white-on-transparent so
 	// the per-stamp ColorScale can tint to any selection colour.
@@ -124,14 +172,6 @@ type Grid struct {
 	timeOrganisms      time.Duration
 	timeCompose        time.Duration
 	timeSelectionBoxes time.Duration
-
-	// descHighlight caches the set of descendant IDs to highlight for
-	// the currently-selected organism, valid for a window of cycles
-	// around the playhead. The set is built once per (selection,
-	// window) and consulted O(1) per living organism per render —
-	// avoiding the per-frame subtree walk that got expensive when we
-	// allowed dead-organism selections.
-	descHighlight *descHighlightCache
 }
 
 // RenderTimings is the per-phase breakdown surfaced to the debug
@@ -402,6 +442,11 @@ func (g *Grid) ShowOrganisms() bool { return g.showOrganisms }
 
 // OrgColor reports the active organism colour mode.
 func (g *Grid) OrgColor() mode { return g.orgColor }
+
+// ColorAbility reports the ability the ABILITY colour mode is keyed to.
+// Meaningful only in that mode, but kept across the others so switching
+// back returns to the ability the user last looked at.
+func (g *Grid) ColorAbility() physiology.Ability { return g.colorAbility }
 
 func (g *Grid) SetManualSelection() {
 	g.selectMode = selectManual

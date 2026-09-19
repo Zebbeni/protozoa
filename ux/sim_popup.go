@@ -16,6 +16,7 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
+	"github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
@@ -85,6 +86,14 @@ type SimPopup struct {
 	// stopRequested is set when the user clicks Stop; the runner reads
 	// it via StopRequested() and ends the sim loop.
 	stopRequested bool
+	// replayBytes is the projected size of the replay file, pushed in by
+	// the runner each step. Read rather than computed here so the draw
+	// path doesn't reach into a running simulation's recorder.
+	replayBytes int64
+	// endCondition is which end condition has fired, EndNone while the
+	// run is going. Kept here rather than read off the simulation so the
+	// footer doesn't reach across into a running goroutine's state.
+	endCondition simulation.EndCondition
 
 	// Captured by SetSimComplete and shown in the complete body.
 	finalCycle int
@@ -156,6 +165,23 @@ func (p *SimPopup) SetDisplaySeed(seed int) { p.displaySeed = seed }
 func (p *SimPopup) AddLog(line LogLine) {
 	p.mu.Lock()
 	p.logs = append(p.logs, line)
+	p.mu.Unlock()
+}
+
+// SetEndCondition records which end condition has fired, so the footer's
+// list can light the one that stopped the run. EndNone while it runs.
+// Safe to call from any goroutine.
+func (p *SimPopup) SetEndCondition(end simulation.EndCondition) {
+	p.mu.Lock()
+	p.endCondition = end
+	p.mu.Unlock()
+}
+
+// SetReplayBytes records the projected replay size for the footer.
+// Safe to call from any goroutine.
+func (p *SimPopup) SetReplayBytes(b int64) {
+	p.mu.Lock()
+	p.replayBytes = b
 	p.mu.Unlock()
 }
 
@@ -446,7 +472,7 @@ func (p *SimPopup) drawConfigFooter(screen *ebiten.Image) {
 		rb := boundString(r.FontSourceCodePro10, reason)
 		tx := cancelRect.Min.X - popupBtnSpacing - rb.Dx()
 		ty := startRect.Min.Y + (startRect.Dy()+rb.Dy())/2
-		text.Draw(screen, reason, r.FontSourceCodePro10, tx, ty, color.RGBA{R: 235, G: 90, B: 90, A: 255})
+		text.Draw(screen, reason, r.FontSourceCodePro10, tx, ty, themedBad())
 		return
 	}
 	drawAccentButton(screen, startRect.Min.X, startRect.Min.Y, startRect.Dx(), startRect.Dy(),
@@ -492,6 +518,17 @@ func (p *SimPopup) drawRunningBody(screen *ebiten.Image) {
 func (p *SimPopup) drawRunningFooter(screen *ebiten.Image) {
 	mx, my := ebiten.CursorPosition()
 	rect := p.runningStopRect()
+
+	// What will stop this run, to the left of the button that stops it
+	// by hand. Bottom-aligned with the button so the block grows upward
+	// as conditions are added rather than pushing the footer about.
+	p.mu.Lock()
+	fired := p.endCondition
+	replayBytes := p.replayBytes
+	p.mu.Unlock()
+	lines := endConditionLines(p.globals, fired, replayBytes)
+	drawEndConditions(screen, lines, p.popupRect().Min.X+popupPad, rect.Max.Y)
+
 	hovered := hitRect(mx, my, rect)
 	pressed := hovered && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	drawAccentButton(screen, rect.Min.X, rect.Min.Y, rect.Dx(), rect.Dy(),

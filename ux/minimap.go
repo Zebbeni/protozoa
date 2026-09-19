@@ -123,17 +123,38 @@ func (m *Minimap) Update() {
 	}
 }
 
-func (m *Minimap) Draw(screen *ebiten.Image) {
+// Visible reports whether Draw would paint anything. The colour key
+// stacks on top of the minimap, so it has to know whether there is a
+// minimap under it or whether it is the bottom of the corner itself.
+func (m *Minimap) Visible() bool {
 	if m.image == nil {
-		return
+		return false
 	}
-
-	// Hide minimap if both axes fit in the viewport
+	// Nothing to navigate when the whole world already fits on screen.
 	unitSize := m.camera.GridUnitSize()
-	if m.camera.ViewportW >= config.GridUnitsWide()*unitSize &&
-		m.camera.ViewportH >= config.GridUnitsHigh()*unitSize {
+	return m.camera.ViewportW < config.GridUnitsWide()*unitSize ||
+		m.camera.ViewportH < config.GridUnitsHigh()*unitSize
+}
+
+// Width is the minimap's width in pixels, which follows the world's
+// aspect ratio. The colour key stacks on top of it and takes the same
+// width, so the corner reads as one block rather than two.
+//
+// Always meaningful, including while Visible is false: it is computed
+// from the world at construction, not from what is on screen.
+func (m *Minimap) Width() int { return m.width }
+
+// Top is the y coordinate of the minimap's top edge, border included —
+// where anything stacked above it has to end.
+func (m *Minimap) Top() int {
+	return config.ScreenHeight() - m.height - minimapPadding - minimapBorder
+}
+
+func (m *Minimap) Draw(screen *ebiten.Image) {
+	if !m.Visible() {
 		return
 	}
+	unitSize := m.camera.GridUnitSize()
 
 	screenW := config.ScreenWidth()
 	screenH := config.ScreenHeight()

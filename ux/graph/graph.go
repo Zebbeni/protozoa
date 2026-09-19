@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -78,6 +79,13 @@ type Graph struct {
 	selectedSubTreeRoot *organism.DescendantNode
 	selStartCycle       int
 
+	// selectionDirty means the selection changed and no render has
+	// covered it yet. A flag rather than acting on updateSelection's
+	// return value directly, because the change can land while a render
+	// is already in flight — dropping it then left the selected graph
+	// blank with nothing to schedule the render it was waiting for.
+	selectionDirty bool
+
 	pendingResult chan renderResult
 	rendering     bool
 
@@ -116,6 +124,53 @@ type Graph struct {
 	// instead of walking the descendant trees again. See
 	// population.AliveCache.
 	aliveCache *population.AliveCache
+
+	// popCache keeps the whole rendered state of each colouring the user
+	// has visited, so switching back to one is instant.
+	//
+	// The alive-set cache already made the tree *walk* free, but the
+	// colour switch still threw the renderer away and built a fresh one,
+	// and drawing thousands of bars is seconds of work on a long run. The
+	// renderer owns its base image and its incremental state, so keeping
+	// it is what makes coming back free — caching only the finished image
+	// would leave the next incremental update with nothing to draw onto.
+	popCache map[PopulationColor]popRender
+
+	// renderingPopColor is the colouring whose renderers were handed to
+	// the in-flight render, meaningful only while rendering is true. A
+	// renderer a goroutine is writing to must not be handed back out of
+	// the cache, and this is how that case is recognised.
+	renderingPopColor PopulationColor
+
+	// prewarming is set while the in-flight render is speculative work.
+	// It shares the rendering flag so only one render ever runs at a
+	// time, but keeps the progress bar off the user's graph — nobody
+	// asked for this one.
+	prewarming bool
+
+	// prewarmOrder is the colourings to draw ahead of being asked for,
+	// in the order the buttons offer them. Populated once the first real
+	// render has landed, so speculative work never delays the graph the
+	// user is actually looking at.
+	prewarmOrder []PopulationColor
+
+	// pendingPrewarm carries the in-flight speculative render's renderers
+	// from the goroutine back to the main one, which is the only place
+	// popCache is touched. Atomic because the two ends are different
+	// goroutines; only ever one prewarm at a time, so one slot is enough.
+	pendingPrewarm atomic.Pointer[prewarmRenderers]
+}
+
+// popRender is one colouring's cached population state: the renderers
+// that own the drawing, the images they last produced, and the bar count
+// they reached, so a stale entry can catch up incrementally rather than
+// rebuilding.
+type popRender struct {
+	renderer    Renderer
+	selRenderer Renderer
+	image       *ebiten.Image
+	selImage    *ebiten.Image
+	barCount    int
 }
 
 // PopulationColor selects how the population graphs colour organisms.
@@ -137,6 +192,11 @@ type renderResult struct {
 	selImages map[Mode]*ebiten.Image
 	barCount  int
 	renderGen int
+	// prewarm names the colouring this result was drawn for when it is
+	// speculative work rather than something the user asked to see. The
+	// result is filed into popCache instead of being displayed.
+	prewarm   PopulationColor
+	isPrewarm bool
 }
 
 func NewGraph(sim *s.Simulation) *Graph {
@@ -144,6 +204,7 @@ func NewGraph(sim *s.Simulation) *Graph {
 		simulation:    sim,
 		selectedID:    -1,
 		pendingResult: make(chan renderResult, 1),
+		popCache:      make(map[PopulationColor]popRender),
 		renderers:     make(map[Mode]Renderer),
 		images:        make(map[Mode]*ebiten.Image),
 		selRenderers:  make(map[Mode]Renderer),
@@ -195,10 +256,105 @@ func (g *Graph) SetPopulationColor(pc PopulationColor) {
 	if pc == g.popColor {
 		return
 	}
+	g.stashPopulationRender()
 	g.popColor = pc
-	// Only the population images are stale; the alive sets behind them
-	// are the same organisms in a different colour.
+
+	if entry, ok := g.popCache[pc]; ok && g.canReusePopRender(pc) {
+		g.installPopulationRender(entry)
+		return
+	}
+	// Nothing to come back to, so draw it. Only the population images are
+	// stale; the alive sets behind them are the same organisms in a
+	// different colour.
 	g.discardCachedRenders(true)
+}
+
+// stashPopulationRender files the colouring being left under its own key,
+// so returning to it costs nothing.
+//
+// Skipped while that colouring's renderers are in a background render:
+// the goroutine is still writing to them, and filing one away would hand
+// it back out later mid-write.
+func (g *Graph) stashPopulationRender() {
+	if g.rendering && g.renderingPopColor == g.popColor {
+		return
+	}
+	r, ok := g.renderers[ModePopulation]
+	if !ok || r == nil {
+		return
+	}
+	if g.popCache == nil {
+		// A Graph built as a literal rather than through NewGraph — the
+		// tests do, and a nil map here would panic on the first colour
+		// switch rather than simply not caching.
+		g.popCache = make(map[PopulationColor]popRender)
+	}
+	g.popCache[g.popColor] = popRender{
+		renderer:    r,
+		selRenderer: g.selRenderers[ModePopulation],
+		image:       g.images[ModePopulation],
+		selImage:    g.selImages[ModePopulation],
+		barCount:    g.currentBarCount,
+	}
+}
+
+// canReusePopRender reports whether the cached entry for pc is safe to
+// install — that is, whether a background render might be writing to it.
+func (g *Graph) canReusePopRender(pc PopulationColor) bool {
+	return !g.rendering || g.renderingPopColor != pc
+}
+
+// installPopulationRender puts a cached colouring back on screen.
+//
+// The renderers go into NEW maps rather than being written into the
+// existing ones, for the same reason replacePopulationRenderers does it:
+// a background render may be ranging over the map it was handed, and
+// writing into that is a runtime panic.
+//
+// The entry's own bar count is restored along with it, so a colouring
+// filed away earlier in a live run draws only the bars it missed instead
+// of the whole graph. In a replay the bar count is the whole recording
+// from the first frame, so an entry is never behind and nothing is
+// redrawn at all — which is the case this exists for.
+func (g *Graph) installPopulationRender(entry popRender) {
+	renderers := make(map[Mode]Renderer, len(g.renderers))
+	for mode, r := range g.renderers {
+		renderers[mode] = r
+	}
+	renderers[ModePopulation] = entry.renderer
+	g.renderers = renderers
+
+	selRenderers := make(map[Mode]Renderer, len(g.selRenderers))
+	for mode, r := range g.selRenderers {
+		selRenderers[mode] = r
+	}
+	if entry.selRenderer != nil {
+		selRenderers[ModePopulation] = entry.selRenderer
+	}
+	g.selRenderers = selRenderers
+
+	images := make(map[Mode]*ebiten.Image, len(g.images))
+	for mode, img := range g.images {
+		images[mode] = img
+	}
+	if entry.image != nil {
+		images[ModePopulation] = entry.image
+	}
+	g.images = images
+
+	if entry.selImage != nil {
+		selImages := make(map[Mode]*ebiten.Image, len(g.selImages))
+		for mode, img := range g.selImages {
+			selImages[mode] = img
+		}
+		selImages[ModePopulation] = entry.selImage
+		g.selImages = selImages
+	}
+
+	g.currentBarCount = entry.barCount
+	// An in-flight render still carries the old colouring's result, which
+	// would land on top of what was just installed.
+	g.renderGen++
 }
 
 // discardCachedRenders throws away every cached population render and
@@ -270,7 +426,19 @@ func (g *Graph) ShowSelected() bool {
 // in-flight result is discarded as stale. The previous images stay on
 // screen until the repaint lands, rather than the graph going blank.
 func (g *Graph) Invalidate() {
+	g.dropPopCache()
 	g.discardCachedRenders(false)
+}
+
+// dropPopCache forgets every colouring's cached render. Called wherever
+// the data behind the graphs changes: a cached entry is the *answer* for
+// a set of trees and a colour mapping, and both of those move.
+//
+// The entries are dropped rather than Reset() in place, because a
+// background render may still hold one — the same rule replacePopulation-
+// Renderers follows.
+func (g *Graph) dropPopCache() {
+	g.popCache = make(map[PopulationColor]popRender)
 }
 
 // InvalidateTrees discards every cached render AND the cached alive
@@ -279,7 +447,121 @@ func (g *Graph) Invalidate() {
 // holds pointers into trees that no longer exist.
 func (g *Graph) InvalidateTrees() {
 	g.aliveCache.Invalidate()
+	g.dropPopCache()
 	g.discardCachedRenders(false)
+}
+
+// prewarmColours is every colouring the buttons can select, in the order
+// they appear: the lineage colours first, then one per ability.
+func prewarmColours() []PopulationColor {
+	out := []PopulationColor{{}}
+	for _, a := range physiology.AllAbilities {
+		out = append(out, PopulationColor{ByAbility: true, Ability: a})
+	}
+	return out
+}
+
+// nextPrewarm is the first colouring with nothing cached, or ok=false
+// when every one has been drawn.
+func (g *Graph) nextPrewarm() (PopulationColor, bool) {
+	for _, pc := range g.prewarmOrder {
+		if _, done := g.popCache[pc]; !done && pc != g.popColor {
+			return pc, true
+		}
+	}
+	return PopulationColor{}, false
+}
+
+// startPrewarm draws one un-cached colouring in the background so that
+// switching to it later costs nothing.
+//
+// Only ever runs when the graph is otherwise idle: nothing rendering,
+// nothing forced, nothing pending, and the displayed graph already up to
+// date. Speculative work must never be the reason the graph the user is
+// looking at is late, and it holds the same one-at-a-time flag as every
+// other render so it can't overlap one.
+func (g *Graph) startPrewarm() bool {
+	if g.rendering || g.forceRender || g.currentBarCount <= 0 {
+		return false
+	}
+	if g.targetBarCount() != g.currentBarCount {
+		// The live graph still has bars to catch up on; that comes first.
+		return false
+	}
+	pc, ok := g.nextPrewarm()
+	if !ok {
+		return false
+	}
+
+	renderer := population.NewRenderer(pc.colorFn(), nil, 0, g.aliveCache)
+	var selRenderer Renderer
+	if g.selectedSubTreeRoot != nil {
+		startBar := g.selStartCycle / c.PopulationUpdateInterval()
+		selRenderer = population.NewRenderer(pc.colorFn(), g.selectedSubTreeRoot, startBar, nil)
+	}
+
+	progress := g.beginRender()
+	g.prewarming = true
+	barCount := g.currentBarCount
+	gen := g.renderGen
+	go func() {
+		result := renderResult{
+			barCount:  barCount,
+			renderGen: gen,
+			prewarm:   pc,
+			isPrewarm: true,
+			images:    map[Mode]*ebiten.Image{ModePopulation: renderer.Render(g.simulation, 0, barCount, progress)},
+		}
+		if selRenderer != nil {
+			result.selImages = map[Mode]*ebiten.Image{
+				ModePopulation: selRenderer.Render(g.simulation, 0, barCount, progress),
+			}
+		}
+		g.prewarmRenderers(pc, renderer, selRenderer)
+		g.pendingResult <- result
+	}()
+	return true
+}
+
+// prewarmRenderers hands the goroutine's renderers back for filing. Kept
+// separate from the result so the cache entry is assembled on the main
+// goroutine, where popCache is only ever touched.
+func (g *Graph) prewarmRenderers(pc PopulationColor, renderer, selRenderer Renderer) {
+	g.pendingPrewarm.Store(&prewarmRenderers{pc: pc, renderer: renderer, selRenderer: selRenderer})
+}
+
+// filePrewarm puts a finished speculative render into the cache. Dropped
+// if the data moved underneath it while it was drawing — the entry would
+// describe trees that no longer exist.
+func (g *Graph) filePrewarm(result renderResult) {
+	held := g.pendingPrewarm.Load()
+	g.pendingPrewarm.Store(nil)
+	if held == nil || held.pc != result.prewarm || result.renderGen != g.renderGen {
+		return
+	}
+	if g.popCache == nil {
+		g.popCache = make(map[PopulationColor]popRender)
+	}
+	entry := popRender{
+		renderer:    held.renderer,
+		selRenderer: held.selRenderer,
+		barCount:    result.barCount,
+	}
+	if result.images != nil {
+		entry.image = result.images[ModePopulation]
+	}
+	if result.selImages != nil {
+		entry.selImage = result.selImages[ModePopulation]
+	}
+	g.popCache[result.prewarm] = entry
+}
+
+// prewarmRenderers carries a speculative render's renderers back to the
+// main goroutine alongside its images.
+type prewarmRenderers struct {
+	pc          PopulationColor
+	renderer    Renderer
+	selRenderer Renderer
 }
 
 // Mode returns the currently-displayed graph mode.
@@ -288,19 +570,35 @@ func (g *Graph) Mode() Mode {
 }
 
 func (g *Graph) Render() *ebiten.Image {
-	selectionChanged := g.updateSelection()
+	g.updateSelection()
 
 	select {
 	case result := <-g.pendingResult:
 		g.rendering = false
+		g.prewarming = false
 		g.progress = nil
+		if result.isPrewarm {
+			g.filePrewarm(result)
+			break
+		}
 		// A render that started before the last colour change painted
 		// the old colours; keep showing the previous images until the
 		// forced repaint lands rather than flashing stale ones.
 		if result.renderGen == g.renderGen {
 			g.images = result.images
 			g.currentBarCount = result.barCount
-			if result.selImages != nil {
+			if g.prewarmOrder == nil {
+				// Only now, so speculative work can never be the reason the
+				// first real graph is late.
+				g.prewarmOrder = prewarmColours()
+			}
+			// selectionDirty still set means the selection changed after
+			// this render was scheduled, so its sub-tree images are of
+			// the organism that *was* selected. Dropping them leaves the
+			// graph blank for the frame or two until the render this
+			// change schedules lands, which beats showing someone else's
+			// family tree under the new selection's title.
+			if result.selImages != nil && !g.selectionDirty {
 				g.selImages = result.selImages
 				g.selBarCount = result.barCount
 			}
@@ -315,6 +613,7 @@ func (g *Graph) Render() *ebiten.Image {
 		progress := g.beginRender()
 		barCount := g.targetBarCount()
 		hasSelection := g.selectedSubTreeRoot != nil
+		g.selectionDirty = false
 		renderers := g.renderers
 		carried := map[Mode]*ebiten.Image(nil)
 		if popOnly {
@@ -344,18 +643,30 @@ func (g *Graph) Render() *ebiten.Image {
 		}
 		progress := g.beginRender()
 		hasSelection := g.selectedSubTreeRoot != nil
+		g.selectionDirty = false
 		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, targetBarCount, 0, g.renderGen, progress, nil)
 		return g.currentImage()
 	}
 
+	// A sub-tree render, for a selection nothing else is going to cover.
+	// This used to sit inside the paused branch, on the assumption that a
+	// running sim repaints everything at the next bar boundary anyway —
+	// true live, false in a replay, where the bar count is the whole
+	// recording from the first frame and shouldUpdate therefore never
+	// fires again. Selecting an organism mid-playback and switching to
+	// the selected view showed nothing at all until some unrelated
+	// setting forced a repaint.
+	if g.needsSelectionRender() && !g.rendering {
+		g.selectionDirty = false
+		progress := g.beginRender()
+		go g.renderSelectedOnly(g.images, g.selRenderers, g.selectedSubTreeRoot != nil,
+			g.currentBarCount, g.renderGen, progress)
+		return g.currentImage()
+	}
+
 	if g.simulation.IsPaused() {
-		if selectionChanged && !g.rendering {
-			progress := g.beginRender()
-			barCount := g.currentBarCount
-			selRenderers := g.selRenderers
-			hasSelection := g.selectedSubTreeRoot != nil
-			go g.renderSelectedOnly(selRenderers, hasSelection, barCount, g.renderGen, progress)
-		}
+		// A paused sim is exactly when there is time for speculative work.
+		g.startPrewarm()
 		return g.currentImage()
 	}
 
@@ -368,16 +679,50 @@ func (g *Graph) Render() *ebiten.Image {
 		renderers := g.renderers
 		selRenderers := g.selRenderers
 		hasSelection := g.selectedSubTreeRoot != nil
+		g.selectionDirty = false
 		go g.renderInBackground(renderers, selRenderers, hasSelection, oldBarCount, newBarCount, selOldBarCount, g.renderGen, progress, nil)
 	}
 
+	// Last, and only when everything above declined: draw a colouring
+	// nobody has asked for yet, so that switching to it is instant.
+	g.startPrewarm()
+
 	return g.currentImage()
+}
+
+// needsSelectionRender reports whether the selected organism's sub-tree
+// graph has to be drawn now.
+//
+// Two ways in. The selection changed and no render has covered it since
+// (selectionDirty), or the user has switched to the selected view for a
+// mode whose image isn't there — a render dropped as stale, or one that
+// ran while nothing was selected. The second is deliberately limited to
+// modes that *have* a sub-tree renderer: only population does, so asking
+// it of pH would spin, re-rendering every frame for an image that is
+// never going to appear.
+//
+// Nothing to draw before the first full render has set a bar count, so
+// it waits — that render covers the selection itself.
+func (g *Graph) needsSelectionRender() bool {
+	if g.selectedSubTreeRoot == nil || g.currentBarCount <= 0 {
+		return false
+	}
+	if g.selectionDirty {
+		return true
+	}
+	if _, ok := g.selRenderers[g.mode]; !ok {
+		return false
+	}
+	return g.showSelected && g.selImages[g.mode] == nil
 }
 
 // beginRender marks a background render as in flight and returns the
 // progress tracker to hand it.
 func (g *Graph) beginRender() *gh.Progress {
 	g.rendering = true
+	// Whose renderers this render is about to be handed, so the cache
+	// knows not to give that one back out while it is being written to.
+	g.renderingPopColor = g.popColor
 	g.progress = &gh.Progress{}
 	g.renderStarted = g.now()
 	g.shownProgress = 0
@@ -389,6 +734,12 @@ func (g *Graph) beginRender() *gh.Progress {
 // has run past progressDelay and has reported some work; the fraction is
 // held monotonic so the bar never slides back.
 func (g *Graph) RenderProgress() (fraction float64, show bool) {
+	// A prewarm is speculative: blanking the user's graph for a bar
+	// showing work they didn't ask for would be worse than the wait it
+	// is saving them.
+	if g.prewarming {
+		return 0, false
+	}
 	if !g.rendering || g.now().Sub(g.renderStarted) < progressDelay {
 		return 0, false
 	}
@@ -400,16 +751,17 @@ func (g *Graph) RenderProgress() (fraction float64, show bool) {
 	return g.shownProgress, true
 }
 
-func (g *Graph) updateSelection() bool {
+func (g *Graph) updateSelection() {
 	selID := g.simulation.GetSelected()
 	if selID == g.selectedID {
-		return false
+		return
 	}
 	g.selectedID = selID
 	g.selectedSubTreeRoot = nil
 	g.selStartCycle = 0
 	g.selBarCount = 0
 	g.selImages = make(map[Mode]*ebiten.Image)
+	g.selectionDirty = true
 	// Don't Reset() old renderers — a goroutine may still be using them.
 	// Just drop the references and create new ones.
 	g.selRenderers = make(map[Mode]Renderer)
@@ -424,7 +776,6 @@ func (g *Graph) updateSelection() bool {
 			g.selRenderers[ModePopulation] = population.NewRenderer(g.popColor.colorFn(), root, startBar, nil)
 		}
 	}
-	return true
 }
 
 // RenderedEndCycle is the cycle the graph image currently on show runs
@@ -534,9 +885,12 @@ func (g *Graph) renderInBackground(
 	g.pendingResult <- result
 }
 
-func (g *Graph) renderSelectedOnly(selRenderers map[Mode]Renderer, hasSelection bool, barCount, renderGen int, progress *gh.Progress) {
+// images is passed in rather than read off g inside the goroutine: the
+// main goroutine replaces that map on every completed render, and reading
+// it from here is a data race.
+func (g *Graph) renderSelectedOnly(images map[Mode]*ebiten.Image, selRenderers map[Mode]Renderer, hasSelection bool, barCount, renderGen int, progress *gh.Progress) {
 	result := renderResult{
-		images:    g.images,
+		images:    images,
 		barCount:  barCount,
 		renderGen: renderGen,
 	}

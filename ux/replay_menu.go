@@ -291,7 +291,7 @@ func (m *ReplayMenu) drawSettings(screen *ebiten.Image) {
 	if m.notice != "" && time.Now().Before(m.noticeUntil) {
 		col := color.Color(themedForegroundDim())
 		if m.noticeErr {
-			col = color.RGBA{R: 235, G: 90, B: 90, A: 255}
+			col = themedBad()
 		}
 		rect := modalRect()
 		text.Draw(screen, m.notice, r.FontSourceCodePro10, rect.Min.X+popupPad, rect.Max.Y-popupFooterH+12, col)

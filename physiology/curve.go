@@ -33,6 +33,17 @@ const (
 	// Digging curves: the order here is what config files and saved
 	// blocks are keyed on.
 	CurveDiggingCreate
+	// CurveChemoPhEffect and CurveEatingPhEffect scale how hard an
+	// action shifts the pH around it, on top of the health it gained.
+	// Separating the push from the gain is what lets a hard specialist
+	// change its environment faster than it feeds off it — the two used
+	// to be locked together at a fixed ratio, so no amount of
+	// specialisation could tip the local chemistry.
+	//
+	// Appended, like CurveDiggingCreate: the order here is what config
+	// files and saved blocks are keyed on.
+	CurveChemoPhEffect
+	CurveEatingPhEffect
 	curveCount
 )
 
@@ -48,6 +59,8 @@ var AllCurves = []CurveID{
 	CurveThorns,
 	CurvePhTolerance,
 	CurveDiggingCreate,
+	CurveChemoPhEffect,
+	CurveEatingPhEffect,
 }
 
 var curveInfo = [curveCount]struct {
@@ -71,6 +84,8 @@ var curveInfo = [curveCount]struct {
 	CurveThorns:          {"Thorns", AbilityDefense, false, ShapeCosine},
 	CurvePhTolerance:     {"pH tolerance", AbilityTolerance, false, ShapeCosine},
 	CurveDiggingCreate:   {"Digging creation", AbilityDigging, false, ShapeCosine},
+	CurveChemoPhEffect:   {"Chemosynthesis pH push", AbilityChemosynthesis, false, ShapeFlat},
+	CurveEatingPhEffect:  {"Eating pH push", AbilityEating, false, ShapeFlat},
 }
 
 // CurvesFor lists the curves an ability drives, in declaration order.
@@ -123,6 +138,17 @@ type Shape interface {
 type ShapeKind string
 
 const (
+	// ShapeFlat is 1 everywhere: the ability's score doesn't scale this
+	// effect at all. The one shape that isn't a curve, and the way to say
+	// a curve exists but isn't wanted — an effect that was a plain
+	// constant before a curve was put behind it keeps its old behaviour
+	// under this shape, rather than every such addition forcing a
+	// rebalance of whatever the constant was tuned to.
+	//
+	// On a cost curve it reads the other way round, since cost curves are
+	// 1 minus the shape: flat means the cost is 0 at every score. Only
+	// worth setting on effect curves.
+	ShapeFlat ShapeKind = "flat"
 	// ShapeLinear is a straight line: every point buys the same amount.
 	ShapeLinear ShapeKind = "linear"
 	// ShapeQuadratic starts slow and accelerates, rewarding investment.
@@ -135,7 +161,7 @@ const (
 
 // AllShapeKinds lists the shapes in the order the config screen cycles
 // through them, gentlest start first.
-var AllShapeKinds = []ShapeKind{ShapeSaturating, ShapeLinear, ShapeQuadratic, ShapeCosine}
+var AllShapeKinds = []ShapeKind{ShapeFlat, ShapeSaturating, ShapeLinear, ShapeQuadratic, ShapeCosine}
 
 // Valid reports whether k names a shape.
 func (k ShapeKind) Valid() bool {
@@ -168,6 +194,8 @@ func (k ShapeKind) UsesK() bool {
 // new builds the shape with the given K.
 func (k ShapeKind) new(kValue float64) Shape {
 	switch k {
+	case ShapeFlat:
+		return FlatShape{}
 	case ShapeLinear:
 		return LinearShape{}
 	case ShapeQuadratic:
@@ -216,6 +244,10 @@ func curveShapeName(g *config.Globals, id CurveID) string {
 		return g.ThornsCurveShape
 	case CurvePhTolerance:
 		return g.PhToleranceCurveShape
+	case CurveChemoPhEffect:
+		return g.ChemoPhEffectCurveShape
+	case CurveEatingPhEffect:
+		return g.EatingPhEffectCurveShape
 	}
 	return ""
 }
@@ -257,6 +289,10 @@ func cosineK(g *config.Globals, id CurveID) float64 {
 		return g.ThornsCosineK
 	case CurvePhTolerance:
 		return g.PhToleranceCosineK
+	case CurveChemoPhEffect:
+		return g.ChemoPhEffectCosineK
+	case CurveEatingPhEffect:
+		return g.EatingPhEffectCosineK
 	}
 	return 0
 }
@@ -284,6 +320,10 @@ func saturatingK(g *config.Globals, id CurveID) float64 {
 		return g.ThornsSaturatingK
 	case CurvePhTolerance:
 		return g.PhToleranceSaturatingK
+	case CurveChemoPhEffect:
+		return g.ChemoPhEffectSaturatingK
+	case CurveEatingPhEffect:
+		return g.EatingPhEffectSaturatingK
 	}
 	return 0
 }
@@ -333,6 +373,12 @@ func (c CosineShape) Progress(score float64) float64 {
 
 // LinearShape is a straight line from 0 to 1: every point of the ability
 // buys the same amount, whatever the score already is. Ignores K.
+// FlatShape is 1 at every score: the effect doesn't scale with the
+// ability at all. Not a curve so much as the absence of one.
+type FlatShape struct{}
+
+func (FlatShape) Progress(float64) float64 { return 1 }
+
 type LinearShape struct{}
 
 func (LinearShape) Progress(score float64) float64 {

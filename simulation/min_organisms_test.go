@@ -9,27 +9,54 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-func TestShouldEnd(t *testing.T) {
+func TestEndCondition(t *testing.T) {
 	const min = 10
+	const maxCycles = 500
 	for _, tc := range []struct {
-		name  string
-		alive int
-		armed bool
-		min   int
-		want  bool
+		name           string
+		alive          int
+		cycle          int
+		armed          bool
+		min            int
+		maxCycles      int
+		replayBytes    int64
+		maxReplayBytes int64
+		want           EndCondition
 	}{
-		{"extinct always ends, even unarmed", 0, false, min, true},
-		{"extinct always ends, even disabled", 0, false, 0, true},
-		{"founding phase below min does not end", 3, false, min, false},
-		{"armed and below min ends", min - 1, true, min, true},
-		{"armed at exactly min keeps running", min, true, min, false},
-		{"armed above min keeps running", 50, true, min, false},
-		{"disabled never ends a living population", 1, true, 0, false},
+		{"extinct always ends, even unarmed", 0, 1, false, min, 0, 0, 0, EndExtinct},
+		{"extinct always ends, even disabled", 0, 1, false, 0, 0, 0, 0, EndExtinct},
+		{"founding phase below min does not end", 3, 1, false, min, 0, 0, 0, EndNone},
+		{"armed and below min ends", min - 1, 1, true, min, 0, 0, 0, EndBelowMinimum},
+		{"armed at exactly min keeps running", min, 1, true, min, 0, 0, 0, EndNone},
+		{"armed above min keeps running", 50, 1, true, min, 0, 0, 0, EndNone},
+		{"disabled never ends a living population", 1, 1, true, 0, 0, 0, 0, EndNone},
+
+		{"max cycles off runs forever", 50, 1 << 30, true, min, 0, 0, 0, EndNone},
+		{"before max cycles keeps running", 50, maxCycles - 1, true, min, maxCycles, 0, 0, EndNone},
+		{"at max cycles ends", 50, maxCycles, true, min, maxCycles, 0, 0, EndMaxCycles},
+		{"past max cycles ends", 50, maxCycles + 1, true, min, maxCycles, 0, 0, EndMaxCycles},
+		// A cycle limit needs no arming: unlike the minimum it can't fire
+		// during the founding phase by accident, since cycles only rise.
+		{"max cycles applies unarmed", 3, maxCycles, false, min, maxCycles, 0, 0, EndMaxCycles},
+
+		// The replay size cap, in bytes.
+		{"under the replay cap keeps running", 50, 1, true, min, 0, 100, 200, EndNone},
+		{"at the replay cap ends", 50, 1, true, min, 0, 200, 200, EndMaxReplaySize},
+		{"past the replay cap ends", 50, 1, true, min, 0, 300, 200, EndMaxReplaySize},
+		{"a 0 cap can't fire", 50, 1, true, min, 0, 1 << 40, 0, EndNone},
+
+		// Extinction wins, so a run that ends with nothing alive says so
+		// rather than blaming whichever limit it also crossed.
+		{"extinction beats max cycles", 0, maxCycles, true, min, maxCycles, 0, 0, EndExtinct},
+		{"a dwindling population beats max cycles", min - 1, maxCycles, true, min, maxCycles, 0, 0, EndBelowMinimum},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := shouldEnd(tc.alive, tc.armed, tc.min); got != tc.want {
-				t.Errorf("shouldEnd(alive=%d, armed=%v, min=%d) = %v, want %v",
-					tc.alive, tc.armed, tc.min, got, tc.want)
+			got := endCondition(tc.alive, tc.cycle, tc.armed, tc.min, tc.maxCycles,
+				tc.replayBytes, tc.maxReplayBytes)
+			if got != tc.want {
+				t.Errorf("endCondition(alive=%d, cycle=%d, armed=%v, min=%d, maxCycles=%d, replay=%d/%d) = %v, want %v",
+					tc.alive, tc.cycle, tc.armed, tc.min, tc.maxCycles,
+					tc.replayBytes, tc.maxReplayBytes, got, tc.want)
 			}
 		})
 	}
@@ -71,7 +98,7 @@ func runUntilDone(t *testing.T, seed, maxCycles int) (sim *Simulation, peak int)
 // changes can make a chosen seed survive — the test says so and a fresh
 // one is easy to find, since most small-grid seeds still tail off.
 const (
-	tailOffSeed  = 3
+	tailOffSeed  = 2
 	tailOffGridW = 24
 	tailOffGridH = 20
 )
@@ -137,5 +164,43 @@ func TestMinOrganismsArmedSurvivesSnapshot(t *testing.T) {
 	}
 	if !restored.minOrganismsArmed {
 		t.Error("armed end condition lost across snapshot restore")
+	}
+}
+
+// TestMaxCyclesStopsARunningSim drives a real simulation to the cycle
+// limit. The unit test above pins the decision; this pins that the
+// decision is actually consulted by the loop, on a population that is
+// alive and well and would otherwise keep going.
+func TestMaxCyclesStopsARunningSim(t *testing.T) {
+	const limit = 300
+	globalsForTailOff(t, 0) // minimum off, so only the cycle limit can fire
+	config.GetCurrentGlobals().MaxCycles = limit
+
+	sim, _ := runUntilDone(t, 1, limit*4)
+	if !sim.IsDone() {
+		t.Fatalf("the run passed %d cycles without stopping", limit*4)
+	}
+	if got := sim.EndCondition(); got != EndMaxCycles {
+		t.Errorf("stopped for %v at cycle %d with %d alive, want the cycle limit",
+			got, sim.Cycle(), sim.OrganismCount())
+	}
+	if sim.Cycle() != limit {
+		t.Errorf("stopped at cycle %d, want exactly %d", sim.Cycle(), limit)
+	}
+}
+
+// TestMaxCyclesOffRunsOn: 0 has to mean unlimited, since that is what
+// every run did before the setting existed and what every settings file
+// written before it will decode to.
+func TestMaxCyclesOffRunsOn(t *testing.T) {
+	globalsForTailOff(t, 0)
+	config.GetCurrentGlobals().MaxCycles = 0
+
+	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: 1, CheckpointInterval: 1 << 30})
+	for c := 0; c < 400; c++ {
+		sim.Update()
+	}
+	if got := sim.EndCondition(); got == EndMaxCycles {
+		t.Error("a max_cycles of 0 stopped the run")
 	}
 }

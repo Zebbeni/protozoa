@@ -24,10 +24,12 @@ func loadGlobals(t *testing.T) {
 }
 
 // TestAbilityColorAnchors pins the ability colour scale shared by the
-// grid and the population graph: gray at zero, green at the ability's
-// specialist score, and no further change above it. Anchoring on the
-// 100-point budget instead would leave nearly every organism near gray,
-// since real scores cluster far below 100.
+// grid, its key and the population graph: gray at zero, full green from
+// AbilityFullGreenScore up, and still separating the scores below it.
+//
+// The ramp stops short of the 10-point cap on purpose — the top of the
+// range is thinly populated, and running all the way there spent a
+// quarter of the colour on scores almost nothing has.
 func TestAbilityColorAnchors(t *testing.T) {
 	loadGlobals(t)
 
@@ -39,14 +41,26 @@ func TestAbilityColorAnchors(t *testing.T) {
 			t.Errorf("%s at 0: got %v, want gray %v", a.Name(), got, want)
 		}
 
-		s[a] = physiology.SpecialistScore
-		if got, want := AbilityColor(s, a), GrayGreenColor(1); got != want {
-			t.Errorf("%s at specialist score %d: got %v, want green %v", a.Name(), s[a], got, want)
+		// Full green from the saturation point up, including the cap.
+		for _, score := range []int{8, physiology.MaxAbilityScore} {
+			s[a] = score
+			if got, want := AbilityColor(s, a), GrayGreenColor(1); got != want {
+				t.Errorf("%s at %d: got %v, want green %v", a.Name(), score, got, want)
+			}
 		}
 
-		s[a] = physiology.MaxAbilityScore
-		if got, want := AbilityColor(s, a), GrayGreenColor(1); got != want {
-			t.Errorf("%s above specialist score should clamp to green: got %v", a.Name(), got)
+		// And it still separates the scores below the saturation point:
+		// the specialist score is where most organisms of interest sit,
+		// and it must not already be maxed out.
+		s[a] = physiology.SpecialistScore
+		if got := AbilityColor(s, a); got == GrayGreenColor(1) {
+			t.Errorf("%s at the specialist score is already full green, so nothing above it reads differently", a.Name())
+		}
+		// Score 7 is the last one below the saturation point, so it is
+		// the tightest case for that.
+		s[a] = 7
+		if got := AbilityColor(s, a); got == GrayGreenColor(1) {
+			t.Errorf("%s at 7 is already full green; the ramp saturates at %g", a.Name(), AbilityFullGreenScore)
 		}
 	}
 }

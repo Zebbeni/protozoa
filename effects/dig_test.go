@@ -186,24 +186,28 @@ func TestActionCostsNeverReachZero(t *testing.T) {
 
 // TestWallCreationIsItsOwnCurve: what a dig clears ahead and what it
 // raises beside it are separate settings on separate curves, so an
-// organism can be able to tunnel without being able to build — a small
-// digger slowly clearing a path shouldn't be walling itself in as it
-// goes.
+// organism can be able to tunnel without being able to build.
+//
+// The shipped settings no longer have a small organism raising nothing:
+// wall_created_at_zero is 1, so an unskilled digger leaves 1-strength
+// walls behind it, and the size-class setting is 0, so a *skilled* small
+// digger leaves none. The curve running downward like that is the point
+// — skill is what stops you walling yourself in.
 func TestWallCreationIsItsOwnCurve(t *testing.T) {
 	g := digGlobals(t)
 	const small, large = 1.0, 90.0
 
-	// The shipped settings are the case that motivated the split.
-	if got := SizeWallCreated(g, small); got != 0 {
-		t.Errorf("a small organism raises %d wall strength per dig, want none", got)
-	}
 	for score := 0; score <= physiology.MaxAbilityScore; score++ {
-		if got := DigWallCreated(g, score, small); got != 0 {
-			t.Errorf("a small organism at Digging %d raised %d, want none at any score", score, got)
-		}
 		if got := DigWallRemoved(g, score, small); got < 1 {
 			t.Errorf("a small organism at Digging %d cleared %d; it should still be able to tunnel", score, got)
 		}
+	}
+	// Both endpoints are the settings, whichever way round they run.
+	if got, want := DigWallCreated(g, 0, small), g.WallCreatedAtZero; got != want {
+		t.Errorf("creation at 0 Digging = %d, want the at-zero setting %d", got, want)
+	}
+	if got, want := DigWallCreated(g, physiology.MaxAbilityScore, small), SizeWallCreated(g, small); got != want {
+		t.Errorf("creation at full Digging = %d, want the size-class setting %d", got, want)
 	}
 
 	// The two are independent: moving one endpoint doesn't move the other.

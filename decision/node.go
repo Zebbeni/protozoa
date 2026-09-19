@@ -51,6 +51,17 @@ func NodeFromAction(action Action) *Node {
 	}
 }
 
+// NodeFromCondition creates a Node from a Condition type. The caller
+// supplies the branches: a condition with nothing to choose between
+// isn't a usable node, and nothing sensible could be filled in here.
+// Set YesNode and NoNode, then CalcAndUpdateSize to fix up sizes.
+func NodeFromCondition(condition Condition) *Node {
+	return &Node{
+		NodeType: condition,
+		size:     1,
+	}
+}
+
 // IsAction returns true if Tree's type is Action (false if Condition)
 func (n *Node) IsAction() bool {
 	return isAction(n.NodeType)

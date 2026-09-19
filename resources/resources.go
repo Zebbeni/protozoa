@@ -37,6 +37,7 @@ var animationFileName = map[animation.Animation]string{
 // organismRoleName maps each organism role to the filename stem used by the
 // per-action spritesheets (e.g. "small", "medium", "large").
 var organismRoleName = map[ImageRole]string{
+	RoleOrganismTiny:   "tiny",
 	RoleOrganismSmall:  "small",
 	RoleOrganismMedium: "medium",
 	RoleOrganismLarge:  "large",
@@ -69,12 +70,18 @@ const (
 	RoleWallWeak
 	RoleWallMedium
 	RoleWallStrong
+	// Appended, not slotted in beside their siblings: the iota values
+	// are stable by convention (see above), and the natural reading
+	// order of each group is in the bucketing helpers, not here.
+	RoleOrganismTiny
+	RoleFoodTiny
+	RoleWallGiant
 )
 
 // FrameSet holds one slice of per-frame sprites per Animation kind.
 //
-// Frame count scales with the sprite set's resolution: 4x4 holds 1 frame,
-// 8x8 holds 2, 16x16 holds 4 (resolution / 4). Non-organism roles (food,
+// Frame count by the sprite set's resolution: 4x4 and 8x8 hold 2,
+// 16x16 holds 4. Non-organism roles (food,
 // walls) only populate AnimIdle and only ever need one frame.
 type FrameSet map[animation.Animation][]*ebiten.Image
 
@@ -269,6 +276,18 @@ var ZoomImages [3]map[ImageRole]LayeredFrames
 // to zero.
 var currentZoom int
 
+// ZoomHighRes is the 16x16 set: the highest resolution the project
+// authors, and the only one with layered overlays — at 4x4 and 8x8 every
+// layer lookup misses and rendering falls back to a bare body sprite.
+// Anything drawing an organism away from the grid (the designer's
+// portrait) wants this one rather than whatever zoom the camera last
+// left selected.
+const ZoomHighRes = len(ZoomImages) - 1
+
+// CurrentZoom reports which set is active, so a caller that needs a
+// specific one can put it back afterwards.
+func CurrentZoom() int { return currentZoom }
+
 func Init() {
 	initFonts()
 	initImages()
@@ -398,57 +417,68 @@ func initImages() {
 		// when a per-action sheet is missing. Loaded from disk if the
 		// corresponding square_<role>.png exists; otherwise synthesised
 		// programmatically so the loader never crashes on missing art.
-		baseSmall := loadOrGenerateFilled(path+"square_small.png", size, max(1, size/3))
-		baseMedium := loadOrGenerateFilled(path+"square_medium.png", size, max(2, size*2/3))
+		// Quarters of the cell, matching the four size buckets.
+		baseTiny := loadOrGenerateFilled(path+"square_tiny.png", size, max(1, size/4))
+		baseSmall := loadOrGenerateFilled(path+"square_small.png", size, max(1, size/2))
+		baseMedium := loadOrGenerateFilled(path+"square_medium.png", size, max(2, size*3/4))
 		baseLarge := loadOrGenerateFilled(path+"square_large.png", size, size)
 
-		// Walls are authored as three strength tiers per resolution;
+		// Walls are authored as four strength tiers per resolution;
 		// the grid renderer picks between them based on the wall's
 		// current strength as a fraction of MaxWallStrength. Each
 		// tier falls back to a generated box-outline at the right
 		// pixel size when its PNG hasn't been drawn yet.
 		// Walls are authored as one slice per strength tier (weak /
-		// medium / strong) with separate Aseprite layers per piece
+		// medium / strong / giant) with separate Aseprite layers per piece
 		// (wall_base + four directional connectors). The lua export
 		// writes each layer to wall_<layer>_<strength>.png so the
 		// loader can pick them up independently.
 		wallWeak := loadWallLayers(path, "weak", size)
 		wallMedium := loadWallLayers(path, "medium", size)
 		wallStrong := loadWallLayers(path, "strong", size)
-		// Food is authored as three size tiers per resolution; the grid
+		wallGiant := loadWallLayers(path, "giant", size)
+		// Food is authored as four size tiers per resolution; the grid
 		// renderer picks between them based on the food item's value as a
 		// fraction of MaxFoodValue. Circle fallbacks match the organism
 		// size-tier fallbacks so missing art degrades gracefully.
-		foodSmall := loadOrGenerateCircle(path+"food_small.png", size, max(1, size/3))
-		foodMedium := loadOrGenerateCircle(path+"food_medium.png", size, max(2, size*2/3))
+		foodTiny := loadOrGenerateCircle(path+"food_tiny.png", size, max(1, size/4))
+		foodSmall := loadOrGenerateCircle(path+"food_small.png", size, max(1, size/2))
+		foodMedium := loadOrGenerateCircle(path+"food_medium.png", size, max(2, size*3/4))
 		foodLarge := loadOrGenerateCircle(path+"food_large.png", size, size)
 
-		// Frames per cycle scale with resolution: 4x4 → 1, 8x8 → 2,
-		// 16x16 → 4. Four frames is the ceiling: higher zoom levels
-		// upscale the 16x16 art, buying on-screen size, not more
-		// animation steps. Must match zoomSpriteFrameCounts in ux/camera.go.
-		// Missing per-action sheets fall back to repeating the base sprite
-		// so all frame slots render the same image (harmless).
+		// Frames per cycle by resolution: 4x4 → 2, 8x8 → 2, 16x16 → 4.
+		// Four is the ceiling — higher zoom levels upscale the 16x16 art,
+		// buying on-screen size, not more animation steps — and two is the
+		// floor, so the smallest sprites animate like the rest rather than
+		// being the one set that can only hold a pose.
+		// Must match zoomSpriteFrameCounts in ux/camera.go.
+		//
+		// Art that hasn't caught up is safe: a sheet narrower than the
+		// frame count is repeated rather than sliced (see loadAnimSheets),
+		// so a 1-frame 4x4 strip renders exactly as it did before.
 		orgFrames := size / 4
-		if orgFrames < 1 {
-			orgFrames = 1
+		if orgFrames < 2 {
+			orgFrames = 2
 		} else if orgFrames > 4 {
 			orgFrames = 4
 		}
 
 		bases := map[ImageRole]*ebiten.Image{
+			RoleOrganismTiny:   baseTiny,
 			RoleOrganismSmall:  baseSmall,
 			RoleOrganismMedium: baseMedium,
 			RoleOrganismLarge:  baseLarge,
 		}
 
 		ZoomImages[i] = map[ImageRole]LayeredFrames{
+			RoleFoodTiny:   {LayerBody: staticFrames(foodTiny)},
 			RoleFoodSmall:  {LayerBody: staticFrames(foodSmall)},
 			RoleFoodMedium: {LayerBody: staticFrames(foodMedium)},
 			RoleFoodLarge:  {LayerBody: staticFrames(foodLarge)},
 			RoleWallWeak:   wallWeak,
 			RoleWallMedium: wallMedium,
 			RoleWallStrong: wallStrong,
+			RoleWallGiant:  wallGiant,
 		}
 		// Low-res (4x4 / 8x8) authors a single unvaried `body` layer per
 		// organism role; high-res (16x16+) authors mutually-exclusive

@@ -60,8 +60,9 @@ func (m *FoodManager) AddRandomFoodItem() {
 	m.addFood(point, value)
 }
 
-// AddFoodAtPoint adds a foodItem with a given value at a given location if not
-// occupied, or adds food to the existing food item there (up to maximum allowed)
+// AddFoodAtPoint adds a foodItem with a given value at a given location
+// if it is free, or adds to the food already there (up to the maximum
+// allowed). A cell holding a wall or a living organism is left alone.
 func (m *FoodManager) AddFoodAtPoint(point utils.Point, value int) {
 	m.addFood(point, value)
 }
@@ -105,8 +106,19 @@ func (m *FoodManager) removeFood(point utils.Point, value int) {
 	m.addUpdatedPoint(point)
 }
 
+// addFood is the one place food enters the world, so it is where the
+// no-food-under-an-organism rule is enforced.
+//
+// Organisms can never step onto food — food blocks movement — so the
+// only way the two ever shared a cell was food arriving underneath a
+// stationary organism, and it then stayed there until the organism
+// moved or ate it. Random spawns did this freely: measured on one
+// reported run, 973 cycles had at least one overlapping cell.
+//
+// The corpse drop is unaffected: it clears the dead organism off the
+// grid before adding its food, so the cell is already empty by here.
 func (m *FoodManager) addFood(point utils.Point, value int) {
-	if value <= 0 || m.api.IsWallAtPoint(point) {
+	if value <= 0 || m.api.IsWallAtPoint(point) || m.api.IsOrganismAtPoint(point) {
 		return
 	}
 

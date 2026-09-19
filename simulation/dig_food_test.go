@@ -28,6 +28,12 @@ func TestDiggingRootsUpFood(t *testing.T) {
 		g.FoodFromDiggingMedium = fromDigging
 		g.FoodFromDiggingLarge = fromDigging
 		g.FoodFromDiggingAtZero = 0
+		// Wall creation off: a dig facing a wall wears it down instead of
+		// rooting anything up, so with the shipped wall_created_at_zero of
+		// 1 the diggers litter their own flanks with walls and then dig
+		// those. This test is about DigFood, not about that interaction.
+		g.WallCreatedAtZero = 0
+		g.WallCreatedSmall, g.WallCreatedMedium, g.WallCreatedLarge = 0, 0, 0
 		config.SetGlobals(&g)
 		sim := NewSimulation(&config.Options{IsHeadless: true, Seed: 53, CheckpointInterval: 1 << 30})
 		peak := 0

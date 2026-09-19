@@ -226,6 +226,58 @@ func ThornsDamage(g *config.Globals, defense int, defenderSize float64) float64 
 	return g.ThornsDamageAtFullDefense * defenderSize * Multiplier(g, physiology.CurveThorns, defense)
 }
 
+// WallBreakStrength is the wall strength an organism can shoulder
+// straight through, destroying the wall and taking its cell in one move:
+//
+//	size × Digging score × wall_break_multiplier
+//
+// The raw score, not the Digging curve. Every other digging effect runs
+// through a curve because it is an *amount* being scaled; this is a
+// threshold compared against a wall's strength, and both sides of that
+// comparison should be readable off the organism panel without knowing
+// what shape the curve is in today.
+//
+// Multiplying size by score gates burrowing twice: on the ability, and
+// on the size an organism only reaches by surviving long enough to grow.
+// A founder can push through the weakest walls and nothing else; what
+// gets through a strong wall is a large specialist.
+func WallBreakStrength(g *config.Globals, score int, size float64) float64 {
+	return size * float64(score) * g.WallBreakMultiplier
+}
+
+// CanBreakWall reports whether an organism of this size and Digging
+// score gets through a wall of the given strength. Strictly greater, so
+// a 0 multiplier or a 0 score never breaks even the weakest wall.
+func CanBreakWall(g *config.Globals, score int, size float64, wallStrength int) bool {
+	return WallBreakStrength(g, score, size) > float64(wallStrength)
+}
+
+// ChemoPhPush is how far down an organism drives the pH around it for a
+// chemosynthesis attempt that gained it `gain` health, and EatingPhPush
+// how far up for a meal worth `gain`.
+//
+// Two things multiplied, not one. The gain keeps the old property that a
+// marginal action barely moves the environment and a failed one doesn't
+// move it at all. The curve is new: it lets an organism's effect on its
+// surroundings scale with how hard it has specialised, separately from
+// what it takes out of them.
+//
+// They were a flat constant times the gain, which locked the two
+// together — a lineage could only push the chemistry harder by feeding
+// harder, so the push was capped by the same saturation the yield is and
+// the local pH could never be tipped by specialising into it. With the
+// curve, a full specialist can change its water faster than it drinks it.
+//
+// Both return a magnitude; the caller decides the direction, which is the
+// one thing that is not a setting.
+func ChemoPhPush(g *config.Globals, score int, gain float64) float64 {
+	return gain * g.ChemoPhEffect * Multiplier(g, physiology.CurveChemoPhEffect, score)
+}
+
+func EatingPhPush(g *config.Globals, score int, gain float64) float64 {
+	return gain * g.EatingPhEffect * Multiplier(g, physiology.CurveEatingPhEffect, score)
+}
+
 // PhDamage is the (negative) health change an organism takes each cycle
 // for sitting D from its ideal pH:
 //

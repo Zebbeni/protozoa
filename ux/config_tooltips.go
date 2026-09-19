@@ -29,16 +29,18 @@ var configTooltips = map[string]string{
 	"max_food_value":          "Largest amount a food item can be worth. New food gets a random value up to this.",
 
 	// pH
-	"ideal_ph_range":          "How wide a band of ideal pH values lineages can evolve across, centred on the middle of the pH scale: 9 gives 0.5 to 9.5. Every organism starts at that middle, and the world's water does too.",
+	"ideal_ph_range":          "How wide a band of ideal pH values lineages can evolve across, centred on the middle of the pH scale: 9 gives 0.5 to 9.5. Every organism starts at that middle, and the environment does too.",
 	"ideal_ph_mutation_step":  "How far a child's ideal pH can shift from its parent's, up or down. Sets how fast a lineage can follow a drifting world: 0 pins every lineage to the pH it started at, so a world that drifts far enough wipes them out.",
 	"max_ph_tolerance_width":  "The pH offset an organism with 100 Tolerance bears for one unit of damage. Lower scores bear less, along the pH tolerance curve.",
-	"chemo_ph_effect":         "How far chemosynthesis pushes the local pH down, per unit of health it gained. An attempt that gained nothing moves nothing.",
-	"eating_ph_effect":        "How far eating pushes the local pH up, per unit of health the meal gave. Dropped behind the eater rather than where the food was.",
+	"chemo_ph_effect":         "How far chemosynthesis pushes the local pH down at full Chemosynthesis, per unit of health it gained, scaled from there by the Chemosynthesis pH push curve. An attempt that gained nothing moves nothing.",
+	"eating_ph_effect":        "How far eating pushes the local pH up at full Eating, per unit of health the meal gave, scaled from there by the Eating pH push curve. Dropped behind the eater rather than where the food was.",
 	"ph_diffuse_factor":       "How fast pH spreads between neighbouring cells each cycle. Higher values even out differences sooner.",
 	"ph_increment_to_display": "Size of the pH steps the grid redraws at: a cell is redrawn when its pH crosses into a new step. Only affects drawing, not the simulation.",
 
 	// Organisms
 	"min_organisms":                     "Ends the run once the population falls below this, after it has first grown to twice this number. 0 disables it, so only extinction ends a run.",
+	"max_cycles":                        "Ends the run once it reaches this cycle, so a simulation can be started and left alone. 0 leaves it unlimited.",
+	"max_replay_size_mb":                "Ends the run once its replay file is projected to reach this many megabytes, so a sim left running can't fill a disk. Estimated from the bytes written so far plus what the descendant trees will add at the end. No unlimited option: this is the condition that keeps an unattended run in check.",
 	"max_organisms":                     "Population cap. Organisms can't reproduce while the population is at this size.",
 	"growth_factor":                     "Share of health gained beyond an organism's current size that becomes growth, for every gain except eating.",
 	"max_bite_at_full_eating":           "Most food an organism with 100 Eating removes in one eating attempt, as a multiple of its size. Lower Eating removes less along the Eating curve. Food piles hold 5-100, so a cap far above that leaves Eating with nothing to decide.",
@@ -74,7 +76,7 @@ var configTooltips = map[string]string{
 	"health_change_from_digging_at_max": "Health a dig costs at full Digging, per unit of size. The curve runs from the 0-Digging cost down to this, so the ability buys a discount rather than free digging.",
 	"health_change_inflicted_by_attack": "Damage an attack deals with 100 Attack, per unit of the attacker's size, before the target's Defense. Lower Attack deals less along the Attack curve. Damage is a positive amount; it's subtracted from the target.",
 	"corpse_food_multiplier":            "Food a dead organism leaves behind, as a multiple of its size.",
-	"unhealthy_ph_damage":               "Health lost per cycle, per unit of size, for water 1 pH-width from an organism's ideal. The cost grows with the square of the distance and shrinks with Tolerance, but never reaches zero.",
+	"unhealthy_ph_damage":               "Health lost per cycle, per unit of size, for an environment 1 pH-width from an organism's ideal. The cost grows with the square of the distance and shrinks with Tolerance, but never reaches zero.",
 
 	// Terrain
 	"wall_strength_delta_small":   "Wall strength a small organism at full Digging clears from the cell ahead with one dig. Lower Digging clears less, down to the clear @0 value.",
@@ -85,6 +87,7 @@ var configTooltips = map[string]string{
 	"wall_created_medium":         "Wall strength a medium organism at full Digging packs into EACH cell beside it with one dig. 0 means it can tunnel but not build.",
 	"wall_created_large":          "Wall strength a large organism at full Digging packs into EACH cell beside it with one dig. 0 means it can tunnel but not build.",
 	"wall_created_at_zero":        "Wall strength one dig raises beside it with no Digging at all. The creation curve runs from here up to the size-class value at full Digging.",
+	"wall_break_multiplier":       "Scales size x Digging score into the wall strength an organism can shoulder straight through, destroying the wall and taking its cell in one move. Wall strengths run 1-100. 0 switches burrowing off, leaving digging as the only way through.",
 	"food_from_digging_small":     "Food a small organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
 	"food_from_digging_medium":    "Food a medium organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
 	"food_from_digging_large":     "Food a large organism with 100 Digging roots up in the cell ahead (if it isn't a wall or occupied), as whole units. Lower Digging roots up less, down to the food @0 value.",
@@ -114,6 +117,10 @@ var configTooltips = map[string]string{
 	"damage_taken_saturating_k":         "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
 	"thorns_cosine_k":                   "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
 	"thorns_saturating_k":               "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
+	"chemo_ph_effect_cosine_k":          "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine) to 1 (the most suppression). Open the graphs to see it.",
+	"chemo_ph_effect_saturating_k":      "K: how early the curve pays off, from 1 (almost all of it by a low score) to 100 (only specialists see much). Open the graphs to see it.",
+	"eating_ph_effect_cosine_k":         "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine) to 1 (the most suppression). Open the graphs to see it.",
+	"eating_ph_effect_saturating_k":     "K: how early the curve pays off, from 1 (almost all of it by a low score) to 100 (only specialists see much). Open the graphs to see it.",
 	"ph_tolerance_cosine_k":             "K: how strongly the cosine shape holds back low and middle scores, from 0 (a pure cosine, symmetric about score 50) to 1 (the most suppression). Open the graphs to see it.",
 	"ph_tolerance_saturating_k":         "K: how early the saturating shape delivers its gains, from 1 to 100. Half the benefit arrives by score √K — about 1 at K 1, 5 at K 25, 10 at K 100. Open the graphs to see it.",
 
@@ -151,6 +158,11 @@ const curveShapeTooltip = "How this curve climbs from nothing at score 0 to the 
 	"cosine: an S-curve, slow at both ends and fastest in the middle (K holds back low scores). " +
 	"Linear and quadratic ignore K. Open the graphs to see the shape."
 
+// designRowTooltip explains the INITIAL DESIGNS rows. One tooltip for
+// every row: what differs between them is which design, and the row
+// already says that.
+const designRowTooltip = "Found the simulation with this saved organism design. Tick several and they are dealt round-robin across the initial organisms, so two designs can be pitted against each other. With none ticked, the founders are random as usual."
+
 func tooltipFor(field configField) string {
 	switch field.row {
 	case rowAbilityScore:
@@ -161,6 +173,13 @@ func tooltipFor(field configField) string {
 		return ""
 	case rowCurveHeader:
 		return curveShapeTooltip
+	case rowDesign:
+		return designRowTooltip
+	}
+	if field.textOnly && field.jsonTag == "" {
+		// A section's explanatory line, e.g. the note shown when no
+		// designs have been saved yet. It is its own tooltip.
+		return field.label
 	}
 	if field.graphToggle {
 		return configTooltips[field.jsonTag] + " Click the arrow to show or hide graphs of how the score changes these actions."

@@ -576,8 +576,17 @@ func (o *Organism) isPhHealthierAtPoint(control, test utils.Point, ideal float64
 	return math.Abs(testPh-ideal) < math.Abs(controlPh-ideal)
 }
 
+// canMove answers the CanMove condition: is the cell ahead somewhere this
+// organism can end up this cycle.
+//
+// A wall ahead is not automatically a no. An organism that can burrow
+// through it (see CanBurrowAhead) moves into the cell and destroys the
+// wall in the same step, so CanMove is true for it — while IsWallAhead
+// stays true as well, because there *is* a wall there. The two saying
+// different things is the point: a tree can ask "is there a wall" and
+// "can I get through it" separately, and a burrower answers yes to both.
 func (o *Organism) canMove() bool {
-	if o.isWallAhead() {
+	if o.isWallAhead() && !o.CanBurrowAhead() {
 		return false
 	}
 	if o.isOrganismAhead() {
@@ -587,6 +596,19 @@ func (o *Organism) canMove() bool {
 		return false
 	}
 	return true
+}
+
+// CanBurrowAhead reports whether the organism can shoulder through the
+// wall in front of it. False when there is no wall — burrowing is a way
+// past a wall, not a way to move.
+func (o *Organism) CanBurrowAhead() bool {
+	ahead := o.Location.Add(o.Direction)
+	strength := o.lookupAPI.GetWallStrengthAtPoint(ahead)
+	if strength <= 0 {
+		return false
+	}
+	return effects.CanBreakWall(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityDigging], o.Size, strength)
 }
 
 // lineageEndCycle reads a node's LineageEndCycle, treating an organism with

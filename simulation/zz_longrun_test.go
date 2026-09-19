@@ -48,8 +48,14 @@ func TestLongRunScratch(t *testing.T) {
 		overlay := map[string]any{}
 		for _, kv := range strings.Split(set, ",") {
 			parts := strings.SplitN(kv, "=", 2)
-			x, _ := strconv.ParseFloat(parts[1], 64)
-			overlay[parts[0]] = x
+			// A value that isn't a number is passed through as a string,
+			// so curve shapes ("linear", "quadratic") can be swept the
+			// same way the numeric knobs are.
+			if x, err := strconv.ParseFloat(parts[1], 64); err == nil {
+				overlay[parts[0]] = x
+			} else {
+				overlay[parts[0]] = parts[1]
+			}
 		}
 		base, _ := json.Marshal(g)
 		var merged map[string]any
@@ -78,6 +84,9 @@ func TestLongRunScratch(t *testing.T) {
 	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: seed, CheckpointInterval: 1 << 30})
 
 	const window = 250
+	// halfCap is "has put real points here", scaled to whatever the
+	// ability cap currently is.
+	halfCap := physiology.MaxAbilityScore / 2
 	type acc struct {
 		orgs, chemo, eat, atk, mov, dig, eatOK, eatFail, atkAct, chemoOK, predators, grazers, chemoSpec, def, tanks, eatSpec, maxEat float64
 	}
@@ -93,13 +102,16 @@ func TestLongRunScratch(t *testing.T) {
 			a.atk += float64(s[physiology.AbilityAttack])
 			a.mov += float64(s[physiology.AbilityMovement])
 			a.dig += float64(s[physiology.AbilityDigging])
-			if s[physiology.AbilityAttack] >= 25 {
+			// Thresholds are fractions of the cap, not literals: they
+			// were written as 25 / 50 / 60 against a 100-point scale and
+			// silently counted nothing at all once the scale became 0-10.
+			if s[physiology.AbilityAttack] >= halfCap {
 				a.predators++
 			}
-			if s[physiology.AbilityEating] >= 25 {
+			if s[physiology.AbilityEating] >= halfCap {
 				a.grazers++
 			}
-			if s[physiology.AbilityChemosynthesis] >= 50 {
+			if s[physiology.AbilityChemosynthesis] >= physiology.SpecialistScore {
 				a.chemoSpec++
 			}
 			if s[physiology.AbilityEating] >= physiology.SpecialistScore {
@@ -107,7 +119,7 @@ func TestLongRunScratch(t *testing.T) {
 			}
 			a.maxEat = max(a.maxEat, float64(s[physiology.AbilityEating]))
 			a.def += float64(s[physiology.AbilityDefense])
-			if s[physiology.AbilityDefense] >= 60 {
+			if s[physiology.AbilityDefense] >= physiology.SpecialistScore {
 				a.tanks++
 			}
 			switch o.Status {

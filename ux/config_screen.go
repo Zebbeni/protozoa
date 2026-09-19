@@ -15,6 +15,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 
 	c "github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
 )
@@ -80,6 +81,11 @@ const (
 	// coefficient it currently uses, and the toggle for its block of
 	// graphs and controls.
 	rowCurveHeader
+	// rowDesign is one saved organism design, toggled on or off as a
+	// founder of the simulation. Built from the designs directory at
+	// open time rather than from a Globals field, since the choices are
+	// files on disk — the setting stores the names that are ticked.
+	rowDesign
 )
 
 // configSection groups fields under a heading. Sections are
@@ -110,7 +116,11 @@ type ConfigScreen struct {
 	scrollY      float64
 	selectedRow  int // -1 for none
 	editingValue string
-	accepted     bool
+	// designs is the saved organism designs the INITIAL DESIGNS rows
+	// were built from, read once when the screen opens so a row index
+	// keeps meaning the same design while it is on screen.
+	designs  []organism.Design
+	accepted bool
 
 	// Slider drag state. dragSlider is set when the drag started on a
 	// slider inside a curve's block, which sits somewhere other than the
@@ -373,7 +383,7 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 	if bx, by, bw, bh := cs.restoreAllRect(); cs.readOnly {
 		if by+bh > clipTop && by < clipBottom {
 			note := "Highlighted values differ from the defaults"
-			text.Draw(screen, note, r.FontSourceCodePro10, panelX, by+bh-5, changedFromDefaultColor)
+			text.Draw(screen, note, r.FontSourceCodePro10, panelX, by+bh-5, changedFromDefaultInk())
 		}
 	} else if by+bh > clipTop && by < clipBottom {
 		cs.drawSmallButton(screen, bx, by, bw, bh, "RESTORE ALL DEFAULTS", !cs.allDefaults())
@@ -391,9 +401,9 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 			if !section.collapsed {
 				marker = "▼" // ▼
 			}
-			titleColor := color.Color(color.RGBA{R: 180, G: 180, B: 255, A: 255})
+			titleColor := color.Color(themedSectionTitle())
 			if cs.sectionChanged(section) {
-				titleColor = changedFromDefaultColor
+				titleColor = themedChanged()
 			}
 			text.Draw(screen, marker+" "+section.title, r.FontSourceCodePro12, panelX, y+12, titleColor)
 		}
@@ -419,6 +429,8 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 						cs.drawAbilityScoreRow(screen, panelX, y, rowIdx, field)
 					case rowAbilityTotal:
 						cs.drawAbilityTotalRow(screen, panelX, y)
+					case rowDesign:
+						cs.drawDesignRow(screen, panelX, y, field)
 					default:
 						cs.drawRow(screen, panelX, y, rowIdx, field)
 					}
@@ -474,15 +486,15 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	fv := v.Field(field.fieldIdx)
 
 	isSelected := rowIdx == cs.selectedRow
-	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
-	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	labelColor := themedLabel()
+	valueColor := themedValue()
 	if cs.canReset(field) {
-		valueColor = changedFromDefaultColor
+		valueColor = themedChanged()
 	}
 	if isSelected {
 		// highlight row
-		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
-		valueColor = color.RGBA{R: 100, G: 255, B: 100, A: 255}
+		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), themedSelectedRow())
+		valueColor = themedSelectedInk()
 	}
 
 	// Label (shifted right on "@0" curve rows to make room for the graph
@@ -518,19 +530,19 @@ func (cs *ConfigScreen) drawRow(screen *ebiten.Image, px, py, rowIdx int, field 
 	}
 }
 
-// changedFromDefaultColor marks values that differ from the defaults,
+// changedFromDefaultInk marks values that differ from the defaults,
 // in the editor as well as the read-only viewer, so a setting that has
 // been changed stands out without opening every section.
-var changedFromDefaultColor = color.RGBA{R: 240, G: 190, B: 90, A: 255}
+func changedFromDefaultInk() color.RGBA { return themedChanged() }
 
 // drawReadOnlyValue draws a read-only row's value at x, highlighted with
 // the default beside it when it differs from the default.
 func (cs *ConfigScreen) drawReadOnlyValue(screen *ebiten.Image, x, py int, value string, field configField) {
 	if !cs.canReset(field) {
-		text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, themedValue())
 		return
 	}
-	text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, changedFromDefaultColor)
+	text.Draw(screen, value, r.FontSourceCodePro10, x, py+10, changedFromDefaultInk())
 	def := ""
 	if field.row == rowAbilityScore {
 		def = strconv.Itoa(cs.defaults.InitialAbilityScores[field.ability])
@@ -538,7 +550,7 @@ func (cs *ConfigScreen) drawReadOnlyValue(screen *ebiten.Image, x, py int, value
 		def = cs.getValueStr(reflect.ValueOf(cs.defaults).Field(field.fieldIdx), field, false)
 	}
 	vb := boundString(r.FontSourceCodePro10, value)
-	text.Draw(screen, "(default "+def+")", r.FontSourceCodePro10, x+vb.Dx()+12, py+10, color.RGBA{R: 130, G: 130, B: 130, A: 255})
+	text.Draw(screen, "(default "+def+")", r.FontSourceCodePro10, x+vb.Dx()+12, py+10, themedMuted())
 }
 
 func (cs *ConfigScreen) getValueStr(fv reflect.Value, field configField, isEditing bool) string {
@@ -594,19 +606,19 @@ func (cs *ConfigScreen) drawSlider(screen *ebiten.Image, x, y int, fv reflect.Va
 	sh := float64(cfgRowHeight - 8)
 
 	// Track
-	ebitenutil.DrawRect(screen, sx, sy, sw, sh, color.RGBA{R: 50, G: 50, B: 60, A: 255})
+	ebitenutil.DrawRect(screen, sx, sy, sw, sh, themedTrack())
 
 	// Fill based on value ratio (estimate range from value magnitude)
 	ratio := cs.getSliderRatio(fv, field)
 	fillW := sw * ratio
-	ebitenutil.DrawRect(screen, sx, sy, fillW, sh, color.RGBA{R: 80, G: 80, B: 120, A: 255})
+	ebitenutil.DrawRect(screen, sx, sy, fillW, sh, themedTrackFill())
 
 	// Handle
 	handleX := sx + fillW - 2
 	if handleX < sx {
 		handleX = sx
 	}
-	ebitenutil.DrawRect(screen, handleX, sy, 4, sh, color.RGBA{R: 150, G: 150, B: 200, A: 255})
+	ebitenutil.DrawRect(screen, handleX, sy, 4, sh, themedTrackHandle())
 }
 
 func (cs *ConfigScreen) drawToggle(screen *ebiten.Image, x, y int, val bool) {
@@ -702,6 +714,11 @@ func (cs *ConfigScreen) handleClick() {
 				sliderX := panelX + cfgLabelWidth
 				switch field.row {
 				case rowAbilityTotal:
+					return
+				case rowDesign:
+					if !cs.readOnly {
+						cs.toggleDesign(field.ability)
+					}
 					return
 				case rowCurveHeader:
 					// Anywhere on the row opens or closes the curve's
@@ -969,6 +986,11 @@ var fixedBounds = map[string][2]float64{
 	"max_decision_tree_size": {1, 32},
 	// Chemosynthesis uses the saturating curve, whose K is a score scale.
 	"chemosynthesis_curve_k": {physiology.MinSaturatingK, physiology.MaxSaturatingK},
+	// No unlimited option on purpose — this is the condition that keeps
+	// an unattended run off the disk, so 0 would defeat it. The floor is
+	// low enough to be a real constraint and the ceiling high enough for
+	// a long deliberate recording.
+	"max_replay_size_mb": {50, 1000},
 }
 
 func centeredSliderRange(jsonTag string, initial float64) (float64, float64) {
@@ -1066,6 +1088,8 @@ func (cs *ConfigScreen) buildSections() {
 		}},
 		{title: "— ORGANISMS —", fields: []configField{
 			field("Min Organisms", "min_organisms"),
+			field("Max Cycles (0=unlimited)", "max_cycles"),
+			field("Max Replay Size (MB)", "max_replay_size_mb"),
 			field("Max Organisms", "max_organisms"),
 			field("Growth Factor", "growth_factor"),
 			field("Maximum Max Size", "maximum_max_size"),
@@ -1091,13 +1115,7 @@ func (cs *ConfigScreen) buildSections() {
 			field("Blocked Move", "health_change_from_blocked_move"),
 			field("Corpse Food Multiplier", "corpse_food_multiplier"),
 		}},
-		{title: "— TERRAIN —", fields: []configField{
-			// Per-size-class wall strength delta for ActDig, before
-			// the digger's Digging ability scales it.
-			// Ability score at which a blocked move (Digging) or an
-			// attack (Attack) removes one point of wall strength per
-			// hit, per size class.
-		}},
+		{title: "— INITIAL DESIGNS —", fields: initialDesignFields()},
 		{title: "— INITIAL ABILITIES —", fields: initialAbilityFields(field("Random Initial Abilities", "random_initial_abilities"))},
 		{title: "— ABILITIES —", fields: withCurveGraphs([]configField{
 			field("Chance to Mutate", "chance_to_mutate_abilities"),
@@ -1107,8 +1125,12 @@ func (cs *ConfigScreen) buildSections() {
 			// curve section and a health-changes section.
 			field("Chemosynthesis K", "chemosynthesis_cosine_k"),
 			field("Chemosynthesis K", "chemosynthesis_saturating_k"),
+			field("Chemosynthesis pH push K", "chemo_ph_effect_cosine_k"),
+			field("Chemosynthesis pH push K", "chemo_ph_effect_saturating_k"),
 			field("Eating K", "eating_cosine_k"),
 			field("Eating K", "eating_saturating_k"),
+			field("Eating pH push K", "eating_ph_effect_cosine_k"),
+			field("Eating pH push K", "eating_ph_effect_saturating_k"),
 			field("Movement cost K", "movement_cost_cosine_k"),
 			field("Movement cost K", "movement_cost_saturating_k"),
 			field("Digging cost K", "digging_cost_cosine_k"),
@@ -1145,6 +1167,118 @@ func (cs *ConfigScreen) buildSections() {
 	// section headers that the user can expand as they need.
 	for i := range cs.sections {
 		cs.sections[i].collapsed = true
+	}
+}
+
+// initialDesignFields builds the INITIAL DESIGNS section: one toggle
+// per saved design. With none saved the section explains where they
+// come from rather than rendering an empty list, so the feature is
+// discoverable from the settings screen.
+func initialDesignFields() []configField {
+	designs := organism.LoadDesigns(organism.DesignsDir)
+	if len(designs) == 0 {
+		return []configField{{label: "  (none saved — build one in the Organism Designer)", textOnly: true}}
+	}
+	fields := make([]configField, 0, len(designs))
+	for i, ds := range designs {
+		fields = append(fields, configField{label: ds.Name, row: rowDesign, ability: i})
+	}
+	return fields
+}
+
+// designNames lists the saved designs in the same order the rows are
+// built, so a row's index means the same thing to the draw and click
+// paths.
+func (cs *ConfigScreen) designNames() []string {
+	if cs.designs == nil {
+		cs.designs = organism.LoadDesigns(organism.DesignsDir)
+	}
+	out := make([]string, len(cs.designs))
+	for i, ds := range cs.designs {
+		out[i] = ds.Name
+	}
+	return out
+}
+
+// designChosen reports whether the design at index i is one of the
+// simulation's founders.
+func (cs *ConfigScreen) designChosen(i int) bool {
+	names := cs.designNames()
+	if i < 0 || i >= len(names) {
+		return false
+	}
+	for _, n := range cs.globals.InitialDesigns {
+		if n == names[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleDesign adds or removes a design from the founders. Order is
+// preserved as the user picks, since the simulation deals designs
+// round-robin in the order they are listed.
+func (cs *ConfigScreen) toggleDesign(i int) {
+	names := cs.designNames()
+	if i < 0 || i >= len(names) {
+		return
+	}
+	name := names[i]
+	for j, n := range cs.globals.InitialDesigns {
+		if n == name {
+			cs.globals.InitialDesigns = append(cs.globals.InitialDesigns[:j], cs.globals.InitialDesigns[j+1:]...)
+			return
+		}
+	}
+	cs.globals.InitialDesigns = append(cs.globals.InitialDesigns, name)
+}
+
+// designInList reports whether the design at index i appears in a list
+// of founder names.
+func designInList(list, names []string, i int) bool {
+	if i < 0 || i >= len(names) {
+		return false
+	}
+	for _, n := range list {
+		if n == names[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// drawDesignRow paints one saved design with a tick box.
+func (cs *ConfigScreen) drawDesignRow(screen *ebiten.Image, px, py int, field configField) {
+	chosen := cs.designChosen(field.ability)
+	box := themedControlFill()
+	mark := ""
+	if chosen {
+		box = color.RGBA{R: 70, G: 130, B: 90, A: 255}
+		mark = "x"
+	}
+	ebitenutil.DrawRect(screen, float64(px+4), float64(py), 14, 14, box)
+	if mark != "" {
+		// White in both themes: the mark sits on the ticked box's own
+		// saturated green, not on the row, so it takes its contrast from
+		// the box. themedForeground put near-black on green here.
+		text.Draw(screen, mark, r.FontSourceCodePro10, px+7, py+11, color.White)
+	}
+	text.Draw(screen, field.label, r.FontSourceCodePro10, px+26, py+11, themedForeground())
+
+	note, noteCol := "", themedForegroundDim()
+	if chosen {
+		note = "founder"
+	}
+	if i := field.ability; i >= 0 && i < len(cs.designs) && cs.designs[i].ExceedsTreeLimit(cs.treeLimit()) {
+		// Flagged whether or not it's ticked: the user needs to know the
+		// design is unusable before wondering why the start is blocked.
+		// Measured against the limit on the screen, not the running one,
+		// so raising Max Tree Size clears the flag immediately.
+		note = fmt.Sprintf("%d nodes > %d limit", cs.designs[i].TreeSize(), cs.treeLimit())
+		noteCol = themedBad()
+	}
+	if note != "" {
+		text.Draw(screen, note, r.FontSourceCodePro8, px+cfgLabelWidth, py+11, noteCol)
 	}
 }
 
@@ -1212,28 +1346,60 @@ func (cs *ConfigScreen) StartBlockedReason() string {
 	if total := cs.initialScoresTotal(); total != physiology.PointTotal {
 		return fmt.Sprintf("Initial abilities total %d; they must add up to %d", total, physiology.PointTotal)
 	}
-	return ""
+	return cs.startBlockedByDesigns(organism.LoadDesigns(organism.DesignsDir))
+}
+
+// startBlockedByDesigns explains why the ticked founders can't start the
+// simulation, or "". Starting with a design whose tree is over the limit
+// would either silently drop it or run an organism with a tree the
+// simulation's own mutation limit forbids — which would out-compete
+// every evolved tree for a reason no setting explains.
+//
+// Takes the designs rather than reading the directory so the rule can be
+// tested against a directory a test owns.
+func (cs *ConfigScreen) startBlockedByDesigns(available []organism.Design) string {
+	chosen := map[string]bool{}
+	for _, n := range cs.globals.InitialDesigns {
+		chosen[n] = true
+	}
+	var over []string
+	for _, ds := range available {
+		if chosen[ds.Name] && ds.ExceedsTreeLimit(cs.treeLimit()) {
+			over = append(over, ds.Name)
+		}
+	}
+	if len(over) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s has a decision tree over the %d-node limit; untick it or raise Max Tree Size",
+		strings.Join(over, ", "), cs.treeLimit())
+}
+
+// treeLimit is the node cap the screen is editing, which is what designs
+// are judged against — not the cap the last simulation ran with.
+func (cs *ConfigScreen) treeLimit() int {
+	return cs.globals.MaxDecisionTreeSize
 }
 
 // drawAbilityScoreRow draws one initial ability row: the ability name,
 // then - value + in the slider column. Greyed out while Random is on.
 func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx int, field configField) {
 	disabled := cs.globals.RandomInitialAbilities
-	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
-	valueColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	btnColor := color.RGBA{R: 70, G: 70, B: 95, A: 255}
+	labelColor := themedLabel()
+	valueColor := themedValue()
+	btnColor := themedControlFill()
 	if disabled {
-		labelColor = color.RGBA{R: 90, G: 90, B: 90, A: 255}
+		labelColor = themedMuted()
 		valueColor = labelColor
-		btnColor = color.RGBA{R: 45, G: 45, B: 50, A: 255}
+		btnColor = themedControlDim()
 	}
 	if cs.canReset(field) && !disabled {
-		valueColor = changedFromDefaultColor
+		valueColor = themedChanged()
 	}
 	isSelected := rowIdx == cs.selectedRow && !disabled
 	if isSelected {
-		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), color.RGBA{R: 40, G: 40, B: 60, A: 255})
-		valueColor = color.RGBA{R: 100, G: 255, B: 100, A: 255}
+		ebitenutil.DrawRect(screen, float64(px), float64(py-2), float64(cs.panelWidth()), float64(cfgRowHeight), themedSelectedRow())
+		valueColor = themedSelectedInk()
 	}
 
 	text.Draw(screen, "  "+field.label, r.FontSourceCodePro10, px, py+10, labelColor)
@@ -1266,10 +1432,10 @@ func (cs *ConfigScreen) drawAbilityScoreRow(screen *ebiten.Image, px, py, rowIdx
 // shape and coefficient it currently uses on the right, so a collapsed
 // curve still says what it does.
 func (cs *ConfigScreen) drawCurveHeaderRow(screen *ebiten.Image, px, py int, field configField) {
-	labelColor := color.RGBA{R: 180, G: 180, B: 180, A: 255}
-	valueColor := color.Color(color.RGBA{R: 255, G: 255, B: 255, A: 255})
+	labelColor := themedLabel()
+	valueColor := color.Color(themedValue())
 	if cs.curveShapeChanged(field.curve) {
-		valueColor = changedFromDefaultColor
+		valueColor = themedChanged()
 	}
 	text.Draw(screen, field.label, r.FontSourceCodePro10, px+graphToggleW+2, py+10, labelColor)
 
@@ -1451,13 +1617,13 @@ func (cs *ConfigScreen) curveShapeChanged(curve physiology.CurveID) bool {
 // note that scores are random per organism.
 func (cs *ConfigScreen) drawAbilityTotalRow(screen *ebiten.Image, px, py int) {
 	label := fmt.Sprintf("  Total: %d / %d", cs.initialScoresTotal(), physiology.PointTotal)
-	col := color.RGBA{R: 100, G: 220, B: 100, A: 255}
+	col := themedOK()
 	switch {
 	case cs.globals.RandomInitialAbilities:
 		label = "  Total: random split of 100 per organism"
-		col = color.RGBA{R: 90, G: 90, B: 90, A: 255}
+		col = themedMuted()
 	case cs.initialScoresTotal() != physiology.PointTotal:
-		col = color.RGBA{R: 235, G: 90, B: 90, A: 255}
+		col = themedBad()
 	}
 	text.Draw(screen, label, r.FontSourceCodePro10, px, py+10, col)
 }
@@ -1606,9 +1772,18 @@ func (cs *ConfigScreen) restoreAllRect() (x, y, w, h int) {
 // canReset reports whether a row has a value that differs from its
 // default, which is when its reset button shows.
 func (cs *ConfigScreen) canReset(field configField) bool {
+	if field.textOnly && field.jsonTag == "" {
+		return false // a section's explanatory line has nothing to reset
+	}
 	switch field.row {
 	case rowAbilityTotal, rowCurveGraph:
 		return false
+	case rowDesign:
+		// Rows built from the designs directory carry no Globals field,
+		// so they're compared against the default founder list rather
+		// than by field index — which for these rows is zero, and would
+		// otherwise compare the seed.
+		return cs.designChosen(field.ability) != designInList(cs.defaults.InitialDesigns, cs.designNames(), field.ability)
 	case rowAbilityScore:
 		return cs.globals.InitialAbilityScores[field.ability] != cs.defaults.InitialAbilityScores[field.ability]
 	}
@@ -1623,6 +1798,11 @@ func (cs *ConfigScreen) resetField(field configField) {
 	cs.editingValue = ""
 	switch field.row {
 	case rowAbilityTotal, rowCurveGraph:
+		return
+	case rowDesign:
+		if cs.canReset(field) {
+			cs.toggleDesign(field.ability)
+		}
 		return
 	case rowAbilityScore:
 		cs.globals.InitialAbilityScores[field.ability] = cs.defaults.InitialAbilityScores[field.ability]
@@ -1669,11 +1849,11 @@ func (cs *ConfigScreen) restoreAllDefaults() {
 // drawSmallButton draws a compact labelled button. Inactive buttons are
 // greyed out (RESTORE ALL DEFAULTS when nothing has changed).
 func (cs *ConfigScreen) drawSmallButton(screen *ebiten.Image, x, y, w, h int, label string, active bool) {
-	bg := color.RGBA{R: 70, G: 70, B: 95, A: 255}
-	fg := color.RGBA{R: 225, G: 225, B: 235, A: 255}
+	bg := themedControlFill()
+	fg := themedValue()
 	if !active {
-		bg = color.RGBA{R: 45, G: 45, B: 50, A: 255}
-		fg = color.RGBA{R: 110, G: 110, B: 110, A: 255}
+		bg = themedControlDim()
+		fg = themedMuted()
 	}
 	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), bg)
 	lb := boundString(r.FontSourceCodePro8, label)

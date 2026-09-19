@@ -41,11 +41,19 @@ func TestBalancedScoresValid(t *testing.T) {
 
 // TestCurvesRunBetweenZeroAndOne: effect curves go from 0 at score 0 to 1
 // at score 100, and cost curves the other way round.
+//
+// Each curve is checked under a real shape rather than whatever the
+// settings happen to name, because a curve configured ShapeFlat is 1
+// everywhere on purpose — that is how a curve says the score shouldn't
+// scale it at all. What is being pinned here is the shapes, not the
+// configuration, so the configuration is set aside.
 func TestCurvesRunBetweenZeroAndOne(t *testing.T) {
 	loadGlobals(t)
-	g := config.GetCurrentGlobals()
+	base := *config.GetCurrentGlobals()
 	for _, id := range AllCurves {
-		cv := CurveFor(g, id)
+		g := base
+		setCurveShape(&g, id, ShapeLinear)
+		cv := CurveFor(&g, id)
 		atZero, atMax := 0.0, 1.0
 		if id.CostStyle() {
 			atZero, atMax = 1, 0
@@ -132,6 +140,18 @@ func setCurveShape(g *config.Globals, id CurveID, kind ShapeKind) {
 		g.ThornsCurveShape = name
 	case CurvePhTolerance:
 		g.PhToleranceCurveShape = name
+	case CurveDiggingCreate:
+		g.DiggingCreationCurveShape = name
+	case CurveChemoPhEffect:
+		g.ChemoPhEffectCurveShape = name
+	case CurveEatingPhEffect:
+		g.EatingPhEffectCurveShape = name
+	default:
+		// Loud rather than silent: a curve missing from this switch keeps
+		// whatever shape the settings gave it, so every test that sets a
+		// shape quietly tests something else instead. CurveDiggingCreate
+		// sat unhandled here for exactly that reason.
+		panic("setCurveShape: no case for curve " + id.Name())
 	}
 }
 

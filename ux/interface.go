@@ -34,6 +34,10 @@ type Interface struct {
 	// menu is the replay menu, nil outside replay mode.
 	menu *ReplayMenu
 
+	// graphPopup is the enlarged graph, opened from the expand control
+	// in the panel graph's corner.
+	graphPopup *GraphPopup
+
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
 	debugOptions *ebiten.DrawImageOptions
@@ -69,6 +73,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	i.gridOptions.GeoM.Scale(GridDisplayScale, GridDisplayScale)
 	i.gridOptions.GeoM.Translate(panelWidth, 0)
 
+	i.graphPopup = NewGraphPopup(i.panel)
 	i.debug = NewDebug(sim)
 	i.debugOptions = &ebiten.DrawImageOptions{}
 	i.debugOptions.GeoM.Translate(panelWidth, 0)
@@ -140,7 +145,11 @@ func (i *Interface) Render(screen *ebiten.Image) {
 
 	i.renderGrid(screen)
 	i.minimap.Draw(screen)
+	i.renderColorKey(screen)
 	i.renderPanel(screen)
+	// Over the panel, since it is modal and the panel is what it
+	// covers; under the replay menu, which is modal over everything.
+	i.graphPopup.Draw(screen)
 	if i.menu != nil {
 		i.menu.Draw(screen)
 	}
@@ -167,6 +176,10 @@ func (i *Interface) HandleUserInput() {
 		i.menu.Update()
 		return
 	}
+	// Then the enlarged graph, which is modal over the panel and grid.
+	if i.graphPopup.Update() {
+		return
+	}
 	// Advance any in-flight smooth-pan animation before reading input.
 	// Manual pan / zoom in the input handlers will cancel it as needed.
 	i.grid.Camera.UpdatePan()
@@ -174,6 +187,9 @@ func (i *Interface) HandleUserInput() {
 	// Graph zoom/pan gets first claim on the mouse: a wheel over the
 	// graph zooms it instead of scrolling the panel, and a drag that
 	// starts on it pans the graph instead of the grid.
+	if i.panel.TakeGraphExpandRequest() {
+		i.graphPopup.Open()
+	}
 	if !i.panel.HandleGraphInput() {
 		i.panel.HandleScroll()
 		i.handleMouse()
@@ -251,6 +267,9 @@ func (i *Interface) handleMouse() {
 		}
 		// Check minimap click
 		if i.minimap.HandleClick(mx, my) {
+			return
+		}
+		if i.colorKeyAbsorbsClick(mx, my) {
 			return
 		}
 		i.mouseDownPos = image.Pt(mx, my)
@@ -350,6 +369,53 @@ func (i *Interface) renderGrid(screen *ebiten.Image) {
 	i.grid.RenderOverlayText(screen)
 	i.debug.gridRenderTime = time.Since(start)
 	i.debug.gridTimings = i.grid.LastRenderTimings()
+}
+
+// renderColorKey draws the legend for the organism colour mode in the
+// bottom-right corner, stacked above the minimap.
+//
+// Only while organisms are on screen: it explains their tint, and with
+// the layer switched off there is nothing for it to explain. It sits on
+// the minimap's top edge when there is one and on the bottom margin when
+// there isn't — the minimap hides itself once the whole world fits in
+// the viewport, and a key left floating above the gap it left reads as
+// something that failed to load.
+func (i *Interface) renderColorKey(screen *ebiten.Image) {
+	k, width, bottom, ok := i.colorKeyPlacement()
+	if !ok {
+		return
+	}
+	drawColorKey(screen, k, width, bottom)
+}
+
+// colorKeyPlacement is the key on show and where its bottom edge goes,
+// or ok=false when there is none. One place, so the hit test below and
+// the drawing above can't disagree about whether a key is there.
+func (i *Interface) colorKeyPlacement() (k colorKey, width, bottom int, ok bool) {
+	if !i.grid.ShowOrganisms() {
+		return colorKey{}, 0, 0, false
+	}
+	k = colorKeyFor(i.grid.OrgColor(), i.grid.ColorAbility())
+	if k.empty() {
+		return colorKey{}, 0, 0, false
+	}
+	bottom = config.ScreenHeight() - minimapPadding
+	if i.minimap.Visible() {
+		bottom = i.minimap.Top() - minimapPadding
+	}
+	return k, i.minimap.Width(), bottom, true
+}
+
+// colorKeyAbsorbsClick reports whether a click landed on the key. It
+// swallows it the way the minimap does: the key covers a corner of the
+// world, and a click that reached through it would select an organism the
+// user can't see, or start dragging the view from a legend.
+func (i *Interface) colorKeyAbsorbsClick(x, y int) bool {
+	k, width, bottom, ok := i.colorKeyPlacement()
+	if !ok {
+		return false
+	}
+	return image.Pt(x, y).In(colorKeyRect(k, width, bottom))
 }
 
 func (i *Interface) renderPanel(screen *ebiten.Image) {

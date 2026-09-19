@@ -208,6 +208,39 @@ func (s *Simulation) RestoreHistory(payload *checkpoint.HistoryPayload) {
 }
 
 // CloseRecorder writes the descendant trees and finalizes the checkpoint file.
+// Replay size projection. A run's file is the bytes already written plus
+// the sections that only go in at Close: the descendant trees, the pH
+// history and the snapshot index.
+//
+// The trees dominate and grow with every organism ever created, so this
+// is not a fixed fraction of what has been written — measured over runs
+// of 2,000 to 20,000 cycles, the close-time sections went from 3.6% of
+// the final file to 34% of it. What *is* steady is the cost per
+// descendant node, which converges to about 25 bytes once there are
+// enough nodes for the section's own overhead to stop dominating
+// (123 bytes/node at 19 nodes, 25.8 at 4,752, 24.9 at 69,595).
+// simulation/zz_size_test.go is that measurement.
+//
+// replayBytesPerNode is rounded up from it and replayCloseOverhead
+// covers the history and index, which are what the per-node figure
+// misses on a short run. Both err high on purpose: this drives a size
+// cap, and over-estimating stops a run slightly early where
+// under-estimating overruns the limit the user set.
+const (
+	replayBytesPerNode  = 26
+	replayCloseOverhead = 8 << 10
+)
+
+// EstimatedReplayBytes is how big the replay file is projected to be if
+// the run ended now. 0 when nothing is being recorded.
+func (s *Simulation) EstimatedReplayBytes() int64 {
+	if s.recorder == nil {
+		return 0
+	}
+	nodes := int64(s.organismManager.TotalOrganismsCreated())
+	return s.recorder.BytesWritten() + nodes*replayBytesPerNode + replayCloseOverhead
+}
+
 func (s *Simulation) CloseRecorder() {
 	if s.recorder != nil {
 		// Tag the end sections with the true final cycle so the replay
@@ -324,38 +357,86 @@ func (s *Simulation) updateMinOrganismsArmed() {
 	}
 }
 
-// shouldEnd is the end-condition decision, kept free of simulation state
-// so it can be tested directly. A run ends at extinction, or — once the
-// population has been armed by reaching twice minOrganisms — as soon as
-// fewer than minOrganisms are alive.
+// EndCondition is why a run stopped, or EndNone while it is still going.
+// Returned rather than a bool so the end message and the UI's list of
+// conditions read the same answer instead of each deciding for itself.
+type EndCondition int
+
+const (
+	// EndNone means the run is still going.
+	EndNone EndCondition = iota
+	// EndExtinct: nothing is alive. Always in force.
+	EndExtinct
+	// EndBelowMinimum: fewer than min_organisms are alive, after the
+	// population armed the condition by reaching twice that.
+	EndBelowMinimum
+	// EndMaxCycles: the run reached max_cycles.
+	EndMaxCycles
+	// EndMaxReplaySize: the replay file is projected to reach
+	// max_replay_size_mb.
+	EndMaxReplaySize
+)
+
+// endCondition is the end-condition decision, kept free of simulation
+// state so it can be tested directly. A run ends at extinction, at
+// maxCycles, or — once the population has been armed by reaching twice
+// minOrganisms — as soon as fewer than minOrganisms are alive.
 //
-// The arming requirement is what stops this firing during a run's
+// The arming requirement is what stops the minimum firing during a run's
 // founding phase: with a single founder, every run starts well below
 // minOrganisms, and ending there would kill each evolutionary explosion
-// before it began.
-func shouldEnd(alive int, armed bool, minOrganisms int) bool {
+// before it began. A cycle count needs no such guard, since it only ever
+// goes up.
+//
+// Extinction is checked first: it is the one condition always in force,
+// and a run that ends with nothing alive should say so rather than blame
+// whichever limit it happened to also cross.
+func endCondition(alive, cycle int, armed bool, minOrganisms, maxCycles int,
+	replayBytes, maxReplayBytes int64) EndCondition {
 	if alive == 0 {
-		return true
+		return EndExtinct
 	}
-	return minOrganisms > 0 && armed && alive < minOrganisms
+	if minOrganisms > 0 && armed && alive < minOrganisms {
+		return EndBelowMinimum
+	}
+	if maxCycles > 0 && cycle >= maxCycles {
+		return EndMaxCycles
+	}
+	if maxReplayBytes > 0 && replayBytes >= maxReplayBytes {
+		return EndMaxReplaySize
+	}
+	return EndNone
 }
 
 // IsDone returns true if end condition met
 func (s *Simulation) IsDone() bool {
+	return s.EndCondition() != EndNone
+}
+
+// EndCondition reports why the run has stopped, or EndNone while it is
+// still going, printing the reason the first time it is asked.
+func (s *Simulation) EndCondition() EndCondition {
 	alive := s.GetNumOrganisms()
-	if !shouldEnd(alive, s.minOrganismsArmed, config.MinOrganisms()) {
-		return false
+	end := endCondition(alive, s.cycle, s.minOrganismsArmed,
+		config.MinOrganisms(), config.MaxCycles(),
+		s.EstimatedReplayBytes(), int64(config.MaxReplaySizeMb())<<20)
+	if end == EndNone {
+		return EndNone
 	}
 	if !s.endReported {
 		s.endReported = true
-		if alive == 0 {
+		if end == EndMaxReplaySize {
+			fmt.Printf(maxReplayEndMessage, s.cycle, config.MaxReplaySizeMb())
+		} else if end == EndMaxCycles {
+			fmt.Printf(maxCyclesEndMessage, s.cycle, config.MaxCycles())
+		} else if alive == 0 {
 			fmt.Printf("\nSimulation ended on cycle %d: population went extinct.", s.cycle)
 		} else {
 			fmt.Printf("\nSimulation ended on cycle %d: %d organisms alive, below the minimum of %d.",
 				s.cycle, alive, config.MinOrganisms())
 		}
 	}
-	return true
+	return end
 }
 
 // IsDebug returns true if debug flag set on run
@@ -650,6 +731,12 @@ func (s *Simulation) IsWallAtPoint(p utils.Point) bool {
 	return s.wallManager.IsWallAtPoint(p)
 }
 
+// IsOrganismAtPoint reports whether a living organism occupies p.
+// Part of food.API: food is never placed on an occupied cell.
+func (s *Simulation) IsOrganismAtPoint(p utils.Point) bool {
+	return s.organismManager.IsOrganismAtPoint(p)
+}
+
 // GetWallStrengthAtPoint returns the wall's strength at p, or 0 if
 // no wall is present.
 func (s *Simulation) GetWallStrengthAtPoint(p utils.Point) int {
@@ -702,3 +789,10 @@ func recordedConfig(seed int) []byte {
 	}
 	return data
 }
+
+// maxCyclesEndMessage is kept out of the branch above so the edit that
+// added it did not have to touch the two messages already there.
+const maxCyclesEndMessage = "\nSimulation ended on cycle %d: reached the maximum of %d cycles."
+
+// maxReplayEndMessage keeps its escape out of the edits above.
+const maxReplayEndMessage = "\nSimulation ended on cycle %d: replay file reached the %dMB limit."

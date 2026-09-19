@@ -13,12 +13,17 @@ import (
 // reinforcing or creating walls on its left and right (positive
 // delta). Digging is the only thing that wears a wall down. A 0-strength
 // wall is removed from the map entirely so
-// IsWallAtPoint returns false. The cap at 7 keeps the strength
-// visualisable as a small set of alpha tiers without making walls
-// indestructibly expensive to dig.
+// IsWallAtPoint returns false.
+//
+// The range is 1-100, the same scale as a pH reading or a percentage, so
+// a wall's strength can be compared against what an organism can shoulder
+// through (effects.WallBreakStrength) without either number needing
+// explanation. It was 1-7 when digging was the only way through a wall
+// and each dig took a few points off; on this scale digging one down is
+// dozens of cycles of work, and burrowing is the fast path.
 const (
 	MinWallStrength = 1
-	MaxWallStrength = 7
+	MaxWallStrength = 100
 )
 
 // WallManager owns the stateful wall grid that replaced the

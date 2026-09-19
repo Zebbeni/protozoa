@@ -162,6 +162,20 @@ type Panel struct {
 	// the layout.
 	graphButtonRects []graphButtonHitbox
 
+	// lastGraphImage is what the last Render produced, kept so the
+	// expanded popup can draw it without asking for another.
+	lastGraphImage *ebiten.Image
+
+	// graphExpandRect is the expand button's hitbox, set while the
+	// cursor is over the graph and nil otherwise — it only appears on
+	// hover, so it is only clickable then.
+	graphExpandRect *graphRect
+
+	// graphExpandRequested is set by a click on the expand control and
+	// taken by the runner, so the panel doesn't need to know what a
+	// popup is.
+	graphExpandRequested bool
+
 	// graphByAbility colours the population graphs gray→green by
 	// graphColorAbility instead of by lineage. Toggled by the ABILITY
 	// button under the graph; the ability choice is kept across toggles.
@@ -480,6 +494,9 @@ var orgColorButtons = [...]struct {
 	{label: "HEALTH", color: orgColorHealth},
 	{label: "TOLERANCE", color: orgColorTolerance},
 	{label: "SUCCESS", color: orgColorSuccess},
+	{label: "FAMILY", color: orgColorFamily},
+	{label: "AGE", color: orgColorAge},
+	{label: "SIZE", color: orgColorSize},
 }
 
 // graphModeLabel returns the title rendered above the graph for the
@@ -512,10 +529,14 @@ func graphModeLabel(mode graph.Mode, showSelected bool) string {
 // the population buttons it recolours, and its picker opens directly
 // beneath them. Returns how far the sections below must shift: one row
 // pitch while the picker is showing, zero otherwise.
-func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, topY int) int {
-	totalWidth := graphWidth
+// x and totalWidth are passed rather than taken from the panel's own
+// geometry so the expanded popup can draw the same buttons at its own
+// size. The hitboxes it leaves behind are in whatever space it was
+// drawn in, which is safe because only one of the two is interactive at
+// a time — the popup is modal and takes input before the panel sees it.
+func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, x, topY, totalWidth int) int {
 	btnW := (totalWidth - graphButtonGap*(graphButtonsPerRow-1)) / graphButtonsPerRow
-	colX := func(col int) int { return graphXOffset + col*(btnW+graphButtonGap) }
+	colX := func(col int) int { return x + col*(btnW+graphButtonGap) }
 
 	rects := make([]graphButtonHitbox, 0, len(graphModeButtons))
 	drawMode := func(b graphModeButton, x, y int) {
@@ -545,7 +566,7 @@ func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, topY int) int {
 		abW := (totalWidth - graphButtonGap*(n-1)) / n
 		abilityRects := make([]abilityBtnHitbox, 0, n)
 		for i, a := range physiology.AllAbilities {
-			ax := graphXOffset + i*(abW+graphButtonGap)
+			ax := x + i*(abW+graphButtonGap)
 			label, ok := abilityButtonLabels[a]
 			if !ok {
 				label = strings.ToUpper(a.Name())
@@ -566,6 +587,78 @@ func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, topY int) int {
 	}
 	p.graphButtonRects = rects
 	return shift
+}
+
+// graphRect is a plain hitbox in whatever space it was drawn in.
+type graphRect struct{ x, y, w, h int }
+
+func (r graphRect) contains(x, y int) bool {
+	return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
+}
+
+// expandButtonSize is the side of the square expand control in the
+// graph's top-right corner.
+const expandButtonSize = 14
+
+// drawExpandButton puts a small expand control in the graph's top-right
+// corner while the cursor is over the graph, and records its hitbox.
+//
+// Only on hover: it sits over the graph itself, and a control permanently
+// covering the corner of a plot is in the way of the thing it is meant to
+// help you read.
+func (p *Panel) drawExpandButton(dst *ebiten.Image, gx, gy, gw int, hovered bool) {
+	if !hovered {
+		p.graphExpandRect = nil
+		return
+	}
+	rect := graphRect{x: gx + gw - expandButtonSize - 2, y: gy + 2, w: expandButtonSize, h: expandButtonSize}
+	p.graphExpandRect = &rect
+
+	ebitenutil.DrawRect(dst, float64(rect.x), float64(rect.y), float64(rect.w), float64(rect.h),
+		chrome(color.RGBA{R: 40, G: 40, B: 52, A: 220}, color.RGBA{R: 235, G: 235, B: 242, A: 220}))
+
+	// Two corner brackets, which read as "make this bigger" without
+	// needing a glyph the font may not have.
+	ink := themedValue()
+	const pad, arm = 3, 5
+	l, t := float64(rect.x+pad), float64(rect.y+pad)
+	rgt, b := float64(rect.x+rect.w-pad), float64(rect.y+rect.h-pad)
+	ebitenutil.DrawRect(dst, l, t, arm, 1, ink)
+	ebitenutil.DrawRect(dst, l, t, 1, arm, ink)
+	ebitenutil.DrawRect(dst, rgt-arm, b-1, arm, 1, ink)
+	ebitenutil.DrawRect(dst, rgt-1, b-arm, 1, arm, ink)
+}
+
+// drawGraphInto draws the graph image into a rect at any size: the
+// horizontal zoom window, cropped vertically to the band the data
+// actually uses, with the playhead over it.
+//
+// Extracted so the expanded popup is the same graph at a different size
+// rather than a second implementation of it — the crop and the zoom
+// window are where a copy would quietly diverge.
+func (p *Panel) drawGraphInto(dst *ebiten.Image, graphImage *ebiten.Image, x, y, w, h int) {
+	imgW := graphImage.Bounds().Dx()
+	imgH := graphImage.Bounds().Dy()
+	viewStart, viewEnd := p.graphView.bounds()
+	x0 := int(viewStart * float64(imgW))
+	x1 := max(x0+1, int(math.Ceil(viewEnd*float64(imgW))))
+	x1 = min(x1, imgW)
+
+	// Crop vertically to the band the data actually uses: the image's
+	// y-axis covers the whole run's peak, so a live run that ends far
+	// larger than it starts would show its early cycles as a flat line
+	// along the bottom. A replay draws the whole run, so this is the
+	// whole height.
+	height := p.graph.HeightFraction(p.graphLastBar())
+	y0 := min(imgH-1, int(float64(imgH)*(1-height)))
+
+	visible := graphImage.SubImage(image.Rect(x0, y0, x1, imgH)).(*ebiten.Image)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(float64(w)/float64(x1-x0), float64(h)/float64(imgH-y0))
+	op.GeoM.Translate(float64(x), float64(y))
+	dst.DrawImage(visible, op)
+
+	p.drawGraphPlayhead(dst, x, y, w, h)
 }
 
 // drawGraphProgress paints the graph area blank with a centred progress
@@ -1152,13 +1245,19 @@ func (p *Panel) renderReplayControls(panelImage *ebiten.Image) {
 	text.Draw(panelImage, cycleLabel, r.FontSourceCodePro10, bx, btnY+btnH-4, mutedFg)
 }
 
+// panelButtonFill is the panel button's background, and the one place
+// its colour is written down — the title borrows it, so the two can't
+// drift apart.
+func panelButtonFill() color.RGBA {
+	return chrome(
+		color.RGBA{R: 40, G: 40, B: 50, A: 255},
+		color.RGBA{R: 220, G: 220, B: 225, A: 255},
+	)
+}
+
 func (p *Panel) drawButton(img *ebiten.Image, x, y, w, h int, label string, col color.RGBA) {
 	// Button background
-	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h),
-		chrome(
-			color.RGBA{R: 40, G: 40, B: 50, A: 255},
-			color.RGBA{R: 220, G: 220, B: 225, A: 255},
-		))
+	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h), panelButtonFill())
 	// Border
 	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), 1,
 		chrome(
@@ -1325,12 +1424,15 @@ func formatReplaySpeed(speed float64) string {
 
 func (p *Panel) renderTitle(panelImage *ebiten.Image) {
 	bounds := boundString(r.FontInversionz40, "protozoa")
-	// Title borrows the *opposite* theme's inactive-button fill — light
-	// grey on dark, dark grey on light — so it reads as a soft accent
-	// against the panel chrome instead of disappearing into it.
+	// On the dark theme the title borrows the *light* theme's button fill
+	// — a pale grey that reads as a soft accent against the panel chrome
+	// instead of glaring like a heading. The light theme takes the button
+	// fill it actually uses, rather than the mirror-image near-black: at
+	// 40 point that much dark ink stopped reading as chrome and started
+	// reading as the loudest thing on the screen.
 	titleColor := chrome(
 		color.RGBA{R: 215, G: 215, B: 220, A: 255},
-		color.RGBA{R: 35, G: 35, B: 45, A: 255},
+		panelButtonFill(),
 	)
 	text.Draw(panelImage, "protozoa", r.FontInversionz40, titleXOffset, titleYOffset+bounds.Dy(), titleColor)
 }
@@ -1399,17 +1501,21 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) int {
 
 	text.Draw(panelImage, label, r.FontSourceCodePro12, graphXOffset, gY, themedForeground())
 	graphImage := p.graph.Render()
+	// Stashed for the expanded popup, which draws the same image at a
+	// larger size. It must not call Render itself: that would schedule a
+	// second render per frame.
+	p.lastGraphImage = graphImage
 	if fraction, show := p.graph.RenderProgress(); show {
 		// A slow render is in flight: clear the stale graph and show
 		// how far along the new one is, rather than leaving an old
 		// image up that looks like the answer.
 		drawGraphProgress(panelImage, graphXOffset, gY+10, graphWidth, graphHeight, fraction)
-		return p.renderGraphButtons(panelImage, gY+graphHeight+14)
+		return p.renderGraphButtons(panelImage, graphXOffset, gY+graphHeight+14, graphWidth)
 	}
 	if graphImage == nil {
 		// Still draw the buttons so the controls don't vanish while the
 		// first render is in flight.
-		return p.renderGraphButtons(panelImage, gY+graphHeight+14)
+		return p.renderGraphButtons(panelImage, graphXOffset, gY+graphHeight+14, graphWidth)
 	}
 	p.graphTop = gY + 10
 	p.graphView.syncRange(p.graphCycleRange())
@@ -1419,31 +1525,14 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) int {
 	// the whole run and stays on show whatever the playhead has reached:
 	// the history is what the graph is for, and a line marks where the
 	// playhead sits in it.
-	imgW := graphImage.Bounds().Dx()
-	imgH := graphImage.Bounds().Dy()
-	viewStart, viewEnd := p.graphView.bounds()
-	x0 := int(viewStart * float64(imgW))
-	x1 := max(x0+1, int(math.Ceil(viewEnd*float64(imgW))))
-	x1 = min(x1, imgW)
-
-	// Crop vertically to the band the data actually uses: the image's
-	// y-axis covers the whole run's peak, so a live run that ends far
-	// larger than it starts would show its early cycles as a flat line
-	// along the bottom. A replay draws the whole run, so this is the
-	// whole height.
-	height := p.graph.HeightFraction(p.graphLastBar())
-	y0 := min(imgH-1, int(float64(imgH)*(1-height)))
-
-	visible := graphImage.SubImage(image.Rect(x0, y0, x1, imgH)).(*ebiten.Image)
-	graphOptions := &ebiten.DrawImageOptions{}
-	scaleX := float64(graphWidth) / float64(x1-x0)
-	scaleY := float64(graphHeight) / float64(imgH-y0)
-	graphOptions.GeoM.Scale(scaleX, scaleY)
-	graphOptions.GeoM.Translate(float64(graphXOffset), float64(gY+10))
-
-	panelImage.DrawImage(visible, graphOptions)
-
-	p.drawGraphPlayhead(panelImage, graphXOffset, gY+10, graphWidth, graphHeight)
+	p.drawGraphInto(panelImage, graphImage, graphXOffset, gY+10, graphWidth, graphHeight)
+	// On hover, and in the panel's own inner coordinates — the cursor
+	// has to be scroll-adjusted to match.
+	hoverX, hoverY := ebiten.CursorPosition()
+	hoverInner := hoverY + int(p.scrollY)
+	overGraph := hoverX >= graphXOffset && hoverX < graphXOffset+graphWidth &&
+		hoverInner >= gY+10 && hoverInner < gY+10+graphHeight
+	p.drawExpandButton(panelImage, graphXOffset, gY+10, graphWidth, overGraph)
 
 	// Draw avg pH label on the pH graph at panel resolution
 	if graphMode == graph.ModePh {
@@ -1514,7 +1603,7 @@ func (p *Panel) renderGraph(panelImage *ebiten.Image, yOff int) int {
 	}
 
 	// Graph mode buttons in a 2×3 grid below the graph.
-	return p.renderGraphButtons(panelImage, gY+graphHeight+14)
+	return p.renderGraphButtons(panelImage, graphXOffset, gY+graphHeight+14, graphWidth)
 }
 
 // drawGraphZoomHint labels the graph's zoom controls in its top-left
@@ -1549,6 +1638,15 @@ func (p *Panel) drawGraphZoomHint(img *ebiten.Image, top, bottom, mx, panelMy in
 func (p *Panel) HandleGraphInput() bool {
 	mx, my := ebiten.CursorPosition()
 	innerY := my + int(p.scrollY)
+	// The expand control sits over the graph, so it has to take the
+	// click before the graph's own click-to-seek sees it.
+	if r := p.graphExpandRect; r != nil && r.contains(mx, innerY) {
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			p.graphExpandRequested = true
+		}
+		p.setGraphCursor(ebiten.CursorShapePointer)
+		return true
+	}
 	over := p.graphTop > 0 && mx >= graphXOffset && mx < graphXOffset+graphWidth &&
 		innerY >= p.graphTop && innerY < p.graphTop+graphHeight
 
@@ -2553,4 +2651,12 @@ func (p *Panel) handleDetailTabClick(mx, my int) bool {
 		}
 	}
 	return false
+}
+
+// TakeGraphExpandRequest reports and clears a click on the graph's
+// expand control, so each click opens the popup exactly once.
+func (p *Panel) TakeGraphExpandRequest() bool {
+	req := p.graphExpandRequested
+	p.graphExpandRequested = false
+	return req
 }

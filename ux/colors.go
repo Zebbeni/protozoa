@@ -165,7 +165,14 @@ func phEffectSpectrum(positive, negative float64) float64 {
 // old behaviour: blends to background at neutral, toward the active
 // scheme's acid/base hue at the extremes.
 func phEffectColor(positive, negative float64) colorful.Color {
-	spec := phEffectSpectrum(positive, negative)
+	return phEffectSpectrumColor(phEffectSpectrum(positive, negative))
+}
+
+// phEffectSpectrumColor is the colour for a point on the spectrum, split
+// out so the on-screen key can walk the ramp end to end and be sure it is
+// showing the colours the grid actually paints — a key with its own copy
+// of this would drift the first time the hues moved.
+func phEffectSpectrumColor(spec float64) colorful.Color {
 	acidHue, baseHue := config.PhEffectHueRange()
 	hue := acidHue + (baseHue-acidHue)*spec
 	dist := spec - 0.5
@@ -257,6 +264,7 @@ func phEffectTextColor(positive, negative float64) color.Color {
 
 // boundString returns the bounding rectangle of the given text rendered with
 // the given font face. Replaces the deprecated ebiten text.BoundString.
+
 func boundString(face font.Face, s string) image.Rectangle {
 	bounds, _ := font.BoundString(face, s)
 	return image.Rect(
@@ -331,4 +339,138 @@ func shiftRGB(c color.RGBA, delta int) color.RGBA {
 		B: clamp(int(c.B) + delta),
 		A: c.A,
 	}
+}
+
+// The config screen and the ability blocks draw most of their text
+// straight onto the window fill, and until recently picked one palette
+// for both themes — the dark one. The inks below are per-theme, and the
+// light theme's go *darker* rather than lighter: a pale grey label reads
+// as quiet against black and as nearly nothing against a 240-grey fill,
+// so flipping the background without flipping the ink loses the text.
+// They all route through chrome(), which is the one place the theme is
+// consulted.
+
+// themedLabel is the ink for a secondary label — the name of a value,
+// beside the value itself.
+func themedLabel() color.RGBA {
+	return chrome(
+		color.RGBA{R: 180, G: 180, B: 180, A: 255},
+		color.RGBA{R: 95, G: 95, B: 105, A: 255},
+	)
+}
+
+// themedValue is the ink for the thing being read: a setting's value, a
+// score, the content of a row rather than its name.
+func themedValue() color.RGBA {
+	return chrome(
+		color.RGBA{R: 255, G: 255, B: 255, A: 255},
+		color.RGBA{R: 25, G: 25, B: 32, A: 255},
+	)
+}
+
+// themedMuted is the quietest ink there is — "(default 3)", a row greyed
+// out because another setting disabled it. It has to stay legible while
+// reading as switched off, so it sits between themedLabel and the fill.
+func themedMuted() color.RGBA {
+	return chrome(
+		color.RGBA{R: 110, G: 110, B: 110, A: 255},
+		color.RGBA{R: 138, G: 138, B: 146, A: 255},
+	)
+}
+
+// themedSectionTitle is a section heading's ink: the same periwinkle
+// accent in both themes, darkened on the light one to hold its contrast
+// against the fill rather than washing into it.
+func themedSectionTitle() color.RGBA {
+	return chrome(
+		color.RGBA{R: 180, G: 180, B: 255, A: 255},
+		color.RGBA{R: 70, G: 70, B: 155, A: 255},
+	)
+}
+
+// themedChanged marks a value that differs from the default — amber in
+// both themes, but the dark theme's pale amber has almost no contrast
+// against a light fill, so the light theme takes a deeper one.
+func themedChanged() color.RGBA {
+	return chrome(
+		color.RGBA{R: 240, G: 190, B: 90, A: 255},
+		color.RGBA{R: 155, G: 105, B: 10, A: 255},
+	)
+}
+
+// themedSelectedRow is the band behind the row the keyboard is on, and
+// themedSelectedInk the value drawn on it. They are a pair: the band
+// decides what the ink has to be, so a theme can't change one alone.
+func themedSelectedRow() color.RGBA {
+	return chrome(
+		color.RGBA{R: 40, G: 40, B: 60, A: 255},
+		color.RGBA{R: 206, G: 212, B: 238, A: 255},
+	)
+}
+
+func themedSelectedInk() color.RGBA {
+	return chrome(
+		color.RGBA{R: 100, G: 255, B: 100, A: 255},
+		color.RGBA{R: 20, G: 95, B: 20, A: 255},
+	)
+}
+
+// themedOK and themedBad are the two verdicts a total can carry: the
+// ability budget adding up, or not.
+func themedOK() color.RGBA {
+	return chrome(
+		color.RGBA{R: 100, G: 220, B: 100, A: 255},
+		color.RGBA{R: 30, G: 120, B: 30, A: 255},
+	)
+}
+
+func themedBad() color.RGBA {
+	return chrome(
+		color.RGBA{R: 235, G: 90, B: 90, A: 255},
+		color.RGBA{R: 180, G: 35, B: 35, A: 255},
+	)
+}
+
+// themedControlFill is the fill of a small piece of chrome drawn on the
+// window background — a slider track, a checkbox, a compact button. Dark
+// on a dark fill, light on a light one, so the control reads as raised
+// out of the background rather than punched through it.
+func themedControlFill() color.RGBA {
+	return chrome(
+		color.RGBA{R: 70, G: 70, B: 95, A: 255},
+		color.RGBA{R: 202, G: 202, B: 214, A: 255},
+	)
+}
+
+// themedControlDim is themedControlFill for a control that is switched
+// off or unavailable.
+func themedControlDim() color.RGBA {
+	return chrome(
+		color.RGBA{R: 45, G: 45, B: 50, A: 255},
+		color.RGBA{R: 216, G: 216, B: 222, A: 255},
+	)
+}
+
+// themedTrack, themedTrackFill and themedTrackHandle are a slider's
+// three parts, which have to stay distinguishable from each other and
+// from the background in both themes.
+func themedTrack() color.RGBA {
+	return chrome(
+		color.RGBA{R: 50, G: 50, B: 60, A: 255},
+		color.RGBA{R: 208, G: 208, B: 214, A: 255},
+	)
+}
+
+func themedTrackFill() color.RGBA {
+	return chrome(
+		color.RGBA{R: 80, G: 80, B: 120, A: 255},
+		color.RGBA{R: 150, G: 150, B: 195, A: 255},
+	)
+}
+
+func themedTrackHandle() color.RGBA {
+	return chrome(
+		color.RGBA{R: 150, G: 150, B: 200, A: 255},
+		color.RGBA{R: 80, G: 80, B: 140, A: 255},
+	)
 }

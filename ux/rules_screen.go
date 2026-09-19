@@ -1,8 +1,6 @@
 package ux
 
 import (
-	"image/color"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -142,8 +140,7 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 		if isHeading(p) {
 			label := p[2:]
 			if y > -rulesLineHeightHead && y < sh {
-				text.Draw(screen, label, r.FontSourceCodePro12, panelX, y+14,
-					color.RGBA{R: 180, G: 180, B: 255, A: 255})
+				text.Draw(screen, label, r.FontSourceCodePro12, panelX, y+14, themedSectionTitle())
 			}
 			y += rulesLineHeightHead + rulesParaGap
 			continue

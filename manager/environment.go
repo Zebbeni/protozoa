@@ -144,39 +144,53 @@ var neighbourOffsets = [4]utils.Point{
 // ph value toward its neighbors' values.
 // Also, while iterating, calculates average ph in environment.
 //
-// Walls trap the pH value at their cell: the wall's value is held
-// constant (carried forward from previousPhMap) and the cell's pH is
-// excluded from the neighbour average of its non-wall neighbours.
-// When the wall is later destroyed (strength → 0 via ActDig), the
-// trapped value just re-enters the diffusion average naturally on
-// the next cycle. No special unfreeze step needed.
+// Walls slow diffusion rather than stopping it, in proportion to their
+// strength: a cell's permeability runs from 1 (open water) down to 0 at
+// MaxWallStrength. That governs both directions — how fast the cell's
+// own pH follows its surroundings, and how much it contributes to its
+// neighbours' averages — so a flimsy wall is very nearly water and only
+// a full-strength one seals completely.
+//
+// A wall used to be excluded outright, which made every wall in the
+// world an absolute barrier whatever it was made of, and meant digging
+// one down changed nothing at all until the last point came off. With
+// permeability the wall gets weaker as a barrier as it is worn away,
+// and a destroyed one rejoins diffusion with no special unfreeze step.
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
 	diffFactor := c.PhDiffuseFactor()
 
-	adjPh := func(x, y int) (float64, bool) {
-		return m.previousPhMap[x][y], !m.api.IsWallAtPoint(utils.Point{X: x, Y: y})
+	// permeabilityAt is how freely pH moves through a cell: 1 in open
+	// water, falling linearly to 0 at MaxWallStrength.
+	permeabilityAt := func(x, y int) float64 {
+		strength := m.api.GetWallStrengthAtPoint(utils.Point{X: x, Y: y})
+		if strength <= 0 {
+			return 1
+		}
+		return math.Max(0, 1-float64(strength)/float64(MaxWallStrength))
 	}
 
-	// return the mean of all diffuse-able adjacent points.
+	// Mean of the adjacent points, each weighted by how freely pH gets
+	// through it. Open water weighs 1, so a cell with no walls around
+	// it gets exactly the plain mean it always did.
 	avgAdjPh := func(x, y int) float64 {
-		neighbours := 0
+		weight := 0.0
 		total := 0.0
 		for _, off := range neighbourOffsets {
 			nx := (x + off.X + gridW) % gridW
 			ny := (y + off.Y + gridH) % gridH
-			ph, ok := adjPh(nx, ny)
-			if !ok {
+			w := permeabilityAt(nx, ny)
+			if w <= 0 {
 				continue
 			}
-			total += ph
-			neighbours++
+			total += m.previousPhMap[nx][ny] * w
+			weight += w
 		}
-		if neighbours == 0 {
-			// Completely walled in — keep current value untouched.
+		if weight == 0 {
+			// Sealed in on every side — keep current value untouched.
 			return m.previousPhMap[x][y]
 		}
-		return total / float64(neighbours)
+		return total / weight
 	}
 
 	// Water stats skip wall cells: a wall holds whatever pH it was built
@@ -192,21 +206,26 @@ func (m *EnvironmentManager) diffusePhLevels() {
 		for y := 0; y < gridH; y++ {
 			prevVal := m.previousPhMap[x][y]
 
-			// Wall cells freeze their pH at the value they had when
-			// the wall appeared — propagate the prevMap value
-			// verbatim. Removal of the wall lets it rejoin diffusion
-			// naturally the next cycle.
-			if m.api.IsWallAtPoint(utils.Point{X: x, Y: y}) {
+			// Wall cells stay out of the water stats whatever their
+			// strength: organisms can't be in one, so counting them
+			// would report pH nothing lives in. They still diffuse.
+			isWall := m.api.IsWallAtPoint(utils.Point{X: x, Y: y})
+			if !isWall {
+				totalPh += prevVal
+				pointCount++
+				minPh, maxPh = math.Min(minPh, prevVal), math.Max(maxPh, prevVal)
+			}
+
+			// A cell follows its surroundings at the diffusion rate scaled
+			// by its own permeability, so a strong wall barely moves and
+			// open water moves at the full rate.
+			self := permeabilityAt(x, y)
+			if self <= 0 {
 				m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal)
 				continue
 			}
-
-			totalPh += prevVal
-			pointCount++
-			minPh, maxPh = math.Min(minPh, prevVal), math.Max(maxPh, prevVal)
-
 			avgAdjacentPh := avgAdjPh(x, y)
-			change := (avgAdjacentPh - prevVal) * diffFactor
+			change := (avgAdjacentPh - prevVal) * diffFactor * self
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
 		}
 	}

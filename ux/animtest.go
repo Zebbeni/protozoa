@@ -180,6 +180,7 @@ var demoRoles = []struct {
 	role  resources.ImageRole
 	label string
 }{
+	{resources.RoleOrganismTiny, "TINY"},
 	{resources.RoleOrganismSmall, "SMALL"},
 	{resources.RoleOrganismMedium, "MEDIUM"},
 	{resources.RoleOrganismLarge, "LARGE"},
@@ -589,12 +590,14 @@ var staticDemoRoles = []struct {
 	role  resources.ImageRole
 	label string
 }{
+	{resources.RoleFoodTiny, "FOOD T"},
 	{resources.RoleFoodSmall, "FOOD S"},
 	{resources.RoleFoodMedium, "FOOD M"},
 	{resources.RoleFoodLarge, "FOOD L"},
 	{resources.RoleWallWeak, "WALL W"},
 	{resources.RoleWallMedium, "WALL M"},
 	{resources.RoleWallStrong, "WALL S"},
+	{resources.RoleWallGiant, "WALL G"},
 }
 
 // drawStaticSection paints food + wall sprites at every zoom level
@@ -664,9 +667,9 @@ func (a *AnimationTest) drawStaticSection(screen *ebiten.Image, topPx int) int {
 // pH extreme. Unknown roles fall back to white (identity tint).
 func (a *AnimationTest) tintForStaticRole(role resources.ImageRole) colorful.Color {
 	switch role {
-	case resources.RoleFoodSmall, resources.RoleFoodMedium, resources.RoleFoodLarge:
+	case resources.RoleFoodTiny, resources.RoleFoodSmall, resources.RoleFoodMedium, resources.RoleFoodLarge:
 		return foodColor
-	case resources.RoleWallWeak, resources.RoleWallMedium, resources.RoleWallStrong:
+	case resources.RoleWallWeak, resources.RoleWallMedium, resources.RoleWallStrong, resources.RoleWallGiant:
 		return wallTintForPh(a.bgPh())
 	}
 	return colorful.Color{R: 1, G: 1, B: 1}

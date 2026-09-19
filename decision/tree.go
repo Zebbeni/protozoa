@@ -20,6 +20,24 @@ func TreeFromAction(action Action) *Tree {
 	return tree
 }
 
+// TreeFromNode wraps a hand-built node as a Tree, recomputing the sizes
+// along it and deriving the ID from its serialized form — the same ID a
+// mutated or deserialized tree of the same shape would carry, so trees
+// built by hand and trees grown by mutation compare equal when they are.
+//
+// The organism designer builds trees a node at a time rather than by
+// mutation, which is the one path that doesn't start from
+// TreeFromAction.
+func TreeFromNode(node *Node) *Tree {
+	if node == nil {
+		return nil
+	}
+	node.CalcAndUpdateSize()
+	tree := &Tree{Node: node}
+	tree.ID = tree.Serialize()
+	return tree
+}
+
 // DeserializeTree reconstructs a Tree from a serialized string produced by Serialize().
 func DeserializeTree(s string) *Tree {
 	node, _ := Deserialize(s)

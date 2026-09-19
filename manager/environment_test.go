@@ -14,9 +14,10 @@ import (
 // notifications are discarded. Enough to drive diffusion in isolation.
 type stubEnvAPI struct{}
 
-func (stubEnvAPI) Cycle() int                       { return 0 }
-func (stubEnvAPI) AddPhUpdate(p utils.Point)        {}
-func (stubEnvAPI) IsWallAtPoint(p utils.Point) bool { return false }
+func (stubEnvAPI) Cycle() int                             { return 0 }
+func (stubEnvAPI) AddPhUpdate(p utils.Point)              {}
+func (stubEnvAPI) IsWallAtPoint(p utils.Point) bool       { return false }
+func (stubEnvAPI) GetWallStrengthAtPoint(utils.Point) int { return 0 }
 
 // loadDefaultGlobals wires settings/default.json into the process-wide
 // config. Production reads these from an embedded FS via main's init;

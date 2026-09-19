@@ -8,6 +8,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/manager"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/utils"
 )
@@ -173,12 +174,22 @@ func wallTintForPh(ph float64) colorful.Color {
 // only ever calls this with strength > 0 (a 0-strength wall isn't
 // kept in the WallManager), but the bounds keep this honest.
 func wallRoleForStrength(strength int) resources.ImageRole {
+	// Quarters of the strength range rather than fixed numbers, so the
+	// four sprites keep meaning the same thing if the range moves. They
+	// were 2 and 5 against a 1-7 scale, which on the 1-100 scale would
+	// have made every wall in the world "strong".
+	//
+	// weak stayed the bottom tier when giant was added at the top, so
+	// the names do not run in the order you would guess from the middle
+	// two: weak, medium, strong, giant.
 	switch {
-	case strength <= 2:
+	case strength <= manager.MaxWallStrength/4:
 		return resources.RoleWallWeak
-	case strength <= 5:
+	case strength <= manager.MaxWallStrength/2:
 		return resources.RoleWallMedium
-	default:
+	case strength <= 3*manager.MaxWallStrength/4:
 		return resources.RoleWallStrong
+	default:
+		return resources.RoleWallGiant
 	}
 }

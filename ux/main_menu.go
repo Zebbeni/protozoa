@@ -20,6 +20,7 @@ const (
 	MenuChoiceNone MenuChoice = iota
 	MenuChoiceNewSimulation
 	MenuChoiceLoadPrevious
+	MenuChoiceDesigner
 	MenuChoiceRules
 	MenuChoiceExit
 )
@@ -41,6 +42,7 @@ type menuButton struct {
 var mainMenuButtons = []menuButton{
 	{"New Simulation", MenuChoiceNewSimulation},
 	{"Load Previous", MenuChoiceLoadPrevious},
+	{"Organism Designer", MenuChoiceDesigner},
 	{"Rules", MenuChoiceRules},
 	{"Exit", MenuChoiceExit},
 }

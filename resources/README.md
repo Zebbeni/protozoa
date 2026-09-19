@@ -35,9 +35,9 @@ Stems the renderer expects:
 
 | Slice stem | Use |
 |---|---|
-| `small`, `medium`, `large` | Organism size buckets (thirds of `MaximumMaxSize`) |
-| `food_small`, `food_medium`, `food_large` | Food, by value-bucket; always `_static` |
-| `wall_weak`, `wall_medium`, `wall_strong` | Wall, by strength tier; always `_static`. Renderer picks the tier from the cell's current strength: 1–2 → weak, 3–5 → medium, 6–7 → strong |
+| `tiny`, `small`, `medium`, `large` | Organism size buckets (quarters of `MaximumMaxSize`) |
+| `food_tiny`, `food_small`, `food_medium`, `food_large` | Food, by value-bucket; always `_static` |
+| `wall_weak`, `wall_medium`, `wall_strong`, `wall_giant` | Wall, by strength tier; always `_static`. Renderer picks the tier in quarters of the 1–100 strength range |
 
 Resolutions: `4`, `8`, `16`. **16 is the maximum** — the Go loader
 reads the `4x4` / `8x8` / `16x16` sets only, and the renderer upscales
@@ -53,7 +53,7 @@ the right number of frames per export:
 
 | Slice resolution | Frames taken from the tag |
 |---|---|
-| 4x4 | first 1 frame |
+| 4x4 | first 2 frames |
 | 8x8 | first 2 frames |
 | 16x16 | first 4 frames |
 
@@ -99,14 +99,15 @@ isolated, ready for the renderer to composite at draw time.
 
 ### Drawable layers
 
-**Low-res organism body** (used only with `small_4`, `small_8`,
-`medium_4`, `medium_8`, `large_4`, `large_8` slices):
+**Low-res organism body** (used only with the `_4` and `_8` slices of
+every organism stem — `tiny_4`, `small_4`, `medium_4`, `large_4` and
+their `_8` counterparts):
 
 - `body`
 
-**High-res organism body variants** (used only with the `small_16`,
-`medium_16` and `large_16` slices — all four are exported for every
-size × action):
+**High-res organism body variants** (used only with the `_16` slices —
+`tiny_16`, `small_16`, `medium_16`, `large_16` — and all three are
+exported for every size × action):
 
 - `body_basic`
 - `body_shell`
@@ -165,8 +166,8 @@ slice's stem and resolution:
 
 | Slice stem | Resolution | Layers exported |
 |---|---|---|
-| `small`, `medium`, `large` | 4, 8 | `body` |
-| `small`, `medium`, `large` | 16 | `body_basic`, `body_shell`, `body_spikes`, plus all 8 overlays |
+| `tiny`, `small`, `medium`, `large` | 4, 8 | `body` |
+| `tiny`, `small`, `medium`, `large` | 16 | `body_basic`, `body_shell`, `body_spikes`, plus all 8 overlays |
 | `food_*` | any | `food` |
 | `wall_*` | any | `wall_base`, `wall_up`, `wall_down`, `wall_left`, `wall_right` (each exported per strength as `wall_<layer>_<strength>.png`) |
 
@@ -233,7 +234,7 @@ visibility are untouched.
 
 A sprite file with these slices, tags, and layers:
 
-- Slices: `small_4`, `small_16`, `food_small_16_static`, `wall_weak_16_static`, `wall_medium_16_static`, `wall_strong_16_static`
+- Slices: `small_4`, `small_16`, `food_small_16_static`, `wall_weak_16_static`, `wall_medium_16_static`, `wall_strong_16_static`, `wall_giant_16_static`
 - Tags: `idle` (4 frames), `move` (4 frames), `attack` (4 frames), `base` (1 frame)
 - Layers: `background` (preview), `body`, `body_basic`, `body_shell`,
   `body_spikes`, `pili`, `flagella`,
@@ -242,9 +243,9 @@ A sprite file with these slices, tags, and layers:
 …produces these PNGs:
 
 ```
-4x4/small_idle.png             (body × idle, first 1 frame)
-4x4/small_move.png             (body × move, first 1 frame)
-4x4/small_attack.png           (body × attack, first 1 frame)
+4x4/small_idle.png             (body × idle, first 2 frames)
+4x4/small_move.png             (body × move, first 2 frames)
+4x4/small_attack.png           (body × attack, first 2 frames)
 
 16x16/body_basic_small_idle.png       (body_basic × idle, first 4 frames)
 16x16/body_basic_small_move.png       (body_basic × move, first 4 frames)
@@ -259,6 +260,7 @@ A sprite file with these slices, tags, and layers:
 16x16/wall_weak.png                   (wall × base, 1 frame)
 16x16/wall_medium.png
 16x16/wall_strong.png
+16x16/wall_giant.png
 ```
 
 `background` is hidden for every export, so even if it's visible in

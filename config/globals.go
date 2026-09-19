@@ -146,6 +146,9 @@ func PhIncrementToDisplay() float64 { return constants.PhIncrementToDisplay }
 
 // --- Organisms ---
 func MinOrganisms() int                  { return constants.MinOrganisms }
+func MaxCycles() int                     { return constants.MaxCycles }
+func MaxReplaySizeMb() int               { return constants.MaxReplaySizeMb }
+func WallBreakMultiplier() float64       { return constants.WallBreakMultiplier }
 func MaxOrganisms() int                  { return constants.MaxOrganisms }
 func GrowthFactor() float64              { return constants.GrowthFactor }
 func EatingGrowthFactor() float64        { return constants.EatingGrowthFactor }
@@ -196,6 +199,7 @@ func UnhealthyPhDamage() float64 { return constants.UnhealthyPhDamage }
 func HealthPerFoodUnit() float64         { return constants.HealthPerFoodUnit }
 func InitialAbilityScores() []int        { return constants.InitialAbilityScores }
 func RandomInitialAbilities() bool       { return constants.RandomInitialAbilities }
+func InitialDesigns() []string           { return constants.InitialDesigns }
 func ChanceToMutateAbilities() float64   { return constants.ChanceToMutateAbilities }
 func ThornsDamageAtFullDefense() float64 { return constants.ThornsDamageAtFullDefense }
 
@@ -393,6 +397,11 @@ type Globals struct {
 	// along the pH tolerance curve.
 	MaxPhToleranceWidth float64 `json:"max_ph_tolerance_width"`
 	// ChemoPhEffect and EatingPhEffect are how much pH an action moves
+	// **at full score**, scaled from there by CurveChemoPhEffect /
+	// CurveEatingPhEffect. They used to be flat multipliers on the health
+	// gained, which locked an organism's effect on its environment to its
+	// yield from it at a fixed ratio — so no amount of specialisation
+	// could tip the local chemistry. See effects.ChemoPhPush.
 	// per unit of health it gained: chemosynthesis pushes the local pH
 	// down, eating pushes it up. Tied to the health gained rather than to
 	// size or food value, so an action that barely paid off barely moves
@@ -412,9 +421,21 @@ type Globals struct {
 	// extinction as the only end condition. (This key once topped the
 	// population back up with random organisms; that behaviour was
 	// removed and the key sat unused until it took on this meaning.)
-	MinOrganisms int     `json:"min_organisms"`
-	MaxOrganisms int     `json:"max_organisms"`
-	GrowthFactor float64 `json:"growth_factor"`
+	MinOrganisms int `json:"min_organisms"`
+	// MaxCycles ends a run once it reaches this cycle, so a simulation
+	// can be started and walked away from. 0 leaves it unlimited, which
+	// is what every run did before: the only way to stop one was to
+	// watch it. Unlike MinOrganisms it needs no arming, since a cycle
+	// count only ever goes up.
+	MaxCycles int `json:"max_cycles"`
+	// MaxReplaySizeMb ends a run once its replay file is projected to
+	// reach this many megabytes, so a sim left running can't quietly fill
+	// a disk. Deliberately has no unlimited setting: the point is that
+	// this one is always in force, and a run long enough to matter writes
+	// a snapshot of every organism every interval.
+	MaxReplaySizeMb int     `json:"max_replay_size_mb"`
+	MaxOrganisms    int     `json:"max_organisms"`
+	GrowthFactor    float64 `json:"growth_factor"`
 	// MaxFoodPerEatAtFullEating is the most food an organism with 100
 	// Eating removes in one eating action, as a multiple of its size.
 	// Lower Eating scores remove a fraction of this along the Eating
@@ -507,6 +528,12 @@ type Globals struct {
 	// RandomInitialAbilities gives each initial organism its own random
 	// split of the budget instead of InitialAbilityScores.
 	RandomInitialAbilities bool `json:"random_initial_abilities"`
+	// InitialDesigns names saved organism designs (from the designs
+	// directory) to start the simulation with, dealt round-robin across
+	// the initial organisms. Empty means the usual random founders. A
+	// name with no file behind it is skipped, so a settings file shared
+	// without its designs still runs.
+	InitialDesigns []string `json:"initial_designs"`
 	// ChanceToMutateAbilities is the per-spawn probability that a child
 	// shifts points between two abilities. Higher than the old feature
 	// gain rate because a transfer is a small nudge rather than a whole
@@ -561,6 +588,10 @@ type Globals struct {
 	ThornsSaturatingK          float64 `json:"thorns_saturating_k"`
 	PhToleranceCosineK         float64 `json:"ph_tolerance_cosine_k"`
 	PhToleranceSaturatingK     float64 `json:"ph_tolerance_saturating_k"`
+	ChemoPhEffectCosineK       float64 `json:"chemo_ph_effect_cosine_k"`
+	ChemoPhEffectSaturatingK   float64 `json:"chemo_ph_effect_saturating_k"`
+	EatingPhEffectCosineK      float64 `json:"eating_ph_effect_cosine_k"`
+	EatingPhEffectSaturatingK  float64 `json:"eating_ph_effect_saturating_k"`
 
 	// Curve shapes. Each names how its curve climbs from 0 to 1 —
 	// "linear", "quadratic", "cosine" or "saturating" — so an ability can
@@ -577,6 +608,8 @@ type Globals struct {
 	DamageTakenCurveShape     string `json:"damage_taken_curve_shape"`
 	ThornsCurveShape          string `json:"thorns_curve_shape"`
 	PhToleranceCurveShape     string `json:"ph_tolerance_curve_shape"`
+	ChemoPhEffectCurveShape   string `json:"chemo_ph_effect_curve_shape"`
+	EatingPhEffectCurveShape  string `json:"eating_ph_effect_curve_shape"`
 
 	// --- Physiology ---
 	// ChanceToGainFeature is the per-spawn probability that a child
@@ -618,6 +651,14 @@ type Globals struct {
 	WallCreatedLarge  int `json:"wall_created_large"`
 	// WallCreatedAtZero is what a dig raises with no Digging at all.
 	WallCreatedAtZero int `json:"wall_created_at_zero"`
+	// WallBreakMultiplier scales an organism's size × Digging score into
+	// the wall strength it can shoulder straight through. Burrowing is
+	// the fast way past a wall — digging wears one down a few points at a
+	// time, which on a 1-100 strength scale is dozens of cycles — and it
+	// is gated on the ability twice over, by score and by the size an
+	// organism only reaches by surviving. 0 switches it off, leaving
+	// digging as the only way through.
+	WallBreakMultiplier float64 `json:"wall_break_multiplier"`
 	// Food a dig roots up in the cell ahead when it isn't a wall or
 	// occupied. The only food source besides random spawns and corpses,
 	// so energy can enter the world without chemosynthesis.

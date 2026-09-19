@@ -34,6 +34,15 @@ const minOrganismAnimationUnitSize = 8
 func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organismInfo map[int]*organism.Info) {
 	organismsImage.Clear()
 
+	// One pass for the AGE view's denominator, rather than a scan of the
+	// population per organism.
+	g.oldestAlive = 0
+	if g.orgColor == orgColorAge {
+		for _, info := range organismInfo {
+			g.oldestAlive = max(g.oldestAlive, info.Age)
+		}
+	}
+
 	for _, info := range organismInfo {
 		g.renderOrganism(info, organismsImage)
 	}
@@ -54,16 +63,19 @@ func (g *Grid) renderOrganisms(organismsImage *ebiten.Image, refresh bool, organ
 func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	us := float64(g.unitSize())
 
-	// Size-to-role mapping: thirds of MaximumMaxSize.
-	//   small  — below 33%
-	//   medium — 33% to below 66%
-	//   large  — 66% and above
+	// Size-to-role mapping: quarters of MaximumMaxSize.
+	//   tiny   — below 25%
+	//   small  — 25% to below 50%
+	//   medium — 50% to below 75%
+	//   large  — 75% and above
 	maxSize := config.MaximumMaxSize()
 	var role resources.ImageRole
 	switch {
-	case info.Size < maxSize*(1.0/3.0):
+	case info.Size < maxSize*0.25:
+		role = resources.RoleOrganismTiny
+	case info.Size < maxSize*0.5:
 		role = resources.RoleOrganismSmall
-	case info.Size < maxSize*(2.0/3.0):
+	case info.Size < maxSize*0.75:
 		role = resources.RoleOrganismMedium
 	default:
 		role = resources.RoleOrganismLarge
@@ -98,6 +110,15 @@ func (g *Grid) renderOrganism(info *organism.Info, img *ebiten.Image) {
 	case orgColorSuccess:
 		success := organism.LineageSuccess(info.LineageEndCycle, g.simulation.Cycle(), g.simulation.RecordedEndCycle())
 		bodyColor = gh.GrayGreenColor(success)
+		overlayColor = bodyColor
+	case orgColorFamily:
+		bodyColor = g.familyColorFor(info.ID)
+		overlayColor = bodyColor
+	case orgColorAge:
+		bodyColor = gh.GrayGreenColor(ageFraction(info.Age, g.oldestAlive))
+		overlayColor = bodyColor
+	case orgColorSize:
+		bodyColor = gh.GrayGreenColor(sizeFraction(info.Size))
 		overlayColor = bodyColor
 	}
 
@@ -216,4 +237,64 @@ func isMultiCellAnim(a animation.Animation) bool {
 func (g *Grid) drawOrganismSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color) {
 	cellSize := float64(zoomSpriteSizes[g.Camera.SpriteSet()])
 	drawAnimatedSprite(img, x, y, spriteImg, direction, col, cellSize, g.Camera.SpriteScale())
+}
+
+// familyColorFor is the FAMILY mode's tint for one organism: its kinship
+// to the selected organism, run through familyColor.
+//
+// With nothing selected there is no subject to be related to, so every
+// organism wears the unrelated gray rather than the mode silently
+// falling back to another one — a view that answers a question the user
+// hasn't asked yet should look empty, not look like a different view.
+func (g *Grid) familyColorFor(id int) colorful.Color {
+	selID := g.simulation.GetSelected()
+	if selID < 0 {
+		return familyUnrelatedColor()
+	}
+	treesGen := g.simulation.TreesGeneration()
+	if !g.familyTint.valid(selID, treesGen) {
+		sel := g.simulation.GetTreeNodeByID(selID)
+		if sel == nil {
+			return familyUnrelatedColor()
+		}
+		g.familyTint = newFamilyTinter(sel, selID, treesGen)
+	}
+	// Answered from the memo for every organism seen since the selection
+	// changed, which after the first frame is nearly all of them. Only a
+	// newly born organism reaches for its node — and its parent is always
+	// memoised by then, so that walk is one step.
+	if k, ok := g.familyTint.cached(id); ok {
+		return familyColor(k)
+	}
+	return familyColor(g.familyTint.kinshipOf(g.simulation.GetTreeNodeByID(id)))
+}
+
+// ageFraction is how far through its life an organism is, for the AGE
+// view: against max_lifespan when there is one, and otherwise against
+// the oldest organism currently alive.
+//
+// The fallback is what keeps the view readable in a world with no fixed
+// span, where every age is "some number of cycles" with nothing to
+// measure it against. It does mean the scale moves as the oldest
+// organism dies and is replaced, which is the cost of having one at all.
+func ageFraction(age, oldestAlive int) float64 {
+	span := config.MaxLifespan()
+	if span <= 0 {
+		span = oldestAlive
+	}
+	if span <= 0 {
+		return 0
+	}
+	return min(1, float64(age)/float64(span))
+}
+
+// sizeFraction is an organism's size against the largest any organism
+// can evolve, so a colour means the same thing from one frame to the
+// next and from one run to the next.
+func sizeFraction(size float64) float64 {
+	maxSize := config.MaximumMaxSize()
+	if maxSize <= 0 {
+		return 0
+	}
+	return min(1, max(0, size/maxSize))
 }

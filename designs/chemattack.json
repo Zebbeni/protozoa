@@ -1,0 +1,20 @@
+{
+  "name": "chemattack",
+  "color": "#588249",
+  "secondary_color": "#b28b2b",
+  "max_size": 20,
+  "spawn_health": 3,
+  "min_health_to_spawn": 10,
+  "min_cycles_between_spawns": 1,
+  "ideal_ph": 5,
+  "abilities": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2
+  ],
+  "decision_tree": "1001131404002502190305"
+}

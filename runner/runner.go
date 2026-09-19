@@ -27,6 +27,9 @@ const (
 	stateMainMenu
 	// stateRules shows the scrollable rules explainer.
 	stateRules
+	// stateDesigner shows the organism designer: a hand-built organism
+	// that can be saved and used to found later simulations.
+	stateDesigner
 	// stateMainMenuPopup overlays the New Simulation popup on the main
 	// menu. The popup owns its own sub-mode (config / running /
 	// complete) and dispatches simulation lifecycle requests via Take.
@@ -53,6 +56,7 @@ type Runner struct {
 	splash   *ux.Splash
 	mainMenu *ux.MainMenu
 	rules    *ux.RulesScreen
+	designer *ux.Designer
 	simPopup *ux.SimPopup
 
 	// Replay-mode UI.
@@ -115,6 +119,9 @@ func (r *Runner) Update() error {
 			if path, ok := mostRecentReplay(); ok {
 				r.beginLoadingReplay(path)
 			}
+		case ux.MenuChoiceDesigner:
+			r.designer = ux.NewDesigner()
+			r.state = stateDesigner
 		case ux.MenuChoiceRules:
 			r.rules = ux.NewRulesScreen()
 			r.state = stateRules
@@ -124,6 +131,14 @@ func (r *Runner) Update() error {
 	case stateRules:
 		if r.rules.Update() {
 			r.state = stateMainMenu
+		}
+	case stateDesigner:
+		if r.designer.Update() == ux.DesignerBack {
+			// Rebuilt on the next visit rather than kept: the designs
+			// list is read from disk on open, and a stale editor would
+			// show a design the user may have since edited by hand.
+			r.designer = nil
+			r.enterMainMenu()
 		}
 	case stateMainMenuPopup:
 		// While the popup is in running mode, advance the sim. The
@@ -366,6 +381,8 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 		r.mainMenu.Draw(screen)
 	case stateRules:
 		r.rules.Draw(screen)
+	case stateDesigner:
+		r.designer.Draw(screen)
 	case stateMainMenuPopup:
 		// Menu first so it shows through the popup's dim layer; if
 		// we got here from the --config bypass there's no menu to
@@ -430,9 +447,16 @@ func (r *Runner) stepSimulation() {
 				r.activeSim.FoodCount(), r.activeSim.WallCount(), r.activeSim.AveragePh(), minPh, maxPh,
 				r.activeSim.AverageAbilityScores())
 			r.simPopup.AddLog(line)
+			r.simPopup.SetReplayBytes(r.activeSim.EstimatedReplayBytes())
 		}
 		stopRequested = r.simPopup.StopRequested()
 	}
+	// The footer lists what will stop the run and lights whichever one
+	// did, so it needs the answer whether the loop ended on its own or
+	// the user pressed Stop.
+	r.simPopup.SetEndCondition(r.activeSim.EndCondition())
+	r.simPopup.SetReplayBytes(r.activeSim.EstimatedReplayBytes())
+
 	if !r.activeSim.IsDone() && !stopRequested {
 		return
 	}

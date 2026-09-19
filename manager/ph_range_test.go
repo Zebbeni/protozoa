@@ -42,11 +42,29 @@ func TestPhRangeTracksTheExtremes(t *testing.T) {
 }
 
 // wallStub is an organism.API reporting walls at the given points.
-type wallEnvStub struct{ walls map[utils.Point]bool }
+type wallEnvStub struct {
+	walls map[utils.Point]bool
+	// strengths overrides the per-wall strength, for tests that care
+	// how much a wall slows diffusion rather than only that it is there.
+	strengths map[utils.Point]int
+}
 
 func (wallEnvStub) Cycle() int                         { return 0 }
 func (wallEnvStub) AddPhUpdate(utils.Point)            {}
 func (s wallEnvStub) IsWallAtPoint(p utils.Point) bool { return s.walls[p] }
+
+// A wall with no strength recorded reports the maximum, so a test that
+// only says "there is a wall here" gets a fully sealing one — which is
+// what every such test meant before walls became permeable.
+func (s wallEnvStub) GetWallStrengthAtPoint(p utils.Point) int {
+	if st, ok := s.strengths[p]; ok {
+		return st
+	}
+	if s.walls[p] {
+		return MaxWallStrength
+	}
+	return 0
+}
 
 // TestPhStatsIgnoreWalls: a wall holds the pH it was built in for as long
 // as it stands, so the water's average and range must leave it out —

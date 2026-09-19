@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/checkpoint"
@@ -325,7 +326,15 @@ func (c *Controller) SetSpeed(speed float64) {
 // setSpeedInternal updates Speed without touching AutoSpeed. Used by the
 // auto-sync path so re-anchoring from zoom doesn't toggle the user's
 // preference off. Clamps only to the global Min/MaxReplaySpeed bounds —
-// zoom level never limits how fast the user can play.
+// zoom level never limits how fast the user can play — and snaps to a
+// power of two.
+//
+// Snapping rather than trusting the callers: the buttons halve and
+// double, and the bounds are powers of two, so every speed *should* be
+// one already — but the auto-speed table returned 6 at the smallest
+// zoom, and one halving from there put the user on 3x, then 1.5x, then
+// 0.75x, with the label falling back to printing "1.5x". Making it a
+// property of the setter means no future caller can reintroduce that.
 func (c *Controller) setSpeedInternal(speed float64) {
 	if speed < MinReplaySpeed {
 		speed = MinReplaySpeed
@@ -333,8 +342,19 @@ func (c *Controller) setSpeedInternal(speed float64) {
 	if speed > MaxReplaySpeed {
 		speed = MaxReplaySpeed
 	}
-	c.Speed = speed
-	c.AnimState.Speed = speed
+	c.Speed = SnapToPowerOfTwo(speed)
+	c.AnimState.Speed = c.Speed
+}
+
+// SnapToPowerOfTwo rounds a speed to the nearest power of two, in the
+// log domain so 3x lands on 2x or 4x by ratio rather than by distance.
+// Speeds below the minimum or above the maximum are left to the caller's
+// clamp; this only picks the step.
+func SnapToPowerOfTwo(speed float64) float64 {
+	if speed <= 0 {
+		return MinReplaySpeed
+	}
+	return math.Pow(2, math.Round(math.Log2(speed)))
 }
 
 // MinReplaySpeed and MaxReplaySpeed bound the user-selectable playback
@@ -357,7 +377,7 @@ func SpeedForUnitSize(unitSize int) float64 {
 	case unitSize >= 8:
 		return 4
 	default:
-		return 6
+		return 8
 	}
 }
 

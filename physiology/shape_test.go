@@ -10,9 +10,16 @@ import (
 // TestEveryShapeRunsZeroToOne: whatever shape a curve takes, it starts at
 // nothing, ends at the full value and never falls in between — the
 // property the whole multiplier system rests on.
+//
+// ShapeFlat is the deliberate exception and has its own test below: it is
+// 1 everywhere precisely so a score buys nothing, which is the point of
+// having it.
 func TestEveryShapeRunsZeroToOne(t *testing.T) {
 	loadGlobals(t)
 	for _, kind := range AllShapeKinds {
+		if kind == ShapeFlat {
+			continue
+		}
 		for _, k := range []float64{0, 0.5, 1, 25, 100} {
 			shape := kind.new(k)
 			if got := shape.Progress(0); got != 0 {
@@ -30,6 +37,26 @@ func TestEveryShapeRunsZeroToOne(t *testing.T) {
 				prev = v
 			}
 		}
+	}
+}
+
+// TestFlatShapeIgnoresTheScore: ShapeFlat is how a curve says it isn't
+// wanted. An effect that was a plain constant before a curve was put
+// behind it has to keep exactly its old behaviour under this shape, or
+// every such addition forces a rebalance of whatever that constant was
+// tuned to.
+func TestFlatShapeIgnoresTheScore(t *testing.T) {
+	loadGlobals(t)
+	shape := ShapeFlat.new(0)
+	for score := 0; score <= MaxAbilityScore; score++ {
+		if got := shape.Progress(float64(score)); got != 1 {
+			t.Errorf("flat at score %d = %v, want 1 at every score", score, got)
+		}
+	}
+	// Out of range too: a score restored from a recording made under
+	// another scale can land past the cap.
+	if got := shape.Progress(float64(MaxAbilityScore) * 10); got != 1 {
+		t.Errorf("flat past the cap = %v, want 1", got)
 	}
 }
 

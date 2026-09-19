@@ -125,10 +125,23 @@ func GrayGreenColor(t float64) colorful.Color {
 	return colorful.HSLuv(120.0, t, lightness)
 }
 
+// AbilityFullGreenScore is the score the gray→green ramp reaches full
+// green at. Short of the 10-point cap on purpose: the top of the range
+// is thinly populated, and running the ramp all the way there spent a
+// quarter of the colour on scores almost nothing has. Stopping at 7.5
+// gives the scores organisms actually reach more of the scale, and a
+// specialist still reads as unambiguously green.
+//
+// Float, though scores are integers: it is the ramp's endpoint, not a
+// score, and rounding it to 7 or 8 would move where every colour below
+// it lands.
+const AbilityFullGreenScore = 7.5
+
 // AbilityScoreColor tints a score gray→green on the same scale as the
-// ABILITY views: gray at nothing, full green at SpecialistScore.
+// ABILITY views: gray at nothing, full green from AbilityFullGreenScore
+// up. GrayGreenColor clamps, so anything above is the same green.
 func AbilityScoreColor(score float64) colorful.Color {
-	return GrayGreenColor(score / float64(physiology.SpecialistScore))
+	return GrayGreenColor(score / AbilityFullGreenScore)
 }
 
 // AbilityColor maps an organism's score in one ability onto the
@@ -139,16 +152,15 @@ func AbilityScoreColor(score float64) colorful.Color {
 // problem, just an ability the organism hasn't invested in — red read as
 // a warning. Health keeps its red→green scale, where low really is bad.
 //
-// Anchored on the specialist score rather than on the 100-point budget
-// because real scores cluster well below 100 — dividing by the budget
-// would leave nearly every organism near the gray end and hide the very
-// specialists the view exists to find. Anchoring per ability also means
-// green says the same thing for every ability ("fully specialised"),
-// even though chemosynthesis starts at a far higher allocation than the
-// rest. Shared by the grid's ABILITY colour mode and the population
-// graph so the two always agree on what a colour means.
+// Anchored on AbilityFullGreenScore rather than the 10-point cap, so the
+// scores organisms actually reach get most of the ramp. It was anchored
+// on SpecialistScore before that, which put the top of the ramp on a
+// number the key's axis had no reason to name.
+//
+// Shared by the grid's ABILITY colour mode, its key, and the population
+// graph, so all three agree on what a colour means.
 func AbilityColor(scores physiology.Scores, a physiology.Ability) colorful.Color {
-	return GrayGreenColor(float64(scores[a]) / float64(physiology.SpecialistScore))
+	return AbilityScoreColor(float64(scores[a]))
 }
 
 // Ceiling is the y-axis top to plot a series against, given its peak:

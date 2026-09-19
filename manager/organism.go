@@ -34,6 +34,13 @@ type OrganismManager struct {
 	rng            *simrand.RNG
 	requestManager RequestManager
 
+	// designs are the saved organism designs this simulation founds from
+	// (config initial_designs), loaded once and dealt round-robin;
+	// designsDealt is how many founders have been handed one so far.
+	designs       []organism.Design
+	designsLoaded bool
+	designsDealt  int
+
 	organisms             map[int]*organism.Organism
 	organismIDGrid        [][]int
 	totalOrganismsCreated int
@@ -356,7 +363,7 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 		rm.AddFoodRequest(target, value)
 	case d.ActMove:
 		target := o.Location.Add(o.Direction)
-		if m.isGridLocationEmpty(target) {
+		if m.canOccupy(o, target) {
 			rm.AddPositionRequest(target, o.ID)
 		}
 	case d.ActSpawn:
@@ -456,7 +463,7 @@ func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		id := m.generateId()
-		o := organism.NewRandom(m.rng, id, spawnPoint, m.api)
+		o := m.newFoundingOrganism(id, spawnPoint)
 
 		// In replay/resume modes the descendant tree is pre-loaded from the
 		// recorded simulation. Reuse the existing node for this ID instead of
@@ -641,10 +648,49 @@ func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
 	return !m.api.IsWallAtPoint(point) && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
 }
 
+// canOccupy reports whether o could end this cycle standing on point:
+// empty, or holding only a wall this organism can burrow through.
+//
+// Separate from isGridLocationEmpty because the cell genuinely isn't
+// empty — a burrower is destroying something to stand there, and every
+// other caller (spawning a child, rooting up food) still wants the
+// stricter question.
+//
+// It is also what keeps the blocked-move penalty honest: a claim is
+// staked here in the decide phase, so an organism that walked into a
+// wall it *can* break isn't charged for a misread. It didn't misread
+// anything.
+func (m *OrganismManager) canOccupy(o *organism.Organism, point utils.Point) bool {
+	if m.isFoodAtLocation(point) || m.isOrganismAtLocation(point) {
+		return false
+	}
+	strength := m.api.GetWallStrengthAtPoint(point)
+	if strength <= 0 {
+		return true
+	}
+	return m.canBurrow(o, strength)
+}
+
+// canBurrow is the manager-side wall-break check. It takes the strength
+// rather than the point, because both callers have already looked it up
+// — and because asking the organism (which would look it up again
+// through its own API) ties the answer to the cell in front of it, when
+// what is being asked is about a particular cell.
+func (m *OrganismManager) canBurrow(o *organism.Organism, wallStrength int) bool {
+	return effects.CanBreakWall(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityDigging], o.Size, wallStrength)
+}
+
 func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
 	return m.api.CheckFoodAtPoint(point, func(_ *food.Item, exists bool) bool {
 		return exists
 	})
+}
+
+// IsOrganismAtPoint reports whether a living organism occupies point.
+// Exported for the food manager, which must not drop food onto one.
+func (m *OrganismManager) IsOrganismAtPoint(point utils.Point) bool {
+	return m.isOrganismAtLocation(point)
 }
 
 func (m *OrganismManager) isOrganismAtLocation(point utils.Point) bool {
@@ -1026,11 +1072,11 @@ func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
 	o.Status = organism.StatusChemoSuccess
 
 	// Chemosynthesis pushes local pH down in proportion to the health it
-	// just gained, so a marginal attempt produces little acid — the
-	// feedback that stops a chemosynthesizing population from driving its
-	// own water ever further from ideal. Accumulate the magnitude on the
+	// just gained — so a marginal attempt produces little acid — and to
+	// its Chemosynthesis score, so a specialist sours its surroundings
+	// faster than it feeds off them. Accumulate the magnitude on the
 	// organism for the per-organism tinting.
-	delta := g.ChemoPhEffect * gain
+	delta := effects.ChemoPhPush(g, o.Traits().Abilities[physiology.AbilityChemosynthesis], gain)
 	m.api.AddPhChangeAtPoint(o.Location, -delta)
 	o.PhNegative += delta
 }
@@ -1282,7 +1328,8 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 		// than at the food it just ate — so a meal doesn't instantly skew
 		// the pH the eater's own forward sensors are reading. Accumulate
 		// the magnitude on the organism for the per-organism tinting.
-		delta := c.EatingPhEffect() * gain
+		delta := effects.EatingPhPush(c.GetCurrentGlobals(),
+			o.Traits().Abilities[physiology.AbilityEating], gain)
 		m.api.AddPhChangeAtPoint(wasteLocation(o, m.api.IsWallAtPoint), delta)
 		o.PhPositive += delta
 	} else {
@@ -1336,11 +1383,22 @@ func (m *OrganismManager) applyMove(o *organism.Organism) {
 	}
 	// The claim was staked in the decide phase, against the world as it
 	// was then. Another organism resolving earlier this cycle may have
-	// dug a wall into the cell since, so check again before stepping in —
-	// otherwise the mover ends up standing on the wall.
-	if m.api.IsWallAtPoint(targetPoint) || m.isOrganismAtLocation(targetPoint) {
+	// dug a wall into the cell since, or strengthened one that was
+	// already breakable, so check again before stepping in — otherwise
+	// the mover ends up standing on the wall.
+	if m.isOrganismAtLocation(targetPoint) {
 		o.Status = organism.StatusMoveBlocked
 		return
+	}
+	if strength := m.api.GetWallStrengthAtPoint(targetPoint); strength > 0 {
+		if !m.canBurrow(o, strength) {
+			o.Status = organism.StatusMoveBlocked
+			return
+		}
+		// Through it: the wall is destroyed outright rather than worn
+		// down, which is what separates burrowing from digging.
+		m.api.AddWallStrength(targetPoint, -strength)
+		m.addUpdatedPoint(targetPoint)
 	}
 
 	m.addUpdatedPoint(o.Location)
@@ -1369,6 +1427,64 @@ func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
 
 	o.Direction = o.Direction.Left()
 	o.Status = organism.StatusTurnLeft
+}
+
+// newFoundingOrganism builds one of the simulation's initial organisms:
+// from the next configured design if any are set, otherwise random.
+//
+// Designs are dealt round-robin rather than one-per-organism so a single
+// design can found a whole world and two designs can be pitted against
+// each other without the user counting organisms. A design that no
+// longer loads falls back to a random organism rather than stopping the
+// run — the world is still worth watching without it.
+func (m *OrganismManager) newFoundingOrganism(id int, point utils.Point) *organism.Organism {
+	designs := m.foundingDesigns()
+	if len(designs) == 0 {
+		return organism.NewRandom(m.rng, id, point, m.api)
+	}
+	ds := designs[m.designsDealt%len(designs)]
+	m.designsDealt++
+	o, err := organism.NewDesigned(m.rng, id, point, m.api, ds)
+	if err != nil {
+		fmt.Printf("\nWarning: design %q could not be used (%v); founding with a random organism instead.",
+			ds.Name, err)
+		return organism.NewRandom(m.rng, id, point, m.api)
+	}
+	return o
+}
+
+// foundingDesigns loads the configured designs once per manager. Reading
+// the directory per organism would re-read the same files for every
+// founder, and a design changing mid-run would give two founders of the
+// same name different bodies.
+func (m *OrganismManager) foundingDesigns() []organism.Design {
+	if m.designsLoaded {
+		return m.designs
+	}
+	m.designsLoaded = true
+	names := c.InitialDesigns()
+	if len(names) == 0 {
+		return m.designs
+	}
+	found := organism.DesignsByName(organism.DesignsDir, names)
+	if len(found) < len(names) {
+		fmt.Printf("\nWarning: %d of %d configured designs were not found in %s/.",
+			len(names)-len(found), len(names), organism.DesignsDir)
+	}
+	// A design whose tree is over the configured limit is dropped rather
+	// than founded with: the limit is what bounds every other tree in the
+	// run, and an exception to it would quietly out-compete them. The
+	// config screen refuses to start in this state; a headless run has
+	// nobody to ask, so it says so and carries on without it.
+	for _, ds := range found {
+		if ds.ExceedsTreeLimit(c.MaxDecisionTreeSize()) {
+			fmt.Printf("\nWarning: design %q has %d decision-tree nodes, over the %d-node limit; not founding with it.",
+				ds.Name, ds.TreeSize(), c.MaxDecisionTreeSize())
+			continue
+		}
+		m.designs = append(m.designs, ds)
+	}
+	return m.designs
 }
 
 // GetAllOrganismInfo returns a map of all organisms' Info

@@ -24,6 +24,23 @@ type writerBacking interface {
 type Writer struct {
 	file          writerBacking
 	snapshotIndex []SnapshotEntry
+	// bytesWritten is everything committed to the file so far. Tracked
+	// here rather than stat'ing the file because the same code runs on
+	// WASM, where the "file" is a buffer in memory, and because a caller
+	// wants this every cycle — a syscall per cycle to answer it would be
+	// its own cost.
+	bytesWritten int64
+}
+
+// BytesWritten is the size of the file as it stands. It does not
+// include the sections written at Close (the descendant trees, the pH
+// history, the snapshot index); see simulation.EstimatedReplayBytes for
+// the projection that accounts for those.
+func (w *Writer) BytesWritten() int64 {
+	if w == nil {
+		return 0
+	}
+	return w.bytesWritten
 }
 
 // NewWriter creates a new .pzr "file" and writes the header.
@@ -62,7 +79,9 @@ func NewWriter(path string, header FileHeader) (*Writer, error) {
 		return nil, err
 	}
 
-	return &Writer{file: file}, nil
+	// Magic + version + the length prefix + the header itself.
+	written := int64(len(Magic)) + int64(binary.Size(Version)) + 4 + int64(headerBuf.Len())
+	return &Writer{file: file, bytesWritten: written}, nil
 }
 
 // openWriterBacking returns a writable backing for the given path —
@@ -113,7 +132,8 @@ func (w *Writer) WriteHistory(payload *HistoryPayload, finalCycle int) error {
 // Close writes the snapshot index and footer, then closes the file.
 //
 // Footer layout (read in reverse from end of file):
-//   [int64 indexOffset][int32 indexCount]
+//
+//	[int64 indexOffset][int32 indexCount]
 func (w *Writer) Close() error {
 	// Record where the index starts
 	indexOffset, _ := w.file.Seek(0, io.SeekCurrent)
@@ -159,7 +179,9 @@ func (w *Writer) writeSection(sectionType byte, cycle int, payload interface{}) 
 	binary.Write(w.file, binary.LittleEndian, int32(uncompressedLen))
 
 	// Write compressed data
-	_, err = w.file.Write(compBuf.Bytes())
+	n, err := w.file.Write(compBuf.Bytes())
+	// The section header is one byte plus three int32s.
+	w.bytesWritten += 1 + 4*3 + int64(n)
 	return err
 }
 

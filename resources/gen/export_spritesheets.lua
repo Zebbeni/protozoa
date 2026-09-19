@@ -37,7 +37,7 @@
 --                              up to 4 frames — that's the cap, set by
 --                              the 16x16 slices. The script slices off
 --                              the right number of frames per export:
---                                4x4   → first 1 frame
+--                                4x4   → first 2 frames
 --                                8x8   → first 2 frames
 --                                16x16 → first 4 frames
 --                              A tag with fewer frames than the slice
@@ -342,9 +342,8 @@ end
 local expectedTagActions = {
     "idle", "move", "blocked", "turn_left", "turn_right",
     "attack", "eat", "eatfail", "chemo", "chemofail", "die",
-    "dig",
 }
-local pendingTagActions = { "spawn" }
+local pendingTagActions = { "dig", "spawn" }
 
 -- Retired actions belong to removed mechanics (hunker, hide, fimbriae
 -- currents, flare, sting, burrowing). Their tags are skipped rather than
@@ -612,17 +611,17 @@ for _, sl in ipairs(slices) do
                             table.insert(skipped, "couldn't create " .. resDir)
                         else
                             local fn = resDir .. sep .. outName
-                            -- Frame range: each resolution takes the
-                            -- first (res/4) frames from the tag's
-                            -- range — 4x4 → 1, 8x8 → 2, 16x16 → 4.
-                            -- 16x16 is the top resolution so res/4
-                            -- already lands on the 4-frame cap; the
-                            -- clamp below is belt-and-braces. Static
-                            -- (base) tags have fromFrame == toFrame so
-                            -- the math collapses to a single frame.
+                            -- Frame range: each resolution takes the first frames
+                            -- from the tag's range: 4x4 -> 2, 8x8 -> 2, 16x16 -> 4.
+                            -- Two is the floor so the smallest sprites animate like
+                            -- the rest instead of only holding a pose; four is the
+                            -- cap, since higher zooms upscale the 16x16 art rather
+                            -- than asking for more steps. Static (base) tags have
+                            -- fromFrame == toFrame, so the math collapses to a
+                            -- single frame regardless.
                             local framesNeeded = sl.res / 4
-                            if framesNeeded < 1 then
-                                framesNeeded = 1
+                            if framesNeeded < 2 then
+                                framesNeeded = 2
                             elseif framesNeeded > 4 then
                                 framesNeeded = 4
                             end

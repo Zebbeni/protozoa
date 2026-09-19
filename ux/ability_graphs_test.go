@@ -3,6 +3,7 @@ package ux
 import (
 	"image/color"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -589,7 +590,12 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 	}{
 		{"damage from zero", 0, 83.33, 0, 90},
 		{"cost to zero", -83.33, 0, -90, 0},
-		{"a flat positive line", 0.05, 0.05, 0, 0.55},
+		// A flat line's pad is a tenth of the value, so the line sits in
+		// the middle of an axis labelled around it. The axis deliberately
+		// doesn't reach zero here: for a constant, what the reader needs
+		// is the number, and an axis wide enough to include zero put the
+		// line along the bottom where it read as zero.
+		{"a flat positive line", 0.05, 0.05, 0.045, 0.055},
 		{"a flat zero line", 0, 0, 0, 0.5},
 	} {
 		lo, hi := paddedGraphRange(tc.lo, tc.hi)
@@ -602,6 +608,24 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 	// An effect that really does cross zero still gets headroom both
 	// ways — the chemosynthesis hump pays above its width and costs
 	// below it.
+	// A flat line's axis has to be scaled to the value, not to an
+	// absolute floor: a constant 0.00125 under a 0.5 pad drew an axis
+	// from 0 to 0.501 with the line along the bottom, reading as zero.
+	for _, v := range []float64{0.00125, 0.05, 3, 900} {
+		lo, hi := paddedGraphRange(v, v)
+		if !(lo < v && hi > v) {
+			t.Errorf("a constant %v got axis %v..%v, which doesn't contain it", v, lo, hi)
+		}
+		if hi-lo > math.Abs(v) {
+			t.Errorf("a constant %v got axis %v..%v, too wide to read the value off", v, lo, hi)
+		}
+	}
+	// Except at exactly zero, where there is no magnitude to scale by and
+	// a zero-height axis would divide by zero when plotting.
+	if lo, hi := paddedGraphRange(0, 0); hi <= lo {
+		t.Errorf("a constant 0 got a zero-height axis %v..%v", lo, hi)
+	}
+
 	if lo, hi := paddedGraphRange(-1, 2); !(lo < -1 && hi > 2) {
 		t.Errorf("a range crossing zero should pad both ends, got [%g, %g]", lo, hi)
 	}
@@ -699,6 +723,69 @@ func TestWholeUnitGraphsLabelWholeNumbers(t *testing.T) {
 			}
 			if got := graph.formatValue(0.667); got != "0.667" {
 				t.Errorf("%q formatted 0.667 as %q", graph.title, got)
+			}
+		}
+	}
+}
+
+// TestNoCurveGraphIsAConstantLine: a plot whose line can't move is a
+// number drawn the long way round. It costs a whole graph row, invites
+// the reader to look for a trend in it, and the slider beside it already
+// shows the value.
+//
+// The check has to be structural, not "flat under the current settings":
+// a curve configured ShapeFlat is flat on purpose, and that is worth
+// seeing. So each curve's shape is set to linear first, and what is left
+// flat after that is flat by construction.
+func TestNoCurveGraphIsAConstantLine(t *testing.T) {
+	_, active := abilityConfigScreen(t)
+
+	for _, id := range physiology.AllCurves {
+		g := *active
+		setCurveShape(&g, id, physiology.ShapeLinear)
+		// Every setting this curve scales is forced non-zero as well. A
+		// series can read flat simply because its setting is currently 0
+		// — three of the digging series do, under the shipped defaults —
+		// and that is a tuning choice, not a constant.
+		// Distinct values, not all 1: several curves run between two
+		// endpoint settings (a cost at score 0 and at max, the wall a dig
+		// moves at each end), and giving both the same number makes the
+		// curve genuinely flat — which would flag a curve that varies
+		// perfectly well.
+		for n, tag := range curveSettingTags[id] {
+			idx, _ := globalsField(tag)
+			f := reflect.ValueOf(&g).Elem().Field(idx)
+			switch f.Kind() {
+			case reflect.Float64:
+				f.SetFloat(float64(n+1) * 10)
+			case reflect.Int:
+				f.SetInt(int64(n+1) * 10)
+			}
+		}
+
+		for _, graph := range curveGraphsFor(id) {
+			for _, series := range graph.series {
+				lo, hi, varies := 0.0, 0.0, false
+				for i := 0; i <= physiology.MaxAbilityScore; i++ {
+					var v float64
+					if graph.phSpan > 0 {
+						v = series.phValue(&g, graph.phSpan*(2*float64(i)/float64(physiology.MaxAbilityScore)-1))
+					} else {
+						v = series.value(&g, i)
+					}
+					if i == 0 {
+						lo, hi = v, v
+					}
+					lo, hi = min(lo, v), max(hi, v)
+					if hi-lo > 1e-12 {
+						varies = true
+						break
+					}
+				}
+				if !varies {
+					t.Errorf("%s: graph %q series %q is a constant %v — show it as a value, not a plot",
+						id.Name(), graph.title, series.label, lo)
+				}
 			}
 		}
 	}

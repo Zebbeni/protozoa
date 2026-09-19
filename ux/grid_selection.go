@@ -11,21 +11,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// descHighlightCache is the precomputed answer to "which IDs are
-// descendants of selID and alive somewhere in [fromCycle, toCycle]?"
-// Rebuilt on selection change or when the playhead crosses the window.
-type descHighlightCache struct {
-	selID              int
-	fromCycle, toCycle int
-	ids                map[int]struct{}
-}
-
-// descHighlightBufferCycles is how far ahead of the playhead each
-// rebuild looks. Bigger means fewer rebuilds but a larger walk each
-// time; ~1000 cycles at default speed = a rebuild every several seconds
-// of wall-clock playback, which is barely perceptible.
-const descHighlightBufferCycles = 1000
-
 // buildSelectionBoxImg creates a white outlined-square image at the
 // current unit size, used as the source for every per-organism
 // selection box. Stamping a tinted copy of this image is one DrawImage
@@ -56,10 +41,14 @@ func (g *Grid) buildSelectionBoxImg() {
 // Tiered styling, brightest last so it overdraws the rest:
 //   - In selectMostSuccessful mode, every currently-living organism on
 //     the most-successful set gets a faded box.
-//   - Otherwise, every living descendant of the selected organism
-//     (resolved through the descendant-highlight cache) gets a faded
-//     box.
 //   - The selected organism itself gets the full themed foreground.
+//
+// Living *descendants* used to get a faded box each, off a cached walk
+// of the selection's subtree. The FAMILY colour mode replaced that: a box
+// answered only "descendant or not", identically for a child and a
+// great-great-grandchild, and said nothing about ancestors or cousins —
+// where a tint carries the whole relationship and costs nothing extra to
+// draw, since the sprite is being tinted anyway. See family.go.
 //
 // The hover-cell box is drawn separately in screen space (see Render),
 // since it shouldn't tile across the wallpaper.
@@ -77,42 +66,6 @@ func (g *Grid) populateSelectionLayer(aliveInfos map[int]*organism.Info) {
 			}
 			if info, ok := aliveInfos[id]; ok {
 				g.stampSelectionBox(layer, info.Location, successfulColor)
-			}
-		}
-	} else if selID >= 0 {
-		descColor := fadedForeground(0x40)
-		currentCycle := g.simulation.Cycle()
-
-		// Rebuild the descendant set when selection changed or the
-		// playhead left the cached window.
-		c := g.descHighlight
-		if c == nil || c.selID != selID || currentCycle < c.fromCycle || currentCycle > c.toCycle {
-			from := currentCycle
-			to := currentCycle + descHighlightBufferCycles
-			g.descHighlight = &descHighlightCache{
-				selID:     selID,
-				fromCycle: from,
-				toCycle:   to,
-				ids:       g.buildDescendantHighlightSet(selID, from, to),
-			}
-			c = g.descHighlight
-		}
-
-		// Iterate the smaller of the two sets so the per-render cost
-		// is O(min(live, descendants)).
-		if len(c.ids) > 0 {
-			if len(c.ids) <= len(aliveInfos) {
-				for id := range c.ids {
-					if info, ok := aliveInfos[id]; ok {
-						g.stampSelectionBox(layer, info.Location, descColor)
-					}
-				}
-			} else {
-				for id, info := range aliveInfos {
-					if _, ok := c.ids[id]; ok {
-						g.stampSelectionBox(layer, info.Location, descColor)
-					}
-				}
 			}
 		}
 	}
@@ -135,47 +88,6 @@ func (g *Grid) stampSelectionBox(layer *ebiten.Image, point utils.Point, col col
 	r, gv, b, a := col.RGBA()
 	op.ColorScale.Scale(float32(r)/0xffff, float32(gv)/0xffff, float32(b)/0xffff, float32(a)/0xffff)
 	layer.DrawImage(g.selectionBoxImg, op)
-}
-
-// buildDescendantHighlightSet walks selID's descendant subtree once
-// and returns the set of node IDs that are alive at any cycle in
-// [fromCycle, toCycle]. Used to populate descHighlight; callers don't
-// hit this code on every render — only when the cache is invalid
-// (selection change or playhead crossed the window boundary).
-//
-// Two prunes keep the walk bounded for very old selections:
-//   - StartCycle > toCycle: subtree not yet born by window's end.
-//     Children always have StartCycle >= parent.StartCycle, so the
-//     entire subtree is irrelevant.
-//   - AllBranchesDeadCycle != 0 && < fromCycle: every node in this
-//     subtree died strictly before the window opens; no descendant
-//     could be alive in the window.
-//
-// A node N is alive somewhere in [fromCycle, toCycle] iff
-// N.StartCycle <= toCycle AND (N.EndCycle == 0 OR N.EndCycle >= fromCycle).
-func (g *Grid) buildDescendantHighlightSet(selID, fromCycle, toCycle int) map[int]struct{} {
-	set := make(map[int]struct{})
-	root := g.simulation.GetTreeNodeByID(selID)
-	if root == nil {
-		return set
-	}
-	var walk func(n *organism.DescendantNode)
-	walk = func(n *organism.DescendantNode) {
-		n.ForEachChild(func(child *organism.DescendantNode) {
-			if child.StartCycle > toCycle {
-				return
-			}
-			if child.AllBranchesDeadCycle != 0 && child.AllBranchesDeadCycle < fromCycle {
-				return
-			}
-			if child.EndCycle == 0 || child.EndCycle >= fromCycle {
-				set[child.ID] = struct{}{}
-			}
-			walk(child)
-		})
-	}
-	walk(root)
-	return set
 }
 
 // renderHoverCellBox draws a single hover-cell outline at the cursor's
