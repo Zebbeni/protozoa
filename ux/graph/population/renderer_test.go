@@ -2,10 +2,6 @@ package population
 
 import "testing"
 
-// TestBaseImageWidthIsBounded is the regression test for the long-replay
-// crash: the base image grew two pixels per bar, and at 8833 bars asked
-// ebiten for a 17666px texture, which panics. Whatever the bar count, the
-// columns the renderer allocates must stay within maxBaseWidth.
 func TestBaseImageWidthIsBounded(t *testing.T) {
 	for _, numCols := range []int{1, 2000, maxBaseWidth, maxBaseWidth + 1, 8833, 100_000, 5_000_000} {
 		stride := strideFor(numCols)
@@ -20,8 +16,6 @@ func TestBaseImageWidthIsBounded(t *testing.T) {
 	}
 }
 
-// TestStrideOnlyDoubles: a stride change forces a full rebuild, so it must
-// change rarely as a run grows, and never below maxBaseWidth bars.
 func TestStrideOnlyDoubles(t *testing.T) {
 	if s := strideFor(maxBaseWidth); s != 1 {
 		t.Errorf("stride at maxBaseWidth bars = %d, want 1", s)

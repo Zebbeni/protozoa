@@ -13,34 +13,31 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 
+	"github.com/Zebbeni/protozoa/checkpoint"
 	c "github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// ReplayMenuChoice is a replay menu action the runner has to carry out,
-// since it leaves the replay viewer.
+// ReplayMenuChoice is a replay menu action the runner has to carry out, since it leaves the replay viewer.
 type ReplayMenuChoice int
 
 const (
 	ReplayMenuNone ReplayMenuChoice = iota
-	// ReplayMenuRunAgain starts a new simulation with the replay's
-	// settings and a new seed.
+	// ReplayMenuRunAgain starts a new simulation with the replay's settings and a new seed.
 	ReplayMenuRunAgain
-	// ReplayMenuEditSettings opens the New Simulation form filled with
-	// the replay's settings.
+	// ReplayMenuEditSettings opens the New Simulation form filled with the replay's settings.
 	ReplayMenuEditSettings
-	// ReplayMenuMainMenu returns to the main menu.
 	ReplayMenuMainMenu
 )
 
-// replayMenuAction is what a replay menu button does: close the menu,
-// open the settings viewer, or hand a choice to the runner.
 type replayMenuAction int
 
 const (
 	replayActionClose replayMenuAction = iota
 	replayActionViewSettings
 	replayActionChoice
+	// replayActionSaveAs opens the name prompt for saving a copy of the recording being viewed.
+	replayActionSaveAs
 )
 
 type replayMenuButton struct {
@@ -53,6 +50,7 @@ var replayMenuButtons = []replayMenuButton{
 	{"Run Again (New Seed)", replayActionChoice, ReplayMenuRunAgain},
 	{"Edit Settings", replayActionChoice, ReplayMenuEditSettings},
 	{"View Settings", replayActionViewSettings, ReplayMenuNone},
+	{"Save Recording As...", replayActionSaveAs, ReplayMenuNone},
 	{"Main Menu", replayActionChoice, ReplayMenuMainMenu},
 	{"Close", replayActionClose, ReplayMenuNone},
 }
@@ -65,19 +63,19 @@ const (
 	replayMenuTitleH  = 40
 )
 
-// ReplayMenu is the menu the replay viewer opens from its MENU button or
-// Escape. It can also show the replay's settings read-only in a popup.
-// While it's open it takes all input; the runner polls Take for choices
-// that leave the replay.
 type ReplayMenu struct {
 	open bool
 	// globals are the settings the replayed simulation ran with.
 	globals c.Globals
+	// source is the .pzr being viewed, copied out by Save Recording As.
+	source string
+	// naming is true while the save prompt is up; name is what has been typed into it so far.
+	naming bool
+	name   string
 	// settings is the read-only settings viewer, non-nil while showing.
 	settings *ConfigScreen
 	pending  ReplayMenuChoice
-	// notice reports what the last footer action did (a copied seed, an
-	// exported file); it shows until noticeUntil.
+	// notice reports what the last footer action did (a copied seed, an exported file); it shows until noticeUntil.
 	notice      string
 	noticeErr   bool
 	noticeUntil time.Time
@@ -86,8 +84,6 @@ type ReplayMenu struct {
 // noticeFor is how long a footer action's notice stays up.
 const noticeFor = 4 * time.Second
 
-// settingsButton is one button in the settings viewer's footer. Left
-// buttons are laid out from the left edge, the rest from the right.
 type settingsButton struct {
 	label  string
 	width  int
@@ -106,37 +102,37 @@ var settingsButtons = []settingsButton{
 	}},
 }
 
-// settingsSmallBtnW is the width of the left-hand footer buttons, narrow
-// enough that both groups fit the popup in a small window.
+// settingsSmallBtnW is the width of the left-hand footer buttons, narrow enough that both groups fit the popup in a small window.
 const settingsSmallBtnW = 100
 
-// NewReplayMenu builds a closed menu for a replay recorded with globals.
-func NewReplayMenu(globals c.Globals) *ReplayMenu {
-	return &ReplayMenu{globals: globals}
+// NewReplayMenu builds a closed menu for the replay at source, recorded with globals.
+func NewReplayMenu(globals c.Globals, source string) *ReplayMenu {
+	return &ReplayMenu{globals: globals, source: source}
 }
 
-// IsOpen reports whether the menu or its settings viewer is showing.
-func (m *ReplayMenu) IsOpen() bool { return m.open || m.settings != nil }
+// IsOpen reports whether the menu, its settings viewer or the save prompt is showing.
+func (m *ReplayMenu) IsOpen() bool { return m.open || m.settings != nil || m.naming }
 
-// Open shows the menu.
 func (m *ReplayMenu) Open() { m.open = true }
 
-// Close hides the menu and the settings viewer.
 func (m *ReplayMenu) Close() {
 	m.open = false
 	m.settings = nil
+	m.naming = false
 }
 
-// Take returns and clears the pending choice.
 func (m *ReplayMenu) Take() ReplayMenuChoice {
 	choice := m.pending
 	m.pending = ReplayMenuNone
 	return choice
 }
 
-// Update handles input for whichever of the menu or settings viewer is
-// showing.
+// Update handles input for whichever of the menu or settings viewer is showing.
 func (m *ReplayMenu) Update() {
+	if m.naming {
+		m.updateNaming()
+		return
+	}
 	if m.settings != nil {
 		m.updateSettings()
 		return
@@ -164,7 +160,6 @@ func (m *ReplayMenu) Update() {
 	}
 }
 
-// activate carries out a button's action.
 func (m *ReplayMenu) activate(b replayMenuButton) {
 	switch b.action {
 	case replayActionClose:
@@ -174,6 +169,8 @@ func (m *ReplayMenu) activate(b replayMenuButton) {
 	case replayActionChoice:
 		m.Close()
 		m.pending = b.choice
+	case replayActionSaveAs:
+		m.openNaming()
 	}
 }
 
@@ -215,7 +212,6 @@ func (m *ReplayMenu) updateSettings() {
 	m.settings.Update()
 }
 
-// copySeed puts the replay's seed on the clipboard.
 func (m *ReplayMenu) copySeed() {
 	if err := copyToClipboard(strconv.Itoa(m.globals.Seed)); err != nil {
 		m.setNotice("Couldn't copy the seed: "+err.Error(), true)
@@ -224,8 +220,7 @@ func (m *ReplayMenu) copySeed() {
 	m.setNotice(fmt.Sprintf("Copied seed %d", m.globals.Seed), false)
 }
 
-// exportSettings saves the replay's settings as a JSON config file, the
-// same format -config loads.
+// exportSettings saves the replay's settings as a JSON config file, the same format -config loads.
 func (m *ReplayMenu) exportSettings() {
 	var buf bytes.Buffer
 	c.DumpGlobals(&m.globals, &buf)
@@ -244,8 +239,11 @@ func (m *ReplayMenu) setNotice(msg string, isErr bool) {
 	m.notice, m.noticeErr, m.noticeUntil = msg, isErr, time.Now().Add(noticeFor)
 }
 
-// Draw paints the menu or settings viewer over the replay.
 func (m *ReplayMenu) Draw(screen *ebiten.Image) {
+	if m.naming {
+		m.drawNaming(screen)
+		return
+	}
 	if m.settings != nil {
 		m.drawSettings(screen)
 		return
@@ -288,19 +286,171 @@ func (m *ReplayMenu) drawSettings(screen *ebiten.Image) {
 			drawMenuButton(screen, br.Min.X, br.Min.Y, br.Dx(), br.Dy(), b.label, hovered, hovered && pressed, false)
 		}
 	}
-	if m.notice != "" && time.Now().Before(m.noticeUntil) {
-		col := color.Color(themedForegroundDim())
-		if m.noticeErr {
-			col = themedBad()
-		}
-		rect := modalRect()
-		text.Draw(screen, m.notice, r.FontSourceCodePro10, rect.Min.X+popupPad, rect.Max.Y-popupFooterH+12, col)
-	}
+	rect := modalRect()
+	m.drawNotice(screen, rect.Min.X+popupPad, rect.Max.Y-popupFooterH+12)
 	m.settings.DrawTooltip(screen)
 }
 
-// replayMenuRect is the menu box, centred on screen and sized to fit
-// its buttons.
+const (
+	nameBoxW     = 420
+	nameBoxH     = 190
+	nameFieldH   = 34
+	nameMaxRunes = 40
+)
+
+// openNaming shows the prompt, pre-filled with the replay's seed so a user who just wants it kept can press Enter.
+func (m *ReplayMenu) openNaming() {
+	m.open = false
+	m.naming = true
+	m.name = fmt.Sprintf("seed-%d", m.globals.Seed)
+}
+
+// updateNaming handles typing and the prompt's two buttons.
+func (m *ReplayMenu) updateNaming() {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		m.Close()
+		return
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadEnter) {
+		m.saveRecording()
+		return
+	}
+	m.typeName()
+
+	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		return
+	}
+	mx, my := ebiten.CursorPosition()
+	if hitRect(mx, my, nameSaveRect()) {
+		m.saveRecording()
+		return
+	}
+	if hitRect(mx, my, nameCancelRect()) {
+		m.Close()
+		return
+	}
+	// Clicks outside the box cancel, like every other modal here.
+	if !hitRect(mx, my, nameBoxRect()) {
+		m.Close()
+	}
+}
+
+// typeName routes keystrokes into the name, the same alphabet the organism designer accepts.
+func (m *ReplayMenu) typeName() {
+	for _, ch := range ebiten.AppendInputChars(nil) {
+		if ch == '\n' || ch == '\r' {
+			continue
+		}
+		if ch >= ' ' && ch != 127 && len([]rune(m.name)) < nameMaxRunes {
+			m.name += string(ch)
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && m.name != "" {
+		runes := []rune(m.name)
+		m.name = string(runes[:len(runes)-1])
+	}
+}
+
+// saveRecording copies the viewed .pzr into the recordings directory.
+func (m *ReplayMenu) saveRecording() {
+	if m.source == "" {
+		m.setNotice("No recording file to save", true)
+		return
+	}
+	path, err := checkpoint.SaveRecordingAs(m.source, checkpoint.RecordingsDir, m.name)
+	if err != nil {
+		m.setNotice("Save failed: "+err.Error(), true)
+		return
+	}
+	m.naming = false
+	m.setNotice("Saved to "+path, false)
+}
+
+func nameBoxRect() popupRectT {
+	return newRect((c.ScreenWidth()-nameBoxW)/2, (c.ScreenHeight()-nameBoxH)/2, nameBoxW, nameBoxH)
+}
+
+func nameFieldRect() popupRectT {
+	box := nameBoxRect()
+	return newRect(box.Min.X+replayMenuPad, box.Min.Y+62, nameBoxW-2*replayMenuPad, nameFieldH)
+}
+
+func nameSaveRect() popupRectT {
+	box := nameBoxRect()
+	return newRect(box.Max.X-replayMenuPad-popupBtnW, box.Max.Y-replayMenuPad-replayMenuButtonH,
+		popupBtnW, replayMenuButtonH)
+}
+
+func nameCancelRect() popupRectT {
+	save := nameSaveRect()
+	return newRect(save.Min.X-replayMenuGap-popupCancelW, save.Min.Y, popupCancelW, replayMenuButtonH)
+}
+
+func (m *ReplayMenu) drawNaming(screen *ebiten.Image) {
+	drawScreenDim(screen)
+	box := nameBoxRect()
+	fillRect(screen, box, themeBackgroundColor())
+	drawModalBorder(screen, box)
+
+	title := "SAVE RECORDING"
+	tb := boundString(r.FontSourceCodePro12, title)
+	text.Draw(screen, title, r.FontSourceCodePro12, box.Min.X+(nameBoxW-tb.Dx())/2,
+		box.Min.Y+30, themedForeground())
+
+	hint := "Saved into " + checkpoint.RecordingsDir + "/ — the next run overwrites the original."
+	text.Draw(screen, hint, r.FontSourceCodePro8, box.Min.X+replayMenuPad, box.Min.Y+50, themedMuted())
+
+	// The field, with a caret so it reads as something being typed into rather than a label.
+	field := nameFieldRect()
+	fillRect(screen, field, themedControlFill())
+	drawModalBorder(screen, field)
+	shown := m.name
+	if time.Now().UnixMilli()/500%2 == 0 {
+		shown += "_"
+	}
+	text.Draw(screen, shown, r.FontSourceCodePro12, field.Min.X+8, field.Min.Y+22, themedValue())
+
+	// What it will actually be called, since the name is slugged.
+	asFile := checkpoint.RecordingFileName(m.name)
+	text.Draw(screen, "saves as "+asFile, r.FontSourceCodePro8,
+		field.Min.X, field.Max.Y+13, themedMuted())
+
+	mx, my := ebiten.CursorPosition()
+	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	for _, b := range []struct {
+		rect   popupRectT
+		label  string
+		accent bool
+	}{
+		{nameCancelRect(), "Cancel", false},
+		{nameSaveRect(), "Save", true},
+	} {
+		hovered := hitRect(mx, my, b.rect)
+		if b.accent {
+			drawAccentButton(screen, b.rect.Min.X, b.rect.Min.Y, b.rect.Dx(), b.rect.Dy(),
+				b.label, hovered, hovered && pressed, color.RGBA{R: 80, G: 80, B: 90, A: 255})
+		} else {
+			drawMenuButton(screen, b.rect.Min.X, b.rect.Min.Y, b.rect.Dx(), b.rect.Dy(),
+				b.label, hovered, hovered && pressed, false)
+		}
+	}
+
+	m.drawNotice(screen, box.Min.X+replayMenuPad, nameSaveRect().Min.Y-8)
+}
+
+// drawNotice paints the last action's message, if it is still current.
+func (m *ReplayMenu) drawNotice(screen *ebiten.Image, x, y int) {
+	if m.notice == "" || !time.Now().Before(m.noticeUntil) {
+		return
+	}
+	col := color.Color(themedForegroundDim())
+	if m.noticeErr {
+		col = themedBad()
+	}
+	text.Draw(screen, m.notice, r.FontSourceCodePro8, x, y, col)
+}
+
+// replayMenuRect is the menu box, centred on screen and sized to fit its buttons.
 func replayMenuRect() popupRectT {
 	n := len(replayMenuButtons)
 	h := replayMenuTitleH + n*replayMenuButtonH + (n-1)*replayMenuGap + replayMenuPad
@@ -313,9 +463,7 @@ func replayMenuButtonRect(i int) popupRectT {
 	return newRect(menu.Min.X+replayMenuPad, y, replayMenuW-2*replayMenuPad, replayMenuButtonH)
 }
 
-// settingsFooterRects lays out settingsButtons along the footer, in
-// order: left buttons from the left edge, right buttons ending at the
-// right edge. The rects line up with settingsButtons by index.
+// settingsFooterRects lays out settingsButtons along the footer, in order.
 func settingsFooterRects() []popupRectT {
 	rect := modalRect()
 	// Sit a little below centre, leaving room for the notice line above.

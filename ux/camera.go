@@ -7,14 +7,9 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 )
 
-// GridDisplayScale is the universal scale applied to the composed grid image
-// when drawing it to the screen. Increase this to make every pixel of the grid
-// view (sprites, environment, walls) appear larger without changing zoom levels
-// or per-layer memory. All grid-area coordinate math (camera viewport, mouse
-// input) is divided by this factor so inputs and world state stay consistent.
+// GridDisplayScale is the universal scale applied to the composed grid image when drawing it to the screen.
 const GridDisplayScale = 2
 
-// ZoomLevel represents the discrete zoom levels
 type ZoomLevel int
 
 const (
@@ -29,46 +24,25 @@ const (
 )
 
 // zoomUnitSizes maps each zoom level to the display pixel size per cell.
-// Zoom4..Zoom16 render at their own native sprite resolution so the
-// renderer never has to upscale past 1x. Zoom32 and Zoom64 both reuse
-// the 16x16 set — 16x16 is the highest resolution the project authors
-// (see resources/README.md) — scaled 2x and 4x respectively.
 var zoomUnitSizes = [5]int{4, 8, 16, 32, 64}
 
-// zoomSpriteSet maps each zoom level to the sprite set index
-// (0=4x4, 1=8x8, 2=16x16). Zoom32 and Zoom64 both reuse sprite set 2,
-// so sprites are sampled from the 16x16 sheets and scaled up by
-// SpriteScale to fill the 32px / 64px cells.
+// zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=8x8, 2=16x16).
 var zoomSpriteSet = [5]int{0, 1, 2, 2, 2}
 
-// zoomSpriteSizes is the native pixel size per sprite set.
 var zoomSpriteSizes = [3]int{4, 8, 16}
 
-// zoomSpriteFrameCounts is the per-cycle frame count per sprite set:
-// 4x4 → 2, 8x8 → 2, 16x16 → 4, capped at BaseFramesPerCycle (4).
-// Authored sprite sheets contain this many frames per animation tag;
-// the renderer divides animation.State.Progress() proportionally
-// across them (see animation.SpriteFrameIndex).
-//
-// Must match orgFrames in resources.initImages.
 var zoomSpriteFrameCounts = [3]int{2, 2, 4}
 
-// SpriteSet returns the sprite set index (0-2) for the current zoom level.
 func (cam *Camera) SpriteSet() int {
 	return zoomSpriteSet[cam.Zoom]
 }
 
-// SpriteFrameCount returns the per-cycle sprite frame count for the
-// active sprite set (2 at 4x4, 2 at 8x8, 4 at 16x16).
+// SpriteFrameCount returns the per-cycle sprite frame count for the active sprite set (2 at 4x4, 2 at 8x8, 4 at 16x16).
 func (cam *Camera) SpriteFrameCount() int {
 	return zoomSpriteFrameCounts[cam.SpriteSet()]
 }
 
 // SpriteScale returns the factor to scale sprites up to the display unit size.
-// SpriteSize returns the native pixel size of one cell in the active
-// sprite set (4, 8 or 16). Layers that want their detail to line up with
-// sprite pixels, like the pH gradient, work at this resolution and are
-// then scaled by SpriteScale exactly as sprites are.
 func (cam *Camera) SpriteSize() int {
 	return zoomSpriteSizes[cam.SpriteSet()]
 }
@@ -84,10 +58,6 @@ type Camera struct {
 	ViewportW int       // viewport pixel width (screen area for grid)
 	ViewportH int       // viewport pixel height
 
-	// Smooth-pan animation state. When panActive, UpdatePan
-	// interpolates X/Y toward panTo over panDuration starting at
-	// panStart. Triggered by PanTo; manual Pan / SetZoom cancel it
-	// so the user always wins over an in-flight transition.
 	panActive   bool
 	panStart    time.Time
 	panDuration time.Duration
@@ -124,20 +94,17 @@ func (cam *Camera) WrapsY() bool {
 	return cam.WorldPixelHeight() > cam.ViewportH
 }
 
-// NormalizedX returns the camera X wrapped into [0, WorldUnitsWide).
 func (cam *Camera) NormalizedX() float64 {
 	w := cam.WorldUnitsWide()
 	return math.Mod(math.Mod(cam.X, w)+w, w)
 }
 
-// NormalizedY returns the camera Y wrapped into [0, WorldUnitsHigh).
 func (cam *Camera) NormalizedY() float64 {
 	h := cam.WorldUnitsHigh()
 	return math.Mod(math.Mod(cam.Y, h)+h, h)
 }
 
-// CenterOffset returns the pixel offset to center the world in the viewport
-// when the world is smaller than the viewport on an axis.
+// CenterOffset returns the pixel offset to center the world in the viewport when the world is smaller than the viewport on an axis.
 func (cam *Camera) CenterOffset() (offsetX, offsetY int) {
 	if !cam.WrapsX() {
 		offsetX = (cam.ViewportW - cam.WorldPixelWidth()) / 2
@@ -148,10 +115,7 @@ func (cam *Camera) CenterOffset() (offsetX, offsetY int) {
 	return
 }
 
-// ScreenToGrid converts a screen pixel position (relative to the grid
-// viewport area) to world grid coordinates. The world is rendered as
-// a tiled wallpaper, so any screen pixel always lands on some grid
-// cell — onGrid is always true.
+// ScreenToGrid converts a screen pixel position (relative to the grid viewport area) to world grid coordinates.
 func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid bool) {
 	us := float64(cam.GridUnitSize())
 	w := c.GridUnitsWide()
@@ -173,10 +137,6 @@ func (cam *Camera) ScreenToGrid(screenX, screenY int) (gridX, gridY int, onGrid 
 }
 
 // Pan adjusts the camera position by the given grid-unit deltas.
-// Free panning on both axes — when the world is smaller than the
-// viewport the renderer tiles copies of the world to fill the
-// viewport, and panning shifts which copy sits where. Cancels any
-// in-flight smooth-pan animation so manual input wins.
 func (cam *Camera) Pan(dx, dy float64) {
 	cam.panActive = false
 	cam.X += dx
@@ -194,8 +154,6 @@ func (cam *Camera) SetZoom(level ZoomLevel, pivotScreenX, pivotScreenY int) {
 		return
 	}
 
-	// Cancel any in-flight smooth pan — the target was computed in the
-	// old zoom's units and would be wrong after the change.
 	cam.panActive = false
 
 	oldUnitSize := cam.GridUnitSize()
@@ -223,10 +181,7 @@ func (cam *Camera) CenterOn(gridX, gridY int) {
 	cam.Y = float64(gridY) - float64(cam.ViewportH)/float64(unitSize)/2.0
 }
 
-// PanTo starts a smooth animated pan to centre the camera on
-// (gridX, gridY) over the given duration. Wraps the shorter way around
-// the toroidal world. Cancels any in-flight animation and replaces it
-// with the new target.
+// PanTo starts a smooth animated pan to centre the camera on (gridX, gridY) over the given duration.
 func (cam *Camera) PanTo(gridX, gridY int, duration time.Duration) {
 	if duration <= 0 {
 		cam.CenterOn(gridX, gridY)
@@ -247,8 +202,6 @@ func (cam *Camera) PanTo(gridX, gridY int, duration time.Duration) {
 	cam.panToX, cam.panToY = targetX, targetY
 }
 
-// UpdatePan advances any active smooth-pan animation. Safe to call
-// every frame; no-op when nothing is in flight.
 func (cam *Camera) UpdatePan() {
 	if !cam.panActive {
 		return
@@ -266,11 +219,7 @@ func (cam *Camera) UpdatePan() {
 	cam.Y = cam.panFromY + (cam.panToY-cam.panFromY)*eased
 }
 
-// shortestWrappedTarget returns the (possibly out-of-range) target
-// coordinate that produces the shortest signed delta from `from`,
-// given a toroidal world of size `world`. Lets the smooth-pan
-// animation cross the world wrap edge in a straight line instead of
-// looping all the way around.
+// shortestWrappedTarget returns the (possibly out-of-range) target coordinate that produces the shortest signed delta from `from`, given a toroidal world of size `world`.
 func shortestWrappedTarget(from, to, world float64) float64 {
 	if world <= 0 {
 		return to
@@ -284,8 +233,7 @@ func shortestWrappedTarget(from, to, world float64) float64 {
 	return from + delta
 }
 
-// easeInOutCubic is a slow→fast→slow easing curve. Cheap enough for
-// per-frame use and visually preferable to linear interpolation.
+// easeInOutCubic is a slow→fast→slow easing curve.
 func easeInOutCubic(t float64) float64 {
 	if t < 0.5 {
 		return 4 * t * t * t

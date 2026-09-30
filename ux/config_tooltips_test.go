@@ -5,15 +5,13 @@ import (
 	"testing"
 )
 
-// TestEveryConfigFieldHasTooltip: each row on the config screen explains
-// itself, and no tooltip is left behind for a field that was removed.
 func TestEveryConfigFieldHasTooltip(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	used := map[string]bool{}
 	for _, section := range cs.sections {
 		for _, field := range section.fields {
-			if field.row == rowCurveGraph {
-				continue // graph blocks explain themselves
+			if field.row == rowCurveGraph || field.row == rowWallPhGraph {
+				continue // a graph explains itself, and has no label to hover
 			}
 			if tooltipFor(field) == "" {
 				t.Errorf("%s: %q has no tooltip", section.title, field.label)

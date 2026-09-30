@@ -6,9 +6,6 @@ import (
 	"github.com/Zebbeni/protozoa/animation"
 )
 
-// TestSmallestSpritesAnimate: 4x4 used to hold a single frame, which
-// made it the one sprite set that could only ever hold a pose. It now
-// gets two, like 8x8.
 func TestSmallestSpritesAnimate(t *testing.T) {
 	for set, size := range zoomSpriteSizes {
 		frames := zoomSpriteFrameCounts[set]
@@ -22,9 +19,6 @@ func TestSmallestSpritesAnimate(t *testing.T) {
 	}
 }
 
-// TestFrameCountsRiseWithResolution: more pixels can carry more motion,
-// and the top set is the only one that earns the full four — higher zoom
-// levels upscale it rather than asking for more steps.
 func TestFrameCountsRiseWithResolution(t *testing.T) {
 	prev := 0
 	for set := range zoomSpriteSizes {

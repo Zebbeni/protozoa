@@ -10,17 +10,13 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// TestThornsDependOnlyOnDefender pins the formula: the configured damage
-// at 100 Defense, along the Thorns curve, per unit of defender size, and
-// nothing at all without Defense.
 func TestThornsDependOnlyOnDefender(t *testing.T) {
 	loadDefaultGlobals(t)
 
 	if d := thornsDamage(0, 50); d != 0 {
 		t.Errorf("with no Defense thorns should deal nothing, got %.3f", d)
 	}
-	// The setting is a positive damage magnitude; what lands on the
-	// attacker is the health change, so the expected value is negated.
+	// The setting is a positive damage magnitude.
 	full := -config.ThornsDamageAtFullDefense() * 50
 	if d := thornsDamage(physiology.MaxAbilityScore, 50); math.Abs(d-full) > 1e-9 {
 		t.Errorf("full Defense, size 50: %.3f, want the full %.3f", d, full)
@@ -34,8 +30,7 @@ func TestThornsDependOnlyOnDefender(t *testing.T) {
 	}
 }
 
-// thornsSetup queues one hit of the given amount from an attacker on a
-// defender, and returns the manager and both organisms.
+// thornsSetup queues one hit of the given amount from an attacker on a defender.
 func thornsSetup(t *testing.T, amount float64) (*OrganismManager, *organism.Organism, *organism.Organism) {
 	t.Helper()
 	loadDefaultGlobals(t)
@@ -51,8 +46,6 @@ func thornsSetup(t *testing.T, amount float64) (*OrganismManager, *organism.Orga
 	return m, attacker, defender
 }
 
-// TestThornsIgnoreAttackStrength is the property the rework exists for: a
-// light hit and a massive one draw exactly the same thorns damage.
 func TestThornsIgnoreAttackStrength(t *testing.T) {
 	const defense = 80
 	var taken []float64
@@ -72,8 +65,7 @@ func TestThornsIgnoreAttackStrength(t *testing.T) {
 	}
 }
 
-// TestThornsOnlyAnswerDamage: effects that aren't damage, or have no
-// organism behind them, never trigger thorns.
+// TestThornsOnlyAnswerDamage: effects that aren't damage, or have no organism behind them, never trigger thorns.
 func TestThornsOnlyAnswerDamage(t *testing.T) {
 	const defense = 80
 	m, attacker, defender := thornsSetup(t, -5)

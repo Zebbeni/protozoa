@@ -23,14 +23,7 @@ func loadDefaultGlobals(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// TestAbilitiesDivergeAndStayValid runs a live simulation and checks
-// that ability scores actually spread across the population while every
-// organism keeps a valid budget.
-//
-// Divergence is the point of the scores — if inheritance dropped the
-// mutation, every organism would sit on the genesis distribution
-// forever and the whole system would look like it worked while
-// selecting on nothing.
+// TestAbilitiesDivergeAndStayValid runs a live simulation and checks that ability scores actually spread across the population.
 func TestAbilitiesDivergeAndStayValid(t *testing.T) {
 	loadDefaultGlobals(t)
 
@@ -62,18 +55,13 @@ func TestAbilitiesDivergeAndStayValid(t *testing.T) {
 	t.Logf("%d distinct ability distributions seen across the run", len(distinct))
 }
 
-// TestAbilitiesSurviveSnapshotRoundtrip pins inheritance through the
-// save path. Scores don't drive behaviour yet, so a restore that
-// dropped them would be completely invisible today — and would surface
-// later as an unexplained balance problem once they do.
 func TestAbilitiesSurviveSnapshotRoundtrip(t *testing.T) {
 	loadDefaultGlobals(t)
 
 	sim := NewSimulation(&config.Options{
 		IsHeadless: true, Seed: 53, CheckpointInterval: 1 << 30,
 	})
-	// Long enough for mutation to move some lineages off genesis, so
-	// the test would catch a restore that silently reset everyone.
+	// Long enough for mutation to move some lineages off genesis.
 	for i := 0; i < 3000; i++ {
 		sim.Update()
 		if sim.OrganismCount() == 0 {
@@ -123,11 +111,6 @@ func TestAbilitiesSurviveSnapshotRoundtrip(t *testing.T) {
 	t.Logf("verified %d organisms (%d off the genesis distribution)", checked, offGenesis)
 }
 
-// TestAppearanceVariesInLiveSim is the end-to-end check on the derived
-// look. Thresholds set too high would leave every organism drawn as a
-// bare basic body forever — the feature would be silently inert, and
-// nothing in the unit tests would say so because each one sets the
-// scores it needs by hand.
 func TestAppearanceVariesInLiveSim(t *testing.T) {
 	loadDefaultGlobals(t)
 
@@ -175,16 +158,7 @@ func TestAppearanceVariesInLiveSim(t *testing.T) {
 	}
 }
 
-// TestEverySpecialistIsReachable is the ecological check the unit tests
-// can't make: across a real run, does every ability get invested in
-// heavily by someone?
-//
-// An ability no lineage ever concentrates points into is one the
-// strategy space has effectively lost, however good its curve looks in
-// isolation. This is what caught the fitness valley — when the top of
-// the multiplier curve was anchored at the 100-point budget, non-chemo
-// abilities cost nine times more to grow than to abandon, and nothing
-// but chemosynthesis ever specialised.
+// TestEverySpecialistIsReachable is the ecological check the unit tests can't make.
 func TestEverySpecialistIsReachable(t *testing.T) {
 	loadDefaultGlobals(t)
 
@@ -192,10 +166,7 @@ func TestEverySpecialistIsReachable(t *testing.T) {
 	peak := map[physiology.Ability]int{}
 	specialists := map[physiology.Ability]int{}
 
-	// Six seeds, not three: rarer specialisations (Attack especially)
-	// appear in most seeds but not all, and a three-seed sample missed
-	// Attack by a single point even though full attack specialists show
-	// up in 6 of 8 seeds over longer runs.
+	// Six seeds, not three: rarer specialisations (Attack especially) appear in most seeds but not all.
 	for _, seed := range []int{101, 53, 202, 999, 31, 44} {
 		sim := NewSimulation(&config.Options{
 			IsHeadless: true, Seed: seed, CheckpointInterval: 1 << 30,

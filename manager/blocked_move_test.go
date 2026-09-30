@@ -11,8 +11,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// blockedMoveSetup puts a mover at (10,10) facing right, with whatever
-// the caller queued into the request map already in place.
 func blockedMoveSetup(t *testing.T, walls map[utils.Point]bool) (*OrganismManager, *organism.Organism) {
 	t.Helper()
 	loadDefaultGlobals(t)
@@ -30,13 +28,10 @@ func blockedMoveSetup(t *testing.T, walls map[utils.Point]bool) (*OrganismManage
 	return m, mover
 }
 
-// moveCost is what a move charges before any blocked-move penalty.
 func moveCost(o *organism.Organism) float64 {
 	return effects.MoveCost(config.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size)
 }
 
-// TestBlockedMoveChargesThePenalty: walking into something that was
-// already there costs the penalty on top of the move.
 func TestBlockedMoveChargesThePenalty(t *testing.T) {
 	// A wall ahead means nobody claimed the cell in the decide phase.
 	m, mover := blockedMoveSetup(t, map[utils.Point]bool{{X: 11, Y: 10}: true})
@@ -50,8 +45,7 @@ func TestBlockedMoveChargesThePenalty(t *testing.T) {
 			got, want, moveCost(mover), penalty)
 	}
 
-	// The penalty is per unit of size, like every other health change,
-	// so a bigger organism pays proportionally more for the same misread.
+	// The penalty is per unit of size, like every other health change.
 	m2, big := blockedMoveSetup(t, map[utils.Point]bool{{X: 11, Y: 10}: true})
 	big.Size = 40
 	beforeBig := big.Health
@@ -65,13 +59,11 @@ func TestBlockedMoveChargesThePenalty(t *testing.T) {
 	}
 }
 
-// TestLosingARaceCostsNoPenalty: the cell was open when the organism
-// decided and someone else reached it first. It had no way to know, so
-// it pays the move and nothing more.
+// TestLosingARaceCostsNoPenalty: the cell was open when the organism decided and someone else reached it first.
 func TestLosingARaceCostsNoPenalty(t *testing.T) {
 	m, mover := blockedMoveSetup(t, nil)
 	// Another organism claimed the same empty cell and won it.
-	m.requestManager.AddPositionRequest(utils.Point{X: 11, Y: 10}, 2)
+	m.requestManager.AddPositionRequest(utils.Point{X: 11, Y: 10}, 2, 0)
 
 	before := mover.Health
 	m.applyMove(mover)
@@ -85,11 +77,9 @@ func TestLosingARaceCostsNoPenalty(t *testing.T) {
 	}
 }
 
-// TestSuccessfulMoveCostsNoPenalty pins the other side: the penalty is
-// for a misread, not for moving.
 func TestSuccessfulMoveCostsNoPenalty(t *testing.T) {
 	m, mover := blockedMoveSetup(t, nil)
-	m.requestManager.AddPositionRequest(utils.Point{X: 11, Y: 10}, mover.ID)
+	m.requestManager.AddPositionRequest(utils.Point{X: 11, Y: 10}, mover.ID, mover.Size)
 
 	before := mover.Health
 	m.applyMove(mover)

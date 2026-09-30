@@ -7,9 +7,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// TestPhRangeTracksTheExtremes: the running log reports the spread as
-// well as the average, so a world that is half acid and half base reads
-// as one rather than as a neutral average.
 func TestPhRangeTracksTheExtremes(t *testing.T) {
 	loadDefaultGlobals(t)
 	m := NewEnvironmentManager(stubEnvAPI{})
@@ -22,14 +19,12 @@ func TestPhRangeTracksTheExtremes(t *testing.T) {
 
 	m.currentPhMap[1][1] = 0
 	m.currentPhMap[5][5] = 10
-	// The scan reads the previous map, so it takes an update to swap the
-	// edits into place and another to see them.
+	// The scan reads the previous map, so it takes an update to swap the edits into place and another to see them.
 	m.Update()
 	m.Update()
 
 	lo, hi = m.GetPhRange()
-	// Diffusion has already spread each spike a little by the time the
-	// scan sees it, so the extremes are pulled in from 0 and 10.
+	// Diffusion has already spread each spike a little by the time the scan sees it.
 	if lo > 3 {
 		t.Errorf("lowest pH %v after acidifying a cell to the floor, want it well below neutral", lo)
 	}
@@ -44,8 +39,7 @@ func TestPhRangeTracksTheExtremes(t *testing.T) {
 // wallStub is an organism.API reporting walls at the given points.
 type wallEnvStub struct {
 	walls map[utils.Point]bool
-	// strengths overrides the per-wall strength, for tests that care
-	// how much a wall slows diffusion rather than only that it is there.
+	// strengths overrides the per-wall strength, for tests that care how much a wall slows diffusion.
 	strengths map[utils.Point]int
 }
 
@@ -53,9 +47,6 @@ func (wallEnvStub) Cycle() int                         { return 0 }
 func (wallEnvStub) AddPhUpdate(utils.Point)            {}
 func (s wallEnvStub) IsWallAtPoint(p utils.Point) bool { return s.walls[p] }
 
-// A wall with no strength recorded reports the maximum, so a test that
-// only says "there is a wall here" gets a fully sealing one — which is
-// what every such test meant before walls became permeable.
 func (s wallEnvStub) GetWallStrengthAtPoint(p utils.Point) int {
 	if st, ok := s.strengths[p]; ok {
 		return st
@@ -66,10 +57,6 @@ func (s wallEnvStub) GetWallStrengthAtPoint(p utils.Point) int {
 	return 0
 }
 
-// TestPhStatsIgnoreWalls: a wall holds the pH it was built in for as long
-// as it stands, so the water's average and range must leave it out —
-// otherwise the log reports the world's history, not what organisms swim
-// in.
 func TestPhStatsIgnoreWalls(t *testing.T) {
 	loadDefaultGlobals(t)
 	walled := utils.Point{X: 3, Y: 3}

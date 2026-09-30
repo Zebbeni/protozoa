@@ -8,41 +8,19 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// Wall-strength bounds. Walls are placed and damaged by ActDig — the
-// digging organism damages the wall in front (negative delta) while
-// reinforcing or creating walls on its left and right (positive
-// delta). Digging is the only thing that wears a wall down. A 0-strength
-// wall is removed from the map entirely so
-// IsWallAtPoint returns false.
-//
-// The range is 1-100, the same scale as a pH reading or a percentage, so
-// a wall's strength can be compared against what an organism can shoulder
-// through (effects.WallBreakStrength) without either number needing
-// explanation. It was 1-7 when digging was the only way through a wall
-// and each dig took a few points off; on this scale digging one down is
-// dozens of cycles of work, and burrowing is the fast path.
 const (
 	MinWallStrength = 1
 	MaxWallStrength = 100
 )
 
-// WallManager owns the stateful wall grid that replaced the
-// pool-bordered pure-function walls. Walls are a sparse map keyed by
-// point — most of the grid is empty, and feature-driven actions
-// (ActDig) add or remove walls dynamically over the sim's life.
-// State changes are guarded by an RWMutex so concurrent readers
-// (renderer, conditions) don't race the writer.
+// WallManager owns the stateful wall grid that replaced the pool-bordered pure-function walls.
 type WallManager struct {
 	rng   *simrand.RNG
 	walls map[utils.Point]int
 	mu    sync.RWMutex
 }
 
-// NewWallManager returns a wall grid seeded with config.InitialWalls()
-// randomly placed walls of random strength in [MinWallStrength,
-// MaxWallStrength]. With InitialWalls == 0 the grid is empty and walls
-// only appear later via ActDig, matching the original
-// "Genesis sims start with no walls" behaviour.
+// NewWallManager returns a wall grid seeded with config.InitialWalls() randomly placed walls of random strength in [MinWallStrength, MaxWallStrength].
 func NewWallManager(rng *simrand.RNG) *WallManager {
 	m := &WallManager{
 		rng:   rng,
@@ -52,10 +30,6 @@ func NewWallManager(rng *simrand.RNG) *WallManager {
 	return m
 }
 
-// InitializeWalls places n random walls. Each call picks a random
-// point and a random strength in [MinWallStrength, MaxWallStrength];
-// rolls that land on a cell already holding a wall simply overwrite
-// it, so collisions reduce the final count slightly on dense grids.
 func (m *WallManager) InitializeWalls(n int) {
 	if n <= 0 {
 		return
@@ -71,26 +45,20 @@ func (m *WallManager) InitializeWalls(n int) {
 	}
 }
 
-// IsWallAtPoint reports whether a wall is present (strength > 0) at p.
 func (m *WallManager) IsWallAtPoint(p utils.Point) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.walls[p] > 0
 }
 
-// GetWallStrengthAtPoint returns the strength of the wall at p, or 0
-// if there's no wall. Callers can branch on >0 instead of IsWall when
-// they need the strength value too (e.g. damage-per-action math).
+// GetWallStrengthAtPoint returns the strength of the wall at p, or 0 if there's no wall.
 func (m *WallManager) GetWallStrengthAtPoint(p utils.Point) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.walls[p]
 }
 
-// AddWallStrength adjusts the wall at p by delta, clamped to
-// [0, MaxWallStrength]. A resulting strength of 0 removes the entry
-// from the map so IsWallAtPoint becomes false. Returns the new
-// strength. Positive delta reinforces, negative digs.
+// AddWallStrength adjusts the wall at p by delta, clamped to [0, MaxWallStrength].
 func (m *WallManager) AddWallStrength(p utils.Point, delta int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -107,9 +75,6 @@ func (m *WallManager) AddWallStrength(p utils.Point, delta int) int {
 	return next
 }
 
-// GetWalls returns a copy of the current wall map. Used by the
-// renderer (every refresh) and snapshot capture; returning a copy
-// keeps callers from racing the writer through the underlying map.
 func (m *WallManager) GetWalls() map[utils.Point]int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -120,17 +85,12 @@ func (m *WallManager) GetWalls() map[utils.Point]int {
 	return out
 }
 
-// Restore replaces the wall state, used by checkpoint restore. The
-// caller hands ownership of walls to the manager; do not mutate the
-// passed map after restoring.
 func (m *WallManager) Restore(walls map[utils.Point]int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.walls = walls
 }
 
-// Count returns the number of cells currently containing a wall.
-// Useful for diagnostics and tests.
 func (m *WallManager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

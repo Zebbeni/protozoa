@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"golang.org/x/image/font"
+
+	"github.com/Zebbeni/protozoa/checkpoint"
 	c "github.com/Zebbeni/protozoa/config"
+	r "github.com/Zebbeni/protozoa/resources"
 )
 
 func buttonFor(t *testing.T, label string) replayMenuButton {
@@ -26,7 +31,7 @@ func TestReplayMenuChoicesCloseAndReachTheRunner(t *testing.T) {
 		"Edit Settings":        ReplayMenuEditSettings,
 		"Main Menu":            ReplayMenuMainMenu,
 	} {
-		m := NewReplayMenu(c.Globals{})
+		m := NewReplayMenu(c.Globals{}, "")
 		m.Open()
 		m.activate(buttonFor(t, label))
 		if m.IsOpen() {
@@ -44,7 +49,7 @@ func TestReplayMenuChoicesCloseAndReachTheRunner(t *testing.T) {
 func TestViewSettingsIsReadOnlyCopy(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	g := *cs.globals
-	m := NewReplayMenu(g)
+	m := NewReplayMenu(g, "")
 	m.Open()
 	m.activate(buttonFor(t, "View Settings"))
 	if m.settings == nil || !m.settings.readOnly || !m.IsOpen() {
@@ -64,9 +69,6 @@ func TestViewSettingsIsReadOnlyCopy(t *testing.T) {
 	}
 }
 
-// TestExportSettingsWritesLoadableConfig: Export saves the replay's
-// settings as a config file -config can load, into the settings folder,
-// without overwriting an earlier export.
 func TestExportSettingsWritesLoadableConfig(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	g := *cs.globals
@@ -83,7 +85,7 @@ func TestExportSettingsWritesLoadableConfig(t *testing.T) {
 	}
 	defer os.Chdir(wd)
 
-	m := NewReplayMenu(g)
+	m := NewReplayMenu(g, "")
 	m.exportSettings()
 	m.exportSettings()
 	if m.noticeErr {
@@ -101,5 +103,77 @@ func TestExportSettingsWritesLoadableConfig(t *testing.T) {
 		if loaded.Seed != 4242 || loaded.MaxLifespan != 777 {
 			t.Errorf("%s loads seed %d / max_lifespan %d, want 4242 / 777", name, loaded.Seed, loaded.MaxLifespan)
 		}
+	}
+}
+
+func TestSavePromptTextFitsItsBox(t *testing.T) {
+	loadKeyGlobals(t)
+	r.UseDirAssets("..")
+	r.Init()
+
+	inner := nameBoxW - 2*replayMenuPad
+	lines := []struct {
+		text string
+		face font.Face
+	}{
+		{"SAVE RECORDING", r.FontSourceCodePro12},
+		{"Saved into " + checkpoint.RecordingsDir + "/ — the next run overwrites the original.", r.FontSourceCodePro8},
+		// The widest name the field accepts, plus the caret it grows while typing.
+		{strings.Repeat("W", nameMaxRunes) + "_", r.FontSourceCodePro12},
+		{"saves as " + checkpoint.RecordingFileName(strings.Repeat("W", nameMaxRunes)), r.FontSourceCodePro8},
+	}
+	for _, l := range lines {
+		if w := boundString(l.face, l.text).Dx(); w > inner {
+			t.Errorf("%q is %dpx, the box holds %d", l.text, w, inner)
+		}
+	}
+
+	// The two footer buttons share one row and must not overlap.
+	if nameCancelRect().Max.X >= nameSaveRect().Min.X {
+		t.Errorf("Cancel ends at %d, Save starts at %d", nameCancelRect().Max.X, nameSaveRect().Min.X)
+	}
+	box := nameBoxRect()
+	if nameCancelRect().Min.X < box.Min.X || nameSaveRect().Max.X > box.Max.X {
+		t.Error("a footer button hangs outside the prompt")
+	}
+	if nameFieldRect().Max.Y >= nameSaveRect().Min.Y {
+		t.Error("the name field overlaps the buttons")
+	}
+}
+
+func TestSavePromptPrefillsAndSlugs(t *testing.T) {
+	g := c.Globals{Seed: 4242}
+	m := NewReplayMenu(g, "somewhere/protozoa_last.pzr")
+	m.Open()
+	m.openNaming()
+
+	if !m.IsOpen() {
+		t.Error("the prompt doesn't count as open, so the viewer would take clicks behind it")
+	}
+	if m.name != "seed-4242" {
+		t.Errorf("prefilled %q, want the seed so Enter alone works", m.name)
+	}
+	if got := checkpoint.RecordingFileName(m.name); got != "seed-4242.pzr" {
+		t.Errorf("the prefill saves as %q", got)
+	}
+
+	// Escape backs all the way out rather than leaving the menu up behind a dismissed prompt.
+	m.Close()
+	if m.IsOpen() {
+		t.Error("closing the prompt left something showing")
+	}
+}
+
+func TestSaveWithNoSourceSaysSo(t *testing.T) {
+	m := NewReplayMenu(c.Globals{}, "")
+	m.Open()
+	m.openNaming()
+	m.saveRecording()
+
+	if !m.noticeErr {
+		t.Error("saving with no source reported success")
+	}
+	if !m.naming {
+		t.Error("the prompt closed on a failed save; the user can't correct it")
 	}
 }

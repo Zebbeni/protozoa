@@ -23,8 +23,6 @@ func TestScoresFromSlice(t *testing.T) {
 	}
 }
 
-// TestRandomScoresKeepTheBudget: every draw is a valid distribution, the
-// draws actually vary, and a seed reproduces them.
 func TestRandomScoresKeepTheBudget(t *testing.T) {
 	rng := simrand.New(7)
 	seen := map[Scores]bool{}

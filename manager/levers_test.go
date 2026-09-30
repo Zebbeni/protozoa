@@ -11,9 +11,7 @@ import (
 
 func (s *gridStub) AddOrganismUpdate(utils.Point) {}
 
-// TestAverageAbilityScores: the running log's per-ability columns are the
-// mean across living organisms, and an empty world reports zeroes rather
-// than dividing by none.
+// TestAverageAbilityScores: the running log's per-ability columns are the mean across living organisms.
 func TestAverageAbilityScores(t *testing.T) {
 	loadDefaultGlobals(t)
 	m := &OrganismManager{organisms: map[int]*organism.Organism{}, organismIDGrid: initializeGrid()}
@@ -44,7 +42,6 @@ func TestAverageAbilityScores(t *testing.T) {
 	}
 }
 
-// organismWithScores builds a test organism carrying the given scores.
 func organismWithScores(id int, location, direction utils.Point, size float64, scores physiology.Scores) *organism.Organism {
 	return organism.Restore(id, 1, size, size, 0, 0, 0, location, direction, id,
 		organism.Traits{Abilities: scores}, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, nil)

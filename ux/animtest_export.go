@@ -18,31 +18,16 @@ import (
 	"github.com/Zebbeni/protozoa/resources"
 )
 
-// gifExportDir is the directory (relative to the working dir) the
-// animation-test writes click-exported GIFs into.
+// gifExportDir is the directory (relative to the working dir) the animation-test writes click-exported GIFs into.
 const gifExportDir = "gif_exports"
 
-// exportCellGif renders every frame of the clicked matrix cell into an
-// animated GIF, applying the current physiology/colour state, and writes
-// it to gifExportDir. Returns the saved file path on success.
-//
-// Rendering reuses drawDemoSprite so the GIF matches what the matrix
-// shows pixel-for-pixel (same layers, tints, direction, scale). Frames
-// are read back from offscreen ebiten images, cropped to the union of
-// non-transparent bounds across frames so the output is tight, and
-// quantised against a palette built from the rendered pixels themselves
-// — this project's narrow grayscale-times-tint range almost always fits
-// in 256 entries, giving lossless quantisation. If it overflows, we
-// fall back to palette.Plan9.
+// exportCellGif renders every frame of the clicked matrix cell into an animated GIF, applying the current physiology/colour state.
 func (a *AnimationTest) exportCellGif(h cellHit) (string, error) {
 	nativeCell := float64(h.nativeCell)
 	scale := float64(GridDisplayScale)
 	cellPx := nativeCell * scale
 
-	// East direction puts a 2-cell sprite's extension to the right of
-	// the base cell; height is always one cell at East. Single-cell
-	// frames just leave the right half transparent and get cropped
-	// away by the bbox pass below.
+	// East direction puts a 2-cell sprite's extension to the right of the base cell.
 	canvasW := int(cellPx * 2)
 	canvasH := int(cellPx)
 	if canvasW < 1 {
@@ -57,9 +42,7 @@ func (a *AnimationTest) exportCellGif(h cellHit) (string, error) {
 		framesInSet = 1
 	}
 
-	// Make sure the global zoom matches the row we're exporting from so
-	// SpriteLayer lookups inside drawDemoSprite hit this set's images.
-	// drawMatrix re-sets per row on the next frame, so we don't restore.
+	// Make sure the global zoom matches the row we're exporting from so SpriteLayer lookups inside drawDemoSprite hit this set's images.
 	resources.SelectZoom(h.spriteSet)
 
 	frames := make([]*image.RGBA, framesInSet)
@@ -96,15 +79,11 @@ func (a *AnimationTest) exportCellGif(h cellHit) (string, error) {
 	delays := make([]int, len(cropped))
 	for i, rgba := range cropped {
 		p := image.NewPaletted(rgba.Bounds(), pal)
-		// draw.Src with our exact-match palette is effectively a lookup —
-		// no dithering, no loss when palette came from the same pixels.
+		// draw.Src with our exact-match palette is effectively a lookup.
 		draw.Draw(p, p.Bounds(), rgba, image.Point{}, draw.Src)
 		palettedFrames[i] = p
 		delays[i] = perFrameDelay
-		// DisposalBackground clears each frame's region back to
-		// transparent before the next frame draws — required so a
-		// shrinking sprite doesn't leave ghost pixels from the previous
-		// frame, which would happen with the default (no-op) disposal.
+		// DisposalBackground clears each frame's region back to transparent before the next frame draws.
 		disposals[i] = gif.DisposalBackground
 	}
 
@@ -135,9 +114,7 @@ func (a *AnimationTest) exportCellGif(h cellHit) (string, error) {
 	return fpath, nil
 }
 
-// unionNonTransparentBounds returns the smallest rectangle containing
-// every non-transparent pixel across all frames. The returned rect is
-// empty if every pixel in every frame has alpha=0.
+// unionNonTransparentBounds returns the smallest rectangle containing every non-transparent pixel across all frames.
 func unionNonTransparentBounds(frames []*image.RGBA) image.Rectangle {
 	minX, minY := 1<<30, 1<<30
 	maxX, maxY := -1, -1
@@ -170,11 +147,7 @@ func unionNonTransparentBounds(frames []*image.RGBA) image.Rectangle {
 	return image.Rect(minX, minY, maxX+1, maxY+1)
 }
 
-// buildGifPalette collects the unique RGBA values across every frame
-// (plus a transparent entry at index 0). If the unique count fits in
-// 256, the palette is exact and quantisation is lossless. Otherwise we
-// fall back to palette.Plan9 with transparent prepended — accepts some
-// quantisation loss but guarantees a valid GIF palette.
+// buildGifPalette collects the unique RGBA values across every frame (plus a transparent entry at index 0).
 func buildGifPalette(frames []*image.RGBA) color.Palette {
 	pal := color.Palette{color.RGBA{0, 0, 0, 0}}
 	seen := map[uint32]struct{}{0: {}}
@@ -207,11 +180,7 @@ func buildGifPalette(frames []*image.RGBA) color.Palette {
 	return pal
 }
 
-// centisecondsPerFrame returns the per-frame delay for the GIF, in 1/100
-// second units (the gif package's delay unit). Cycle duration matches
-// the animation package's Speed-1 cycle: BaseFramesPerCycle frames at
-// AnimationFPS. Each frame of any zoom's frame count gets an equal slice
-// of that cycle.
+// centisecondsPerFrame returns the per-frame delay for the GIF, in 1/100 second units (the gif package's delay unit).
 func centisecondsPerFrame(framesInSet int) int {
 	if framesInSet < 1 {
 		framesInSet = 1
@@ -219,20 +188,13 @@ func centisecondsPerFrame(framesInSet int) int {
 	// 100 * BaseFramesPerCycle / (AnimationFPS * framesInSet)
 	d := 100 * animation.BaseFramesPerCycle / (animation.AnimationFPS * framesInSet)
 	if d < 2 {
-		// Most browsers/viewers clamp delays under 2cs to 10cs, which
-		// would make fast animations play far slower than intended. 2cs
-		// matches the GIF89a de-facto minimum and keeps the
-		// densest (16x16, 4-frame) cycle roughly correct.
+		// Most browsers/viewers clamp delays under 2cs to 10cs.
 		d = 2
 	}
 	return d
 }
 
-// gifFilename builds a descriptive, filesystem-safe name for the
-// exported GIF. Includes zoom, role, animation, and the held features
-// so the file is identifiable in a directory listing of many exports.
-// Colors aren't encoded — overwriting on re-export with the same
-// settings is the desired behaviour.
+// gifFilename builds a descriptive, filesystem-safe name for the exported GIF.
 func gifFilename(h cellHit, app physiology.Appearance) string {
 	zoom := fmt.Sprintf("%dx%d", h.nativeCell, h.nativeCell)
 	role := strings.ToLower(h.roleLabel)
@@ -240,10 +202,7 @@ func gifFilename(h cellHit, app physiology.Appearance) string {
 	return fmt.Sprintf("%s_%s_%s_%s.gif", zoom, role, anim, appearanceSlug(app))
 }
 
-// appearanceSlug renders an appearance as a kebab-case string for the
-// export filename, listing the overlays in render order and skipping
-// the "none" classes. The body class is always present, so the slot in
-// the filename is never empty.
+// appearanceSlug renders an appearance as a kebab-case string for the export filename, listing the overlays in render order and skipping the "none" classes.
 func appearanceSlug(app physiology.Appearance) string {
 	parts := make([]string, 0, 4)
 	for _, row := range appearanceRows {

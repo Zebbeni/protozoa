@@ -12,14 +12,13 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// MenuChoice is the action the user picked from the main menu. None
-// means no choice yet (Update keeps polling).
 type MenuChoice int
 
 const (
 	MenuChoiceNone MenuChoice = iota
 	MenuChoiceNewSimulation
 	MenuChoiceLoadPrevious
+	MenuChoiceLoadRecording
 	MenuChoiceDesigner
 	MenuChoiceRules
 	MenuChoiceExit
@@ -42,18 +41,14 @@ type menuButton struct {
 var mainMenuButtons = []menuButton{
 	{"New Simulation", MenuChoiceNewSimulation},
 	{"Load Previous", MenuChoiceLoadPrevious},
+	{"Saved Recordings", MenuChoiceLoadRecording},
 	{"Organism Designer", MenuChoiceDesigner},
 	{"Rules", MenuChoiceRules},
 	{"Exit", MenuChoiceExit},
 }
 
-// MainMenu renders the top-level menu shown after the splash. Update
-// returns the user's choice once a button is clicked, or MenuChoiceNone
-// while the menu is idle. The runner reads the choice and transitions.
+// MainMenu renders the top-level menu shown after the splash.
 type MainMenu struct {
-	// disabled marks specific choices as click-through-but-no-op. We
-	// disable Load Previous when no .pzr file exists — the button still
-	// renders so the layout stays stable, but reads as muted.
 	disabled map[MenuChoice]bool
 }
 
@@ -61,9 +56,7 @@ func NewMainMenu() *MainMenu {
 	return &MainMenu{disabled: map[MenuChoice]bool{}}
 }
 
-// SetDisabled toggles whether a given choice should appear muted and
-// reject clicks. Called by the runner after probing the filesystem for
-// a saved replay.
+// SetDisabled toggles whether a given choice should appear muted and reject clicks.
 func (m *MainMenu) SetDisabled(choice MenuChoice, off bool) {
 	if off {
 		m.disabled[choice] = true
@@ -89,9 +82,7 @@ func (m *MainMenu) Update() MenuChoice {
 	return MenuChoiceNone
 }
 
-// Draw paints the title and four buttons centred on screen. The hover
-// state is computed at draw time so we don't need to track it across
-// frames.
+// Draw paints the title and four buttons centred on screen.
 func (m *MainMenu) Draw(screen *ebiten.Image) {
 	fillThemeBackground(screen)
 	m.drawTitle(screen)
@@ -106,10 +97,7 @@ func (m *MainMenu) Draw(screen *ebiten.Image) {
 	}
 }
 
-// drawTitle paints the menu title using the same Inversionz face the
-// replay panel uses for its top-left "protozoa" label, drawn at native
-// size for an unambiguous "this is the same UI" cue. Centred above
-// the button column.
+// drawTitle paints the menu title using the same Inversionz face the replay panel uses for its top-left "protozoa" label, drawn at native size for an unambiguous "this is the same UI" cue.
 func (m *MainMenu) drawTitle(screen *ebiten.Image) {
 	face := r.FontInversionz40
 	bounds := boundString(face, mainMenuTitle)
@@ -118,8 +106,7 @@ func (m *MainMenu) drawTitle(screen *ebiten.Image) {
 	text.Draw(screen, mainMenuTitle, face, tx, ty, themedForeground())
 }
 
-// titleY returns the baseline-y coordinate of the title so the title +
-// gap + button stack renders vertically centred on screen.
+// titleY returns the baseline-y coordinate of the title so the title + gap + button stack renders vertically centred on screen.
 func (m *MainMenu) titleY() int {
 	titleH := boundString(r.FontInversionz40, mainMenuTitle).Dy()
 	totalH := titleH + mainMenuTitleGap +
@@ -134,9 +121,6 @@ func (m *MainMenu) buttonRect(i int) (int, int) {
 	return x, y
 }
 
-// drawMenuButton paints a generic themed button. Same chrome the popup
-// reuses for Cancel/Start/View/Retry/Edit so the menu and popup share
-// look-and-feel without each rolling its own button drawer.
 func drawMenuButton(screen *ebiten.Image, x, y, w, h int, label string, hovered, pressed, dim bool) {
 	base := chrome(
 		color.RGBA{R: 50, G: 50, B: 70, A: 255},    // dark theme
@@ -153,8 +137,7 @@ func drawMenuButton(screen *ebiten.Image, x, y, w, h int, label string, hovered,
 	}
 	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), fill)
 
-	// Border so the button reads as a discrete control rather than a
-	// flat patch of background.
+	// Border so the button reads as a discrete control rather than a flat patch of background.
 	border := chrome(
 		color.RGBA{R: 100, G: 100, B: 130, A: 255},
 		color.RGBA{R: 150, G: 150, B: 165, A: 255},

@@ -8,8 +8,6 @@ import (
 	"github.com/Zebbeni/protozoa/resources"
 )
 
-// TestFoodBucketsSplitOnQuarters pins the boundaries the art is drawn
-// against: under 25% is tiny, 75% and over is large.
 func TestFoodBucketsSplitOnQuarters(t *testing.T) {
 	loadKeyGlobals(t)
 	maxVal := config.MaxFoodValue()
@@ -34,9 +32,6 @@ func TestFoodBucketsSplitOnQuarters(t *testing.T) {
 	}
 }
 
-// TestWallBucketsSplitOnQuarters: weak stayed the bottom tier when giant
-// was added at the top, so the names don't run in the order the middle
-// two suggest — weak, medium, strong, giant.
 func TestWallBucketsSplitOnQuarters(t *testing.T) {
 	loadKeyGlobals(t)
 	maxS := manager.MaxWallStrength
@@ -60,9 +55,7 @@ func TestWallBucketsSplitOnQuarters(t *testing.T) {
 	}
 }
 
-// TestEverySizeTierIsReachable: a bucket no value can land in is art
-// nobody will ever see. Walks the whole range of each quantity and
-// checks all four roles come up.
+// TestEverySizeTierIsReachable: a bucket no value can land in is art nobody will ever see.
 func TestEverySizeTierIsReachable(t *testing.T) {
 	loadKeyGlobals(t)
 

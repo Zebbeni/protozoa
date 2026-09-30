@@ -11,9 +11,7 @@ import (
 	"github.com/Zebbeni/protozoa/simrand"
 )
 
-// The curve endpoints and mutation rates live in config; production
-// loads them from an embedded FS via main's init, which tests can't
-// reach, so decode settings/default.json from disk.
+// The curve endpoints and mutation rates live in config.
 func loadGlobals(t *testing.T) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
@@ -39,14 +37,6 @@ func TestBalancedScoresValid(t *testing.T) {
 	}
 }
 
-// TestCurvesRunBetweenZeroAndOne: effect curves go from 0 at score 0 to 1
-// at score 100, and cost curves the other way round.
-//
-// Each curve is checked under a real shape rather than whatever the
-// settings happen to name, because a curve configured ShapeFlat is 1
-// everywhere on purpose — that is how a curve says the score shouldn't
-// scale it at all. What is being pinned here is the shapes, not the
-// configuration, so the configuration is set aside.
 func TestCurvesRunBetweenZeroAndOne(t *testing.T) {
 	loadGlobals(t)
 	base := *config.GetCurrentGlobals()
@@ -67,8 +57,6 @@ func TestCurvesRunBetweenZeroAndOne(t *testing.T) {
 	}
 }
 
-// TestCostCurvesFallEffectCurvesRise pins the direction for any K: a
-// better score always makes a cost cheaper and an effect stronger.
 func TestCostCurvesFallEffectCurvesRise(t *testing.T) {
 	loadGlobals(t)
 	for _, k := range []float64{0, 0.5, 1} {
@@ -146,17 +134,15 @@ func setCurveShape(g *config.Globals, id CurveID, kind ShapeKind) {
 		g.ChemoPhEffectCurveShape = name
 	case CurveEatingPhEffect:
 		g.EatingPhEffectCurveShape = name
+	case CurveEatingCost:
+		g.EatingCostCurveShape = name
 	default:
-		// Loud rather than silent: a curve missing from this switch keeps
-		// whatever shape the settings gave it, so every test that sets a
-		// shape quietly tests something else instead. CurveDiggingCreate
-		// sat unhandled here for exactly that reason.
+		// Loud rather than silent: a curve missing from this switch keeps whatever shape the settings gave it.
 		panic("setCurveShape: no case for curve " + id.Name())
 	}
 }
 
-// TestCosineShape pins the formula: T = (1 − cos(πp))/2, D = (1 − p)·K·T,
-// shape = T − D.
+// TestCosineShape pins the formula: T = (1 − cos(πp))/2, D = (1 − p)·K·T, shape = T − D.
 func TestCosineShape(t *testing.T) {
 	loadGlobals(t)
 	g := *config.GetCurrentGlobals()
@@ -188,8 +174,6 @@ func TestCosineShape(t *testing.T) {
 	}
 }
 
-// TestCostCurvesMirrorEffectCurves: with the same K, a cost curve is 1
-// minus the effect curve at every score.
 func TestCostCurvesMirrorEffectCurves(t *testing.T) {
 	loadGlobals(t)
 	g := *config.GetCurrentGlobals()
@@ -203,8 +187,7 @@ func TestCostCurvesMirrorEffectCurves(t *testing.T) {
 	}
 }
 
-// TestCurveKClamps: K is held to [0, 1], so no setting can make a curve
-// run backwards.
+// TestCurveKClamps: K is held to [0, 1], so no setting can make a curve run backwards.
 func TestCurveKClamps(t *testing.T) {
 	loadGlobals(t)
 	g := *config.GetCurrentGlobals()
@@ -229,8 +212,7 @@ func TestCurveKClamps(t *testing.T) {
 	}
 }
 
-// TestSaturatingShape: chemosynthesis front-loads its gains, reaching half
-// the benefit at score √K, and still ends at exactly 1.
+// TestSaturatingShape: chemosynthesis front-loads its gains, reaching half the benefit at score √K.
 func TestSaturatingShape(t *testing.T) {
 	loadGlobals(t)
 	g := *config.GetCurrentGlobals()
@@ -261,10 +243,7 @@ func TestSaturatingShape(t *testing.T) {
 	}
 }
 
-// TestMutationPreservesTotal is the invariant guard. Mutation moves
-// points between entries and must never mint or destroy them; a
-// lineage that drifted off PointTotal would quietly out-compete
-// everything else for reasons no config value explains.
+// TestMutationPreservesTotal is the invariant guard.
 func TestMutationPreservesTotal(t *testing.T) {
 	loadGlobals(t)
 
@@ -279,10 +258,6 @@ func TestMutationPreservesTotal(t *testing.T) {
 	t.Logf("after 200k mutations: %v (total %d)", s, s.Total())
 }
 
-// TestMutationReachesSpecialisation confirms the budget can actually be
-// concentrated — if the transfer rule could not move a lineage far from
-// its start, the scores would be decoration rather than a strategy
-// space.
 func TestMutationReachesSpecialisation(t *testing.T) {
 	loadGlobals(t)
 
@@ -304,9 +279,6 @@ func TestMutationReachesSpecialisation(t *testing.T) {
 	t.Logf("peak non-chemo score reached: %d", peak)
 }
 
-// TestMutationIsDeterministic guards replay: the same seed and the same
-// starting scores must produce an identical mutation sequence. Map
-// iteration or a reject-and-retry picker would break this silently.
 func TestMutationIsDeterministic(t *testing.T) {
 	loadGlobals(t)
 

@@ -24,8 +24,7 @@ type Debug struct {
 	gridRenderTime  time.Duration
 	panelRenderTime time.Duration
 
-	// Per-phase grid breakdown, set by Interface.renderGrid right after
-	// the grid finishes drawing each frame.
+	// Per-phase grid breakdown, set by Interface.renderGrid right after the grid finishes drawing each frame.
 	gridTimings RenderTimings
 }
 
@@ -40,7 +39,6 @@ func (d *Debug) render() *ebiten.Image {
 
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	// write info to screen
 	info := fmt.Sprintf("FPS: %0.2f", ebiten.CurrentFPS())
 	info = fmt.Sprintf("%s\nAlloc: %v", info, m.Alloc/1024)
 	info = fmt.Sprintf("%s\nTotalAlloc: %v", info, m.TotalAlloc/1024)

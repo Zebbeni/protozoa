@@ -9,9 +9,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// Measures how much the close-time sections add on top of the bytes
-// written during a run, so the size projection uses a measured figure
-// rather than a guess. Skipped unless SIZE_PROBE=1.
+// Measures how much the close-time sections add on top of the bytes written during a run.
 func TestReplaySizeProbe(t *testing.T) {
 	if os.Getenv("SIZE_PROBE") != "1" {
 		t.Skip("set SIZE_PROBE=1")
@@ -43,10 +41,6 @@ func TestReplaySizeProbe(t *testing.T) {
 	}
 }
 
-// TestSizeEstimateBeatsTheRealFile is the check that matters for a cap:
-// the projection must not come in *under* the file that actually lands
-// on disk, or a run overruns the limit the user set. It is allowed to
-// overshoot — stopping slightly early is the safe direction.
 func TestSizeEstimateBeatsTheRealFile(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join("..", "settings", "default.json"))
 	var g config.Globals
@@ -72,11 +66,6 @@ func TestSizeEstimateBeatsTheRealFile(t *testing.T) {
 			t.Errorf("at %d cycles the estimate was %d but the file is %d — a cap set on this would overrun",
 				cycles, estimate, actual)
 		}
-		// And not so far over that the cap stops runs well short of the
-		// size the user asked for. Only checked once the file is big
-		// enough for that to mean anything: on a 6KB file the fixed
-		// close-time overhead is most of the estimate, and the smallest
-		// cap the user can set is 50MB.
 		const bigEnoughToMatter = 1 << 20
 		if actual > bigEnoughToMatter && float64(estimate) > 1.5*float64(actual) {
 			t.Errorf("at %d cycles the estimate %d is more than 1.5x the real %d",

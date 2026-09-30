@@ -14,17 +14,13 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// guard is one condition on the path chooseAction took, with the branch
-// it followed.
+// guard is one condition on the path chooseAction took, with the branch it followed.
 type guard struct {
 	cond d.Condition
 	yes  bool
 }
 
-// pathGuards walks the branch chooseAction took last cycle. Compared by
-// typed constant, not by label: decision.Map holds display names ("If
-// Food Ahead"), and matching those silently classifies everything as
-// unguarded.
+// pathGuards walks the branch chooseAction took last cycle.
 func pathGuards(t *d.Tree) []guard {
 	var out []guard
 	n := t.Node
@@ -53,8 +49,6 @@ func taken(gs []guard, c d.Condition, yes bool) bool {
 	return false
 }
 
-// TestEatMissDiagnosis reports what led to each eat attempt: the guard
-// the tree used, and where the food actually was.
 func TestEatMissDiagnosis(t *testing.T) {
 	if os.Getenv("EAT_MISS") == "" {
 		t.Skip()

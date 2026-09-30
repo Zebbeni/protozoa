@@ -15,10 +15,10 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// phLookup is a LookupAPI whose whole world sits at one pH.
 type phLookup struct{ ph float64 }
 
 func (l phLookup) CheckFoodAtPoint(utils.Point, FoodCheck) bool    { return false }
+func (l phLookup) GetBuriedFoodAtPoint(utils.Point) int            { return 0 }
 func (l phLookup) CheckOrganismAtPoint(utils.Point, OrgCheck) bool { return false }
 func (l phLookup) GetFoodAtPoint(utils.Point) (*food.Item, bool)   { return nil, false }
 func (l phLookup) GetPhAtPoint(utils.Point) float64                { return l.ph }
@@ -27,6 +27,7 @@ func (l phLookup) IsWallAtPoint(utils.Point) bool                  { return fals
 func (l phLookup) GetWallStrengthAtPoint(utils.Point) int          { return 0 }
 func (l phLookup) OrganismCount() int                              { return 1 }
 func (l phLookup) FoodCount() int                                  { return 0 }
+func (l phLookup) BuriedFoodCount() int                            { return 0 }
 func (l phLookup) WallCount() int                                  { return 0 }
 func (l phLookup) Cycle() int                                      { return 0 }
 func (l phLookup) GetSelected() int                                { return -1 }
@@ -45,13 +46,10 @@ func globalsWithChemoWidth(t *testing.T, chemoScore int) *config.Globals {
 	return config.GetCurrentGlobals()
 }
 
-// testPhScore is the Chemosynthesis and Tolerance score the pH-condition
-// organism carries: half the budget each, so both abilities are well
-// inside their curves rather than at an endpoint.
+// testPhScore is the Chemosynthesis and Tolerance score the pH-condition organism carries.
 const testPhScore = physiology.MaxAbilityScore / 2
 
-// organismAtPhDistance builds an organism sitting dist away from its
-// ideal pH, splitting its budget between Chemosynthesis and Tolerance.
+// organismAtPhDistance builds an organism sitting dist away from its ideal pH, splitting its budget between Chemosynthesis and Tolerance.
 func organismAtPhDistance(dist float64) *Organism {
 	const ideal = 5.0
 	scores := physiology.Scores{}
@@ -63,10 +61,6 @@ func organismAtPhDistance(dist float64) *Organism {
 	}
 }
 
-// TestPhConditionsAreIndependent pins the split: each condition asks
-// about its own ability — "safe here" about Tolerance's width T, "can
-// chemosynthesize here" about Chemosynthesis's width C — so they disagree
-// wherever the two widths differ.
 func TestPhConditionsAreIndependent(t *testing.T) {
 	g := globalsWithChemoWidth(t, testPhScore)
 	chemo := effects.ChemoWidth(g, testPhScore)
@@ -75,7 +69,6 @@ func TestPhConditionsAreIndependent(t *testing.T) {
 		t.Fatalf("test assumes a narrower feeding width than bearable band: C %v, T %v", chemo, bearable)
 	}
 
-	// Between the two: the water is bearable, but feeding no longer pays.
 	between := (chemo + bearable) / 2
 	o := organismAtPhDistance(between)
 	if !o.isConditionTrue(d.IsHealthyPhHere) {
@@ -85,7 +78,6 @@ func TestPhConditionsAreIndependent(t *testing.T) {
 		t.Errorf("at distance %.2f (past C = %.2f) chemosynthesis should not pay off", between, chemo)
 	}
 
-	// Inside both, and outside both.
 	if o := organismAtPhDistance(chemo / 2); !o.isConditionTrue(d.IsHealthyPhHere) || !o.isConditionTrue(d.CanChemosynthesizeHere) {
 		t.Error("close to its ideal pH an organism should be both safe and able to feed")
 	}
@@ -94,9 +86,6 @@ func TestPhConditionsAreIndependent(t *testing.T) {
 	}
 }
 
-// TestChemosynthesisIsOneCurve: the same curve covers the whole attempt —
-// a gain at the ideal pH, breaking even at C, a loss past it — so nothing
-// needs a separate "failed" case.
 func TestChemosynthesisIsOneCurve(t *testing.T) {
 	g := globalsWithChemoWidth(t, physiology.MaxAbilityScore)
 	const score = 60
@@ -122,9 +111,6 @@ func TestChemosynthesisIsOneCurve(t *testing.T) {
 	}
 }
 
-// TestPhDamageNeverReachesZero: there is no safe band — only water at
-// exactly an organism's ideal pH is free — and Tolerance widens what an
-// organism bears without ever cancelling the cost.
 func TestPhDamageNeverReachesZero(t *testing.T) {
 	g := globalsWithChemoWidth(t, physiology.MaxAbilityScore)
 

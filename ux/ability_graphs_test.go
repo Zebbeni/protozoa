@@ -15,8 +15,6 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// TestEveryCurveHasGraphs: each curve setting row gets a toggle and a
-// graph block, and each block has at least one graph.
 func TestEveryCurveHasGraphs(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	toggles, blocks := map[physiology.Ability]bool{}, map[physiology.Ability]bool{}
@@ -30,8 +28,7 @@ func TestEveryCurveHasGraphs(t *testing.T) {
 			}
 		}
 	}
-	// One row and one block per ability — Digging and Defense each drive
-	// two curves and share a row.
+	// One row and one block per ability — Digging and Defense each drive two curves and share a row.
 	for _, id := range physiology.AllCurves {
 		a := id.Ability()
 		if !toggles[a] || !blocks[a] {
@@ -41,8 +38,7 @@ func TestEveryCurveHasGraphs(t *testing.T) {
 			t.Errorf("%s has no graphs", id.Name())
 		}
 	}
-	// The abilities that drive more than one curve show them all in one
-	// block rather than one row per curve.
+	// The abilities that drive more than one curve show them all in one block rather than one row per curve.
 	for a, want := range map[physiology.Ability]int{
 		physiology.AbilityDigging: 3, physiology.AbilityDefense: 2,
 	} {
@@ -52,8 +48,6 @@ func TestEveryCurveHasGraphs(t *testing.T) {
 	}
 }
 
-// TestGraphsExpandAndCollapse: a graph block takes no space until its
-// toggle is expanded, and the scrollable height grows by its block.
 func TestGraphsExpandAndCollapse(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for i := range cs.sections {
@@ -71,15 +65,12 @@ func TestGraphsExpandAndCollapse(t *testing.T) {
 	}
 }
 
-// TestGraphsReadTheFormValues: graphs use the configuration being edited,
-// through the effects package, so editing a curve's end changes the graph.
 func TestGraphsReadTheFormValues(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	g := cs.globals
 	move := curveGraphsFor(physiology.CurveMovementCost)[0].series[0]
 
-	// Costs are plotted as what they take off, so the graph is the
-	// magnitude of the health change.
+	// Costs are plotted as what they take off, so the graph is the magnitude of the health change.
 	if got, want := move.value(g, 100), math.Abs(effects.MoveCost(g, 100, 1)); got != want {
 		t.Errorf("move graph at 100 = %v, want effects.MoveCost %v", got, want)
 	}
@@ -96,10 +87,6 @@ func TestGraphsReadTheFormValues(t *testing.T) {
 	}
 }
 
-// TestDamageGraphsRiseWithScore: graphs titled as damage plot how hard a
-// hit lands, so they run from nothing at score 0 up to the full value at
-// 100. The simulation states damage as a negative health change, and
-// plotting that raw made these graphs read upside-down.
 func TestDamageGraphsRiseWithScore(t *testing.T) {
 	_, globals := abilityConfigScreen(t)
 	checked := 0
@@ -126,9 +113,6 @@ func TestDamageGraphsRiseWithScore(t *testing.T) {
 	}
 }
 
-// TestCostGraphsFallWithScore: graphs titled as a cost plot what an
-// action takes off, so they run from the full cost at score 0 down as the
-// ability improves.
 func TestCostGraphsFallWithScore(t *testing.T) {
 	_, globals := abilityConfigScreen(t)
 	checked := 0
@@ -155,8 +139,6 @@ func TestCostGraphsFallWithScore(t *testing.T) {
 	}
 }
 
-// TestEveryCurveHasAShapeRow: each curve is pickable through the form,
-// and cycling moves through every shape and back round.
 func TestEveryCurveHasAShapeRow(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	rows := map[physiology.Ability]bool{}
@@ -192,13 +174,9 @@ func TestEveryCurveHasAShapeRow(t *testing.T) {
 	}
 }
 
-// TestEachShapeKeepsItsOwnK: the cosine and saturating shapes read K on
-// different scales, so each curve stores one K per shape. Switching shape
-// must leave both untouched, and show only the K row in play.
 func TestEachShapeKeepsItsOwnK(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
-	// The form edits its own copy of the globals, which is what the
-	// shape picker writes to.
+	// The form edits its own copy of the globals, which is what the shape picker writes to.
 	g := cs.globals
 	g.AttackCosineK, g.AttackSaturatingK = 0.4, 60
 
@@ -213,8 +191,7 @@ func TestEachShapeKeepsItsOwnK(t *testing.T) {
 		t.Error("the curve didn't change when the shape did")
 	}
 
-	// The block's coefficient slider edits the K of the shape in use, and
-	// its range is that shape's.
+	// The block's coefficient slider edits the K of the shape in use, and its range is that shape's.
 	cosineRow := findField(t, cs, "attack_cosine_k")
 	saturatingRow := findField(t, cs, "attack_saturating_k")
 	if lo, hi := cs.getSliderRange(cosineRow); lo != 0 || hi != 1 {
@@ -238,9 +215,6 @@ func TestEachShapeKeepsItsOwnK(t *testing.T) {
 	}
 }
 
-// TestShapeButtonsSitBesideTheGraphs: every shape has a button in the
-// controls column beside the curve's graphs, and hit-testing one picks
-// that shape.
 func TestShapeButtonsSitBesideTheGraphs(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for i, kind := range physiology.AllShapeKinds {
@@ -263,8 +237,6 @@ func TestShapeButtonsSitBesideTheGraphs(t *testing.T) {
 	}
 }
 
-// TestCurveKAcceptsTypedValues: clicking a knob's label opens it for
-// typing, and what's typed lands on the field that knob edits.
 func TestCurveKAcceptsTypedValues(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	g := cs.globals
@@ -297,9 +269,6 @@ func TestCurveKAcceptsTypedValues(t *testing.T) {
 	}
 }
 
-// TestCurveBlockHoldsItsSettings: an ability's numbers live with its
-// curve — the shape's coefficient first, then every setting that curve
-// scales — and each has a slider in the block.
 func TestCurveBlockHoldsItsSettings(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for _, curve := range physiology.AllCurves {
@@ -333,10 +302,6 @@ func TestCurveBlockHoldsItsSettings(t *testing.T) {
 	}
 }
 
-// TestMultiCurveAbilitiesShareOneBlock: Digging drives cost, removal and
-// creation curves, Defense a damage-taken and a thorns curve, and each
-// ability shows them in one block — a section per curve, each with its
-// own controls.
 func TestMultiCurveAbilitiesShareOneBlock(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for _, a := range []physiology.Ability{physiology.AbilityDigging, physiology.AbilityDefense} {
@@ -345,8 +310,7 @@ func TestMultiCurveAbilitiesShareOneBlock(t *testing.T) {
 			t.Fatalf("%s drives %d curves, want more than one", a.Name(), len(curves))
 		}
 
-		// The block is tall enough for both sections, and a point inside
-		// each resolves to that curve.
+		// The block is tall enough for both sections, and a point inside each resolves to that curve.
 		want := curveGraphPadTop
 		for _, id := range curves {
 			want += curveSectionHeight(id)
@@ -368,7 +332,6 @@ func TestMultiCurveAbilitiesShareOneBlock(t *testing.T) {
 			t.Errorf("%s: a point past the block matched a section", a.Name())
 		}
 
-		// Each curve keeps its own shape.
 		cs.setCurveShape(curves[0], physiology.ShapeLinear)
 		cs.setCurveShape(curves[1], physiology.ShapeQuadratic)
 		if physiology.ShapeFor(cs.globals, curves[0]) == physiology.ShapeFor(cs.globals, curves[1]) {
@@ -377,8 +340,7 @@ func TestMultiCurveAbilitiesShareOneBlock(t *testing.T) {
 	}
 }
 
-// curveSectionMidpoint is a y inside the given curve's section of an
-// ability's block at y=0.
+// curveSectionMidpoint is a y inside the given curve's section of an ability's block at y=0.
 func curveSectionMidpoint(a physiology.Ability, want physiology.CurveID) int {
 	top := curveGraphPadTop
 	for _, id := range physiology.CurvesFor(a) {
@@ -391,10 +353,6 @@ func curveSectionMidpoint(a physiology.Ability, want physiology.CurveID) int {
 	return top
 }
 
-// TestClickingASliderLineOpensItForTyping: the line above each slider is
-// the click-to-edit target, and the block has to show that it's open —
-// the value is typed into a hidden row, so without the highlight and
-// caret a click on it looks like it did nothing.
 func TestClickingASliderLineOpensItForTyping(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	a, curve := physiology.AbilityAttack, physiology.CurveAttack
@@ -422,7 +380,6 @@ func TestClickingASliderLineOpensItForTyping(t *testing.T) {
 		}
 	}
 
-	// And the bar under the line still drags rather than opening an edit.
 	sx, sy, sw, sh := curveSliderRect(ctrlX, top, 0)
 	cs.selectedRow, cs.editingValue = -1, ""
 	cs.handleCurveBlockClick(0, 0, sx+sw/2, sy+sh/2, a)
@@ -431,10 +388,6 @@ func TestClickingASliderLineOpensItForTyping(t *testing.T) {
 	}
 }
 
-// TestCurveControlsStayInsideTheBlock: the shape buttons sit in a grid
-// and the sliders under them, all within the controls column — the
-// column's contents are laid out by hand, so an overrun would only show
-// up as text clipped at the panel edge.
 func TestCurveControlsStayInsideTheBlock(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	w := cs.panelWidth()
@@ -472,10 +425,6 @@ func TestCurveControlsStayInsideTheBlock(t *testing.T) {
 	}
 }
 
-// TestBlockFontsAreReadAtDrawTime: resources.initFonts runs at startup,
-// after package-level variables are initialised, so a var holding one of
-// these faces captures nil and every block draw panics inside
-// BoundString. They have to be read through a call each time.
 func TestBlockFontsAreReadAtDrawTime(t *testing.T) {
 	saved10, saved12 := r.FontSourceCodePro10, r.FontSourceCodePro12
 	defer func() { r.FontSourceCodePro10, r.FontSourceCodePro12 = saved10, saved12 }()
@@ -493,18 +442,11 @@ func TestBlockFontsAreReadAtDrawTime(t *testing.T) {
 	}
 }
 
-// TestGraphTitlesFitTheirPlots: every title has to land inside the plot
-// it sits over, in at most the two lines the title band holds. A title
-// that can't is a title to shorten — wrapGraphTitle lets it overhang
-// rather than cutting words out of it, so nothing else would catch it.
 func TestGraphTitlesFitTheirPlots(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	_, graphW := curveCtrlX(0, cs.panelWidth())
 	plotW := graphW - curveGraphLeft - 8
-	// The real face isn't loaded in tests; this one is close enough in
-	// advance width (7px vs Source Code Pro 12's ~7.2) to catch a title
-	// that needs a third line. The margin covers the difference, so a
-	// title that only just passes here doesn't overhang on screen.
+	// The real face isn't loaded in tests.
 	face, fit := basicfont.Face7x13, plotW*92/100
 
 	for _, id := range physiology.AllCurves {
@@ -524,17 +466,12 @@ func TestGraphTitlesFitTheirPlots(t *testing.T) {
 		}
 	}
 
-	// And a title that fits stays on one line, so short titles don't sit
-	// oddly split above their plots.
+	// And a title that fits stays on one line, so short titles don't sit oddly split above their plots.
 	if got := wrapGraphTitle("Wall strength moved per dig", face, plotW); len(got) != 1 {
 		t.Errorf("a title that fits wrapped anyway: %q", got)
 	}
 }
 
-// TestSeriesColoursKeepScoreAndSizeApart: the lines comparing ability
-// scores and the lines comparing organism sizes sit a row apart in the
-// same block, so they're drawn from two families — cool for scores,
-// warm for sizes — and no graph repeats a colour within itself.
 func TestSeriesColoursKeepScoreAndSizeApart(t *testing.T) {
 	rgb := func(c color.Color) [3]uint32 {
 		r, g, b, _ := c.RGBA()
@@ -578,10 +515,6 @@ func TestSeriesColoursKeepScoreAndSizeApart(t *testing.T) {
 	}
 }
 
-// TestGraphRangeNeverPadsPastZero: an effect that is only ever damage,
-// or only ever a gain, has zero as a real edge of its range. Padding the
-// axis through it put a -6.67 label under a damage graph, which reads as
-// an amount the effect can produce.
 func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -590,11 +523,7 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 	}{
 		{"damage from zero", 0, 83.33, 0, 90},
 		{"cost to zero", -83.33, 0, -90, 0},
-		// A flat line's pad is a tenth of the value, so the line sits in
-		// the middle of an axis labelled around it. The axis deliberately
-		// doesn't reach zero here: for a constant, what the reader needs
-		// is the number, and an axis wide enough to include zero put the
-		// line along the bottom where it read as zero.
+		// A flat line's pad is a tenth of the value, so the line sits in the middle of an axis labelled around it.
 		{"a flat positive line", 0.05, 0.05, 0.045, 0.055},
 		{"a flat zero line", 0, 0, 0, 0.5},
 	} {
@@ -605,12 +534,7 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 		}
 	}
 
-	// An effect that really does cross zero still gets headroom both
-	// ways — the chemosynthesis hump pays above its width and costs
-	// below it.
-	// A flat line's axis has to be scaled to the value, not to an
-	// absolute floor: a constant 0.00125 under a 0.5 pad drew an axis
-	// from 0 to 0.501 with the line along the bottom, reading as zero.
+	// An effect that really does cross zero still gets headroom both ways.
 	for _, v := range []float64{0.00125, 0.05, 3, 900} {
 		lo, hi := paddedGraphRange(v, v)
 		if !(lo < v && hi > v) {
@@ -620,8 +544,7 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 			t.Errorf("a constant %v got axis %v..%v, too wide to read the value off", v, lo, hi)
 		}
 	}
-	// Except at exactly zero, where there is no magnitude to scale by and
-	// a zero-height axis would divide by zero when plotting.
+	// Except at exactly zero, where there is no magnitude to scale by and a zero-height axis would divide by zero when plotting.
 	if lo, hi := paddedGraphRange(0, 0); hi <= lo {
 		t.Errorf("a constant 0 got a zero-height axis %v..%v", lo, hi)
 	}
@@ -630,19 +553,15 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 		t.Errorf("a range crossing zero should pad both ends, got [%g, %g]", lo, hi)
 	}
 
-	// And every real graph's axis stays on the side its values are on.
 	cs, _ := abilityConfigScreen(t)
 	for _, id := range physiology.AllCurves {
 		for _, graph := range curveGraphsFor(id) {
 			lo, hi := math.Inf(1), math.Inf(-1)
 			for _, s := range graph.series {
+				// Sampled through the graph's own axis, at the same points the old branch used.
+				axis := graph.xAxis()
 				for j := 0; j <= physiology.MaxAbilityScore; j++ {
-					v := 0.0
-					if graph.phSpan > 0 {
-						v = s.phValue(cs.globals, (float64(j)/physiology.MaxAbilityScore*2-1)*graph.phSpan)
-					} else {
-						v = s.value(cs.globals, j)
-					}
+					v := axis.read(s, cs.globals, j, physiology.MaxAbilityScore)
 					lo, hi = math.Min(lo, v), math.Max(hi, v)
 				}
 			}
@@ -657,10 +576,6 @@ func TestGraphRangeNeverPadsPastZero(t *testing.T) {
 	}
 }
 
-// TestWholeUnitGraphsLabelWholeNumbers: wall strength and food are ints,
-// so their graphs have to be labelled in the units the effect takes. An
-// axis reading "0.76" to "4.24" under a line that can only sit on 1, 2 or
-// 3 invites reading a precision the effect doesn't have.
 func TestWholeUnitGraphsLabelWholeNumbers(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 
@@ -702,20 +617,18 @@ func TestWholeUnitGraphsLabelWholeNumbers(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"Wall strength cleared ahead per dig", "Wall strength raised per dig (each side)", "Food rooted up per dig"} {
+	for _, want := range []string{"Wall strength raised per dig (each side)", "Buried food brought back up per dig"} {
 		if !whole[want] {
 			t.Errorf("%q should be marked as a whole-unit graph", want)
 		}
 	}
 
-	// A flat whole-unit graph still gets an axis to draw on: every value
-	// the same integer would otherwise round to a zero-height range.
+	// A flat whole-unit graph still gets an axis to draw on.
 	if lo, hi := wholeUnitRange(paddedGraphRange(2, 2)); hi-lo < 1 {
 		t.Errorf("a flat graph got axis [%v, %v], want at least one unit of height", lo, hi)
 	}
 
-	// Everything else keeps the compact format — a multiplier of 0.667
-	// must not be rounded to 1.
+	// Everything else keeps the compact format — a multiplier of 0.667 must not be rounded to 1.
 	for _, id := range physiology.AllCurves {
 		for _, graph := range curveGraphsFor(id) {
 			if graph.wholeUnits {
@@ -728,30 +641,14 @@ func TestWholeUnitGraphsLabelWholeNumbers(t *testing.T) {
 	}
 }
 
-// TestNoCurveGraphIsAConstantLine: a plot whose line can't move is a
-// number drawn the long way round. It costs a whole graph row, invites
-// the reader to look for a trend in it, and the slider beside it already
-// shows the value.
-//
-// The check has to be structural, not "flat under the current settings":
-// a curve configured ShapeFlat is flat on purpose, and that is worth
-// seeing. So each curve's shape is set to linear first, and what is left
-// flat after that is flat by construction.
+// TestNoCurveGraphIsAConstantLine: a plot whose line can't move is a number drawn the long way round.
 func TestNoCurveGraphIsAConstantLine(t *testing.T) {
 	_, active := abilityConfigScreen(t)
 
 	for _, id := range physiology.AllCurves {
 		g := *active
 		setCurveShape(&g, id, physiology.ShapeLinear)
-		// Every setting this curve scales is forced non-zero as well. A
-		// series can read flat simply because its setting is currently 0
-		// — three of the digging series do, under the shipped defaults —
-		// and that is a tuning choice, not a constant.
-		// Distinct values, not all 1: several curves run between two
-		// endpoint settings (a cost at score 0 and at max, the wall a dig
-		// moves at each end), and giving both the same number makes the
-		// curve genuinely flat — which would flag a curve that varies
-		// perfectly well.
+		// Every setting this curve scales is forced non-zero as well.
 		for n, tag := range curveSettingTags[id] {
 			idx, _ := globalsField(tag)
 			f := reflect.ValueOf(&g).Elem().Field(idx)
@@ -766,13 +663,9 @@ func TestNoCurveGraphIsAConstantLine(t *testing.T) {
 		for _, graph := range curveGraphsFor(id) {
 			for _, series := range graph.series {
 				lo, hi, varies := 0.0, 0.0, false
+				axis := graph.xAxis()
 				for i := 0; i <= physiology.MaxAbilityScore; i++ {
-					var v float64
-					if graph.phSpan > 0 {
-						v = series.phValue(&g, graph.phSpan*(2*float64(i)/float64(physiology.MaxAbilityScore)-1))
-					} else {
-						v = series.value(&g, i)
-					}
+					v := axis.read(series, &g, i, physiology.MaxAbilityScore)
 					if i == 0 {
 						lo, hi = v, v
 					}

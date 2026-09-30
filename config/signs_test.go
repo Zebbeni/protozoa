@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-// TestNormalizeSignsRepairsOldFiles: attack and thorns damage were
-// stored as negative health changes before they became positive
-// magnitudes subtracted where they land. Their json tags didn't change,
-// so a settings file or replay header written back then still loads —
-// and has to mean the same amount of damage, not the same number.
 func TestNormalizeSignsRepairsOldFiles(t *testing.T) {
 	var g Globals
 	old := `{"health_change_inflicted_by_attack": -650,
@@ -31,8 +26,7 @@ func TestNormalizeSignsRepairsOldFiles(t *testing.T) {
 		{"thorns damage", g.ThornsDamageAtFullDefense, 0.3},
 		{"move cost", g.HealthChangeFromMoving, -0.03125},
 		{"chemosynthesis gain", g.MaxChemosynthesisGain, 0.15},
-		// Not sign-bound: a setting nobody classified keeps what it was
-		// given, however odd, rather than being quietly rewritten.
+		// Not sign-bound: a setting nobody classified keeps what it was given, however odd.
 		{"growth factor", g.GrowthFactor, -0.5},
 	} {
 		if tc.got != tc.want {
@@ -41,9 +35,6 @@ func TestNormalizeSignsRepairsOldFiles(t *testing.T) {
 	}
 }
 
-// TestEverySignedSettingExists guards the table against a typo or a
-// renamed tag: a sign recorded for a tag no field carries does nothing,
-// silently.
 func TestEverySignedSettingExists(t *testing.T) {
 	tags := map[string]bool{}
 	data, err := json.Marshal(Globals{})

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/simulation"
 	"github.com/Zebbeni/protozoa/utils"
@@ -32,23 +33,20 @@ type Minimap struct {
 	pendingImage  chan *ebiten.Image
 	rendering     bool
 	lastCycleUsed int
-	// lastShowPh / lastShowOrgs / lastOrgColor / lastTheme are the
-	// render state the most recent background render used. When the
-	// live state differs we invalidate the cached image so the minimap
-	// switches appearance without waiting for the 20-cycle refresh
-	// interval. Food isn't tracked because the minimap doesn't render
-	// food.
+	// lastShowPh / lastShowOrgs / lastOrgColor / lastTheme are the render state the most recent background render used.
 	lastShowPh   bool
 	lastShowOrgs bool
 	lastOrgColor mode
-	lastTheme    string
+	// lastColorAbility / lastSelected are the inputs a colour mode reads
+	// WITHOUT the mode itself changing: which ability ABILITY colours by,
+	// and who FAMILY is measuring kinship from. Neither moves lastOrgColor,
+	// and the 20-cycle staleness check cannot cover them while a replay is
+	// paused, so the minimap would keep painting the previous answer.
+	lastColorAbility physiology.Ability
+	lastSelected     int
+	lastTheme        string
 
-	// replayCtrl (optional) lets the minimap detect replay seeks so the
-	// cache refreshes as soon as the playhead jumps — even backwards or
-	// by less than 20 cycles, where the normal cycle-delta check would
-	// miss the change. Nil when the minimap is wired up before a replay
-	// controller exists (e.g. live sim) and set later via
-	// SetReplayController.
+	// replayCtrl (optional) lets the minimap detect replay seeks so the cache refreshes as soon as the playhead jumps.
 	replayCtrl    *replay.Controller
 	lastSeekCount int
 }
@@ -61,21 +59,21 @@ func NewMinimap(sim *simulation.Simulation, grid *Grid) *Minimap {
 	h := max(1, int(float64(worldH)*scale))
 
 	return &Minimap{
-		simulation:   sim,
-		grid:         grid,
-		camera:       grid.Camera,
-		width:        w,
-		height:       h,
-		pendingImage: make(chan *ebiten.Image, 1),
-		lastShowPh:   grid.ShowPh(),
-		lastOrgColor: grid.OrgColor(),
-		lastTheme:    config.Theme(),
+		simulation:       sim,
+		grid:             grid,
+		camera:           grid.Camera,
+		width:            w,
+		height:           h,
+		pendingImage:     make(chan *ebiten.Image, 1),
+		lastShowPh:       grid.ShowPh(),
+		lastOrgColor:     grid.OrgColor(),
+		lastColorAbility: grid.colorAbility,
+		lastSelected:     -1,
+		lastTheme:        config.Theme(),
 	}
 }
 
-// SetReplayController attaches a replay controller so the minimap can
-// invalidate its cached image whenever the user seeks the playhead.
-// Safe to call multiple times; nil clears the attachment.
+// SetReplayController attaches a replay controller so the minimap can invalidate its cached image whenever the user seeks the playhead.
 func (m *Minimap) SetReplayController(ctrl *replay.Controller) {
 	m.replayCtrl = ctrl
 	if ctrl != nil {
@@ -98,10 +96,14 @@ func (m *Minimap) Update() {
 	curShowOrgs := m.grid.ShowOrganisms()
 	curOrgColor := m.grid.OrgColor()
 	curTheme := config.Theme()
+	curAbility := m.grid.colorAbility
+	curSelected := m.simulation.GetSelected()
 	modeChanged := curShowPh != m.lastShowPh ||
 		curShowOrgs != m.lastShowOrgs ||
 		curOrgColor != m.lastOrgColor ||
-		curTheme != m.lastTheme
+		curTheme != m.lastTheme ||
+		(curOrgColor == orgColorAbility && curAbility != m.lastColorAbility) ||
+		(curOrgColor == orgColorFamily && curSelected != m.lastSelected)
 	seeked := false
 	if m.replayCtrl != nil && m.replayCtrl.SeekCount != m.lastSeekCount {
 		seeked = true
@@ -114,18 +116,19 @@ func (m *Minimap) Update() {
 		m.lastShowOrgs = curShowOrgs
 		m.lastOrgColor = curOrgColor
 		m.lastTheme = curTheme
+		m.lastColorAbility = curAbility
+		m.lastSelected = curSelected
 		if m.replayCtrl != nil {
 			m.lastSeekCount = m.replayCtrl.SeekCount
 		}
-		// Capture the state by value so the goroutine renders a consistent
-		// snapshot even if the user toggles mid-render.
-		go m.renderInBackground(curShowPh, curShowOrgs, curOrgColor)
+		// Capture the state by value so the goroutine renders a consistent snapshot even if the user toggles mid-render.
+		// The tint is taken HERE, on the main goroutine: it carries the
+		// family memo and the Grid fields the colour modes read, none of
+		// which the render goroutine may touch.
+		go m.renderInBackground(curShowPh, curShowOrgs, m.grid.organismTint())
 	}
 }
 
-// Visible reports whether Draw would paint anything. The colour key
-// stacks on top of the minimap, so it has to know whether there is a
-// minimap under it or whether it is the bottom of the corner itself.
 func (m *Minimap) Visible() bool {
 	if m.image == nil {
 		return false
@@ -136,16 +139,10 @@ func (m *Minimap) Visible() bool {
 		m.camera.ViewportH < config.GridUnitsHigh()*unitSize
 }
 
-// Width is the minimap's width in pixels, which follows the world's
-// aspect ratio. The colour key stacks on top of it and takes the same
-// width, so the corner reads as one block rather than two.
-//
-// Always meaningful, including while Visible is false: it is computed
-// from the world at construction, not from what is on screen.
+// Width is the minimap's width in pixels, which follows the world's aspect ratio.
 func (m *Minimap) Width() int { return m.width }
 
-// Top is the y coordinate of the minimap's top edge, border included —
-// where anything stacked above it has to end.
+// Top is the y coordinate of the minimap's top edge, border included.
 func (m *Minimap) Top() int {
 	return config.ScreenHeight() - m.height - minimapPadding - minimapBorder
 }
@@ -161,7 +158,6 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 	drawX := screenW - m.width - minimapPadding
 	drawY := screenH - m.height - minimapPadding
 
-	// Background border
 	ebitenutil.DrawRect(screen,
 		float64(drawX-minimapBorder), float64(drawY-minimapBorder),
 		float64(m.width+minimapBorder*2), float64(m.height+minimapBorder*2),
@@ -196,7 +192,6 @@ func (m *Minimap) Draw(screen *ebiten.Image) {
 	clipOp.GeoM.Translate(float64(drawX), float64(drawY))
 	screen.DrawImage(clipped, clipOp)
 
-	// Viewport rectangle centered in the minimap
 	rw := min(viewGridW/worldW*float64(m.width), float64(m.width))
 	rh := min(viewGridH/worldH*float64(m.height), float64(m.height))
 	rx := float64(drawX) + (float64(m.width)-rw)/2
@@ -218,7 +213,6 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 		return false
 	}
 
-	// Click position relative to minimap center
 	relX := float64(screenX-drawX) - float64(m.width)/2
 	relY := float64(screenY-drawY) - float64(m.height)/2
 
@@ -235,7 +229,6 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 	gridX := int(curCenterX + relX/float64(m.width)*worldW)
 	gridY := int(curCenterY + relY/float64(m.height)*worldH)
 
-	// Wrap
 	gridX = int(math.Mod(math.Mod(float64(gridX), worldW)+worldW, worldW))
 	gridY = int(math.Mod(math.Mod(float64(gridY), worldH)+worldH, worldH))
 
@@ -243,24 +236,10 @@ func (m *Minimap) HandleClick(screenX, screenY int) bool {
 	return true
 }
 
-// renderInBackground paints the minimap to match the grid's current
-// pH-toggle, organism-toggle, and organism-colour state.
-//
-//	showPh    — pH heatmap behind organisms when true; theme bg otherwise
-//	showOrgs  — when false organisms are skipped entirely
-//	orgColor  — orgColorPhEffect tints by PhEffect; other modes use the
-//	            organism's natural colour (the minimap doesn't bother
-//	            with health or ability colouring, which are per-organism
-//	            gradients that read poorly at minimap resolution).
-//
-// State is captured by the caller (Update) and passed in so that a user
-// mid-switch doesn't tear: the goroutine renders one consistent
-// snapshot, and the cache is invalidated on the next Update pass.
-func (m *Minimap) renderInBackground(showPh, showOrgs bool, orgColor mode) {
+// renderInBackground paints the minimap to match the grid's current pH-toggle, organism-toggle.
+func (m *Minimap) renderInBackground(showPh, showOrgs bool, tint orgTint) {
 	worldW := config.GridUnitsWide()
 	worldH := config.GridUnitsHigh()
-
-	phEffectTint := orgColor == orgColorPhEffect
 
 	// Theme background used wherever pH isn't painted.
 	tbR, tbG, tbB := config.ThemeBackgroundRGB()
@@ -290,15 +269,9 @@ func (m *Minimap) renderInBackground(showPh, showOrgs bool, orgColor mode) {
 
 			if showOrgs {
 				if info := m.simulation.GetOrganismInfoAtPoint(point); info != nil {
-					if phEffectTint {
-						col := phEffectColor(info.PhPositive, info.PhNegative)
-						r = byte(col.R * 255)
-						g = byte(col.G * 255)
-						b = byte(col.B * 255)
-					} else {
-						cr, cg, cb, _ := info.Color.RGBA()
-						r, g, b = byte(cr>>8), byte(cg>>8), byte(cb>>8)
-					}
+					col, _ := tint.bodyColor(info)
+					cr, cg, cb, _ := col.RGBA()
+					r, g, b = byte(cr>>8), byte(cg>>8), byte(cb>>8)
 				}
 			}
 

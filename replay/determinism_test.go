@@ -2,8 +2,8 @@ package replay
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -12,11 +12,7 @@ import (
 	"github.com/Zebbeni/protozoa/simulation"
 )
 
-// loadDefaultGlobalsFromDisk wires the simulation defaults into the
-// process-wide config from the on-disk settings/default.json. The
-// production code reads these from an embedded FS via main's
-// init/UseEmbeddedAssets, but tests can't reach that, so we decode
-// the JSON straight into a Globals struct here.
+// loadDefaultGlobalsFromDisk wires the simulation defaults into the process-wide config from the on-disk settings/default.json.
 func loadDefaultGlobalsFromDisk(t *testing.T) {
 	t.Helper()
 	path := filepath.Join("..", "settings", "default.json")
@@ -31,10 +27,7 @@ func loadDefaultGlobalsFromDisk(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// hasUsedLastCycle reports whether any node in the tree is marked as
-// having been visited on the most recent chooseAction. Probes via
-// Tree.PrintLines so we don't need access to the unexported Node
-// fields directly.
+// hasUsedLastCycle reports whether any node in the tree is marked as having been visited on the most recent chooseAction.
 func hasUsedLastCycle(n *d.Node) bool {
 	tree := &d.Tree{Node: n}
 	for _, line := range tree.PrintLines() {
@@ -45,10 +38,6 @@ func hasUsedLastCycle(n *d.Node) bool {
 	return false
 }
 
-// TestPhMapSurvivesSnapshotRoundtrip verifies that a snapshot's pH
-// map round-trips bitwise unchanged. Earlier the on-disk format
-// narrowed pH to float32, and the precision loss compounded across
-// thousands of cycles of pH diffusion into observable replay drift.
 func TestPhMapSurvivesSnapshotRoundtrip(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 
@@ -95,10 +84,7 @@ func TestPhMapSurvivesSnapshotRoundtrip(t *testing.T) {
 	}
 }
 
-// TestFreshRecordReplayRoundtrip records a fresh sim with the current
-// simulation code and verifies that replaying that recording reaches
-// the exact same state at the same cycle. Core determinism regression
-// — if it fails, replay has drifted from recording.
+// TestFreshRecordReplayRoundtrip records a fresh sim with the current simulation code and verifies that replaying that recording reaches the exact same state at the same cycle.
 func TestFreshRecordReplayRoundtrip(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 
@@ -155,13 +141,6 @@ func TestFreshRecordReplayRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRingSnapshotsAreIsolatedFromForwardPlay catches the
-// step-back-corrupts-the-ring bug. After step-back-then-forward, the
-// ring snapshot for the original cycle must still match what was
-// captured — it must NOT have been mutated by the intervening
-// forward-play. RestoreOrganismManager used to install snap.OrganismGrid
-// by reference; subsequent Updates wrote back into the snapshot itself
-// and re-restoring from it returned a corrupted future-tinted state.
 func TestRingSnapshotsAreIsolatedFromForwardPlay(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 
@@ -189,17 +168,13 @@ func TestRingSnapshotsAreIsolatedFromForwardPlay(t *testing.T) {
 	sim := ctrl.Simulation()
 	sim.Pause(false)
 	// Use ctrl.StepForward so pushRing populates the in-memory ring.
-	// Without this the step-backwards below fall through to
-	// SeekToCycle and the ring path doesn't get exercised.
 	for sim.Cycle() < targetCycle {
 		ctrl.StepForward()
 	}
 
 	startCycle := sim.Cycle()
 	firstHash := stateHash(sim)
-	// Step back 5, forward 5: we should land back at startCycle with
-	// identical state. Repeats catch a corruption that takes a few
-	// dance steps to surface.
+	// Step back 5, forward 5: we should land back at startCycle with identical state.
 	for round := 0; round < 5; round++ {
 		for i := 0; i < 5; i++ {
 			if !ctrl.StepBackward() {
@@ -219,9 +194,7 @@ func TestRingSnapshotsAreIsolatedFromForwardPlay(t *testing.T) {
 	}
 }
 
-// stateHash returns an FNV-1a hash of the alive-organism set keyed by
-// id, location, direction. Used to verify state equality across
-// step-back/forward cycles.
+// stateHash returns an FNV-1a hash of the alive-organism set keyed by id, location, direction.
 func stateHash(sim *simulation.Simulation) uint64 {
 	var hash uint64 = 1469598103934665603
 	mix := func(v uint64) {
@@ -250,9 +223,7 @@ func stateHash(sim *simulation.Simulation) uint64 {
 	return hash
 }
 
-// TestFreshSimulationDescendantTreeConsistent runs a fresh simulation
-// from default settings + seed 53 and verifies the resulting descendant
-// tree is structurally consistent.
+// TestFreshSimulationDescendantTreeConsistent runs a fresh simulation from default settings + seed 53 and verifies the resulting descendant tree is structurally consistent.
 func TestFreshSimulationDescendantTreeConsistent(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 
@@ -299,9 +270,7 @@ func TestFreshSimulationDescendantTreeConsistent(t *testing.T) {
 	}
 }
 
-// TestDecisionTreeFlagsRestoredAfterSnapshot verifies that an organism's
-// decision-tree flags (WasTravelled / UsedLastCycle) are populated
-// after restoring from a snapshot.
+// TestDecisionTreeFlagsRestoredAfterSnapshot verifies that an organism's decision-tree flags (WasTravelled / UsedLastCycle) are populated after restoring from a snapshot.
 func TestDecisionTreeFlagsRestoredAfterSnapshot(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 
@@ -344,10 +313,6 @@ func TestDecisionTreeFlagsRestoredAfterSnapshot(t *testing.T) {
 	}
 }
 
-// TestResumeMostSuccessfulAliveAtTargetCycle replays the saved .pzr
-// fixture (gitignored — user-supplied) up to a target cycle and
-// asserts that the "most successful" set still has at least one
-// living member at that cycle.
 func TestResumeMostSuccessfulAliveAtTargetCycle(t *testing.T) {
 	const targetCycle = 1567
 

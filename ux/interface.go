@@ -34,29 +34,23 @@ type Interface struct {
 	// menu is the replay menu, nil outside replay mode.
 	menu *ReplayMenu
 
-	// graphPopup is the enlarged graph, opened from the expand control
-	// in the panel graph's corner.
+	// graphPopup is the enlarged graph, opened from the expand control in the panel graph's corner.
 	graphPopup *GraphPopup
 
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
 	debugOptions *ebiten.DrawImageOptions
 
-	// Drag detection
 	mouseDownPos image.Point
 	mouseDown    bool
 	isDragging   bool
 	lastDragPos  image.Point
 
-	// lastAutoSelectedID tracks the most recent auto-pick so we only
-	// trigger a smooth pan when Find Most actually changes selection,
-	// not on every frame the same organism keeps winning.
+	// lastAutoSelectedID tracks the most recent auto-pick so we only trigger a smooth pan when Find Most actually changes selection, not on every frame the same organism keeps winning.
 	lastAutoSelectedID int
 }
 
-// autoPanDuration is how long the smooth-pan transition takes when
-// the camera follows a newly-selected organism. ~1s feels responsive
-// without being jarring across the whole world.
+// autoPanDuration is how long the smooth-pan transition takes when the camera follows a newly-selected organism.
 const autoPanDuration = time.Second
 
 func NewInterface(sim *simulation.Simulation) *Interface {
@@ -80,22 +74,17 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	return i
 }
 
-// SetReplayController enables replay controls in the panel and hands the
-// grid the controller's animation state so sprite animation stays in sync
-// with cycle advancement.
+// SetReplayController enables replay controls in the panel and hands the grid the controller's animation state so sprite animation stays in sync with cycle advancement.
 func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 	i.replayCtrl = ctrl
-	i.menu = NewReplayMenu(ctrl.Globals())
+	i.menu = NewReplayMenu(ctrl.Globals(), ctrl.Path())
 	i.panel.SetReplayController(ctrl)
 	i.grid.SetAnimationState(ctrl.AnimState)
+	i.grid.applyReplayViewDefaults()
 	i.minimap.SetReplayController(ctrl)
-	// Initial speed sync — if AutoSpeed is on (default), anchor Speed to
-	// whatever zoom the camera is at.
+	// Initial speed sync — if AutoSpeed is on (default), anchor Speed to whatever zoom the camera is at.
 	i.syncReplaySpeedToZoom()
-	// If the replay opens with exactly one organism alive (the typical
-	// "single ancestor" config), centre the camera on it so the user
-	// doesn't have to hunt for the founder pixel on a wide grid. Larger
-	// initial populations are left at the default world-centre framing.
+	// If the replay opens with exactly one organism alive (the typical "single ancestor" config), centre the camera on it so the user doesn't have to hunt for the founder pixel on a wide grid.
 	if infos := i.simulation.GetAllOrganismInfo(); len(infos) == 1 {
 		for _, info := range infos {
 			i.grid.Camera.CenterOn(info.Location.X, info.Location.Y)
@@ -104,9 +93,7 @@ func (i *Interface) SetReplayController(ctrl *replay.Controller) {
 	}
 }
 
-// syncReplaySpeedToZoom pushes the current camera unit size through the
-// replay controller's auto-speed handler. No-op if no replay controller
-// is attached or AutoSpeed is off.
+// syncReplaySpeedToZoom pushes the current camera unit size through the replay controller's auto-speed handler.
 func (i *Interface) syncReplaySpeedToZoom() {
 	if i.replayCtrl == nil {
 		return
@@ -124,9 +111,7 @@ func (i *Interface) OnResize() {
 }
 
 func (i *Interface) Render(screen *ebiten.Image) {
-	// Catch any panic inside the draw stack so the DXGI DEVICE_REMOVED
-	// crashes leave a useful trace. Without this the runtime panic
-	// happens deep inside ebiten and the cycle/speed context is lost.
+	// Catch any panic inside the draw stack so the DXGI DEVICE_REMOVED crashes leave a useful trace.
 	defer func() {
 		if rec := recover(); rec != nil {
 			cycle := i.simulation.Cycle()
@@ -147,8 +132,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	i.minimap.Draw(screen)
 	i.renderColorKey(screen)
 	i.renderPanel(screen)
-	// Over the panel, since it is modal and the panel is what it
-	// covers; under the replay menu, which is modal over everything.
+	// Over the panel, since it is modal and the panel is what it covers.
 	i.graphPopup.Draw(screen)
 	if i.menu != nil {
 		i.menu.Draw(screen)
@@ -161,8 +145,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	}
 }
 
-// TakeMenuChoice returns and clears the replay menu choice the runner
-// has to act on, if any.
+// TakeMenuChoice returns and clears the replay menu choice the runner has to act on, if any.
 func (i *Interface) TakeMenuChoice() ReplayMenuChoice {
 	if i.menu == nil {
 		return ReplayMenuNone
@@ -176,17 +159,13 @@ func (i *Interface) HandleUserInput() {
 		i.menu.Update()
 		return
 	}
-	// Then the enlarged graph, which is modal over the panel and grid.
 	if i.graphPopup.Update() {
 		return
 	}
 	// Advance any in-flight smooth-pan animation before reading input.
-	// Manual pan / zoom in the input handlers will cancel it as needed.
 	i.grid.Camera.UpdatePan()
 	i.handleKeyboard()
-	// Graph zoom/pan gets first claim on the mouse: a wheel over the
-	// graph zooms it instead of scrolling the panel, and a drag that
-	// starts on it pans the graph instead of the grid.
+	// Graph zoom/pan gets first claim on the mouse.
 	if i.panel.TakeGraphExpandRequest() {
 		i.graphPopup.Open()
 	}
@@ -208,7 +187,6 @@ func (i *Interface) handleKeyboard() {
 		i.simulation.ToggleDebug()
 	}
 
-	// Zoom via keyboard
 	mx, my := ebiten.CursorPosition()
 	pivotX, pivotY := (mx-panelWidth)/GridDisplayScale, my/GridDisplayScale
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) { // + key
@@ -228,9 +206,7 @@ func (i *Interface) handleKeyboard() {
 		i.grid.Camera.Pan(0, panSpeed)
 	}
 
-	// In replay mode, left / right step the timeline (one cycle
-	// per press). Outside replay there's no timeline to step, so
-	// the keys are silently inert rather than re-bound to pan.
+	// In replay mode, left / right step the timeline (one cycle per press).
 	if i.replayCtrl != nil {
 		if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
 			i.replayCtrl.StepBackward()
@@ -257,15 +233,12 @@ func (i *Interface) handleMouse() {
 		}
 	}
 
-	// Drag / click handling
 	mx, my := ebiten.CursorPosition()
 
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		// Check replay controls first (panel area)
 		if mx < panelWidth && i.panel.HandleReplayClick(mx, my) {
 			return
 		}
-		// Check minimap click
 		if i.minimap.HandleClick(mx, my) {
 			return
 		}
@@ -288,8 +261,7 @@ func (i *Interface) handleMouse() {
 		}
 
 		if i.isDragging {
-			// Pan by the delta since last frame. Screen pixels cover GridDisplayScale×
-			// more area than the internal viewport, so factor that into the conversion.
+			// Pan by the delta since last frame.
 			unitPixels := float64(i.grid.Camera.GridUnitSize() * GridDisplayScale)
 			frameDX := float64(mx-i.lastDragPos.X) / unitPixels
 			frameDY := float64(my-i.lastDragPos.Y) / unitPixels
@@ -306,7 +278,6 @@ func (i *Interface) handleMouse() {
 		i.isDragging = false
 	}
 
-	// Hover (always, for tooltip)
 	i.handleMouseHover()
 }
 
@@ -324,16 +295,12 @@ func (i *Interface) UpdateSelected() {
 	case selectMostAggressive:
 		id = i.simulation.GetMostAggressiveId()
 	default:
-		// Manual mode (or anything that isn't a Find Most pick) — clear
-		// the tracker so the next time auto-select takes over we always
-		// pan to that first pick.
+		// Manual mode (or anything that isn't a Find Most pick).
 		i.lastAutoSelectedID = -1
 		return
 	}
 	i.simulation.Select(id)
 
-	// Smooth-pan only when the auto-pick changes; otherwise the camera
-	// would re-centre every frame and the user couldn't pan freely.
 	if id != i.lastAutoSelectedID {
 		i.lastAutoSelectedID = id
 		if id >= 0 {
@@ -364,22 +331,13 @@ func (i *Interface) renderGrid(screen *ebiten.Image) {
 	start := time.Now()
 	gridImage := i.grid.Render()
 	screen.DrawImage(gridImage, i.gridOptions)
-	// Overlay text drawn after scaling so the font stays crisp at its
-	// authored size instead of being multiplied by GridDisplayScale.
+	// Overlay text drawn after scaling so the font stays crisp at its authored size instead of being multiplied by GridDisplayScale.
 	i.grid.RenderOverlayText(screen)
 	i.debug.gridRenderTime = time.Since(start)
 	i.debug.gridTimings = i.grid.LastRenderTimings()
 }
 
-// renderColorKey draws the legend for the organism colour mode in the
-// bottom-right corner, stacked above the minimap.
-//
-// Only while organisms are on screen: it explains their tint, and with
-// the layer switched off there is nothing for it to explain. It sits on
-// the minimap's top edge when there is one and on the bottom margin when
-// there isn't — the minimap hides itself once the whole world fits in
-// the viewport, and a key left floating above the gap it left reads as
-// something that failed to load.
+// renderColorKey draws the legend for the organism colour mode in the bottom-right corner, stacked above the minimap.
 func (i *Interface) renderColorKey(screen *ebiten.Image) {
 	k, width, bottom, ok := i.colorKeyPlacement()
 	if !ok {
@@ -388,9 +346,7 @@ func (i *Interface) renderColorKey(screen *ebiten.Image) {
 	drawColorKey(screen, k, width, bottom)
 }
 
-// colorKeyPlacement is the key on show and where its bottom edge goes,
-// or ok=false when there is none. One place, so the hit test below and
-// the drawing above can't disagree about whether a key is there.
+// colorKeyPlacement is the key on show and where its bottom edge goes, or ok=false when there is none.
 func (i *Interface) colorKeyPlacement() (k colorKey, width, bottom int, ok bool) {
 	if !i.grid.ShowOrganisms() {
 		return colorKey{}, 0, 0, false
@@ -406,10 +362,6 @@ func (i *Interface) colorKeyPlacement() (k colorKey, width, bottom int, ok bool)
 	return k, i.minimap.Width(), bottom, true
 }
 
-// colorKeyAbsorbsClick reports whether a click landed on the key. It
-// swallows it the way the minimap does: the key covers a corner of the
-// world, and a click that reached through it would select an organism the
-// user can't see, or start dragging the view from a legend.
 func (i *Interface) colorKeyAbsorbsClick(x, y int) bool {
 	k, width, bottom, ok := i.colorKeyPlacement()
 	if !ok {
@@ -425,11 +377,7 @@ func (i *Interface) renderPanel(screen *ebiten.Image) {
 	i.debug.panelRenderTime = time.Since(start)
 }
 
-// getMouseGridLocation converts the cursor position to world grid coordinates
-// using the camera's offset and zoom level. Cursor positions inside the
-// panel return onGrid=false directly — without this guard a wrapping
-// world would normalise the negative screenX back into [0, w) and the
-// hover overlay would keep drawing while the cursor is over the panel.
+// getMouseGridLocation converts the cursor position to world grid coordinates using the camera's offset and zoom level.
 func (i *Interface) getMouseGridLocation() (utils.Point, bool) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	if mouseX < panelWidth {

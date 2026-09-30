@@ -8,21 +8,6 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 )
 
-// familyTestTree builds a small family and returns it by ID:
-//
-//	            1  root
-//	           / \
-//	          2   3          3 is the selected organism's uncle's line
-//	         / \   \
-//	selected 4   5   6
-//	       /       \
-//	      7         8        5's child, a first cousin of 7
-//	     /
-//	    9
-//	   /
-//	 10                      great-great-grandchild of the selection
-//
-// 100 is a second founder, in a tree of its own.
 func familyTestTree() map[int]*organism.DescendantNode {
 	nodes := map[int]*organism.DescendantNode{}
 	add := func(id, parent int) {
@@ -46,10 +31,6 @@ func familyTestTree() map[int]*organism.DescendantNode {
 	return nodes
 }
 
-// TestKinshipClassifiesTheTree walks the whole family from one selection
-// and checks every relation, which is the thing the colours are made of:
-// a wrong up/down pair is a wrong colour with nothing else to notice it
-// by, since every value in the range is a plausible-looking tint.
 func TestKinshipClassifiesTheTree(t *testing.T) {
 	nodes := familyTestTree()
 	const selID = 4
@@ -81,12 +62,6 @@ func TestKinshipClassifiesTheTree(t *testing.T) {
 	}
 }
 
-// TestKinshipMemoAgreesWithAFreshWalk: kinshipOf fills in every node it
-// passed on the way up, so most answers come from the memo rather than
-// from a walk. A bug in that back-fill would give a node the distance of
-// whichever of its descendants happened to be asked about first, which is
-// exactly the kind of thing that looks fine until two organisms in the
-// same line wear the same colour.
 func TestKinshipMemoAgreesWithAFreshWalk(t *testing.T) {
 	nodes := familyTestTree()
 	const selID = 4
@@ -105,10 +80,6 @@ func TestKinshipMemoAgreesWithAFreshWalk(t *testing.T) {
 	}
 }
 
-// TestFamilyTinterInvalidation: the memo is only meaningful for one
-// selection and one generation of trees. A replay seek rebuilds the trees
-// from a snapshot, after which the cached node IDs describe a tree that
-// no longer exists.
 func TestFamilyTinterInvalidation(t *testing.T) {
 	nodes := familyTestTree()
 	ft := newFamilyTinter(nodes[4], 4, 7)
@@ -128,10 +99,6 @@ func TestFamilyTinterInvalidation(t *testing.T) {
 	}
 }
 
-// TestFamilyColorsSeparateTheDirections is the readability claim the mode
-// rests on: descendants, ancestors and cousins have to be told apart at a
-// glance, which means by hue, and the direct line has to stand out from
-// the background, which means by saturation.
 func TestFamilyColorsSeparateTheDirections(t *testing.T) {
 	hue := func(k kinship) float64 {
 		h, _, _ := familyColor(k).HSLuv()
@@ -147,8 +114,7 @@ func TestFamilyColorsSeparateTheDirections(t *testing.T) {
 	parent := kinship{up: 1, related: true}
 	grandparent := kinship{up: 2, related: true}
 
-	// Descendants head for blue, ancestors for yellow — opposite ways
-	// around from the selection's green.
+	// Descendants head for blue, ancestors for yellow — opposite ways around from the selection's green.
 	if !(hue(grandchild) > hue(child)) {
 		t.Errorf("descendants should move toward blue with depth: child %v, grandchild %v", hue(child), hue(grandchild))
 	}
@@ -167,10 +133,6 @@ func TestFamilyColorsSeparateTheDirections(t *testing.T) {
 	}
 }
 
-// TestDistantCousinsAreJustBackground: the mode is only readable because
-// most of the screen is gray. A cousin line far enough out has to reach
-// exactly the unrelated gray, not merely approach it — otherwise a
-// crowded world is a wash of faint colour with the selection lost in it.
 func TestDistantCousinsAreJustBackground(t *testing.T) {
 	gray := familyUnrelatedColor()
 
@@ -183,13 +145,11 @@ func TestDistantCousinsAreJustBackground(t *testing.T) {
 		t.Errorf("an unrelated organism is %v, want gray %v", got, gray)
 	}
 
-	// And the gray really is gray, not a dim colour: equal channels.
 	if !isNeutral(gray) {
 		t.Errorf("the unrelated colour %v is not neutral", gray)
 	}
 }
 
-// isNeutral reports a colour with no hue left in it.
 func isNeutral(c colorful.Color) bool {
 	const eps = 1.0 / 512
 	return absDiff(c.R, c.G) < eps && absDiff(c.G, c.B) < eps
@@ -202,9 +162,6 @@ func absDiff(a, b float64) float64 {
 	return b - a
 }
 
-// TestSelectedOrganismIsTheBrightest: the whole point is to find one
-// organism, so it has to be the most saturated thing on screen — brighter
-// than its own children, which are the next most eye-catching.
 func TestSelectedOrganismIsTheBrightest(t *testing.T) {
 	_, selSat, _ := familyColor(kinship{related: true}).HSLuv()
 	_, childSat, _ := familyColor(kinship{down: 1, related: true}).HSLuv()

@@ -6,10 +6,6 @@ import (
 )
 
 func TestSerializeRoundTrip(t *testing.T) {
-	// Serialize uses %02d per code, so the expected string is derived
-	// from the live constant values rather than pinned to specific
-	// ints — the iota layout in constants.go is allowed to change,
-	// what matters is that Serialize/Deserialize round-trips.
 	conditionalTree := &Tree{Node: &Node{
 		NodeType: CanMove,
 		YesNode:  NodeFromAction(ActAttack),
@@ -31,8 +27,7 @@ func TestSerializeRoundTrip(t *testing.T) {
 			if got := tc.tree.Serialize(); got != tc.expected {
 				t.Errorf("Serialize() = %q, want %q", got, tc.expected)
 			}
-			// Verify the serialized form round-trips back to an
-			// equivalent tree through Deserialize.
+			// Verify the serialized form round-trips back to an equivalent tree through Deserialize.
 			node, consumed := Deserialize(tc.tree.Serialize())
 			if node == nil {
 				t.Fatalf("Deserialize returned nil for %q", tc.tree.Serialize())

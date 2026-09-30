@@ -2,8 +2,7 @@ package ux
 
 import "syscall/js"
 
-// saveExport downloads data as a file called name through the browser
-// and returns the name, since there's no filesystem to write to.
+// saveExport downloads data as a file called name through the browser and returns the name.
 func saveExport(name string, data []byte) (string, error) {
 	bytes := js.Global().Get("Uint8Array").New(len(data))
 	js.CopyBytesToJS(bytes, data)

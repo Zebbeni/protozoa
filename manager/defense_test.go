@@ -6,8 +6,7 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// scoresWithDefense builds a valid distribution with the given Defense,
-// balancing the budget out of Chemosynthesis.
+// scoresWithDefense builds a valid distribution with the given Defense, balancing the budget out of Chemosynthesis.
 func scoresWithDefense(t *testing.T, defense int) physiology.Scores {
 	t.Helper()
 	s := physiology.Scores{8, 2, 2, 2, 2, 2, 2}
@@ -19,9 +18,6 @@ func scoresWithDefense(t *testing.T, defense int) physiology.Scores {
 	return s
 }
 
-// TestDefenseDamageMultNeverGoesNegative: damage taken can shrink to zero
-// (immunity) but never below, where attacks and unhealthy pH would heal
-// the defender.
 func TestDefenseDamageMultNeverGoesNegative(t *testing.T) {
 	loadDefaultGlobals(t)
 

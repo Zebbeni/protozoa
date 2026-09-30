@@ -23,13 +23,7 @@ func loadGlobals(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// TestAbilityColorAnchors pins the ability colour scale shared by the
-// grid, its key and the population graph: gray at zero, full green from
-// AbilityFullGreenScore up, and still separating the scores below it.
-//
-// The ramp stops short of the 10-point cap on purpose — the top of the
-// range is thinly populated, and running all the way there spent a
-// quarter of the colour on scores almost nothing has.
+// TestAbilityColorAnchors pins the ability colour scale shared by the grid, its key and the population graph.
 func TestAbilityColorAnchors(t *testing.T) {
 	loadGlobals(t)
 
@@ -49,15 +43,11 @@ func TestAbilityColorAnchors(t *testing.T) {
 			}
 		}
 
-		// And it still separates the scores below the saturation point:
-		// the specialist score is where most organisms of interest sit,
-		// and it must not already be maxed out.
 		s[a] = physiology.SpecialistScore
 		if got := AbilityColor(s, a); got == GrayGreenColor(1) {
 			t.Errorf("%s at the specialist score is already full green, so nothing above it reads differently", a.Name())
 		}
-		// Score 7 is the last one below the saturation point, so it is
-		// the tightest case for that.
+		// Score 7 is the last one below the saturation point, so it is the tightest case for that.
 		s[a] = 7
 		if got := AbilityColor(s, a); got == GrayGreenColor(1) {
 			t.Errorf("%s at 7 is already full green; the ramp saturates at %g", a.Name(), AbilityFullGreenScore)
@@ -65,9 +55,7 @@ func TestAbilityColorAnchors(t *testing.T) {
 	}
 }
 
-// TestGrayGreenLowEndIsNeutral: a zero score must be a true gray, not a
-// dim green or a leftover red. Equal channels is the check — any hue
-// cast would reintroduce the "warning" reading the gray end replaced.
+// TestGrayGreenLowEndIsNeutral: a zero score must be a true gray, not a dim green or a leftover red.
 func TestGrayGreenLowEndIsNeutral(t *testing.T) {
 	g := GrayGreenColor(0)
 	const eps = 1e-6
@@ -79,11 +67,6 @@ func TestGrayGreenLowEndIsNeutral(t *testing.T) {
 	}
 }
 
-// TestGrayGreenIsEasyToTellApart guards the reason the ramp changes
-// brightness at all. Holding lightness fixed and varying only saturation
-// made neighbouring scores nearly indistinguishable, so this checks that
-// perceived lightness (CIE L*) rises steadily across the whole ramp and
-// that the two ends are far apart.
 func TestGrayGreenIsEasyToTellApart(t *testing.T) {
 	const steps = 10
 	prevL, _, _ := GrayGreenColor(0).Lab()
@@ -100,9 +83,6 @@ func TestGrayGreenIsEasyToTellApart(t *testing.T) {
 	}
 }
 
-// TestPeakFractionScalesToTheRunSoFar: a graph drawn against the whole
-// run's peak is cropped to the height the data has actually reached, so
-// early cycles of a run that grows a hundredfold aren't a flat line.
 func TestPeakFractionScalesToTheRunSoFar(t *testing.T) {
 	if got := PeakFraction(3000, 3000); got != 1 {
 		t.Errorf("at the run's peak the whole height is in use, got %v", got)

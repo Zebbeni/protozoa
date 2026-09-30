@@ -11,8 +11,6 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// fingerprint hashes the state that matters: every organism's identity,
-// position, health, size, abilities and status, plus the full pH map.
 func fingerprint(sim *Simulation) string {
 	h := sha256.New()
 	orgs := sim.organismManager.Organisms()
@@ -38,21 +36,10 @@ func fingerprint(sim *Simulation) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }
 
-// TestFixedSeedIsDeterministic runs the same non-zero seed twice from
-// scratch and requires identical state at every checkpoint.
-//
-// This is the fresh-run-vs-fresh-run check; the replay tests only compare
-// a replay against its own recording, so a nondeterminism that affects
-// every run equally would slip past them. Two runs in the same process
-// are enough to catch map-iteration dependence, because Go randomises
-// map order per range statement, not per process.
-//
-// Note seed 0 is not a fixed seed: it means "pick one from the wall
-// clock", so default runs are deliberately different every launch.
+// TestFixedSeedIsDeterministic runs the same non-zero seed twice from scratch and requires identical state at every checkpoint.
 func TestFixedSeedIsDeterministic(t *testing.T) {
 	loadDefaultGlobals(t)
-	// Long enough to get past founding into mutation, attacks, thorns and
-	// food spawning; seed 12345 keeps a population alive throughout.
+	// Long enough to get past founding into mutation, attacks, thorns and food spawning.
 	const cycles = 3000
 	for _, seed := range []int{12345} {
 		run := func() []string {

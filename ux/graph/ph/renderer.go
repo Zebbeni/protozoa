@@ -12,10 +12,7 @@ import (
 
 const avgPhLineHeight = 100
 
-// maxLineWidth caps the average-pH line image's width. It was one pixel per
-// bar with no limit, so a long enough run would ask ebiten for a texture
-// wider than the GPU allows (~16384px) and panic. The line is drawn into
-// RealGraphWidth (1000px), so past this width bars share a column.
+// maxLineWidth caps the average-pH line image's width.
 const maxLineWidth = 4096
 
 // Renderer renders a stacked area chart of pH distribution with an avg pH line overlay.
@@ -27,8 +24,7 @@ func NewRenderer() *Renderer { return &Renderer{} }
 
 func (r *Renderer) Reset() {}
 
-// Render ignores progress: a single pass over the recorded buckets is
-// fast enough that a progress bar would only flash.
+// Render ignores progress: a single pass over the recorded buckets is fast enough that a progress bar would only flash.
 func (r *Renderer) Render(sim *s.Simulation, oldBarCount, newBarCount int, _ *gh.Progress) *ebiten.Image {
 	totalCells := c.GridUnitsWide() * c.GridUnitsHigh()
 	if totalCells < 1 {

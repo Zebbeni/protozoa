@@ -8,11 +8,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// family builds a small tree:
-//
-//	root (0) ── parent (10) ── child (20) ── grandchild (30)
-//	                        └─ sibling (25)
-//	stranger (5), unrelated root
 func family() (root, parent, child, grandchild, sibling, stranger *DescendantNode) {
 	root = &DescendantNode{ID: 1, StartCycle: 0}
 	parent = &DescendantNode{ID: 2, StartCycle: 10, Parent: root}
@@ -58,8 +53,7 @@ func TestOutsideDirectLineIsNotRelated(t *testing.T) {
 	}
 }
 
-// countingNode wraps a long single line of descent so the walk's stopping
-// rule can be checked: it must not climb past the older organism's birth.
+// countingNode wraps a long single line of descent so the walk's stopping rule can be checked.
 func TestWalkStopsAtOlderOrganismsBirth(t *testing.T) {
 	// A 1000-generation line, one generation per cycle.
 	nodes := make([]*DescendantNode, 1000)
@@ -69,8 +63,7 @@ func TestWalkStopsAtOlderOrganismsBirth(t *testing.T) {
 			nodes[i].Parent = nodes[i-1]
 		}
 	}
-	// An unrelated organism born at cycle 990: the walk from the youngest
-	// may visit only ancestors born at 990 or later.
+	// An unrelated organism born at cycle 990.
 	outsider := &DescendantNode{ID: 5000, StartCycle: 990}
 
 	visited := 0
@@ -88,7 +81,6 @@ func TestWalkStopsAtOlderOrganismsBirth(t *testing.T) {
 	}
 }
 
-// orgLookup is a LookupAPI with one organism at a known cell.
 type orgLookup struct {
 	phLookup
 	at  utils.Point
@@ -101,11 +93,11 @@ func (l orgLookup) CheckOrganismAtPoint(p utils.Point, check OrgCheck) bool {
 	}
 	return check(l.org)
 }
+
+func (l orgLookup) GetBuriedFoodAtPoint(utils.Point) int          { return 0 }
+func (l orgLookup) BuriedFoodCount() int                          { return 0 }
 func (l orgLookup) GetFoodAtPoint(utils.Point) (*food.Item, bool) { return nil, false }
 
-// TestIsRelativeAheadCondition wires the rule into the decision-tree
-// condition: true for a relative directly ahead, false for a stranger or
-// an empty cell.
 func TestIsRelativeAheadCondition(t *testing.T) {
 	_, parent, child, _, _, stranger := family()
 	self := &Organism{Location: utils.Point{X: 5, Y: 5}, Direction: utils.Point{X: 1, Y: 0}, TreeNode: child}

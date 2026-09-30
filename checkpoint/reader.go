@@ -11,15 +11,13 @@ import (
 	"runtime"
 )
 
-// readerBacking is the minimum API the Reader needs: random-access
-// reads, seeking, and close. Both *os.File and *memView satisfy it.
+// readerBacking is the minimum API the Reader needs: random-access reads, seeking, and close.
 type readerBacking interface {
 	io.Reader
 	io.Seeker
 	io.Closer
 }
 
-// Reader reads checkpoint data from a .pzr file.
 type Reader struct {
 	file          readerBacking
 	path          string
@@ -29,19 +27,13 @@ type Reader struct {
 	indexOffset   int64 // file offset where snapshot index begins
 }
 
-// OpenReader opens a .pzr file and reads the header and snapshot
-// index. On native, opens via os.Open. On WASM (runtime.GOOS == "js")
-// looks up an in-memory MemFile registered by NewWriter under the
-// same path; this lets a checkpoint written during the same browser
-// session be read back without touching the (non-existent) browser
-// filesystem.
+// OpenReader opens a .pzr file and reads the header and snapshot index.
 func OpenReader(path string) (*Reader, error) {
 	file, err := openReaderBacking(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify magic
 	var magic [4]byte
 	if _, err := io.ReadFull(file, magic[:]); err != nil {
 		file.Close()
@@ -52,7 +44,6 @@ func OpenReader(path string) (*Reader, error) {
 		return nil, fmt.Errorf("not a valid .pzr file")
 	}
 
-	// Verify version
 	var version uint32
 	if err := binary.Read(file, binary.LittleEndian, &version); err != nil {
 		file.Close()
@@ -63,7 +54,6 @@ func OpenReader(path string) (*Reader, error) {
 		return nil, fmt.Errorf("unsupported version: %d", version)
 	}
 
-	// Read header (length-prefixed gob)
 	var headerLen int32
 	if err := binary.Read(file, binary.LittleEndian, &headerLen); err != nil {
 		file.Close()
@@ -80,29 +70,18 @@ func OpenReader(path string) (*Reader, error) {
 		return nil, fmt.Errorf("failed to decode header: %w", err)
 	}
 
-	// Sections begin right after the header
 	sectionsStart, _ := file.Seek(0, io.SeekCurrent)
 
-	// Look up the file's total size; needed for both the fast-path
-	// footer validation and the fallback section scan.
+	// Look up the file's total size; needed for both the fast-path footer validation and the fallback section scan.
 	fileSize, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to seek to end of file: %w", err)
 	}
 
-	// Try the fast path first: read the footer at the end of the
-	// file and seek to the snapshot index. A cleanly-closed file
-	// has a valid footer pointing at the index gob blob.
+	// Try the fast path first: read the footer at the end of the file and seek to the snapshot index.
 	index, indexOffset, ok := tryReadFooterIndex(file, fileSize)
 	if !ok {
-		// Footer is missing or garbage — happens when the writer
-		// process was killed mid-run (Ctrl+C, OS kill, crash, the
-		// app window closing before CloseRecorder ran). Recover by
-		// scanning sections forward from sectionsStart, picking up
-		// every SectionSnapshot we find. This loses any sections
-		// that were partially written when the kill happened, but
-		// any whole snapshot before that point still loads.
 		index, indexOffset = scanSectionsForIndex(file, sectionsStart, fileSize)
 	}
 
@@ -116,11 +95,6 @@ func OpenReader(path string) (*Reader, error) {
 	}, nil
 }
 
-// tryReadFooterIndex attempts the fast-path: read the 12-byte footer
-// at the end of the file, validate the offsets, and gob-decode the
-// snapshot index it points at. Returns (index, indexOffset, true) on
-// success, or zeros + false if anything looks off so the caller can
-// fall back to scanning.
 func tryReadFooterIndex(file readerBacking, fileSize int64) ([]SnapshotEntry, int64, bool) {
 	const footerSize = int64(8 + 4)
 	if fileSize < footerSize {
@@ -137,9 +111,6 @@ func tryReadFooterIndex(file readerBacking, fileSize int64) ([]SnapshotEntry, in
 	if err := binary.Read(file, binary.LittleEndian, &indexCount); err != nil {
 		return nil, 0, false
 	}
-	// Sanity-check before trusting the offset — the writer never
-	// emits a footer with offsets outside the file, so anything
-	// outside is the "no footer was written" garbage case.
 	if indexOffset <= 0 || indexOffset >= fileSize-footerSize || indexCount < 0 {
 		return nil, 0, false
 	}
@@ -153,13 +124,7 @@ func tryReadFooterIndex(file readerBacking, fileSize int64) ([]SnapshotEntry, in
 	return index, indexOffset, true
 }
 
-// scanSectionsForIndex walks sections from sectionsStart forward,
-// rebuilding the snapshot index from whatever sections are present
-// and valid. Used as a fallback when the footer is missing or
-// corrupt (writer killed before Close()). Returns the recovered
-// index and the offset where it would have started — for the
-// recovered case this is just fileSize, since there is no on-disk
-// index.
+// scanSectionsForIndex walks sections from sectionsStart forward, rebuilding the snapshot index from whatever sections are present and valid.
 func scanSectionsForIndex(file readerBacking, sectionsStart, fileSize int64) ([]SnapshotEntry, int64) {
 	var index []SnapshotEntry
 	if _, err := file.Seek(sectionsStart, io.SeekStart); err != nil {
@@ -170,7 +135,6 @@ func scanSectionsForIndex(file readerBacking, sectionsStart, fileSize int64) ([]
 		if err != nil || offset >= fileSize {
 			break
 		}
-		// Section header: [type:1][cycle:int32][compLen:int32][uncompLen:int32]
 		const headerSize = int64(1 + 4 + 4 + 4)
 		if offset+headerSize > fileSize {
 			break
@@ -189,10 +153,7 @@ func scanSectionsForIndex(file readerBacking, sectionsStart, fileSize int64) ([]
 		if err := binary.Read(file, binary.LittleEndian, &uncompLen); err != nil {
 			break
 		}
-		// Validate the section header before trusting compLen: a
-		// half-written section would have garbage values here, and
-		// blindly seeking compLen bytes forward could march off the
-		// end of the file or skip into actual data.
+		// Validate the section header before trusting compLen.
 		if compLen < 0 || uncompLen < 0 || offset+headerSize+int64(compLen) > fileSize {
 			break
 		}
@@ -214,12 +175,10 @@ func (r *Reader) SectionsStart() int64 { return r.sectionsStart }
 func (r *Reader) IndexOffset() int64   { return r.indexOffset }
 func (r *Reader) Path() string         { return r.path }
 
-// SnapshotCount returns the number of snapshots in the file.
 func (r *Reader) SnapshotCount() int {
 	return len(r.SnapshotIndex)
 }
 
-// ReadSnapshot reads the snapshot at the given index.
 func (r *Reader) ReadSnapshot(index int) (*SnapshotPayload, error) {
 	if index < 0 || index >= len(r.SnapshotIndex) {
 		return nil, fmt.Errorf("snapshot index %d out of range [0, %d)", index, len(r.SnapshotIndex))
@@ -245,10 +204,7 @@ func (r *Reader) ReadSnapshot(index int) (*SnapshotPayload, error) {
 	return snapshot, nil
 }
 
-// ReadNextSection reads the next section from the current file position.
-// Returns the section type, cycle, and decoded payload (either *SnapshotPayload or *DeltaPayload).
 func (r *Reader) ReadNextSection() (sectionType byte, cycle int, payload interface{}, err error) {
-	// Stop before the snapshot index
 	pos, _ := r.file.Seek(0, io.SeekCurrent)
 	if pos >= r.indexOffset {
 		err = io.EOF
@@ -258,15 +214,13 @@ func (r *Reader) ReadNextSection() (sectionType byte, cycle int, payload interfa
 	return
 }
 
-// SeekAfterHeader positions the file cursor right after the header,
-// ready to read sections sequentially.
+// SeekAfterHeader positions the file cursor right after the header, ready to read sections sequentially.
 func (r *Reader) SeekAfterHeader() error {
 	_, err := r.file.Seek(r.sectionsStart, io.SeekStart)
 	return err
 }
 
 func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}, err error) {
-	// Read section header
 	if err = binary.Read(r.file, binary.LittleEndian, &sectionType); err != nil {
 		return
 	}
@@ -280,13 +234,11 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 	binary.Read(r.file, binary.LittleEndian, &compressedLen)
 	binary.Read(r.file, binary.LittleEndian, &uncompressedLen)
 
-	// Read compressed data
 	compData := make([]byte, compressedLen)
 	if _, err = io.ReadFull(r.file, compData); err != nil {
 		return
 	}
 
-	// Decompress
 	flateReader := flate.NewReader(bytes.NewReader(compData))
 	decompData := make([]byte, 0, uncompressedLen)
 	buf := make([]byte, 32*1024)
@@ -305,7 +257,6 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 	}
 	flateReader.Close()
 
-	// Gob-decode
 	switch sectionType {
 	case SectionSnapshot:
 		var snap SnapshotPayload
@@ -337,15 +288,10 @@ func (r *Reader) readSection() (sectionType byte, cycle int, payload interface{}
 	return
 }
 
-// Close closes the underlying file.
 func (r *Reader) Close() error {
 	return r.file.Close()
 }
 
-// openReaderBacking returns a readable backing for the given path —
-// real os.File on native, fresh *memView (from the registered
-// MemFile) on WASM. WASM reads return io.EOF beyond the data the
-// writer wrote.
 func openReaderBacking(path string) (readerBacking, error) {
 	if runtime.GOOS == "js" {
 		mf := lookupMemFile(path)

@@ -14,8 +14,6 @@ func TestGraphViewZeroValueIsFullRange(t *testing.T) {
 	}
 }
 
-// TestZoomKeepsAnchorInPlace: the point under the cursor stays under the
-// cursor as the view zooms in and out.
 func TestZoomKeepsAnchorInPlace(t *testing.T) {
 	var v graphView
 	const anchor = 0.3
@@ -33,8 +31,7 @@ func TestZoomKeepsAnchorInPlace(t *testing.T) {
 	}
 }
 
-// TestZoomAndPanStayInRange: the window never leaves [0, 1] or zooms past
-// its limits.
+// TestZoomAndPanStayInRange: the window never leaves [0, 1] or zooms past its limits.
 func TestZoomAndPanStayInRange(t *testing.T) {
 	var v graphView
 	v.zoomAt(1, 1e9)
@@ -83,8 +80,6 @@ func TestGraphImageWidth(t *testing.T) {
 	}
 }
 
-// TestDetachedWindowHoldsItsCycles: a zoomed window that doesn't reach the
-// latest cycle keeps showing the same cycles as the run grows.
 func TestDetachedWindowHoldsItsCycles(t *testing.T) {
 	var v graphView
 	v.syncRange(0, 1000)
@@ -96,8 +91,6 @@ func TestDetachedWindowHoldsItsCycles(t *testing.T) {
 	}
 }
 
-// TestWindowAtLatestCycleKeepsFollowing: a window touching the right edge
-// still shows the latest cycle as the run grows.
 func TestWindowAtLatestCycleKeepsFollowing(t *testing.T) {
 	var v graphView
 	v.syncRange(0, 1000)
@@ -119,8 +112,6 @@ func TestWindowAtLatestCycleKeepsFollowing(t *testing.T) {
 	}
 }
 
-// TestDetachedWindowClampsOnBackwardSeek: when a seek shrinks the range
-// under a detached window, the window stays inside the graph.
 func TestDetachedWindowClampsOnBackwardSeek(t *testing.T) {
 	var v graphView
 	v.syncRange(0, 1000)
@@ -131,10 +122,6 @@ func TestDetachedWindowClampsOnBackwardSeek(t *testing.T) {
 	}
 }
 
-// TestToVisibleInvertsToFull: the playhead is placed by mapping a
-// fraction of the run back onto the zoomed window, so the two mappings
-// have to agree — a playhead drawn through toVisible must land under the
-// bar toFull would report at that position.
 func TestToVisibleInvertsToFull(t *testing.T) {
 	for _, v := range []graphView{{}, {start: 0.25, end: 0.5}, {start: 0.9, end: 1}} {
 		for _, pos := range []float64{0, 0.25, 0.5, 1} {
@@ -144,8 +131,7 @@ func TestToVisibleInvertsToFull(t *testing.T) {
 		}
 	}
 
-	// A point outside the window reports outside [0, 1], which is what
-	// tells the panel not to draw the playhead at all.
+	// A point outside the window reports outside [0, 1].
 	v := graphView{start: 0.5, end: 0.75}
 	if got := v.toVisible(0.1); got >= 0 {
 		t.Errorf("a point left of the window mapped to %g, want negative", got)
@@ -155,9 +141,6 @@ func TestToVisibleInvertsToFull(t *testing.T) {
 	}
 }
 
-// TestPlayheadFractionClamps: a seek past either end of the graph's
-// range still puts the marker on the graph, and an empty range has
-// nowhere to put it.
 func TestPlayheadFractionClamps(t *testing.T) {
 	for _, tc := range []struct {
 		start, current, end int

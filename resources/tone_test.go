@@ -8,8 +8,7 @@ import (
 
 func grey(v uint8, a uint8) color.NRGBA { return color.NRGBA{R: v, G: v, B: v, A: a} }
 
-// TestToneImageCurve: black maps to the shadow point, white stays white,
-// greys keep their order, and alpha is untouched.
+// TestToneImageCurve: black maps to the shadow point, white stays white, greys keep their order.
 func TestToneImageCurve(t *testing.T) {
 	src := image.NewNRGBA(image.Rect(0, 0, 5, 1))
 	src.SetNRGBA(0, 0, grey(0, 255))
@@ -36,8 +35,6 @@ func TestToneImageCurve(t *testing.T) {
 	}
 }
 
-// TestToneImageGammaBrightensMidtones: below 1, gamma lifts a midtone more
-// than a plain shadow lift of the same black point would.
 func TestToneImageGammaBrightensMidtones(t *testing.T) {
 	src := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 	src.SetNRGBA(0, 0, grey(111, 255))
@@ -56,9 +53,6 @@ func TestToneImageIdentity(t *testing.T) {
 	}
 }
 
-// TestToneImageDarkenDeepensDarksOnly: darken pulls dark greys well down
-// while light greys and white barely move, and greys never swap order, even
-// at the strongest darken.
 func TestToneImageDarkenDeepensDarksOnly(t *testing.T) {
 	src := image.NewNRGBA(image.Rect(0, 0, 6, 1))
 	for x, v := range []uint8{0, 24, 56, 111, 165, 255} {

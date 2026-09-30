@@ -7,13 +7,7 @@ import (
 	c "github.com/Zebbeni/protozoa/config"
 )
 
-// Progress counts work units for one background graph render, so the UI
-// can show how far along a slow render is. Renderers declare the units
-// they are about to do with AddWork and tick them off with Step; the main
-// goroutine reads Fraction. Both sides are lock-free.
-//
-// All methods are safe on a nil *Progress, so a renderer can report
-// unconditionally and a caller that doesn't care passes nil.
+// Progress counts work units for one background graph render, so the UI can show how far along a slow render is.
 type Progress struct {
 	done, total atomic.Int64
 }
@@ -32,9 +26,7 @@ func (p *Progress) Step() {
 	}
 }
 
-// Fraction returns completed work as a share of declared work, clamped to
-// [0, 1]. ok is false until some work has been declared, since a render
-// that has reported nothing has no meaningful progress to show.
+// Fraction returns completed work as a share of declared work, clamped to [0, 1].
 func (p *Progress) Fraction() (fraction float64, ok bool) {
 	if p == nil {
 		return 0, false
@@ -46,8 +38,6 @@ func (p *Progress) Fraction() (fraction float64, ok bool) {
 	return min(1, max(0, float64(p.done.Load())/float64(total))), true
 }
 
-// GraphBackground is the fill behind graph series: just off the panel
-// fill, so the plot area is visible without competing with the data.
 func GraphBackground() color.RGBA {
 	if c.IsLightTheme() {
 		return color.RGBA{R: 235, G: 235, B: 240, A: 255}

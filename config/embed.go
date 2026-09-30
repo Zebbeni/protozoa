@@ -6,20 +6,14 @@ import (
 	"io/fs"
 )
 
-// assetsFS is the asset filesystem the config loader reads default
-// settings from. Set once at startup by main.go via UseEmbeddedAssets.
+// assetsFS is the asset filesystem the config loader reads default settings from.
 var assetsFS fs.FS
 
-// UseEmbeddedAssets wires the embedded asset bundle into the config
-// loader. Must be called before GetDefaultGlobals.
+// UseEmbeddedAssets wires the embedded asset bundle into the config loader.
 func UseEmbeddedAssets(efs embed.FS) {
 	assetsFS = efs
 }
 
-// loadEmbeddedDefault returns a reader for settings/default.json from
-// the embedded assets. Panics if the asset isn't present, since the
-// project ships it via go:embed and a missing file means the build is
-// broken.
 func loadEmbeddedDefault() io.Reader {
 	if assetsFS == nil {
 		panic("config: asset FS not initialised; UseEmbeddedAssets must be called first")

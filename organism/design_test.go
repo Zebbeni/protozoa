@@ -13,8 +13,7 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// loadDesignGlobals installs the shipped settings, which the clamps and
-// the starting values read.
+// loadDesignGlobals installs the shipped settings, which the clamps and the starting values read.
 func loadDesignGlobals(t *testing.T) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
@@ -28,18 +27,13 @@ func loadDesignGlobals(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// sameDesign compares two designs. A Design holds a slice, so == won't
-// do it; the JSON form is what gets saved anyway, which makes it the
-// comparison that matters.
 func sameDesign(a, b Design) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
 }
 
-// TestNewDesignIsUsable: the design the editor opens on must already be
-// a legal organism. Starting from something that won't save would make
-// the first thing a user sees an error message.
+// TestNewDesignIsUsable: the design the editor opens on must already be a legal organism.
 func TestNewDesignIsUsable(t *testing.T) {
 	loadDesignGlobals(t)
 	ds := NewDesign("first")
@@ -65,9 +59,6 @@ func TestNewDesignIsUsable(t *testing.T) {
 	}
 }
 
-// TestDesignRoundTripsThroughDisk: a saved design reloads as itself.
-// The file is the whole contract between the designer and a simulation,
-// so anything the editor can express has to survive the trip.
 func TestDesignRoundTripsThroughDisk(t *testing.T) {
 	loadDesignGlobals(t)
 	dir := t.TempDir()
@@ -100,10 +91,6 @@ func TestDesignRoundTripsThroughDisk(t *testing.T) {
 	}
 }
 
-// TestDesignsByNamePicksInOrder: the configured founders are dealt in
-// the order the user listed them, and a name with no file behind it is
-// skipped rather than failing the run — a settings file shared without
-// its designs still has to start.
 func TestDesignsByNamePicksInOrder(t *testing.T) {
 	loadDesignGlobals(t)
 	dir := t.TempDir()
@@ -130,8 +117,6 @@ func names(designs []Design) []string {
 	return out
 }
 
-// TestBrokenDesignsAreSkipped: one unreadable file can't hide the rest
-// of the directory, and can't reach a simulation.
 func TestBrokenDesignsAreSkipped(t *testing.T) {
 	loadDesignGlobals(t)
 	dir := t.TempDir()
@@ -155,10 +140,6 @@ func TestBrokenDesignsAreSkipped(t *testing.T) {
 	}
 }
 
-// TestDesignedOrganismMatchesItsDesign: an organism founded from a
-// design carries that design's traits, tree and derived appearance —
-// the same appearance rule evolved organisms get, so a designed
-// organism is a normal organism and not a special case.
 func TestDesignedOrganismMatchesItsDesign(t *testing.T) {
 	loadDesignGlobals(t)
 	ds := NewDesign("grazer")
@@ -190,9 +171,6 @@ func TestDesignedOrganismMatchesItsDesign(t *testing.T) {
 	}
 }
 
-// TestTraitsAreClampedToTheCurrentSettings: a design saved under other
-// settings still has to produce a legal organism rather than one the
-// simulation can't run.
 func TestTraitsAreClampedToTheCurrentSettings(t *testing.T) {
 	loadDesignGlobals(t)
 	ds := NewDesign("huge")
@@ -216,8 +194,6 @@ func TestTraitsAreClampedToTheCurrentSettings(t *testing.T) {
 	}
 }
 
-// TestDesignNamesBecomeFileNames: the file a design lands in is derived
-// from its name, so the directory reads like the names the user typed.
 func TestDesignNamesBecomeFileNames(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"Alpha", "alpha.json"},
@@ -231,9 +207,6 @@ func TestDesignNamesBecomeFileNames(t *testing.T) {
 	}
 }
 
-// TestDeleteDesign: a deleted design is gone from the directory, and
-// deleting one that isn't there is not an error — the caller wanted it
-// gone and it is.
 func TestDeleteDesign(t *testing.T) {
 	loadDesignGlobals(t)
 	dir := t.TempDir()
@@ -255,16 +228,10 @@ func TestDeleteDesign(t *testing.T) {
 	}
 }
 
-// TestExceedsTreeLimitIsSettingsDependent: the node limit is a setting,
-// so the same design is legal under one configuration and not another.
-// It must not be part of Validate, or a design saved under a higher
-// limit would vanish from the listing instead of being shown and fixed.
 func TestExceedsTreeLimitIsSettingsDependent(t *testing.T) {
 	loadDesignGlobals(t)
 
-	// The active config is deliberately left somewhere else entirely: the
-	// limit is an argument, so the caller decides which one applies. The
-	// config screen's is the value being edited, not the running one.
+	// The active config is deliberately left somewhere else entirely.
 	config.GetCurrentGlobals().MaxDecisionTreeSize = 2
 
 	ds := NewDesign("branchy")

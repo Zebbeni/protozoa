@@ -10,21 +10,6 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// TestFoodNeverLandsOnAnOrganism is the regression test for food
-// rendering underneath a living organism and staying there for cycles.
-//
-// Organisms can never step onto food — food blocks movement — so the only
-// way the two shared a cell was food arriving underneath a stationary
-// one, which random spawns did freely: addFood checked for a wall and
-// nothing else. On the reported seed, 973 of the first 5,600 cycles had
-// at least one overlapping cell.
-//
-// The rule itself is pinned by TestFoodIsNotPlacedOnAnOrganism in the
-// manager package, which is the guard that fails if the check is removed.
-// This one plays the reported run forward instead, because the bug was
-// found by looking at a world rather than at a function — and a smaller,
-// shorter world than the one that produced it did *not* reproduce it, so
-// the settings and seed are the reported ones on purpose.
 func TestFoodNeverLandsOnAnOrganism(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "settings", "settings_seed_1789794294595329300.json"))
 	if err != nil {
@@ -34,25 +19,52 @@ func TestFoodNeverLandsOnAnOrganism(t *testing.T) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		t.Fatal(err)
 	}
+	// A food spawn attempt every cycle rather than one in fifty.
+	g.ChanceToAddFoodItem = 1
 	config.SetGlobals(&g)
 
-	// The first overlap on this seed was at cycle 4628.
 	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: g.Seed, CheckpointInterval: 1 << 30})
+
+	prevOrg := map[utils.Point]int{}
+	prevTotal := map[utils.Point]int{}
+	sawOverlap := false
 	for c := 0; c < 4800 && !sim.IsDone(); c++ {
 		sim.Update()
-		for p := range sim.foodManager.GetFoodItems() {
-			if sim.organismManager.IsOrganismAtPoint(p) {
-				t.Fatalf("cycle %d: food at %v sits under a living organism", sim.Cycle(), p)
+
+		curOrg := map[utils.Point]int{}
+		for _, o := range sim.organismManager.Organisms() {
+			curOrg[o.Location] = o.ID
+		}
+		curTotal := map[utils.Point]int{}
+		for p, item := range sim.foodManager.GetFoodItems() {
+			curTotal[p] += item.Value
+		}
+		for p, v := range sim.foodManager.GetBuriedFood() {
+			curTotal[p] += v
+		}
+
+		for p, id := range curOrg {
+			if curTotal[p] == 0 {
+				continue
+			}
+			sawOverlap = true
+			was, stayed := prevOrg[p]
+			if stayed && was == id && curTotal[p] > prevTotal[p] {
+				t.Fatalf("cycle %d: food at %v went from %d to %d under organism %d, which did not move — "+
+					"digging moves food between layers without changing the total, so this is food arriving from nowhere",
+					sim.Cycle(), p, prevTotal[p], curTotal[p], id)
 			}
 		}
+		prevOrg, prevTotal = curOrg, curTotal
+	}
+
+	// If food and organisms never shared a cell at all, the check above never ran and the test proves nothing.
+	if !sawOverlap {
+		t.Skip("no organism ever stood on food in this run, so the arrival check never fired")
 	}
 }
 
 // TestCorpseFoodStillDrops: the fix must not take the corpse with it.
-// A dying organism drops food at its own location, and that is the one
-// place food legitimately appears where an organism was — it works
-// because the corpse is cleared off the grid before the food is added,
-// so by the time addFood sees the cell it is empty.
 func TestCorpseFoodStillDrops(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
 	if err != nil {

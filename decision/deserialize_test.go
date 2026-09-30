@@ -3,7 +3,6 @@ package decision
 import "testing"
 
 func TestDeserializeRoundTrip(t *testing.T) {
-	// Simple action-only tree
 	tree1 := TreeFromAction(ActChemosynthesis)
 	s1 := tree1.Serialize()
 	rt1 := DeserializeTree(s1)
@@ -14,7 +13,6 @@ func TestDeserializeRoundTrip(t *testing.T) {
 		t.Errorf("Round-trip failed: got %q, want %q", rt1.Serialize(), s1)
 	}
 
-	// Build a more complex tree manually
 	tree2 := &Tree{
 		Node: &Node{
 			NodeType: CanMove,

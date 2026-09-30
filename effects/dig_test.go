@@ -12,8 +12,7 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// digGlobals is the shipped configuration, for tests that want the real
-// numbers rather than ones they invented.
+// digGlobals is the shipped configuration, for tests that want the real numbers rather than ones they invented.
 func digGlobals(t *testing.T) *config.Globals {
 	t.Helper()
 	f, err := os.Open(filepath.Join("..", "settings", "default.json"))
@@ -32,14 +31,10 @@ func digGlobals(t *testing.T) *config.Globals {
 	return &g
 }
 
-// TestDigEffectsHitBothEndpoints: each whole-unit dig effect starts at
-// its *AtZero setting and reaches its size-class value at 100 Digging.
-// Those two settings are the whole contract — everything between them is
-// the curve.
 func TestDigEffectsHitBothEndpoints(t *testing.T) {
 	g := digGlobals(t)
-	g.FoodFromDiggingAtZero, g.WallStrengthDeltaAtZero = 2, 4
-	g.FoodFromDiggingSmall, g.WallStrengthDeltaSmall = 9, 20
+	g.FoodFromDiggingAtZero = 2
+	g.FoodFromDiggingSmall = 9
 
 	const small = 1.0
 	if got := DigFood(g, 0, small); got != 2 {
@@ -48,66 +43,34 @@ func TestDigEffectsHitBothEndpoints(t *testing.T) {
 	if got := DigFood(g, 100, small); got != 9 {
 		t.Errorf("food at 100 Digging = %d, want the size-class setting (9)", got)
 	}
-	if got := DigWallRemoved(g, 0, small); got != 4 {
-		t.Errorf("wall strength at 0 Digging = %d, want the at-zero setting (4)", got)
-	}
-	if got := DigWallRemoved(g, 100, small); got != 20 {
-		t.Errorf("wall strength at 100 Digging = %d, want the size-class setting (20)", got)
-	}
 
-	// An at-zero above the full value still reads as an endpoint, so a
-	// setting that inverts the curve does something predictable rather
-	// than clamping to nothing.
+	// An at-zero above the full value still reads as an endpoint.
 	g.FoodFromDiggingAtZero, g.FoodFromDiggingSmall = 6, 1
 	if lo, hi := DigFood(g, 0, small), DigFood(g, 100, small); lo != 6 || hi != 1 {
 		t.Errorf("inverted endpoints gave %d → %d, want 6 → 1", lo, hi)
 	}
 }
 
-// TestDigEffectsRiseWithDigging: between the endpoints both effects only
-// ever climb, in whole units.
-func TestDigEffectsRiseWithDigging(t *testing.T) {
+// TestDigFoodRisesWithDigging: between the endpoints the yield only ever climbs, in whole units.
+func TestDigFoodRisesWithDigging(t *testing.T) {
 	g := digGlobals(t)
 	for _, size := range []float64{1, 20, 50, 90} {
-		prevFood, prevWall := DigFood(g, 0, size), DigWallRemoved(g, 0, size)
+		prevFood := DigFood(g, 0, size)
 		for score := 1; score <= 100; score++ {
-			food, wall := DigFood(g, score, size), DigWallRemoved(g, score, size)
+			food := DigFood(g, score, size)
 			if food < prevFood {
 				t.Fatalf("size %g: food fell from %d to %d at Digging %d", size, prevFood, food, score)
 			}
-			if wall < prevWall {
-				t.Fatalf("size %g: wall strength fell from %d to %d at Digging %d", size, prevWall, wall, score)
-			}
-			prevFood, prevWall = food, wall
+			prevFood = food
 		}
-		if prevFood != SizeFoodFromDigging(g, size) || prevWall != SizeStrengthDelta(g, size) {
-			t.Errorf("size %g ends at food %d / wall %d, want the size-class values %d / %d",
-				size, prevFood, prevWall, SizeFoodFromDigging(g, size), SizeStrengthDelta(g, size))
+		if prevFood != SizeFoodFromDigging(g, size) {
+			t.Errorf("size %g ends at food %d, want the size-class value %d",
+				size, prevFood, SizeFoodFromDigging(g, size))
 		}
 	}
 }
 
-// TestADigAlwaysMovesTerrain: on the shipped settings no dig is wasted
-// motion — it costs health, so moving nothing would read as a bug.
-func TestADigAlwaysMovesTerrain(t *testing.T) {
-	g := digGlobals(t)
-	for _, size := range []float64{1, 20, 50, 90} {
-		for score := 0; score <= 100; score += 5 {
-			if got := DigWallRemoved(g, score, size); got < 1 {
-				t.Errorf("size %g at Digging %d moves %d wall strength", size, score, got)
-			}
-		}
-	}
-}
-
-// TestSuccessfulEatPaysForItsAttempt is the invariant behind the eat
-// attempt cost: a bite that fills an organism's capacity must be worth
-// more than the attempt cost, at every Eating score that can eat at all.
-// Below that line a *successful* eat is a net loss and the ability is a
-// trap — the organism does the right thing and dies of it.
-//
-// The relationship is what matters, not the numbers: cost scales with
-// size and so does capacity, so this holds for every size or none.
+// TestSuccessfulEatPaysForItsAttempt is the invariant behind the eat attempt cost.
 func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 	g := digGlobals(t)
 	cost := func(size float64) float64 { return -g.HealthChangeFromEatingAttempt * size }
@@ -122,10 +85,6 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 		}
 	}
 
-	// The margin at the lowest score that can eat: capacity there is
-	// roughly the organism's own size, so this is health_per_food_unit
-	// against the attempt cost. Thin here and the ability only pays for
-	// organisms that have already invested in it.
 	const size = 10
 	margin := HealthFromFood(g, MaxFoodPerEat(g, 1, size)) / cost(size)
 	if margin < 2 {
@@ -134,18 +93,12 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 	}
 	t.Logf("at Eating 1, a full bite is %.1fx the attempt cost", margin)
 
-	// Eating 0 is the one dead case, and it's deliberate: no capacity,
-	// so every attempt is a miss that pays the cost for nothing.
+	// Eating 0 is the one dead case, and it's deliberate.
 	if got := MaxFoodPerEat(g, 0, size); got != 0 {
 		t.Errorf("Eating 0 has capacity %v, want none", got)
 	}
 }
 
-// TestActionCostsNeverReachZero: each cost curve runs between two
-// configured ends, so a maxed-out ability buys a discount and never an
-// exemption. A cost curve alone runs to nothing, which would let the best
-// movers travel for free and the best diggers reshape terrain for free —
-// and a free action is one selection can no longer price.
 func TestActionCostsNeverReachZero(t *testing.T) {
 	g := digGlobals(t)
 	const size = 10.0
@@ -184,24 +137,10 @@ func TestActionCostsNeverReachZero(t *testing.T) {
 	}
 }
 
-// TestWallCreationIsItsOwnCurve: what a dig clears ahead and what it
-// raises beside it are separate settings on separate curves, so an
-// organism can be able to tunnel without being able to build.
-//
-// The shipped settings no longer have a small organism raising nothing:
-// wall_created_at_zero is 1, so an unskilled digger leaves 1-strength
-// walls behind it, and the size-class setting is 0, so a *skilled* small
-// digger leaves none. The curve running downward like that is the point
-// — skill is what stops you walling yourself in.
 func TestWallCreationIsItsOwnCurve(t *testing.T) {
 	g := digGlobals(t)
 	const small, large = 1.0, 90.0
 
-	for score := 0; score <= physiology.MaxAbilityScore; score++ {
-		if got := DigWallRemoved(g, score, small); got < 1 {
-			t.Errorf("a small organism at Digging %d cleared %d; it should still be able to tunnel", score, got)
-		}
-	}
 	// Both endpoints are the settings, whichever way round they run.
 	if got, want := DigWallCreated(g, 0, small), g.WallCreatedAtZero; got != want {
 		t.Errorf("creation at 0 Digging = %d, want the at-zero setting %d", got, want)
@@ -219,11 +158,10 @@ func TestWallCreationIsItsOwnCurve(t *testing.T) {
 	if got := DigWallCreated(&wide, physiology.MaxAbilityScore, small); got != 6 {
 		t.Errorf("creation at full Digging = %d, want the size-class setting 6", got)
 	}
-	if got := DigWallRemoved(&wide, physiology.MaxAbilityScore, small); got != SizeStrengthDelta(g, small) {
-		t.Errorf("changing creation moved removal to %d", got)
+	if got := DigFood(&wide, physiology.MaxAbilityScore, small); got != SizeFoodFromDigging(g, small) {
+		t.Errorf("changing wall creation moved the food yield to %d", got)
 	}
 
-	// And the curves are separate too: each reads its own shape.
 	wide.DiggingCreationCurveShape = string(physiology.ShapeLinear)
 	wide.DiggingStrengthCurveShape = string(physiology.ShapeQuadratic)
 	creation := Multiplier(&wide, physiology.CurveDiggingCreate, physiology.MaxAbilityScore/2)
@@ -235,5 +173,19 @@ func TestWallCreationIsItsOwnCurve(t *testing.T) {
 	// A large organism still builds, so creation isn't off globally.
 	if got := DigWallCreated(g, physiology.MaxAbilityScore, large); got < 1 {
 		t.Errorf("a large organism at full Digging raised %d, want at least 1", got)
+	}
+}
+
+func TestAnyDiggerRaisesSomethingFromAStockedCell(t *testing.T) {
+	g := digGlobals(t)
+	if g.FoodFromDiggingAtZero < 1 {
+		t.Fatalf("food_from_digging_at_zero is %d; a scratch should raise something",
+			g.FoodFromDiggingAtZero)
+	}
+	for _, size := range []float64{1, 5, 20, 50, 90} {
+		if got := DigFood(g, 0, size); got != g.FoodFromDiggingAtZero {
+			t.Errorf("size %g at Digging 0 raises %d, want the at-zero setting %d",
+				size, got, g.FoodFromDiggingAtZero)
+		}
 	}
 }

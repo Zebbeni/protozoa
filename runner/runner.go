@@ -23,23 +23,13 @@ type runnerState int
 const (
 	// stateSplash plays the title-card animation on first launch.
 	stateSplash runnerState = iota
-	// stateMainMenu shows the four-button top-level menu.
 	stateMainMenu
-	// stateRules shows the scrollable rules explainer.
 	stateRules
-	// stateDesigner shows the organism designer: a hand-built organism
-	// that can be saved and used to found later simulations.
+	stateRecordings
 	stateDesigner
-	// stateMainMenuPopup overlays the New Simulation popup on the main
-	// menu. The popup owns its own sub-mode (config / running /
-	// complete) and dispatches simulation lifecycle requests via Take.
+	// stateMainMenuPopup overlays the New Simulation popup on the main menu.
 	stateMainMenuPopup
-	// stateLoadingReplay is the brief gap between a View / Load
-	// Previous click and the replay controller finishing on a
-	// background goroutine. The previous screen (menu, optionally with
-	// the popup) keeps painting underneath an animated loading overlay
-	// so the user sees feedback while replay.NewController churns
-	// through the .pzr file.
+	// stateLoadingReplay is the brief gap between a View / Load Previous click and the replay controller finishing on a background goroutine.
 	stateLoadingReplay
 	// stateReplay is the full replay viewer (unchanged).
 	stateReplay
@@ -49,17 +39,14 @@ type Runner struct {
 	opts  *c.Options
 	state runnerState
 
-	// Per-state UI. All optional; only the field for the active state
-	// is non-nil at any given moment, but we hold them across frames
-	// rather than rebuilding so transient state (scroll position,
-	// scroll Y, edit selection) survives mode swaps within the popup.
 	splash   *ux.Splash
 	mainMenu *ux.MainMenu
 	rules    *ux.RulesScreen
 	designer *ux.Designer
-	simPopup *ux.SimPopup
+	// recordings is the saved-recordings browser, rebuilt on each visit so a recording saved since the last one shows up.
+	recordings *ux.RecordingsScreen
+	simPopup   *ux.SimPopup
 
-	// Replay-mode UI.
 	sim        *simulation.Simulation
 	ui         *ux.Interface
 	replayCtrl *replay.Controller
@@ -67,42 +54,26 @@ type Runner struct {
 	checkpointPath string
 	pressedKeys    map[ebiten.Key]bool
 
-	// lastHealthCycle is the most recent cycle for which logReplayHealth
-	// fired, so a paused replay sitting on a multiple of 500 doesn't
-	// spam the log every frame.
+	// lastHealthCycle is the most recent cycle for which logReplayHealth fired.
 	lastHealthCycle int
 
-	// activeSim is the currently-running headless simulation while the
-	// popup is in its running sub-mode. Stepped inside Update() rather
-	// than a goroutine so WASM builds yield to the JS event loop
-	// between frame ticks.
+	// activeSim is the currently-running headless simulation while the popup is in its running sub-mode.
 	activeSim      *simulation.Simulation
 	activeSimStart time.Time
 
-	// loadingResultCh is the rendezvous channel for the goroutine
-	// that's loading a .pzr file. Non-nil while a load is in flight;
-	// nil otherwise. Each Update of stateLoadingReplay does a
-	// non-blocking receive so the render loop keeps running (and the
-	// loading overlay keeps animating) until the result arrives.
+	// loadingResultCh is the rendezvous channel for the goroutine that's loading a .pzr file.
 	loadingResultCh chan replayLoadResult
 	// loadStartedAt is the wall-clock time we kicked off the load.
-	// Used by the menu-source loading overlay to animate dots.
 	loadStartedAt time.Time
 }
 
-// replayLoadResult carries the outcome of a background
-// replay.NewController call so the main goroutine can install the
-// controller (or report the error) without blocking.
+// replayLoadResult carries the outcome of a background replay.NewController call so the main goroutine can install the controller (or report the error) without blocking.
 type replayLoadResult struct {
 	ctrl *replay.Controller
 	err  error
 }
 
-// stepSimulationBudget caps how long we spend advancing the headless
-// simulation per ebiten Update tick. The browser needs the rest of the
-// frame to render and stay responsive; native runs are paced by the
-// scheduler anyway. 25ms / 40fps minimum keeps the page responsive
-// enough that the Stop button still reacts within ~25ms.
+// stepSimulationBudget caps how long we spend advancing the headless simulation per ebiten Update tick.
 const stepSimulationBudget = 25 * time.Millisecond
 
 func (r *Runner) Update() error {
@@ -119,6 +90,10 @@ func (r *Runner) Update() error {
 			if path, ok := mostRecentReplay(); ok {
 				r.beginLoadingReplay(path)
 			}
+		case ux.MenuChoiceLoadRecording:
+			// Rebuilt on every visit rather than kept.
+			r.recordings = ux.NewRecordingsScreen()
+			r.state = stateRecordings
 		case ux.MenuChoiceDesigner:
 			r.designer = ux.NewDesigner()
 			r.state = stateDesigner
@@ -132,27 +107,28 @@ func (r *Runner) Update() error {
 		if r.rules.Update() {
 			r.state = stateMainMenu
 		}
+	case stateRecordings:
+		switch r.recordings.Update() {
+		case ux.RecordingsBack:
+			r.enterMainMenu()
+		case ux.RecordingsOpen:
+			r.beginLoadingReplay(r.recordings.Chosen())
+		}
 	case stateDesigner:
 		if r.designer.Update() == ux.DesignerBack {
-			// Rebuilt on the next visit rather than kept: the designs
-			// list is read from disk on open, and a stale editor would
-			// show a design the user may have since edited by hand.
+			// Rebuilt on the next visit rather than kept.
 			r.designer = nil
 			r.enterMainMenu()
 		}
 	case stateMainMenuPopup:
-		// While the popup is in running mode, advance the sim. The
-		// popup itself doesn't know how to step a sim — the runner
-		// owns that loop and feeds the popup log lines + completion
-		// stats.
+		// While the popup is in running mode, advance the sim.
 		if r.simPopup.Mode() == ux.SimPopupRunning {
 			r.stepSimulation()
 		}
 		r.simPopup.Update()
 		switch r.simPopup.Take() {
 		case ux.PopupReqCancel:
-			// Rebuilt rather than reused: a popup opened from the replay
-			// viewer or --config has no menu behind it yet.
+			// Rebuilt rather than reused: a popup opened from the replay viewer or --config has no menu behind it yet.
 			r.simPopup = nil
 			r.enterMainMenu()
 		case ux.PopupReqStart, ux.PopupReqRetry:
@@ -174,9 +150,7 @@ func (r *Runner) Update() error {
 	return nil
 }
 
-// enterMainMenu builds the main menu and toggles the Load Previous
-// button based on whether a saved replay exists. Called on first
-// transition from splash and any later return-to-menu.
+// enterMainMenu builds the main menu and toggles the Load Previous button based on whether a saved replay exists.
 func (r *Runner) enterMainMenu() {
 	r.mainMenu = ux.NewMainMenu()
 	if _, ok := mostRecentReplay(); !ok {
@@ -185,14 +159,10 @@ func (r *Runner) enterMainMenu() {
 	r.state = stateMainMenu
 }
 
-// openNewSimulationPopup spawns the popup over the main menu in
-// config sub-mode. We work on a fresh copy of the default globals so
-// uncommitted edits never leak back to the menu / earlier runs.
+// openNewSimulationPopup spawns the popup over the main menu in config sub-mode.
 func (r *Runner) openNewSimulationPopup() {
 	globals := c.GetDefaultGlobals()
-	// CLI --seed seeds the form so the user can see / edit it; once
-	// inside the popup, globals.Seed is the source of truth and
-	// opts.Seed stays out of the way.
+	// CLI --seed seeds the form so the user can see / edit it.
 	if r.opts.Seed != 0 {
 		globals.Seed = r.opts.Seed
 		r.opts.Seed = 0
@@ -201,12 +171,7 @@ func (r *Runner) openNewSimulationPopup() {
 	r.state = stateMainMenuPopup
 }
 
-// beginLoadingReplay transitions into stateLoadingReplay and kicks
-// off the controller load on a background goroutine. The previous
-// state (menu, optionally with the popup on top) keeps painting
-// underneath an animated loading overlay so the user sees feedback
-// during the multi-second load. Either entry point — popup View or
-// menu Load Previous — funnels through here.
+// beginLoadingReplay transitions into stateLoadingReplay and kicks off the controller load on a background goroutine.
 func (r *Runner) beginLoadingReplay(path string) {
 	if r.loadingResultCh != nil {
 		return // already loading
@@ -229,16 +194,9 @@ func (r *Runner) beginLoadingReplay(path string) {
 }
 
 // checkReplayLoad does a non-blocking receive on the load channel.
-// On success it installs the controller (UI construction has to run
-// on the main goroutine because it touches ebiten.Image) and
-// transitions to stateReplay. On failure it logs and reverts to the
-// state we came from — popup if one is still open, otherwise the
-// main menu — so the user can retry without losing their place.
 func (r *Runner) checkReplayLoad() {
 	if r.loadingResultCh == nil {
-		// Shouldn't happen, but if we got into stateLoadingReplay
-		// without a pending load, recover by dropping back to the
-		// most sensible previous state.
+		// Shouldn't happen, but if we got into stateLoadingReplay without a pending load, recover by dropping back to the most sensible previous state.
 		if r.simPopup != nil {
 			r.state = stateMainMenuPopup
 		} else {
@@ -265,9 +223,7 @@ func (r *Runner) checkReplayLoad() {
 	}
 }
 
-// installReplayController mounts a freshly-loaded controller and
-// builds the replay UI on the main goroutine. Shared between the
-// async loading path and any future synchronous fallback.
+// installReplayController mounts a freshly-loaded controller and builds the replay UI on the main goroutine.
 func (r *Runner) installReplayController(ctrl *replay.Controller) {
 	r.replayCtrl = ctrl
 	r.sim = ctrl.Simulation()
@@ -278,8 +234,6 @@ func (r *Runner) installReplayController(ctrl *replay.Controller) {
 	ebiten.SetScreenClearedEveryFrame(false)
 }
 
-// handleReplayMenuChoice carries out a replay menu choice that leaves
-// the replay viewer. Returns true if it left.
 func (r *Runner) handleReplayMenuChoice() bool {
 	choice := r.ui.TakeMenuChoice()
 	if choice == ux.ReplayMenuNone {
@@ -289,16 +243,12 @@ func (r *Runner) handleReplayMenuChoice() bool {
 	r.leaveReplay()
 	switch choice {
 	case ux.ReplayMenuRunAgain:
-		// Same settings, new seed: the same seed would replay the same
-		// simulation.
 		globals.Seed = 0
 		r.simPopup = ux.NewSimPopup(&globals)
 		r.state = stateMainMenuPopup
 		r.startSimFromPopup()
 	case ux.ReplayMenuEditSettings:
-		// The form keeps the replay's seed, like Edit Settings after a
-		// run, so a single changed setting can be compared on the same
-		// world; clearing it to 0 picks a new one.
+		// The form keeps the replay's seed, like Edit Settings after a run.
 		r.simPopup = ux.NewSimPopup(&globals)
 		r.state = stateMainMenuPopup
 	case ux.ReplayMenuMainMenu:
@@ -307,23 +257,17 @@ func (r *Runner) handleReplayMenuChoice() bool {
 	return true
 }
 
-// leaveReplay closes the replay viewer. The replay file is closed first
-// because a new simulation records to the same path.
 func (r *Runner) leaveReplay() {
 	r.replayCtrl.Close()
 	r.replayCtrl = nil
 	r.sim = nil
 	r.ui = nil
-	// A CLI --seed would otherwise override the seed of every simulation
-	// started from here on (NewSimulation prefers options.Seed).
+	// A CLI --seed would otherwise override the seed of every simulation started from here on (NewSimulation prefers options.Seed).
 	r.opts.Seed = 0
 	ebiten.SetScreenClearedEveryFrame(true)
 }
 
-// startSimFromPopup resolves the seed, promotes the popup's globals
-// to the active config, and kicks off a new headless simulation. Used
-// for both initial Start and Retry; Retry just clears any leftover
-// 0-means-random seed first so a fresh wall-clock value is generated.
+// startSimFromPopup resolves the seed, promotes the popup's globals to the active config.
 func (r *Runner) startSimFromPopup() {
 	if r.simPopup == nil {
 		return
@@ -331,8 +275,6 @@ func (r *Runner) startSimFromPopup() {
 	globals := r.simPopup.Globals()
 
 	// Retry: zero out the seed so the wall-clock branch fires below.
-	// Initial Start respects whatever the user has typed — if they
-	// left it 0, we generate; if they set it, we honour it.
 	if r.simPopup.Mode() == ux.SimPopupComplete {
 		globals.Seed = 0
 	}
@@ -352,9 +294,7 @@ func (r *Runner) startSimFromPopup() {
 	r.simPopup.SetRunning()
 }
 
-// logReplayHealth prints heap usage and per-window image-allocation
-// counts at a fixed cycle interval so we can correlate IDXGISwapChain
-// DEVICE_REMOVED crashes with allocation churn / memory growth.
+// logReplayHealth prints heap usage and per-window image-allocation counts at a fixed cycle interval so we can correlate IDXGISwapChain DEVICE_REMOVED crashes with allocation churn / memory growth.
 func (r *Runner) logReplayHealth() {
 	cycle := r.replayCtrl.Cycle()
 	if cycle == 0 || cycle%500 != 0 || cycle == r.lastHealthCycle {
@@ -381,12 +321,12 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 		r.mainMenu.Draw(screen)
 	case stateRules:
 		r.rules.Draw(screen)
+	case stateRecordings:
+		r.recordings.Draw(screen)
 	case stateDesigner:
 		r.designer.Draw(screen)
 	case stateMainMenuPopup:
-		// Menu first so it shows through the popup's dim layer; if
-		// we got here from the --config bypass there's no menu to
-		// paint, and the popup's dim layer falls on a cleared screen.
+		// Menu first so it shows through the popup's dim layer.
 		if r.mainMenu != nil {
 			r.mainMenu.Draw(screen)
 		} else {
@@ -394,12 +334,7 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 		}
 		r.simPopup.Draw(screen)
 	case stateLoadingReplay:
-		// Keep painting whatever was on screen when the user clicked
-		// (menu, optionally with popup) so the loading state reads
-		// as a continuation of their last view rather than a hard
-		// cut. The popup paints its own loading overlay when its
-		// loadingReplay flag is set; the menu-only path uses the
-		// shared DrawLoadingReplayOverlay helper.
+		// Keep painting whatever was on screen when the user clicked (menu, optionally with popup) so the loading state reads as a continuation of their last view.
 		if r.mainMenu != nil {
 			r.mainMenu.Draw(screen)
 		} else {
@@ -429,10 +364,7 @@ func (r *Runner) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
 }
 
-// stepSimulation advances the headless sim in time-bounded batches
-// per ebiten frame. Termination paths (sim done / Stop clicked) close
-// the recorder, log the summary into the popup, and flip the popup
-// into completion mode.
+// stepSimulation advances the headless sim in time-bounded batches per ebiten frame.
 func (r *Runner) stepSimulation() {
 	if r.activeSim == nil {
 		return
@@ -444,16 +376,15 @@ func (r *Runner) stepSimulation() {
 		if r.activeSim.Cycle()%100 == 0 {
 			minPh, maxPh := r.activeSim.PhRange()
 			line := ux.FormatLogLine(r.activeSim.Cycle(), r.activeSim.OrganismCount(),
-				r.activeSim.FoodCount(), r.activeSim.WallCount(), r.activeSim.AveragePh(), minPh, maxPh,
+				r.activeSim.FoodCount(), r.activeSim.BuriedFoodCount(), r.activeSim.WallCount(),
+				r.activeSim.AveragePh(), minPh, maxPh,
 				r.activeSim.AverageAbilityScores())
 			r.simPopup.AddLog(line)
 			r.simPopup.SetReplayBytes(r.activeSim.EstimatedReplayBytes())
 		}
 		stopRequested = r.simPopup.StopRequested()
 	}
-	// The footer lists what will stop the run and lights whichever one
-	// did, so it needs the answer whether the loop ended on its own or
-	// the user pressed Stop.
+	// The footer lists what will stop the run and lights whichever one did.
 	r.simPopup.SetEndCondition(r.activeSim.EndCondition())
 	r.simPopup.SetReplayBytes(r.activeSim.EstimatedReplayBytes())
 
@@ -475,9 +406,6 @@ func (r *Runner) stepSimulation() {
 	r.activeSim = nil
 }
 
-// mostRecentReplay reports whether a saved replay exists and where.
-// Wraps both the WASM in-memory file registry and the desktop temp
-// file so Load Previous works in either environment.
 func mostRecentReplay() (string, bool) {
 	path := lastReplayPath()
 	if _, ok := checkpoint.MemFileSize(path); ok {
@@ -489,8 +417,7 @@ func mostRecentReplay() (string, bool) {
 	return "", false
 }
 
-// replayFileSize returns a human-readable size of the .pzr file at
-// path, or ("", false) if missing/unreadable.
+// replayFileSize returns a human-readable size of the .pzr file at path, or ("", false) if missing/unreadable.
 func replayFileSize(path string) (string, bool) {
 	if size, ok := checkpoint.MemFileSize(path); ok {
 		return formatByteSize(size), true
@@ -520,8 +447,7 @@ func formatByteSize(n int64) string {
 	}
 }
 
-// lastReplayPath is the stable tmp-directory path used for the most
-// recent simulation's replay file.
+// lastReplayPath is the stable tmp-directory path used for the most recent simulation's replay file.
 func lastReplayPath() string {
 	return filepath.Join(os.TempDir(), "protozoa_last.pzr")
 }
@@ -540,11 +466,7 @@ func RunSimulation(opts *c.Options) {
 	ensureCheckpointPath(opts)
 
 	if opts.AnimationTest {
-		// Repoint sprite loads at the live filesystem so reload (R key
-		// or the mtime poller) sees on-disk edits instead of the
-		// embedded bytes the binary was built with. Reload after the
-		// switch so the initial paint already reflects any disk edits
-		// made since the binary was built.
+		// Repoint sprite loads at the live filesystem so reload (R key or the mtime poller) sees on-disk edits instead of the embedded bytes the binary was built with.
 		resources.UseDirAssets(".")
 		resources.ReloadImages()
 		ebiten.SetWindowResizable(true)
@@ -556,8 +478,7 @@ func RunSimulation(opts *c.Options) {
 		return
 	}
 
-	// --resume promotes the most-recent .pzr into a replay launch,
-	// unless --replay or --headless already steered us elsewhere.
+	// --resume promotes the most-recent .pzr into a replay launch.
 	if opts.Resume && !opts.IsHeadless && opts.ReplayFile == "" {
 		path := lastReplayPath()
 		if _, err := os.Stat(path); err == nil {
@@ -585,14 +506,9 @@ func RunSimulation(opts *c.Options) {
 	switch {
 	case opts.ConfigFile != "":
 		// --config preloads a setting file and skips the splash + menu.
-		// Drop straight into the popup in running mode — same UX as
-		// before in the sense that the user sees logs while the sim
-		// runs, then gets View / Retry / Edit on completion.
 		gameRunner.state = stateMainMenuPopup
 		globals := c.GetCurrentGlobals()
-		// Promote any CLI --seed onto the globals so it appears in
-		// the popup display and survives Edit Settings; mirrors the
-		// menu path's openNewSimulationPopup.
+		// Promote any CLI --seed onto the globals so it appears in the popup display and survives Edit Settings.
 		if opts.Seed != 0 {
 			globals.Seed = opts.Seed
 			opts.Seed = 0
@@ -612,9 +528,7 @@ func RunSimulation(opts *c.Options) {
 	}
 }
 
-// runHeadless executes the pure-CLI loop (no GUI) used by --headless
-// and --trials. Identical to the previous inline implementation, just
-// extracted so RunSimulation reads cleaner.
+// runHeadless executes the pure-CLI loop (no GUI) used by --headless and --trials.
 func runHeadless(opts *c.Options) {
 	sumAllCycles := 0
 	for count := 0; count < opts.TrialCount; count++ {
@@ -635,7 +549,8 @@ func runHeadless(opts *c.Options) {
 			if sim.Cycle()%100 == 0 {
 				minPh, maxPh := sim.PhRange()
 				fmt.Printf("\n%s", ux.FormatLogLine(sim.Cycle(), sim.OrganismCount(),
-					sim.FoodCount(), sim.WallCount(), sim.AveragePh(), minPh, maxPh,
+					sim.FoodCount(), sim.BuriedFoodCount(), sim.WallCount(),
+					sim.AveragePh(), minPh, maxPh,
 					sim.AverageAbilityScores()))
 			}
 			if sim.Cycle()%1000 == 0 {
@@ -656,7 +571,6 @@ func runHeadless(opts *c.Options) {
 	fmt.Printf("\nAverage number of cycles: %d\n", avgCycles)
 }
 
-// runReplay opens the replay viewer directly (--replay path).
 func runReplay(opts *c.Options) {
 	ctrl, err := replay.NewController(opts.ReplayFile, opts)
 	if err != nil {

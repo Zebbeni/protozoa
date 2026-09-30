@@ -3,20 +3,17 @@ package ux
 import (
 	"testing"
 
+	"github.com/hajimehoshi/ebiten/v2"
+
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// popupTestPanel is a Panel with only what the popup reads.
 func popupTestPanel(t *testing.T) *Panel {
 	t.Helper()
 	loadKeyGlobals(t)
 	return &Panel{}
 }
 
-// TestGraphPopupGeometryFitsTheScreen: the popup is laid out from the
-// screen size, so a small window must not produce a graph area with no
-// room in it — or, worse, a negative one, which is a crash when the
-// image is scaled into it.
 func TestGraphPopupGeometryFitsTheScreen(t *testing.T) {
 	p := popupTestPanel(t)
 	g := NewGraphPopup(p)
@@ -31,8 +28,6 @@ func TestGraphPopupGeometryFitsTheScreen(t *testing.T) {
 			t.Errorf("at %dx%d the graph area is %dx%d", size[0], size[1], gr.Dx(), gr.Dy())
 			continue
 		}
-		// And it has to be bigger than the panel graph it expands, or
-		// there is no point opening it.
 		if gr.Dx() <= graphWidth || gr.Dy() <= graphHeight {
 			t.Errorf("at %dx%d the expanded graph is %dx%d, no bigger than the panel's %dx%d",
 				size[0], size[1], gr.Dx(), gr.Dy(), graphWidth, graphHeight)
@@ -47,8 +42,6 @@ func TestGraphPopupGeometryFitsTheScreen(t *testing.T) {
 	}
 }
 
-// TestGraphPopupIsModal: while it is open it consumes the frame's mouse,
-// so a click can't fall through to the grid behind it.
 func TestGraphPopupIsModal(t *testing.T) {
 	g := NewGraphPopup(popupTestPanel(t))
 
@@ -68,9 +61,6 @@ func TestGraphPopupIsModal(t *testing.T) {
 	}
 }
 
-// TestExpandRequestIsTakenOnce: the panel raises a flag and the runner
-// takes it, so one click opens the popup exactly once rather than
-// re-opening it every frame the button stays pressed.
 func TestExpandRequestIsTakenOnce(t *testing.T) {
 	p := popupTestPanel(t)
 
@@ -86,14 +76,80 @@ func TestExpandRequestIsTakenOnce(t *testing.T) {
 	}
 }
 
-// TestExpandButtonOnlyExistsOnHover: it sits over the graph, and a
-// control permanently covering the corner of a plot is in the way of
-// the thing it is meant to help you read. No hitbox means no click.
 func TestExpandButtonOnlyExistsOnHover(t *testing.T) {
 	p := popupTestPanel(t)
 
 	p.drawExpandButton(nil, 0, 0, graphWidth, false)
 	if p.graphExpandRect != nil {
 		t.Error("the expand button is clickable without hovering the graph")
+	}
+}
+
+func TestGraphPopupIsSmallerThanTheScreen(t *testing.T) {
+	loadKeyGlobals(t)
+	p := &GraphPopup{}
+	rect := p.rect()
+
+	fullW := config.ScreenWidth() - 2*graphPopupMargin
+	fullH := config.ScreenHeight() - 2*graphPopupMargin
+	if got, want := rect.Dx(), int(float64(fullW)*graphPopupScale); got != want {
+		t.Errorf("popup is %dpx wide, want %dpx (%.0f%% of %d)", got, want, graphPopupScale*100, fullW)
+	}
+	if got, want := rect.Dy(), int(float64(fullH)*graphPopupScale); got != want {
+		t.Errorf("popup is %dpx tall, want %dpx", got, want)
+	}
+
+	// Centred, so the margins either side match to within rounding.
+	left, right := rect.Min.X, config.ScreenWidth()-rect.Max.X
+	if left-right > 1 || right-left > 1 {
+		t.Errorf("popup is not centred: %dpx left, %dpx right", left, right)
+	}
+	top, bottom := rect.Min.Y, config.ScreenHeight()-rect.Max.Y
+	if top-bottom > 1 || bottom-top > 1 {
+		t.Errorf("popup is not centred: %dpx top, %dpx bottom", top, bottom)
+	}
+	// Still bigger than the panel's own graph, which is the whole point.
+	if rect.Dx() <= graphWidth {
+		t.Errorf("popup graph is %dpx wide against the panel's %dpx; it is meant to be the bigger view",
+			rect.Dx(), graphWidth)
+	}
+}
+
+func TestGraphMouseFollowsTheRectItIsGiven(t *testing.T) {
+	loadKeyGlobals(t)
+	panel := &Panel{}
+	popup := NewGraphPopup(panel)
+	gr := popup.graphRect()
+	cx, cy := gr.Min.X+gr.Dx()/2, gr.Min.Y+gr.Dy()/2
+
+	panel.graphCursor = ebiten.CursorShapeDefault
+	panel.graphMouseAt(cx, cy, gr.Min.X, gr.Min.Y, gr.Dx(), gr.Dy())
+	overPopup := panel.graphCursor
+	if overPopup == ebiten.CursorShapeDefault {
+		t.Fatal("a cursor in the middle of the popup's graph did not read as over it")
+	}
+
+	// The same cursor, told the graph is a small box far away: not over it.
+	panel.graphCursor = overPopup
+	panel.graphMouseAt(cx, cy, 0, 0, 4, 4)
+	if panel.graphCursor != ebiten.CursorShapeDefault {
+		t.Errorf("a cursor outside the given rect still read as over the graph (%v); "+
+			"the handler is not using the rect it was passed", panel.graphCursor)
+	}
+}
+
+func TestGraphPopupHasNoZoomStateOfItsOwn(t *testing.T) {
+	loadKeyGlobals(t)
+	panel := &Panel{}
+	popup := NewGraphPopup(panel)
+
+	panel.graphView.reset()
+	panel.graphView.zoomAt(0.5, 4) // factor > 1 narrows the span
+	if !panel.graphView.zoomed() {
+		t.Fatal("zoomAt did not zoom the panel's view; this test cannot say anything")
+	}
+	// The popup reads through the panel, so it sees that window.
+	if !popup.panel.graphView.zoomed() {
+		t.Error("the popup does not see the panel's zoom window")
 	}
 }

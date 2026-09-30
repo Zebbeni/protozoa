@@ -15,11 +15,7 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// TestLongRunScratch records a time series of ability mix and action
-// shares for one seed under one lever configuration. Env:
-//
-//	LR_SEED, LR_CYCLES,
-//	LR_CROWD (chemo_crowding_penalty), LR_CORPSE (corpse_food_multiplier), LR_TAG
+// TestLongRunScratch records a time series of ability mix and action shares for one seed under one lever configuration.
 func TestLongRunScratch(t *testing.T) {
 	if os.Getenv("LR_SEED") == "" {
 		t.Skip()
@@ -31,10 +27,20 @@ func TestLongRunScratch(t *testing.T) {
 		}
 		return def
 	}
-	data, _ := os.ReadFile(filepath.Join("..", "settings", "default.json"))
+	base := os.Getenv("LR_CONFIG")
+	if base == "" {
+		base = filepath.Join("..", "settings", "default.json")
+	}
+	data, err := os.ReadFile(base)
+	if err != nil {
+		t.Fatalf("read %s: %v", base, err)
+	}
 	var g config.Globals
-	json.Unmarshal(data, &g)
-	g.CorpseFoodMultiplier = f("LR_CORPSE", 1)
+	if err := json.Unmarshal(data, &g); err != nil {
+		t.Fatalf("decode %s: %v", base, err)
+	}
+	// Defaults to the value the CONFIG FILE carries, like every other line here.
+	g.CorpseFoodMultiplier = f("LR_CORPSE", g.CorpseFoodMultiplier)
 	g.AttackDamageAtFullAttack = f("LR_ATTACK", g.AttackDamageAtFullAttack)
 	g.ThornsDamageAtFullDefense = f("LR_THORNS", g.ThornsDamageAtFullDefense)
 	g.EatingGrowthFactor = f("LR_EAT_GROWTH", g.EatingGrowthFactor)
@@ -48,11 +54,12 @@ func TestLongRunScratch(t *testing.T) {
 		overlay := map[string]any{}
 		for _, kv := range strings.Split(set, ",") {
 			parts := strings.SplitN(kv, "=", 2)
-			// A value that isn't a number is passed through as a string,
-			// so curve shapes ("linear", "quadratic") can be swept the
-			// same way the numeric knobs are.
+			// A value that isn't a number is passed through as a string.
 			if x, err := strconv.ParseFloat(parts[1], 64); err == nil {
 				overlay[parts[0]] = x
+			} else if b, err := strconv.ParseBool(parts[1]); err == nil {
+				// Bools before strings: a bool setting given as the string "true" marshals to a JSON string and fails to decode into the field.
+				overlay[parts[0]] = b
 			} else {
 				overlay[parts[0]] = parts[1]
 			}
@@ -78,17 +85,24 @@ func TestLongRunScratch(t *testing.T) {
 	g.AttackDamageAtFullAttack *= scale
 	config.SetGlobals(&g)
 
-	seed := int(f("LR_SEED", 1))
+	// Parsed as an int, not through f().
+	seed := 1
+	if v := os.Getenv("LR_SEED"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatalf("LR_SEED %q: %v", v, err)
+		}
+		seed = n
+	}
 	cycles := int(f("LR_CYCLES", 20000))
 	tag := os.Getenv("LR_TAG")
 	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: seed, CheckpointInterval: 1 << 30})
 
 	const window = 250
-	// halfCap is "has put real points here", scaled to whatever the
-	// ability cap currently is.
+	// halfCap is "has put real points here", scaled to whatever the ability cap currently is.
 	halfCap := physiology.MaxAbilityScore / 2
 	type acc struct {
-		orgs, chemo, eat, atk, mov, dig, eatOK, eatFail, atkAct, chemoOK, predators, grazers, chemoSpec, def, tanks, eatSpec, maxEat float64
+		orgs, chemo, eat, atk, mov, dig, tol, eatOK, eatFail, atkAct, chemoOK, predators, grazers, chemoSpec, def, tanks, eatSpec, maxEat, digAct float64
 	}
 	var a acc
 	var lines []string
@@ -102,9 +116,7 @@ func TestLongRunScratch(t *testing.T) {
 			a.atk += float64(s[physiology.AbilityAttack])
 			a.mov += float64(s[physiology.AbilityMovement])
 			a.dig += float64(s[physiology.AbilityDigging])
-			// Thresholds are fractions of the cap, not literals: they
-			// were written as 25 / 50 / 60 against a 100-point scale and
-			// silently counted nothing at all once the scale became 0-10.
+			// Thresholds are fractions of the cap, not literals.
 			if s[physiology.AbilityAttack] >= halfCap {
 				a.predators++
 			}
@@ -119,6 +131,7 @@ func TestLongRunScratch(t *testing.T) {
 			}
 			a.maxEat = max(a.maxEat, float64(s[physiology.AbilityEating]))
 			a.def += float64(s[physiology.AbilityDefense])
+			a.tol += float64(s[physiology.AbilityTolerance])
 			if s[physiology.AbilityDefense] >= physiology.SpecialistScore {
 				a.tanks++
 			}
@@ -131,12 +144,12 @@ func TestLongRunScratch(t *testing.T) {
 				a.atkAct++
 			case organism.StatusChemoSuccess:
 				a.chemoOK++
+			case organism.StatusDigging:
+				a.digAct++
 			}
 		}
 		if c%window == 0 {
-			// eatTrees is the diagnostic that says whether eating is even
-			// in the population's repertoire: no amount of reward moves a
-			// lineage whose tree never chooses ActEat.
+			// eatTrees is the diagnostic that says whether eating is even in the population's repertoire.
 			relTrees, eatTrees, foodTrees, live := 0.0, 0.0, 0.0, 0.0
 			for _, o := range sim.organismManager.Organisms() {
 				live++
@@ -161,10 +174,24 @@ func TestLongRunScratch(t *testing.T) {
 				}
 			}
 			n := max(a.orgs, 1)
-			lines = append(lines, fmt.Sprintf("%d,%.0f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%.4f,%.2f,%.4f,%.4f,%.0f,%.3f,%.2f,%.2f,%.4f,%.4f,%.4f",
+			// Terrain columns, appended at the end so every existing column keeps its index and older analysis scripts still read the same fields.
+			walls := sim.WallCount()
+			// Buried food, appended at the end like the terrain columns so every existing index is untouched.
+			buriedUnits, buriedCells := 0, 0
+			for _, v := range sim.GetBuriedFood() {
+				buriedUnits += v
+				buriedCells++
+			}
+			wallStrength := 0
+			for _, st := range sim.GetWalls() {
+				wallStrength += st
+			}
+			phLo, phHi := sim.PhRange()
+			lines = append(lines, fmt.Sprintf("%d,%.0f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%.4f,%.2f,%.4f,%.4f,%.0f,%.3f,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%.3f,%.3f,%.4f,%d,%d,%.2f",
 				c, a.orgs/window, a.chemo/n, a.eat/n, a.atk/n, a.predators/n, a.grazers/n, a.chemoSpec/n,
 				a.chemoOK/n, a.eatOK/n, a.atkAct/n, sim.FoodCount(), relTrees/max(live, 1), a.def/n, a.tanks/n, a.eatSpec/n, a.maxEat, sim.AveragePh(), a.mov/n, a.dig/n,
-				eatTrees/max(live, 1), foodTrees/max(live, 1), a.eatFail/n))
+				eatTrees/max(live, 1), foodTrees/max(live, 1), a.eatFail/n,
+				walls, wallStrength, phLo, phHi, a.digAct/n, buriedUnits, buriedCells, a.tol/n))
 			a = acc{}
 		}
 	}

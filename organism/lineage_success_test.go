@@ -5,12 +5,8 @@ import (
 	"testing"
 )
 
-// TestLineageEnds: a line with a survivor has no end all the way up; a line
-// that died out records its latest death.
 func TestLineageEnds(t *testing.T) {
-	// root(0, died 30) ─┬─ a(10, died 40) ── a1(30, died 60)
-	//                   └─ b(20, died 50) ── b1(40, alive)
-	// other(0, died 15)
+	// root(0, died 30) ─┬─ a(10, died 40) ── a1(30, died 60) └─ b(20, died 50) ── b1(40, alive) other(0, died 15)
 	root := &DescendantNode{ID: 1, StartCycle: 0, EndCycle: 30}
 	a := &DescendantNode{ID: 2, StartCycle: 10, EndCycle: 40, Parent: root}
 	a1 := &DescendantNode{ID: 3, StartCycle: 30, EndCycle: 60, Parent: a}
@@ -43,8 +39,6 @@ func TestLineageEnds(t *testing.T) {
 	}
 }
 
-// TestLineageSuccessUsesTimeLeft pins the ratio: cycles already elapsed
-// come off both the lineage end and the run end.
 func TestLineageSuccessUsesTimeLeft(t *testing.T) {
 	for _, tc := range []struct {
 		name                    string

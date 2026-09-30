@@ -1,55 +1,4 @@
-// Package animation owns the data and timing needed to animate organism
-// sprites across sim cycle transitions.
-//
-// # Pacing overview
-//
-// The simulation advances in discrete cycles: each cycle, every organism
-// chooses an action (move, attack, eat, ...) and that action is resolved.
-// To give the viewer time to see what happened, we decouple the sim from
-// the ebiten tick loop and drive playback off wall-clock time:
-//
-//   - We target AnimationFPS (12) visible frames per second.
-//   - A full cycle transition spans BaseFramesPerCycle (4) frames at
-//     normal speed, giving 3 sim cycles per second at Speed 1.
-//   - Speed is a linear multiplier on that base cycle rate.
-//
-// # Speed semantics
-//
-// Speed is the playback multiplier requested by the user. We do NOT scale
-// the animation frame rate (sprite frames still tick at 12 fps so the
-// animation always feels smooth); instead we shrink the time per cycle,
-// which collapses the available animation window:
-//
-//	Speed 1  -> 1 cycle / 333ms -> 4 animation frames / cycle (full animation)
-//	Speed 2  -> 1 cycle / 167ms -> 2 animation frames / cycle (compressed)
-//	Speed 3  -> 1 cycle / 111ms -> ~1 animation frame / cycle (barely animated)
-//	Speed 4  -> 1 cycle /  83ms -> 1 animation frame / cycle  (no interpolation)
-//	Speed >4 -> multiple cycles per animation frame           (animation skipped)
-//
-// At Speed > BaseFramesPerCycle the cycle duration is shorter than a
-// render frame, so the renderer cannot display every intermediate state.
-// We deliberately accept that tradeoff: users who ask for very fast
-// playback want to see results, not animation.
-//
-// # Per-sprite-set frame counts
-//
-// Each sprite set authors a different number of frames per cycle
-// (resolution / 4: 4x4 → 1 frame, 8x8 → 2, 16x16 → 4). Cycle timing
-// doesn't change with the sprite set — we just divide the same
-// Progress() into a different number of equal slots. SpriteFrameIndex
-// is the helper for that: callers pass the active sprite set's frame
-// count and get back the index to display.
-//
-// # Usage
-//
-// The caller driving playback (replay.Controller) owns a *State. Each
-// ebiten Update it:
-//
-//  1. Computes the elapsed wall-clock time since the current cycle began.
-//  2. If enough time has passed to complete the current cycle, calls
-//     BeforeUpdate(pre-update infos) → sim.Update() → AfterUpdate(post-update infos).
-//     AfterUpdate rebuilds the Frames map and advances the cycle clock.
-//  3. The renderer reads Progress() / FrameIndex() / Frames to draw.
+// Package animation owns the data and timing needed to animate organism sprites across sim cycle transitions.
 package animation
 
 import (
@@ -65,8 +14,7 @@ const (
 	// AnimationFPS is the target frame rate for organism animation rendering.
 	AnimationFPS = 12
 
-	// BaseFramesPerCycle is how many animation frames make up a full cycle
-	// transition at Speed 1. See package docs for the reasoning.
+	// BaseFramesPerCycle is how many animation frames make up a full cycle transition at Speed 1. See package docs for the reasoning.
 	BaseFramesPerCycle = 4
 
 	// frameDuration is how long a single animation frame lasts on the wall clock.
@@ -76,8 +24,6 @@ const (
 	baseCycleDuration = frameDuration * BaseFramesPerCycle
 )
 
-// Animation identifies which per-action sprite sheet to play. One sheet
-// per Animation; direction is expressed via rotation at draw time.
 type Animation int
 
 const (
@@ -95,7 +41,6 @@ const (
 	AnimDig
 )
 
-// AllAnimations lists every Animation value, for resource preloading.
 var AllAnimations = [...]Animation{
 	AnimIdle, AnimMove, AnimBlocked,
 	AnimTurnLeft, AnimTurnRight,
@@ -105,10 +50,7 @@ var AllAnimations = [...]Animation{
 	AnimDig,
 }
 
-// ForStatus maps a resolved organism.Status to the Animation sheet
-// that should play during its cycle transition. The mapping is 1:1
-// — every status has its own animation and vice versa, so no
-// outcome-flag plumbing or special-casing in the renderer.
+// ForStatus maps a resolved organism.Status to the Animation sheet that should play during its cycle transition.
 func ForStatus(s organism.Status) Animation {
 	switch s {
 	case organism.StatusMoveSuccess:
@@ -134,27 +76,16 @@ func ForStatus(s organism.Status) Animation {
 	case organism.StatusDigging:
 		return AnimDig
 	default:
-		// Status values without dedicated animations yet (Spawning)
-		// fall back to AnimIdle. Add cases here as sprites land.
+		// Status values without dedicated animations yet (Spawning) fall back to AnimIdle.
 		return AnimIdle
 	}
 }
 
-// ForFrame picks the Animation for a Frame. With Status-based
-// dispatch this is just a thin wrapper over ForStatus.
 func ForFrame(f Frame) Animation {
 	return ForStatus(f.Status)
 }
 
-// Frame captures everything the renderer needs to animate one organism's
-// transition from its pre-cycle state to its current state. Populated by
-// State.AfterUpdate; consumed by the grid renderer.
-//
-// Status drives the animation choice via ForStatus — outcomes that used
-// to require separate Dying / ChemoFailed / EatFailed flags now flow
-// through the unified enum. Dying organisms are kept on the grid for
-// one cycle (Status = Dying) so their death animation plays naturally
-// before finalizeDeaths replaces them with food.
+// Frame captures everything the renderer needs to animate one organism's transition from its pre-cycle state to its current state.
 type Frame struct {
 	FromLocation utils.Point
 	ToLocation   utils.Point
@@ -165,28 +96,16 @@ type Frame struct {
 	Status       organism.Status
 }
 
-// State holds the current animation batch and cycle timing. One instance per
-// playback session; owned by the thing driving sim.Update (replay.Controller).
 type State struct {
 	// Frames indexed by organism ID for the most recent cycle transition.
-	// Safe to read from the render goroutine between BeforeUpdate/AfterUpdate calls.
 	Frames map[int]Frame
 
-	// Current playback speed multiplier. 1 = real-time. Values < 1 (e.g.
-	// 0.5, 0.25) stretch the cycle window for slow-motion playback;
-	// values > 1 compress it. The caller updates this when the user
-	// changes speed; we consult it each call to CycleDuration.
 	Speed float64
 
 	// preSnap holds pre-Update organism snapshots captured in BeforeUpdate.
-	// Used by the next AfterUpdate both to pair each surviving organism
-	// with its prior location (move animations) and to detect organisms
-	// that died during the cycle (present in preSnap but not in the post
-	// infos) so we can emit Dying frames for them.
 	preSnap map[int]organism.Info
 
-	// cycleStart is when the current cycle's animation window began. The
-	// renderer's Progress() is computed relative to this.
+	// cycleStart is when the current cycle's animation window began.
 	cycleStart time.Time
 }
 
@@ -200,9 +119,7 @@ func NewState() *State {
 	}
 }
 
-// CycleDuration returns how long a cycle's animation window lasts at the
-// current Speed. Used both for deciding when to advance the sim and for
-// computing render progress.
+// CycleDuration returns how long a cycle's animation window lasts at the current Speed.
 func (s *State) CycleDuration() time.Duration {
 	sp := s.Speed
 	if sp <= 0 {
@@ -211,16 +128,12 @@ func (s *State) CycleDuration() time.Duration {
 	return time.Duration(float64(baseCycleDuration) / sp)
 }
 
-// ShouldAdvance reports whether enough wall-clock time has elapsed since the
-// last cycle started to begin the next one.
+// ShouldAdvance reports whether enough wall-clock time has elapsed since the last cycle started to begin the next one.
 func (s *State) ShouldAdvance() bool {
 	return time.Since(s.cycleStart) >= s.CycleDuration()
 }
 
-// BeforeUpdate snapshots current organism Infos (value copies). Must be
-// called immediately before sim.Update so we know each organism's
-// location, direction, size, colour etc. at the start of the cycle — and
-// so we can detect which organisms were alive then but gone by AfterUpdate.
+// BeforeUpdate snapshots current organism Infos (value copies).
 func (s *State) BeforeUpdate(infos map[int]*organism.Info) {
 	snap := make(map[int]organism.Info, len(infos))
 	for id, info := range infos {
@@ -229,22 +142,7 @@ func (s *State) BeforeUpdate(infos map[int]*organism.Info) {
 	s.preSnap = snap
 }
 
-// AfterUpdate builds the Frame batch from post-update infos. Must be called
-// immediately after sim.Update (before any further UpdateAction calls
-// overwrite info.Action).
-//
-// Produces two kinds of frames:
-//   - Live organisms (in post infos): paired with their pre-update
-//     location for movement interpolation.
-//   - Dying organisms (in preSnap but NOT in post infos): rendered at
-//     their last-known location with Dying = true. ForFrame routes them
-//     to AnimDie. The frame only persists until the next AfterUpdate,
-//     giving the death animation exactly one cycle to play.
-//
-// Advances the cycle clock by one CycleDuration rather than resetting it
-// to time.Now(), so if the caller is catching up on multiple cycles in
-// one ebiten tick the accumulated time is consumed correctly instead of
-// being dropped on each iteration.
+// AfterUpdate builds the Frame batch from post-update infos.
 func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 	frames := make(map[int]Frame, len(infos)+len(s.preSnap))
 	for id, info := range infos {
@@ -252,19 +150,7 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 		action := info.Action
 		switch {
 		case info.BornThisCycle:
-			// Newborn: animate as if the organism just moved into
-			// its starting cell from the parent's cell. Spawn logic
-			// always orients the child away from its parent
-			// (Direction = parent→child step), so
-			// Location.Sub(Direction) recovers the parent's cell
-			// without needing to carry it through. Override the
-			// action to Move regardless of info.Action (newborns
-			// default to chemosynthesis) so ForFrame picks AnimMove.
-			//
-			// We use the explicit flag rather than preSnap membership
-			// so post-seek frames don't misclassify surviving
-			// organisms as newborns — SeekToCycle's catch-up loop
-			// bypasses BeforeUpdate, so preSnap can be stale.
+			// Newborn: animate as if the organism just moved into its starting cell from the parent's cell.
 			from = info.Location.Sub(info.Direction)
 			action = decision.ActMove
 		default:
@@ -272,10 +158,7 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 				from = pre.Location
 			}
 		}
-		// Newborns synthesize an inbound "move from parent" frame
-		// (see the BornThisCycle case above); their Status is
-		// freshly StatusIdle but we override to StatusMoveSuccess
-		// here so ForStatus picks AnimMove for the birth animation.
+		// Newborns synthesize an inbound "move from parent" frame (see the BornThisCycle case above).
 		status := info.Status
 		if info.BornThisCycle {
 			status = organism.StatusMoveSuccess
@@ -290,30 +173,17 @@ func (s *State) AfterUpdate(infos map[int]*organism.Info) {
 			Status:       status,
 		}
 	}
-	// Note: with the dying lifecycle, organisms that took lethal
-	// damage stay in `infos` with Status = Dying for one more cycle
-	// before finalizeDeaths removes them — so we no longer need
-	// a preSnap-based fallback to synthesize Dying frames. The
-	// death animation runs naturally on the live frame's Status.
+	// Note: with the dying lifecycle, organisms that took lethal damage stay in `infos` with Status = Dying for one more cycle before finalizeDeaths removes them.
 	s.Frames = frames
 	s.cycleStart = s.cycleStart.Add(s.CycleDuration())
 
-	// Guard: if we fall far behind (e.g. long pause, tab inactive), snap the
-	// clock up to now so we don't fast-forward through hundreds of cycles.
+	// Guard: if we fall far behind (e.g. long pause, tab inactive), snap the clock up to now so we don't fast-forward through hundreds of cycles.
 	if time.Since(s.cycleStart) > time.Second {
 		s.cycleStart = time.Now()
 	}
 }
 
-// drawDirection is the heading a frame's sprite is drawn at, which for a
-// turn is the heading the organism turned *from*.
-//
-// The turn sprites animate the rotation themselves: the first frame faces
-// where the organism was heading and the last faces where it ended up. By
-// the time a frame is built the organism already holds its new direction,
-// so drawing a turn at that heading rotated it twice — a left turn's last
-// frame landed 180° from where it started, then snapped back on the next
-// cycle. Every other animation is drawn at the organism's own heading.
+// drawDirection is the heading a frame's sprite is drawn at.
 func drawDirection(direction utils.Point, status organism.Status) utils.Point {
 	switch status {
 	case organism.StatusTurnLeft:
@@ -324,15 +194,11 @@ func drawDirection(direction utils.Point, status organism.Status) utils.Point {
 	return direction
 }
 
-// ResetClock re-anchors the cycle clock to now. Callers use this after
-// unpausing or seeking to avoid a catch-up burst.
 func (s *State) ResetClock() {
 	s.cycleStart = time.Now()
 }
 
-// Progress returns how far into the current cycle's animation we are,
-// clamped to [0, 1]. 0 means the cycle just advanced; 1 means the cycle
-// is complete and we're waiting for the next advance.
+// Progress returns how far into the current cycle's animation we are, clamped to [0, 1].
 func (s *State) Progress() float64 {
 	dur := s.CycleDuration()
 	if dur <= 0 {
@@ -348,13 +214,7 @@ func (s *State) Progress() float64 {
 	return p
 }
 
-// SpriteFrameIndex returns which of framesInSet sprite frames to show for
-// the current cycle progress, parameterised by the active sprite set's
-// per-cycle frame count (1 for 4x4, 2 for 8x8, 4 for 16x16).
-//
-// At Speed > framesInSet the cycle window is shorter than one visible
-// frame per sprite frame, so we snap to the last frame (the resolved
-// state of the animation). framesInSet <= 0 is treated as 1.
+// SpriteFrameIndex returns which of framesInSet sprite frames to show for the current cycle progress, parameterised by the active sprite set's per-cycle frame count (1 for 4x4, 2 for 8x8, 4 for 16x16).
 func (s *State) SpriteFrameIndex(framesInSet int) int {
 	if framesInSet < 1 {
 		return 0
@@ -369,22 +229,12 @@ func (s *State) SpriteFrameIndex(framesInSet int) int {
 	return idx
 }
 
-// AnimatesPosition reports whether the renderer should animate at the
-// current Speed — both sprite-frame cycling AND position interpolation.
-// False above 2x, where each cycle's wall-clock window is short enough
-// that frame/position changes read as flicker more than motion; the
-// renderer should pin to frame 0 and snap to the final position.
+// AnimatesPosition reports whether the renderer should animate at the current Speed.
 func (s *State) AnimatesPosition() bool {
 	return s.Speed <= 2
 }
 
-// LoopProgress computes a looping (progress, frameIdx) pair from an elapsed
-// wall-clock duration, as if the animation had been playing at Speed 1 from
-// time zero. framesInSet is the sprite set's per-cycle frame count — the
-// returned index is divided proportionally across that many frames so the
-// loop displays each authored sprite for an equal share of the cycle.
-// Intended for standalone demos / previews that want to loop the same
-// animation forever without a full sim-driven State.
+// LoopProgress computes a looping (progress, frameIdx) pair from an elapsed wall-clock duration, as if the animation had been playing at Speed 1 from time zero.
 func LoopProgress(elapsed time.Duration, framesInSet int) (progress float64, frameIdx int) {
 	if baseCycleDuration <= 0 {
 		return 0, 0

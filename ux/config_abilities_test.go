@@ -65,9 +65,6 @@ func TestInitialAbilityScoresClamp(t *testing.T) {
 	}
 }
 
-// TestConfigScreenDoesNotEditActiveScores: the form's globals are a copy,
-// but a slice copies by reference; editing must not reach the active
-// config before Start.
 func TestConfigScreenDoesNotEditActiveScores(t *testing.T) {
 	cs, active := abilityConfigScreen(t)
 	before := active.InitialAbilityScores[physiology.AbilityAttack]
@@ -77,12 +74,6 @@ func TestConfigScreenDoesNotEditActiveScores(t *testing.T) {
 	}
 }
 
-// TestOversizedFounderBlocksStart: a ticked design whose decision tree
-// is over the configured limit holds the start, naming the design and
-// both ways out. Starting anyway would either silently drop it or run an
-// organism with a tree the simulation's own mutation limit forbids —
-// which would out-compete every evolved tree for a reason no setting
-// explains.
 func TestOversizedFounderBlocksStart(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	dir := t.TempDir()
@@ -99,10 +90,7 @@ func TestOversizedFounderBlocksStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The running simulation's limit is left low throughout, and never
-	// touched: what the screen judges designs against is the value on the
-	// screen. The two disagreeing is the normal case, since an edited
-	// limit isn't installed until a run starts.
+	// The running simulation's limit is left low throughout, and never touched.
 	config.GetCurrentGlobals().MaxDecisionTreeSize = 4
 
 	cs.globals.MaxDecisionTreeSize = 4
@@ -112,10 +100,7 @@ func TestOversizedFounderBlocksStart(t *testing.T) {
 		t.Errorf("start should be blocked naming the design, got %q", reason)
 	}
 
-	// Raising the limit on the screen clears it there and then. This used
-	// to read the active config, so the row went on reporting "5 nodes >
-	// 4 limit" however high the user set Max Tree Size — cancelling and
-	// reopening didn't help either, since the edit is never installed.
+	// Raising the limit on the screen clears it there and then.
 	cs.globals.MaxDecisionTreeSize = 5
 	if reason := cs.startBlockedByDesigns(organism.LoadDesigns(dir)); reason != "" {
 		t.Errorf("raising the limit on the screen should clear the block, got %q", reason)
@@ -136,10 +121,6 @@ func TestOversizedFounderBlocksStart(t *testing.T) {
 	}
 }
 
-// TestNoEmptyConfigSections: a section header that expands to nothing is
-// a dead end — it reads as a category whose settings have gone missing.
-// The TERRAIN section became one when the wall and dig settings moved
-// into the Digging ability block, and nothing pointed at it.
 func TestNoEmptyConfigSections(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for _, section := range cs.sections {

@@ -23,7 +23,6 @@ import (
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
-// DesignerResult is what the designer screen hands back to the runner.
 type DesignerResult int
 
 const (
@@ -33,44 +32,27 @@ const (
 	DesignerBack
 )
 
-// Designer is the organism editor: a portrait of the organism being
-// built, the knobs that define it, and the decision tree it will run.
-//
-// Everything on screen is derived from one organism.Design, which is
-// also exactly what gets saved — so the portrait can't drift from the
-// file, and a design loaded back in rebuilds the same screen. The
-// decision tree is held as live nodes rather than as the serialized
-// string, since editing it is the point; it's serialized on save.
 type Designer struct {
 	design organism.Design
 	tree   *d.Node
 
-	// Existing designs, so the editor can load one back in and so a
-	// save can report what the list now holds.
+	// Existing designs, so the editor can load one back in and so a save can report what the list now holds.
 	saved []organism.Design
 
 	// nameEditing routes typed characters into the name field.
 	nameEditing bool
 
-	// picker is the open node dropdown, nil when nothing is being
-	// picked. It holds the node it will rewrite, not an index, so the
-	// tree can be rebuilt underneath it without the target going stale.
+	// picker is the open node dropdown, nil when nothing is being picked.
 	picker *nodePicker
 
-	// confirmDelete is the saved design whose delete is armed, -1 for
-	// none. Deleting takes two clicks: the button sits beside a list the
-	// user is clicking through to load things, and a design is work that
-	// can't be recovered from anywhere else.
+	// confirmDelete is the saved design whose delete is armed, -1 for none.
 	confirmDelete int
 
-	// Hit rects rebuilt every Draw, so layout lives in one place and
-	// clicks are tested against exactly what was painted.
 	hits []designerHit
 
 	message string
 }
 
-// designerHitKind is what a click on a designer rect does.
 type designerHitKind int
 
 const (
@@ -91,28 +73,20 @@ const (
 	hitNew
 )
 
-// designerHit is one clickable rect painted this frame.
 type designerHit struct {
 	x, y, w, h int
 	kind       designerHitKind
-	// index means: the trait row, the ability, the palette swatch, the
-	// design to load, or the option in the open picker.
+	// index means: the trait row, the ability, the palette swatch, the design to load, or the option in the open picker.
 	index int
 	node  *d.Node
 }
 
-// nodePicker is the open dropdown: every action and condition the tree
-// can hold, anchored under the node that was clicked.
 type nodePicker struct {
 	node    *d.Node
 	x, y    int
 	options []pickerOption
 }
 
-// pickerOption is one entry in the dropdown. Actions and conditions are
-// listed together because that is the choice being made — what this node
-// *is* — and splitting them into two menus would hide that converting
-// between them is allowed.
 type pickerOption struct {
 	label     string
 	action    d.Action
@@ -120,8 +94,7 @@ type pickerOption struct {
 	isAction  bool
 }
 
-// designerTrait is one editable number, described once so the rows draw,
-// step and clamp from the same place.
+// designerTrait is one editable number, described once so the rows draw, step and clamp from the same place.
 type designerTrait struct {
 	label  string
 	step   float64
@@ -167,8 +140,6 @@ var designerTraits = []designerTrait{
 }
 
 // designerPalette is the colour choice offered for body and features.
-// The same eight hues the animation preview uses, so an organism
-// designed here looks like one the sprite work was checked against.
 var designerPalette = []colorful.Color{
 	colorful.HSLuv(0, 0.7, 0.55),
 	colorful.HSLuv(30, 0.85, 0.55),
@@ -180,8 +151,6 @@ var designerPalette = []colorful.Color{
 	colorful.HSLuv(0, 0, 0.85),
 }
 
-// Designer layout. Three columns: the organism on the left, its numbers
-// in the middle, its behaviour on the right.
 const (
 	designerPad       = 32
 	designerRowH      = 22
@@ -194,7 +163,6 @@ const (
 	designerDeleteW   = 22
 )
 
-// NewDesigner opens the editor on a fresh design.
 func NewDesigner() *Designer {
 	ds := organism.NewDesign("")
 	dz := &Designer{design: ds, saved: organism.LoadDesigns(organism.DesignsDir), confirmDelete: -1}
@@ -203,8 +171,7 @@ func NewDesigner() *Designer {
 	return dz
 }
 
-// Update handles input for one frame and reports whether the user is
-// done with the screen.
+// Update handles input for one frame and reports whether the user is done with the screen.
 func (dz *Designer) Update() DesignerResult {
 	if dz.nameEditing {
 		dz.typeName()
@@ -225,19 +192,16 @@ func (dz *Designer) Update() DesignerResult {
 	mx, my := ebiten.CursorPosition()
 	hit, ok := dz.hitAt(mx, my)
 	if !ok {
-		// A click anywhere else closes the dropdown and commits the
-		// name, so neither can be left open by accident.
+		// A click anywhere else closes the dropdown and commits the name, so neither can be left open by accident.
 		dz.picker = nil
 		dz.nameEditing = false
 		return DesignerRunning
 	}
-	// Any click that isn't the name field ends naming, so keystrokes
-	// can't keep landing in a field the user has visibly left.
+	// Any click that isn't the name field ends naming.
 	if hit.kind != hitName {
 		dz.nameEditing = false
 	}
-	// An armed delete only survives a click on the same button, so it
-	// can't be left waiting to catch a later misclick.
+	// An armed delete only survives a click on the same button.
 	if hit.kind != hitDelete || hit.index != dz.confirmDelete {
 		dz.confirmDelete = -1
 	}
@@ -274,8 +238,6 @@ func (dz *Designer) Update() DesignerResult {
 	return DesignerRunning
 }
 
-// hitAt finds the rect under the cursor. Painted later wins, so the open
-// dropdown takes clicks from the rows it covers.
 func (dz *Designer) hitAt(mx, my int) (designerHit, bool) {
 	for i := len(dz.hits) - 1; i >= 0; i-- {
 		h := dz.hits[i]
@@ -286,8 +248,6 @@ func (dz *Designer) hitAt(mx, my int) (designerHit, bool) {
 	return designerHit{}, false
 }
 
-// typeName routes keystrokes into the name. Letters, digits, spaces and
-// dashes only: the name becomes a filename.
 func (dz *Designer) typeName() {
 	for _, ch := range ebiten.AppendInputChars(nil) {
 		if ch == ' ' || ch == '-' || ch == '_' ||
@@ -314,10 +274,6 @@ func (dz *Designer) stepTrait(i, dir int) {
 	t.set(&dz.design, min(t.hi(), max(t.lo(), v)))
 }
 
-// stepAbility moves one point into or out of an ability. The budget is
-// fixed, so the screen shows the running total and refuses to save until
-// it adds up — the same contract the config screen's initial scores use,
-// rather than silently taking the point from somewhere else.
 func (dz *Designer) stepAbility(i, dir int) {
 	if i < 0 || i >= len(dz.design.Abilities) {
 		return
@@ -326,7 +282,6 @@ func (dz *Designer) stepAbility(i, dir int) {
 	dz.design.Abilities[i] = min(physiology.MaxAbilityScore, max(0, v))
 }
 
-// openPicker opens the dropdown for a node.
 func (dz *Designer) openPicker(node *d.Node, x, y int) {
 	if node == nil {
 		return
@@ -341,12 +296,6 @@ func (dz *Designer) openPicker(node *d.Node, x, y int) {
 	dz.picker = &nodePicker{node: node, x: x, y: y, options: options}
 }
 
-// applyPickerOption rewrites the picked node.
-//
-// An action becoming a condition grows two blank branches, because a
-// condition with nothing to choose between isn't a decision. A condition
-// becoming an action drops its branches — the subtree it was choosing
-// between has nowhere left to hang.
 func (dz *Designer) applyPickerOption(i int) {
 	if dz.picker == nil || i < 0 || i >= len(dz.picker.options) {
 		return
@@ -360,8 +309,7 @@ func (dz *Designer) applyPickerOption(i int) {
 		node.NodeType = opt.action
 		node.YesNode, node.NoNode = nil, nil
 	case node.IsCondition():
-		// Condition to condition: the branches still mean something, so
-		// they stay.
+		// Condition to condition: the branches still mean something, so they stay.
 		node.NodeType = opt.condition
 	default:
 		if dz.treeSize()+2 > c.MaxDecisionTreeSize() {
@@ -383,8 +331,7 @@ func (dz *Designer) treeSize() int {
 	return dz.tree.CalcAndUpdateSize()
 }
 
-// currentTree wraps the edited nodes as a Tree for anything that needs
-// a whole one — the portrait's appearance, and saving.
+// currentTree wraps the edited nodes as a Tree for anything that needs a whole one.
 func (dz *Designer) currentTree() *d.Tree {
 	return d.TreeFromNode(dz.tree)
 }
@@ -408,8 +355,7 @@ func (dz *Designer) abilityTotal() int {
 	return total
 }
 
-// save writes the design, then refreshes the saved list so the load row
-// shows it immediately.
+// save writes the design, then refreshes the saved list so the load row shows it immediately.
 func (dz *Designer) save() {
 	if reason := dz.saveBlockedReason(); reason != "" {
 		dz.message = reason
@@ -425,9 +371,6 @@ func (dz *Designer) save() {
 	dz.message = "saved to " + path
 }
 
-// deleteSaved removes a saved design, after arming. The first click
-// arms it and the second does it; any other click disarms, so the
-// confirm can't be left waiting to catch a later misclick.
 func (dz *Designer) deleteSaved(i int) {
 	if i < 0 || i >= len(dz.saved) {
 		return
@@ -447,7 +390,6 @@ func (dz *Designer) deleteSaved(i int) {
 	dz.message = "deleted " + name
 }
 
-// load replaces the editor's contents with a saved design.
 func (dz *Designer) load(i int) {
 	if i < 0 || i >= len(dz.saved) {
 		return
@@ -464,8 +406,7 @@ func (dz *Designer) load(i int) {
 	dz.nameEditing = false
 	dz.message = "loaded " + ds.Name
 	if dz.treeSize() > c.MaxDecisionTreeSize() {
-		// Saved when the limit was higher, or hand-edited. It loads so it
-		// can be cut down, but it can't be saved or run until it is.
+		// Saved when the limit was higher, or hand-edited.
 		dz.message = fmt.Sprintf("%s has %d nodes, over the %d-node limit — trim it to save",
 			ds.Name, dz.treeSize(), c.MaxDecisionTreeSize())
 	}
@@ -492,7 +433,6 @@ func (dz *Designer) Draw(screen *ebiten.Image) {
 	}
 }
 
-// drawPortraitColumn paints the organism and the two colour rows.
 func (dz *Designer) drawPortraitColumn(screen *ebiten.Image, x, y int) {
 	box := designerPortraitW
 	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(box), float64(box),
@@ -532,8 +472,7 @@ func (dz *Designer) drawPortraitColumn(screen *ebiten.Image, x, y int) {
 			loadW := designerPortraitW - designerDeleteW - 4
 			label := ds.Name
 			if ds.ExceedsTreeLimit(c.MaxDecisionTreeSize()) {
-				// Named on the row it belongs to: the user finds out when
-				// looking at the design, not when a simulation won't start.
+				// Named on the row it belongs to.
 				label += fmt.Sprintf("  (%d > %d nodes)", ds.TreeSize(), c.MaxDecisionTreeSize())
 			}
 			drawMenuButton(screen, x, rowY, loadW, designerRowH, label, false, false,
@@ -562,8 +501,7 @@ func (dz *Designer) drawSwatchRow(screen *ebiten.Image, x, y int, label, current
 	for i, col := range designerPalette {
 		ebitenutil.DrawRect(screen, float64(sx), float64(y), designerSwatch, designerSwatch, col)
 		if strings.EqualFold(col.Hex(), current) {
-			// A ring rather than a fill change, so the selected colour is
-			// still shown as itself.
+			// A ring rather than a fill change, so the selected colour is still shown as itself.
 			ebitenutil.DrawRect(screen, float64(sx-2), float64(y-2), designerSwatch+4, 2, themedForeground())
 			ebitenutil.DrawRect(screen, float64(sx-2), float64(y+designerSwatch), designerSwatch+4, 2, themedForeground())
 		}
@@ -573,16 +511,7 @@ func (dz *Designer) drawSwatchRow(screen *ebiten.Image, x, y int, label, current
 	return y + designerSwatch + 8
 }
 
-// drawPortrait composites the organism the way the grid does, at the
-// 16x16 sprites and scaled up. The appearance comes from the scores and
-// tree being edited, so the picture answers "what will this look like"
-// without the user having to run anything.
-//
-// The high-res set is selected explicitly: only 16x16 carries the
-// layered overlays, and at 4x4 — the set active at startup — every layer
-// lookup misses and the portrait falls back to a four-pixel body. The
-// grid re-selects from its camera every frame, but the previous set is
-// put back anyway rather than leave a global changed from here.
+// drawPortrait composites the organism the way the grid does, at the 16x16 sprites and scaled up.
 func (dz *Designer) drawPortrait(screen *ebiten.Image, x, y, box int) {
 	defer withHighResSprites()()
 
@@ -596,24 +525,19 @@ func (dz *Designer) drawPortrait(screen *ebiten.Image, x, y, box int) {
 	}
 
 	appearance := physiology.AppearanceFor(dz.scores(), dz.currentTree())
-	// The size class the design will actually be, so the portrait shows
-	// the sprite the world will draw rather than always the large one.
+	// The size class the design will actually be.
 	role := portraitRole(dz.design.MaxSize)
 	facing := utils.Point{X: 0, Y: -1}
 
 	const cell = portraitCellSize
-	// Whole-number scale, measured against the tallest thing this role
-	// draws: pixel art upscaled by a fraction lands some source pixels on
-	// two screen pixels and some on one, which reads as a wobble.
+	// Whole-number scale, measured against the tallest thing this role draws.
 	spriteH := cell
 	if base := r.Sprite(role, animation.AnimIdle, 0); base != nil {
 		spriteH = float64(base.Bounds().Dy())
 	}
 	scale := math.Max(1, math.Floor(float64(box)*0.8/spriteH))
 
-	// drawAnimatedSprite anchors the sprite's base cell at (px, py), and
-	// a multi-cell sprite extends upward from there, so centring means
-	// placing the base cell below the middle by the overhang.
+	// drawAnimatedSprite anchors the sprite's base cell at (px, py).
 	px := float64(x) + (float64(box)-cell*scale)/2
 	py := float64(y) + (float64(box)-spriteH*scale)/2 + (spriteH-cell)*scale
 
@@ -635,25 +559,17 @@ func (dz *Designer) drawPortrait(screen *ebiten.Image, x, y, box int) {
 	}
 }
 
-// portraitCellSize is the native cell of the high-res sprite set the
-// portrait draws with.
+// portraitCellSize is the native cell of the high-res sprite set the portrait draws with.
 const portraitCellSize = 16.0
 
-// withHighResSprites switches the active sprite set to the layered
-// 16x16 art and returns the function that puts back whatever was
-// selected. Used as `defer withHighResSprites()()`.
-//
-// The selected set is global and the grid re-selects it from its camera
-// every frame, so this is restored rather than left changed: a screen
-// that draws an organism shouldn't decide what zoom the next one gets.
+// withHighResSprites switches the active sprite set to the layered 16x16 art and returns the function that puts back whatever was selected.
 func withHighResSprites() func() {
 	prev := r.CurrentZoom()
 	r.SelectZoom(r.ZoomHighRes)
 	return func() { r.SelectZoom(prev) }
 }
 
-// portraitRole is the sprite role for a design's size, using the same
-// size-class split the simulation does.
+// portraitRole is the sprite role for a design's size, using the same size-class split the simulation does.
 func portraitRole(maxSize float64) r.ImageRole {
 	switch effects.SizeBracket(c.GetCurrentGlobals(), maxSize) {
 	case 0:
@@ -665,7 +581,6 @@ func portraitRole(maxSize float64) r.ImageRole {
 	}
 }
 
-// drawNumbersColumn paints the trait and ability rows.
 func (dz *Designer) drawNumbersColumn(screen *ebiten.Image, x, y int) {
 	text.Draw(screen, "TRAITS", r.FontSourceCodePro10, x, y+12, themedForegroundDim())
 	y += designerRowH
@@ -693,7 +608,7 @@ func (dz *Designer) drawNumbersColumn(screen *ebiten.Image, x, y int) {
 	}
 }
 
-// drawStepRow paints "label  - value +" and records the two buttons.
+// drawStepRow paints "label - value +" and records the two buttons.
 func (dz *Designer) drawStepRow(screen *ebiten.Image, x, y int, label, value string, index int,
 	down, up designerHitKind, ability bool) {
 
@@ -724,8 +639,7 @@ func (dz *Designer) drawTreeColumn(screen *ebiten.Image, x, y, w int) {
 	dz.drawTreeNode(screen, dz.tree, x, &y, w, 0, "")
 }
 
-// drawTreeNode paints one node and its branches, depth-first, so the
-// shape on screen is the shape of the tree.
+// drawTreeNode paints one node and its branches, depth-first, so the shape on screen is the shape of the tree.
 func (dz *Designer) drawTreeNode(screen *ebiten.Image, node *d.Node, x int, y *int, w, depth int, branch string) {
 	if node == nil || *y > c.ScreenHeight()-110 {
 		return
@@ -807,8 +721,7 @@ func (dz *Designer) saveBlockedReason() string {
 		return fmt.Sprintf("abilities total %d; they must add up to %d", total, physiology.PointTotal)
 	}
 	if limit := c.MaxDecisionTreeSize(); limit > 0 && dz.treeSize() > limit {
-		// Reachable by loading a design saved under a higher limit: the
-		// editor won't grow one past it, but it will show one.
+		// Reachable by loading a design saved under a higher limit.
 		return fmt.Sprintf("tree has %d nodes, over the %d-node limit", dz.treeSize(), limit)
 	}
 	return ""

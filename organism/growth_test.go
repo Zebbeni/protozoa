@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestGrowthKeepsShareOfOverflow: health above size grows the organism by
-// growthFactor of the overflow, up to its max size, and health is capped
-// at the new size. Every case starts at size 20, health 20, max size 80.
 func TestGrowthKeepsShareOfOverflow(t *testing.T) {
 	for _, tc := range []struct {
 		name                 string

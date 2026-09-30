@@ -11,15 +11,13 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// designerWithDefaults opens a designer against the shipped settings.
 func designerWithDefaults(t *testing.T) *Designer {
 	t.Helper()
 	loadDefaults(t)
 	return NewDesigner()
 }
 
-// pickOption opens the picker on a node and chooses the option with the
-// given label, the way a click would.
+// pickOption opens the picker on a node and chooses the option with the given label, the way a click would.
 func pickOption(t *testing.T, dz *Designer, node *d.Node, label string) {
 	t.Helper()
 	dz.openPicker(node, 0, 0)
@@ -32,9 +30,6 @@ func pickOption(t *testing.T, dz *Designer, node *d.Node, label string) {
 	t.Fatalf("no option labelled %q in the picker", label)
 }
 
-// TestDesignerOpensOnAThreeNodeTree: the editor starts on the smallest
-// tree that is actually a decision, so there is something to branch from
-// without the user building it first.
 func TestDesignerOpensOnAThreeNodeTree(t *testing.T) {
 	dz := designerWithDefaults(t)
 	if got := dz.treeSize(); got != 3 {
@@ -51,9 +46,6 @@ func TestDesignerOpensOnAThreeNodeTree(t *testing.T) {
 	}
 }
 
-// TestActionToConditionGrowsTwoBranches: turning an action into a
-// condition has to give it something to choose between, or the tree
-// can't be walked.
 func TestActionToConditionGrowsTwoBranches(t *testing.T) {
 	dz := designerWithDefaults(t)
 	leaf := dz.tree.YesNode
@@ -72,16 +64,12 @@ func TestActionToConditionGrowsTwoBranches(t *testing.T) {
 	if got := dz.treeSize(); got != 5 {
 		t.Errorf("tree is %d nodes, want 5 after growing two", got)
 	}
-	// The whole tree still has to serialize and come back, since that is
-	// what saving does.
+	// The whole tree still has to serialize and come back, since that is what saving does.
 	if round := d.DeserializeTree(dz.currentTree().Serialize()); round == nil || round.Size() != 5 {
 		t.Error("the edited tree doesn't survive a serialize round trip")
 	}
 }
 
-// TestConditionToActionDropsItsBranches: an action has nowhere to hang a
-// subtree, so converting one away discards it rather than leaving nodes
-// stranded in the count.
 func TestConditionToActionDropsItsBranches(t *testing.T) {
 	dz := designerWithDefaults(t)
 
@@ -98,8 +86,6 @@ func TestConditionToActionDropsItsBranches(t *testing.T) {
 	}
 }
 
-// TestConditionToConditionKeepsItsBranches: swapping which question a
-// node asks shouldn't throw away the answers already built under it.
 func TestConditionToConditionKeepsItsBranches(t *testing.T) {
 	dz := designerWithDefaults(t)
 	yes, no := dz.tree.YesNode, dz.tree.NoNode
@@ -114,8 +100,6 @@ func TestConditionToConditionKeepsItsBranches(t *testing.T) {
 	}
 }
 
-// TestTreeStopsAtTheConfiguredLimit: the designer can't build a tree the
-// simulation's own mutation limit forbids.
 func TestTreeStopsAtTheConfiguredLimit(t *testing.T) {
 	dz := designerWithDefaults(t)
 
@@ -137,10 +121,6 @@ func TestTreeStopsAtTheConfiguredLimit(t *testing.T) {
 	}
 }
 
-// TestPickerOffersEveryMutableNode: the dropdown is how a design gets
-// its behaviour, so anything evolution can pick has to be pickable by
-// hand too — otherwise designed organisms are strictly less expressive
-// than evolved ones.
 func TestPickerOffersEveryMutableNode(t *testing.T) {
 	dz := designerWithDefaults(t)
 	dz.openPicker(dz.tree, 0, 0)
@@ -161,8 +141,6 @@ func TestPickerOffersEveryMutableNode(t *testing.T) {
 	}
 }
 
-// TestSaveIsBlockedUntilTheDesignIsLegal: the editor refuses to write a
-// design a simulation couldn't run, and says which part is wrong.
 func TestSaveIsBlockedUntilTheDesignIsLegal(t *testing.T) {
 	dz := designerWithDefaults(t)
 
@@ -186,8 +164,6 @@ func TestSaveIsBlockedUntilTheDesignIsLegal(t *testing.T) {
 	}
 }
 
-// TestAbilityStepsRespectTheCap: the rows can't exceed a single
-// ability's ceiling, even though the total is checked separately.
 func TestAbilityStepsRespectTheCap(t *testing.T) {
 	dz := designerWithDefaults(t)
 	attack := int(physiology.AbilityAttack)
@@ -205,9 +181,6 @@ func TestAbilityStepsRespectTheCap(t *testing.T) {
 	}
 }
 
-// TestTraitStepsStayInRange: every trait knob is clamped to what the
-// current settings allow, so a design can't be edited into an organism
-// the simulation would have to clamp later anyway.
 func TestTraitStepsStayInRange(t *testing.T) {
 	dz := designerWithDefaults(t)
 	for i, trait := range designerTraits {
@@ -226,8 +199,6 @@ func TestTraitStepsStayInRange(t *testing.T) {
 	}
 }
 
-// TestDesignerSaveAndLoadRoundTrip: what the editor writes is what it
-// reads back, including the tree it was showing.
 func TestDesignerSaveAndLoadRoundTrip(t *testing.T) {
 	dz := designerWithDefaults(t)
 	dir := t.TempDir()
@@ -259,9 +230,6 @@ func TestDesignerSaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClickingAwayEndsNaming: keystrokes must stop landing in the name
-// field once the user has visibly moved on, or stepping an ability while
-// the field is still armed silently renames the organism.
 func TestClickingAwayEndsNaming(t *testing.T) {
 	dz := designerWithDefaults(t)
 	if !dz.nameEditing {
@@ -284,11 +252,6 @@ func TestClickingAwayEndsNaming(t *testing.T) {
 	}
 }
 
-// TestPortraitUsesTheHighResSprites: only the 16x16 set carries the
-// layered overlays, and the set active at startup is 4x4 — where every
-// layer lookup misses and the portrait falls back to a four-pixel body.
-// The portrait selects the high-res set itself, and puts back whatever
-// the grid had, since the selection is global.
 func TestPortraitUsesTheHighResSprites(t *testing.T) {
 	if r.ZoomHighRes == 0 {
 		t.Fatal("the high-res set should not be the first zoom level")
@@ -308,8 +271,6 @@ func TestPortraitUsesTheHighResSprites(t *testing.T) {
 	r.SelectZoom(0)
 }
 
-// TestPortraitRoleFollowsSize: the portrait shows the sprite the world
-// will draw for an organism that size, not always the large one.
 func TestPortraitRoleFollowsSize(t *testing.T) {
 	loadDefaults(t)
 	maxSize := c.MaximumMaxSize()
@@ -327,10 +288,7 @@ func TestPortraitRoleFollowsSize(t *testing.T) {
 	}
 }
 
-// TestDeleteTakesTwoClicks: the delete button sits beside a list the
-// user clicks through to load things, and a design is work that can't be
-// recovered from anywhere else — so one click arms it and the second
-// does it.
+// TestDeleteTakesTwoClicks: the delete button sits beside a list the user clicks through to load things.
 func TestDeleteTakesTwoClicks(t *testing.T) {
 	dz := designerWithDefaults(t)
 	dir := t.TempDir()
@@ -366,8 +324,6 @@ func TestDeleteTakesTwoClicks(t *testing.T) {
 	}
 }
 
-// TestArmedDeleteDisarmsOnAnyOtherClick: an armed delete left waiting
-// would catch a later misclick on a row the user had moved past.
 func TestArmedDeleteDisarmsOnAnyOtherClick(t *testing.T) {
 	dz := designerWithDefaults(t)
 	dz.saved = []organism.Design{organism.NewDesign("one"), organism.NewDesign("two")}
@@ -386,10 +342,6 @@ func TestArmedDeleteDisarmsOnAnyOtherClick(t *testing.T) {
 	}
 }
 
-// TestOversizedTreeBlocksSave: the editor won't grow a tree past the
-// limit, but it will load one saved under a higher limit — and that one
-// must not be saveable until it's trimmed, or the file would keep
-// failing every simulation it's ticked for.
 func TestOversizedTreeBlocksSave(t *testing.T) {
 	dz := designerWithDefaults(t)
 	dz.design.Name = "branchy"
@@ -410,7 +362,6 @@ func TestOversizedTreeBlocksSave(t *testing.T) {
 	if !strings.Contains(reason, "limit") {
 		t.Errorf("an oversized tree should block the save, got %q", reason)
 	}
-	// And save() honours it rather than relying on the button being dim.
 	before := dz.message
 	dz.save()
 	if dz.message == before || !strings.Contains(dz.message, "limit") {

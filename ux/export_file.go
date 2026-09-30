@@ -8,10 +8,7 @@ import (
 	"path/filepath"
 )
 
-// saveExport writes data to a new file called name (numbered if taken)
-// in the settings folder when there is one, otherwise the working
-// directory, and returns where it went. The browser build downloads the
-// file instead; see export_file_js.go.
+// saveExport writes data to a new file called name (numbered if taken) in the settings folder when there is one, otherwise the working directory.
 func saveExport(name string, data []byte) (string, error) {
 	dir := "."
 	if info, err := os.Stat("settings"); err == nil && info.IsDir() {

@@ -7,13 +7,6 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// TestEveryShapeRunsZeroToOne: whatever shape a curve takes, it starts at
-// nothing, ends at the full value and never falls in between — the
-// property the whole multiplier system rests on.
-//
-// ShapeFlat is the deliberate exception and has its own test below: it is
-// 1 everywhere precisely so a score buys nothing, which is the point of
-// having it.
 func TestEveryShapeRunsZeroToOne(t *testing.T) {
 	loadGlobals(t)
 	for _, kind := range AllShapeKinds {
@@ -40,11 +33,6 @@ func TestEveryShapeRunsZeroToOne(t *testing.T) {
 	}
 }
 
-// TestFlatShapeIgnoresTheScore: ShapeFlat is how a curve says it isn't
-// wanted. An effect that was a plain constant before a curve was put
-// behind it has to keep exactly its old behaviour under this shape, or
-// every such addition forces a rebalance of whatever that constant was
-// tuned to.
 func TestFlatShapeIgnoresTheScore(t *testing.T) {
 	loadGlobals(t)
 	shape := ShapeFlat.new(0)
@@ -53,16 +41,12 @@ func TestFlatShapeIgnoresTheScore(t *testing.T) {
 			t.Errorf("flat at score %d = %v, want 1 at every score", score, got)
 		}
 	}
-	// Out of range too: a score restored from a recording made under
-	// another scale can land past the cap.
+	// Out of range too: a score restored from a recording made under another scale can land past the cap.
 	if got := shape.Progress(float64(MaxAbilityScore) * 10); got != 1 {
 		t.Errorf("flat past the cap = %v, want 1", got)
 	}
 }
 
-// TestShapesDifferWhereItMatters: the point of the choice is that the
-// same score buys different amounts, so the shapes must not collapse onto
-// each other in the middle of the range.
 func TestShapesDifferWhereItMatters(t *testing.T) {
 	// Halfway along the score scale, whatever the scale is.
 	half := float64(MaxAbilityScore) / 2
@@ -81,8 +65,7 @@ func TestShapesDifferWhereItMatters(t *testing.T) {
 	}
 }
 
-// TestShapesIgnoringKSaySo: linear and quadratic don't read K, and the
-// config screen asks them so it can leave the K slider alone.
+// TestShapesIgnoringKSaySo: linear and quadratic don't read K.
 func TestShapesIgnoringKSaySo(t *testing.T) {
 	for _, kind := range AllShapeKinds {
 		usesK := kind.UsesK()
@@ -100,9 +83,6 @@ func TestShapesIgnoringKSaySo(t *testing.T) {
 	}
 }
 
-// TestCurveShapeComesFromConfig: each curve takes the shape its setting
-// names, and an unknown name falls back to the curve's default rather
-// than breaking the curve.
 func TestCurveShapeComesFromConfig(t *testing.T) {
 	loadGlobals(t)
 	g := *config.GetCurrentGlobals()

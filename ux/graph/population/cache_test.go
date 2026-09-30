@@ -8,9 +8,7 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 )
 
-// buildTree makes a synthetic descendant tree of nodes entries spread
-// over cycles, with lifetimes short enough that a realistic fraction is
-// alive at any one cycle.
+// buildTree makes a synthetic descendant tree of nodes entries spread over cycles.
 func buildTree(nodes, cycles int) (map[int]*organism.DescendantNode, []int) {
 	rng := rand.New(rand.NewSource(1))
 	root := &organism.DescendantNode{ID: 0, Color: color.White, StartCycle: 0}
@@ -36,8 +34,6 @@ func ids(nodes []*organism.DescendantNode) []int {
 	return out
 }
 
-// TestAliveCacheMatchesWalk: cached answers, hit or miss, are what
-// walking the trees gives.
 func TestAliveCacheMatchesWalk(t *testing.T) {
 	trees, roots := buildTree(2000, 4000)
 	cache := NewAliveCache()
@@ -60,8 +56,7 @@ func TestAliveCacheMatchesWalk(t *testing.T) {
 	}
 }
 
-// TestAliveCacheKeepsItsOwnCopies: a cached set isn't disturbed by later
-// misses reusing the walk buffer.
+// TestAliveCacheKeepsItsOwnCopies: a cached set isn't disturbed by later misses reusing the walk buffer.
 func TestAliveCacheKeepsItsOwnCopies(t *testing.T) {
 	trees, roots := buildTree(2000, 4000)
 	cache := NewAliveCache()
@@ -80,8 +75,7 @@ func TestAliveCacheKeepsItsOwnCopies(t *testing.T) {
 	}
 }
 
-// TestAliveCacheInvalidateDropsEverything: after the trees are rebuilt,
-// nothing stale is handed back.
+// TestAliveCacheInvalidateDropsEverything: after the trees are rebuilt, nothing stale is handed back.
 func TestAliveCacheInvalidateDropsEverything(t *testing.T) {
 	trees, roots := buildTree(500, 1000)
 	cache := NewAliveCache()
@@ -98,8 +92,7 @@ func TestAliveCacheInvalidateDropsEverything(t *testing.T) {
 	}
 }
 
-// TestAliveCacheStaysWithinBudget: a long run evicts rather than growing
-// without limit.
+// TestAliveCacheStaysWithinBudget: a long run evicts rather than growing without limit.
 func TestAliveCacheStaysWithinBudget(t *testing.T) {
 	cache := NewAliveCache()
 	big := make([]*organism.DescendantNode, 100_000)
@@ -126,8 +119,6 @@ const (
 	benchInterval = 20
 )
 
-// BenchmarkColourSwitchUncached is what a population colour switch used
-// to cost: a walk per bar for the y-axis pass and another for drawing.
 func BenchmarkColourSwitchUncached(b *testing.B) {
 	trees, roots := buildTree(benchNodes, benchCycles)
 	bars := benchCycles / benchInterval
@@ -143,7 +134,6 @@ func BenchmarkColourSwitchUncached(b *testing.B) {
 	}
 }
 
-// BenchmarkColourSwitchCached is the same work against a warm cache.
 func BenchmarkColourSwitchCached(b *testing.B) {
 	trees, roots := buildTree(benchNodes, benchCycles)
 	bars := benchCycles / benchInterval

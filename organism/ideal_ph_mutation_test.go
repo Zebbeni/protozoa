@@ -25,8 +25,7 @@ func globalsWithIdealPhStep(t *testing.T, step float64) {
 	config.SetGlobals(&g)
 }
 
-// widestIdealPhDrift mutates one lineage repeatedly and returns how far
-// its ideal pH ever wandered from where it started.
+// widestIdealPhDrift mutates one lineage repeatedly and returns how far its ideal pH ever wandered from where it started.
 func widestIdealPhDrift(step float64, generations int) float64 {
 	const start = 5.0
 	traits := Traits{IdealPh: start, MaxSize: 50, SpawnHealth: 1, MinHealthToSpawn: 10}
@@ -39,9 +38,6 @@ func widestIdealPhDrift(step float64, generations int) float64 {
 	return widest
 }
 
-// TestIdealPhMutationStepBoundsTheDrift: the setting is how far a child's
-// ideal pH can land from its parent's, so 0 pins a lineage to the pH it
-// started at and a bigger step lets it chase a drifting world faster.
 func TestIdealPhMutationStepBoundsTheDrift(t *testing.T) {
 	globalsWithIdealPhStep(t, 0)
 	if drift := widestIdealPhDrift(0, 200); drift != 0 {
@@ -57,8 +53,7 @@ func TestIdealPhMutationStepBoundsTheDrift(t *testing.T) {
 	}
 }
 
-// TestOneMutationStaysWithinTheStep: a single generation can't jump
-// further than the configured step.
+// TestOneMutationStaysWithinTheStep: a single generation can't jump further than the configured step.
 func TestOneMutationStaysWithinTheStep(t *testing.T) {
 	const step = 0.25
 	globalsWithIdealPhStep(t, step)

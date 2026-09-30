@@ -6,9 +6,6 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// TestIdealPhRangeCentresOnTheScale: one setting replaces the two ends,
-// so the evolvable band is always centred on the middle of the pH scale
-// — an off-centre band would just bias every lineage the same way.
 func TestIdealPhRangeCentresOnTheScale(t *testing.T) {
 	loadDefaults(t)
 	g := config.GetCurrentGlobals()

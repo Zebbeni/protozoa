@@ -7,8 +7,7 @@ import (
 	"github.com/Zebbeni/protozoa/simrand"
 )
 
-// Point contains simple X and Y coordinates for a point in space
-// also usable with addition / subtraction as a directional unit vector
+// Point contains simple X and Y coordinates for a point in space also usable with addition / subtraction as a directional unit vector
 type Point struct {
 	X, Y int
 }
@@ -22,8 +21,7 @@ var (
 	directionRight = Point{X: +1, Y: 0}
 	directionDown  = Point{X: 0, Y: +1}
 	directionLeft  = Point{X: -1, Y: 0}
-	// Directions is a list of all possible directions
-	// to travel on the simulation grid
+	// Directions is a list of all possible directions to travel on the simulation grid
 	Directions = [...]Point{
 		directionUp,
 		directionRight,
@@ -32,7 +30,6 @@ var (
 	}
 )
 
-// GetRandomPoint returns a random point somewhere on the simulation grid
 func GetRandomPoint(rng *simrand.RNG, width, height int) Point {
 	return Point{
 		X: rng.Intn(width),
@@ -40,22 +37,18 @@ func GetRandomPoint(rng *simrand.RNG, width, height int) Point {
 	}
 }
 
-// GetRandomDirection returns a point representing a random direction
 func GetRandomDirection(rng *simrand.RNG) Point {
 	return Directions[rng.Intn(len(Directions))]
 }
 
-// Add add a given Point and returns the result
 func (p Point) Add(toAdd Point) Point {
 	return Point{X: p.X + toAdd.X, Y: p.Y + toAdd.Y}.Wrap()
 }
 
-// Sub subtracts a given Point and returns the wrapped result.
 func (p Point) Sub(toSub Point) Point {
 	return Point{X: p.X - toSub.X, Y: p.Y - toSub.Y}.Wrap()
 }
 
-// Times multiplies a given value and returns the result
 func (p *Point) Times(toMultiply int) Point {
 	return Point{
 		X: p.X * toMultiply,
@@ -76,7 +69,6 @@ func (p *Point) ToString() string {
 	return fmt.Sprintf("%d,%d", p.X, p.Y)
 }
 
-// Right returns the direction to the right of the current direction d
 func (p Point) Right() (right Point) {
 	switch p {
 	case directionUp:
@@ -95,7 +87,6 @@ func (p Point) Right() (right Point) {
 	return
 }
 
-// Left returns the direction to the right of the current direction d
 func (p Point) Left() (left Point) {
 	switch p {
 	case directionUp:

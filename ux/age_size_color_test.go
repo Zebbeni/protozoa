@@ -6,9 +6,6 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 )
 
-// TestAgeFractionUsesMaxLifespanWhenSet: the point of the AGE view is
-// "how close is this to dying of old age", which only means anything
-// against the span it is measured by.
 func TestAgeFractionUsesMaxLifespanWhenSet(t *testing.T) {
 	loadKeyGlobals(t)
 	config.GetCurrentGlobals().MaxLifespan = 1000
@@ -20,8 +17,7 @@ func TestAgeFractionUsesMaxLifespanWhenSet(t *testing.T) {
 		{0, 5000, 0},
 		{500, 5000, 0.5},
 		{1000, 5000, 1},
-		// Past the span (an organism dies at it, but a restored one can
-		// be beyond it) clamps rather than running off the ramp.
+		// Past the span (an organism dies at it, but a restored one can be beyond it) clamps.
 		{2000, 5000, 1},
 	} {
 		if got := ageFraction(tc.age, tc.oldest); got != tc.want {
@@ -30,10 +26,6 @@ func TestAgeFractionUsesMaxLifespanWhenSet(t *testing.T) {
 	}
 }
 
-// TestAgeFractionFallsBackToTheOldestAlive: with no fixed span every age
-// is just a number of cycles with nothing to measure it against, so the
-// view measures against whoever is oldest instead. The scale moving as
-// that organism dies is the cost of having one at all.
 func TestAgeFractionFallsBackToTheOldestAlive(t *testing.T) {
 	loadKeyGlobals(t)
 	config.GetCurrentGlobals().MaxLifespan = 0
@@ -50,11 +42,6 @@ func TestAgeFractionFallsBackToTheOldestAlive(t *testing.T) {
 	}
 }
 
-// TestSizeFractionIsAFixedScale: size is the one quantity worth
-// comparing between frames, so it is measured against the configured
-// cap rather than against the largest organism currently alive — a
-// scale that rescaled itself every frame would make a growing
-// population look static.
 func TestSizeFractionIsAFixedScale(t *testing.T) {
 	loadKeyGlobals(t)
 	maxSize := config.MaximumMaxSize()
@@ -68,17 +55,12 @@ func TestSizeFractionIsAFixedScale(t *testing.T) {
 	if got := sizeFraction(maxSize / 2); got != 0.5 {
 		t.Errorf("half the cap = %v, want 0.5", got)
 	}
-	// Clamped, since an organism restored from another configuration can
-	// be bigger than this one allows.
+	// Clamped, since an organism restored from another configuration can be bigger than this one allows.
 	if got := sizeFraction(maxSize * 10); got != 1 {
 		t.Errorf("past the cap = %v, want 1", got)
 	}
 }
 
-// TestAgeKeyNamesItsDenominator: the two fallbacks mean quite different
-// things — a fixed span the whole world shares, or a moving one set by
-// whoever happens to be oldest — so the key has to say which is in
-// force rather than leaving "100%" to mean either.
 func TestAgeKeyNamesItsDenominator(t *testing.T) {
 	loadKeyGlobals(t)
 

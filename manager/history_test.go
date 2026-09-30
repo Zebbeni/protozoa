@@ -6,22 +6,23 @@ import (
 	"testing"
 
 	"github.com/Zebbeni/protozoa/checkpoint"
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/simrand"
 )
 
 func newHistoryManager() *OrganismManager {
-	return &OrganismManager{history: map[HistoryType]map[int]map[int]int32{
-		HistoryPopulation:     {},
-		HistoryPhDistribution: {},
-		HistoryFood:           {},
-		HistoryWalls:          {},
-	}}
+	return &OrganismManager{history: newHistoryMaps()}
 }
 
-// TestHistoryRoundTripsThroughReplay is the regression test for the food
-// graph showing zero for most of a replay: only pH history was saved, so
-// every cycle before playback resumed had no food count. Food and wall
-// history must survive capture, the replay file's gob encoding, and
-// restore.
+// restoredManager is a manager built the way a replay reconstruction builds one.
+func restoredManager(t *testing.T) *OrganismManager {
+	t.Helper()
+	loadDefaultGlobals(t)
+	grid := initializeGrid()
+	return RestoreOrganismManager(&gridStub{}, simrand.New(1),
+		map[int]*organism.Organism{}, grid, 0, nil, nil)
+}
+
 func TestHistoryRoundTripsThroughReplay(t *testing.T) {
 	src := newHistoryManager()
 	for cycle := 0; cycle <= 100; cycle += 20 {
@@ -53,9 +54,7 @@ func TestHistoryRoundTripsThroughReplay(t *testing.T) {
 	}
 }
 
-// TestRestoreHistoryFromOlderReplay: files written before food and wall
-// history were saved decode with nil maps. Restoring one must leave
-// writable maps, or the first history update after a seek panics.
+// TestRestoreHistoryFromOlderReplay: files written before food and wall history were saved decode with nil maps.
 func TestRestoreHistoryFromOlderReplay(t *testing.T) {
 	m := newHistoryManager()
 	m.RestoreHistory(&checkpoint.HistoryPayload{PhDistribution: map[int]map[int]int32{0: {1: 5}}})
@@ -69,9 +68,6 @@ func TestRestoreHistoryFromOlderReplay(t *testing.T) {
 	m.history[HistoryWalls][20] = map[int]int32{0: 1}
 }
 
-// TestRestoreHistoryDoesNotAliasPayload: the replay controller restores
-// the same cached payload on every seek, so forward play writing into the
-// restored maps must not change it.
 func TestRestoreHistoryDoesNotAliasPayload(t *testing.T) {
 	payload := &checkpoint.HistoryPayload{
 		PhDistribution: map[int]map[int]int32{0: {1: 1}},
@@ -87,5 +83,41 @@ func TestRestoreHistoryDoesNotAliasPayload(t *testing.T) {
 
 	if len(payload.Food) != 1 || payload.Walls[0][0] != 1 || payload.PhDistribution[0][1] != 1 {
 		t.Error("forward play mutated the cached replay payload")
+	}
+}
+
+func TestEveryHistoryTypeHasAMapOnEveryPath(t *testing.T) {
+	if len(AllHistoryTypes) == 0 {
+		t.Fatal("AllHistoryTypes is empty, so this test checks nothing")
+	}
+	for _, tc := range []struct {
+		name string
+		h    map[HistoryType]map[int]map[int]int32
+	}{
+		{"newHistoryMaps", newHistoryMaps()},
+	} {
+		for _, typ := range AllHistoryTypes {
+			if tc.h[typ] == nil {
+				t.Errorf("%s: history type %d has a nil map; updateHistory would panic writing to it",
+					tc.name, typ)
+			}
+		}
+	}
+
+	restored := restoredManager(t)
+	for _, typ := range AllHistoryTypes {
+		if restored.history[typ] == nil {
+			t.Errorf("a restored manager has a nil map for history type %d", typ)
+		}
+	}
+}
+
+func TestRestoreHistoryLeavesNoTypeNil(t *testing.T) {
+	m := restoredManager(t)
+	m.RestoreHistory(&checkpoint.HistoryPayload{})
+	for _, typ := range AllHistoryTypes {
+		if m.history[typ] == nil {
+			t.Errorf("history type %d is nil after restoring an empty payload", typ)
+		}
 	}
 }

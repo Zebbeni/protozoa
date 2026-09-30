@@ -9,3 +9,7 @@ compiled
 Claude.md
 protozoa
 testdata/*.pzr
+
+# Recordings saved from the viewer's Save Recording As. Binary, and
+# capped at max_replay_size_mb (250MB by default) apiece.
+recordings/

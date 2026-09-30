@@ -12,11 +12,6 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// TestDesignsFoundTheSimulation: with designs configured, the founders
-// are those organisms rather than random ones, dealt round-robin so two
-// designs can be pitted against each other. This is the whole point of
-// saving a design, and nothing else in the pipeline checks it end to
-// end.
 func TestDesignsFoundTheSimulation(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
 	if err != nil {
@@ -27,12 +22,10 @@ func TestDesignsFoundTheSimulation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Installed before the designs are built: NewDesign reads the
-	// settings for its starting traits.
+	// Installed before the designs are built: NewDesign reads the settings for its starting traits.
 	config.SetGlobals(&g)
 
-	// Two designs that differ in a way the organism carries: a digger
-	// that always digs and a grazer that always eats.
+	// Two designs that differ in a way the organism carries.
 	digger := organism.NewDesign("digger")
 	digger.Abilities = abilitiesWith(physiology.AbilityDigging)
 	digger.DecisionTree = d.TreeFromAction(d.ActDig).Serialize()
@@ -41,8 +34,7 @@ func TestDesignsFoundTheSimulation(t *testing.T) {
 	grazer.Abilities = abilitiesWith(physiology.AbilityEating)
 	grazer.DecisionTree = d.TreeFromAction(d.ActEat).Serialize()
 
-	// SaveDesign writes relative to the designs directory the simulation
-	// reads, so this test writes there and cleans up after itself.
+	// SaveDesign writes relative to the designs directory the simulation reads.
 	for _, ds := range []organism.Design{digger, grazer} {
 		path, err := organism.SaveDesign(filepath.Join("..", organism.DesignsDir), ds)
 		if err != nil {
@@ -55,8 +47,7 @@ func TestDesignsFoundTheSimulation(t *testing.T) {
 	g.InitialDesigns = []string{"digger", "grazer"}
 	config.SetGlobals(&g)
 
-	// The manager reads designs relative to the working directory, which
-	// for a test is the package dir; hop up so "designs/" resolves.
+	// The manager reads designs relative to the working directory.
 	restore := chdir(t, "..")
 	defer restore()
 
@@ -81,8 +72,7 @@ func TestDesignsFoundTheSimulation(t *testing.T) {
 	}
 }
 
-// abilitiesWith spends the cap on one ability and spreads the remaining
-// points one at a time across the others, never past the cap.
+// abilitiesWith spends the cap on one ability and spreads the remaining points one at a time across the others, never past the cap.
 func abilitiesWith(a physiology.Ability) []int {
 	out := make([]int, physiology.AbilityCount)
 	out[a] = physiology.MaxAbilityScore
@@ -99,7 +89,6 @@ func abilitiesWith(a physiology.Ability) []int {
 	return out
 }
 
-// chdir moves to dir for the duration of a test.
 func chdir(t *testing.T, dir string) func() {
 	t.Helper()
 	prev, err := os.Getwd()

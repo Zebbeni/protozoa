@@ -8,9 +8,7 @@ import (
 	"github.com/Zebbeni/protozoa/simulation"
 )
 
-// TestReplayRecordsItsSettings checks a replay file carries the settings
-// its simulation ran with, seed included, and that opening it applies
-// them even after the active settings have changed.
+// TestReplayRecordsItsSettings checks a replay file carries the settings its simulation ran with, seed included.
 func TestReplayRecordsItsSettings(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 	g := *config.GetCurrentGlobals()
@@ -57,9 +55,6 @@ func TestReplayRecordsItsSettings(t *testing.T) {
 	}
 }
 
-// TestSeekKeepsTheSameTrees: a seek reinstalls the decoded descendant
-// trees rather than rebuilding them, so the same node objects stay in
-// place and views that cache anything keyed on them survive.
 func TestSeekKeepsTheSameTrees(t *testing.T) {
 	loadDefaultGlobalsFromDisk(t)
 	path := filepath.Join(t.TempDir(), "seek.pzr")

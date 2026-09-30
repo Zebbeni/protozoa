@@ -13,8 +13,7 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// phRecorder is an organism.API that records the pH it was asked to
-// change and reports a fixed pH everywhere.
+// phRecorder is an organism.API that records the pH it was asked to change and reports a fixed pH everywhere.
 type phRecorder struct {
 	organism.API
 	ph      float64
@@ -38,8 +37,7 @@ func chemoOrganism(t *testing.T, score int, ph float64) (*OrganismManager, *orga
 	loadDefaultGlobals(t)
 	scores := physiology.Scores{}
 	scores[physiology.AbilityChemosynthesis] = score
-	// The rest of the budget parks in Tolerance first (no single ability
-	// can hold it all), which keeps pH damage out of these chemo tests.
+	// The rest of the budget parks in Tolerance first (no single ability can hold it all).
 	scores[physiology.AbilityTolerance] = min(physiology.MaxAbilityScore, physiology.PointTotal-score)
 	scores[physiology.AbilityEating] = physiology.PointTotal - score - scores[physiology.AbilityTolerance]
 	api := &phRecorder{ph: ph}
@@ -51,16 +49,11 @@ func chemoOrganism(t *testing.T, score int, ph float64) (*OrganismManager, *orga
 	return m, o, api
 }
 
-// TestChemoPhEffectFollowsHealthGained: the pH a chemosynthesizing
-// organism pushes out is its health gain times the setting, so a marginal
-// attempt barely moves the water and one that gained nothing doesn't move
-// it at all.
 func TestChemoPhEffectFollowsHealthGained(t *testing.T) {
 	const score = 60
 	m, o, api := chemoOrganism(t, score, 5)
 	g := config.GetCurrentGlobals()
-	// The action's gain, not the health that survives growth: part of a
-	// gain goes into size.
+	// The action's gain, not the health that survives growth: part of a gain goes into size.
 	gain := effects.ChemosynthesisGain(g, score, o.Size, 0)
 	m.applyChemosynthesis(o)
 	want := g.ChemoPhEffect * gain

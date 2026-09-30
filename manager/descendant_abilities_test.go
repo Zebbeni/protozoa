@@ -8,11 +8,7 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// TestDescendantNodeAbilitiesRoundTrip pins the save path the population
-// graph's ability colouring depends on. Nodes outlive their organisms,
-// so after a load the graph colours long-dead organisms purely from the
-// node record — a restore that dropped the scores would silently paint
-// every historical organism with the genesis colour.
+// TestDescendantNodeAbilitiesRoundTrip pins the save path the population graph's ability colouring depends on.
 func TestDescendantNodeAbilitiesRoundTrip(t *testing.T) {
 	loadDefaultGlobals(t)
 
@@ -40,9 +36,7 @@ func TestDescendantNodeAbilitiesRoundTrip(t *testing.T) {
 	}
 }
 
-// TestPreAbilitiesNodeRecordFallsBack: a node saved before ability scores
-// existed has an all-zero record. It must come back as a valid
-// balanced distribution, not as zeros that break the budget invariant.
+// TestPreAbilitiesNodeRecordFallsBack: a node saved before ability scores existed has an all-zero record.
 func TestPreAbilitiesNodeRecordFallsBack(t *testing.T) {
 	loadDefaultGlobals(t)
 

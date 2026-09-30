@@ -5,16 +5,7 @@ import (
 	"github.com/Zebbeni/protozoa/decision"
 )
 
-// Appearance is what an organism looks like, derived rather than
-// inherited. Nothing here is a trait: the body silhouette and the
-// motor and mouth overlays are read off the ability scores, and the
-// sensor overlay is read off what the decision tree actually tests
-// for. An organism therefore looks like what it does.
-//
-// Lives in this package because both organism (which computes it) and
-// resources (which maps it to sprite layers) already import physiology,
-// while resources -> animation -> organism means organism can never
-// import resources directly.
+// Appearance is what an organism looks like, derived rather than inherited.
 type Appearance struct {
 	Body   BodyClass
 	Motor  MotorClass
@@ -22,8 +13,7 @@ type Appearance struct {
 	Sensor SensorClass
 }
 
-// BodyClass is the body silhouette: a shell for pH tolerance, spikes for
-// Defense.
+// BodyClass is the body silhouette: a shell for pH tolerance, spikes for Defense.
 type BodyClass int
 
 const (
@@ -32,7 +22,6 @@ const (
 	BodySpikes
 )
 
-// MotorClass is the locomotion overlay, from the Movement score.
 type MotorClass int
 
 const (
@@ -41,8 +30,7 @@ const (
 	MotorFlagella
 )
 
-// MouthClass is the feeding / terrain overlay, from whichever of
-// Eating, Attack or Digging an organism has invested in most.
+// MouthClass is the feeding / terrain overlay, from whichever of Eating, Attack or Digging an organism has invested in most.
 type MouthClass int
 
 const (
@@ -52,10 +40,7 @@ const (
 	MouthTusks
 )
 
-// SensorClass is the sensory overlay, from the decision tree's
-// conditions rather than from any score — sensing is a behaviour, not
-// an ability, so what an organism looks like it senses with follows
-// from what it actually checks.
+// SensorClass is the sensory overlay, from the decision tree's conditions rather than from any score.
 type SensorClass int
 
 const (
@@ -65,15 +50,7 @@ const (
 	SensorTasters              // pH
 )
 
-// AppearanceFor derives an organism's look from its scores and its
-// decision tree.
-//
-// Call once per organism, at birth or on restore, and cache the
-// result: the inputs are fixed for an organism's lifetime (scores
-// mutate only into children, and the tree is copied-then-mutated for a
-// child rather than edited in place), and the sensor half walks every
-// node. Re-deriving it per frame would put a tree walk per organism
-// into the render loop.
+// AppearanceFor derives an organism's look from its scores and its decision tree.
 func AppearanceFor(scores Scores, tree *decision.Tree) Appearance {
 	return Appearance{
 		Body:   bodyClassFor(scores),
@@ -83,14 +60,7 @@ func AppearanceFor(scores Scores, tree *decision.Tree) Appearance {
 	}
 }
 
-// bodyClassFor picks the body an organism has most earned: a shell for
-// riding out bad water (Tolerance), spikes for surviving other organisms
-// (Defense). Each has its own threshold and the renderer draws one body,
-// so the higher qualifying score wins.
-//
-// Ties go to the shell, via strict greater-than on the spikes check, so
-// the choice stays deterministic — a body that flickered between two
-// sprites on equal scores would read as a rendering bug.
+// bodyClassFor picks the body an organism has most earned.
 func bodyClassFor(s Scores) BodyClass {
 	best, bestScore := BodyBasic, 0
 
@@ -114,15 +84,7 @@ func motorClassFor(s Scores) MotorClass {
 	}
 }
 
-// mouthClassFor picks the single mouth overlay an organism has most
-// earned. Eating, Attack and Digging each have their own threshold and
-// their own sprite, but the renderer draws one mouth, so the highest
-// qualifying score wins.
-//
-// Ties resolve in declaration order (teeth, fangs, tusks) via strict
-// greater-than, which keeps the choice deterministic — an appearance
-// that flickered between two sprites on equal scores would look like a
-// rendering bug.
+// mouthClassFor picks the single mouth overlay an organism has most earned.
 func mouthClassFor(s Scores) MouthClass {
 	best, bestScore := MouthNone, 0
 
@@ -138,15 +100,13 @@ func mouthClassFor(s Scores) MouthClass {
 	return best
 }
 
-// sensorCategoryOf buckets a condition by the sense it implies.
-// Conditions that need no sense organ — an organism's own health, age,
-// or the pH of the cell it already occupies — return SensorNone and
-// contribute nothing, so a tree full of self-checks grows no sensors.
 func sensorCategoryOf(c decision.Condition) SensorClass {
 	switch c {
 	case decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight,
 		decision.IsOrganismAhead, decision.IsOrganismLeft, decision.IsOrganismRight,
-		decision.IsRelativeAhead:
+		decision.IsRelativeAhead,
+		// The coarse flank reads sense a neighbouring cell without distinguishing what is in it.
+		decision.IsSomethingLeft, decision.IsSomethingRight:
 		return SensorAntennae
 	case decision.IsWallAhead, decision.IsWallLeft, decision.IsWallRight,
 		decision.IsBiggerOrganismAhead:
@@ -158,14 +118,7 @@ func sensorCategoryOf(c decision.Condition) SensorClass {
 	}
 }
 
-// sensorClassFor returns the overlay for whichever sense the tree leans
-// on hardest, or SensorNone when nothing clears the minimum. Counting
-// every occurrence rather than distinct conditions means a tree that
-// checks for food repeatedly reads as more food-focused than one that
-// checks once.
-//
-// Ties go to the earlier class in declaration order, so the result is
-// stable for a given tree.
+// sensorClassFor returns the overlay for whichever sense the tree leans on hardest, or SensorNone when nothing clears the minimum.
 func sensorClassFor(tree *decision.Tree) SensorClass {
 	if tree == nil {
 		return SensorNone

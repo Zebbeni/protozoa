@@ -58,8 +58,6 @@ func TestResetAbilityScoreRow(t *testing.T) {
 	}
 }
 
-// TestRestoreAllDefaults puts everything back, and the restored ability
-// scores don't share storage with the defaults.
 func TestRestoreAllDefaults(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	cs.globals.MaxLifespan += 50
@@ -83,8 +81,6 @@ func TestRestoreAllDefaults(t *testing.T) {
 	}
 }
 
-// TestSectionChangedFollowsItsFields: a section reports changes only when
-// one of its own settings differs from the default.
 func TestSectionChangedFollowsItsFields(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	for _, section := range cs.sections {
@@ -115,9 +111,6 @@ func findInSection(t *testing.T, section configSection, jsonTag string) {
 	t.Errorf("section %q reports changes but doesn't hold %q", section.title, jsonTag)
 }
 
-// TestCurveRowResetsItsShape: a curve's row carries its shape setting, so
-// the row offers a reset once the shape has been changed — and resets the
-// shape rather than whatever field happens to sit at index zero.
 func TestCurveRowResetsItsShape(t *testing.T) {
 	cs, _ := abilityConfigScreen(t)
 	var row configField

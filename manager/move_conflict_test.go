@@ -9,8 +9,7 @@ import (
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// moverInto sets up an organism that has claimed the cell ahead of it,
-// the way the decide phase does, with walls wherever walls says.
+// moverInto sets up an organism that has claimed the cell ahead of it, the way the decide phase does.
 func moverInto(t *testing.T, walls map[utils.Point]bool) (*OrganismManager, *organism.Organism, utils.Point) {
 	t.Helper()
 	loadDefaultGlobals(t)
@@ -23,19 +22,14 @@ func moverInto(t *testing.T, walls map[utils.Point]bool) (*OrganismManager, *org
 	m.organismIDGrid[start.X][start.Y] = mover.ID
 
 	ahead := start.Add(mover.Direction)
-	m.requestManager.AddPositionRequest(ahead, mover.ID)
+	m.requestManager.AddPositionRequest(ahead, mover.ID, mover.Size)
 	return m, mover, ahead
 }
 
-// TestMoveRecheckedAgainstWallsDugThisCycle is the regression test for
-// organisms standing on walls: a mover claims an empty cell in the decide
-// phase, another organism digs a wall into it before the mover resolves,
-// and the mover must be blocked rather than stepping onto the wall.
 func TestMoveRecheckedAgainstWallsDugThisCycle(t *testing.T) {
 	walls := map[utils.Point]bool{}
 	m, mover, ahead := moverInto(t, walls)
 
-	// The dig lands after the claim, before this organism resolves.
 	walls[ahead] = true
 
 	m.applyMove(mover)
@@ -50,8 +44,6 @@ func TestMoveRecheckedAgainstWallsDugThisCycle(t *testing.T) {
 	}
 }
 
-// TestMoveIntoClearCellStillWorks: the extra check only stops a move that
-// would land on something.
 func TestMoveIntoClearCellStillWorks(t *testing.T) {
 	m, mover, ahead := moverInto(t, map[utils.Point]bool{})
 
@@ -67,9 +59,6 @@ func TestMoveIntoClearCellStillWorks(t *testing.T) {
 	}
 }
 
-// TestMoveBlockedByOrganismArrivingFirst: two claims can't overlap, but a
-// cell can still be taken by the time a mover resolves; it must not move
-// onto another organism.
 func TestMoveBlockedByOrganismArrivingFirst(t *testing.T) {
 	m, mover, ahead := moverInto(t, map[utils.Point]bool{})
 	m.organismIDGrid[ahead.X][ahead.Y] = 99
@@ -80,5 +69,56 @@ func TestMoveBlockedByOrganismArrivingFirst(t *testing.T) {
 	}
 	if mover.Status != organism.StatusMoveBlocked {
 		t.Errorf("status %v, want blocked", mover.Status)
+	}
+}
+
+func TestTheLargestClaimantWinsTheCell(t *testing.T) {
+	cell := utils.Point{X: 4, Y: 4}
+
+	type claim struct {
+		id   int
+		size float64
+	}
+	for _, tc := range []struct {
+		name     string
+		a, b     claim
+		wantWins int
+	}{
+		{"bigger wins over younger", claim{id: 1, size: 30}, claim{id: 2, size: 10}, 1},
+		{"bigger wins over older", claim{id: 9, size: 30}, claim{id: 2, size: 10}, 9},
+		{"equal size falls back to the higher ID", claim{id: 3, size: 20}, claim{id: 7, size: 20}, 7},
+	} {
+		for _, swap := range []bool{false, true} {
+			first, second := tc.a, tc.b
+			if swap {
+				first, second = tc.b, tc.a
+			}
+			var rm RequestManager
+			rm.ClearMaps()
+			rm.AddPositionRequest(cell, first.id, first.size)
+			rm.AddPositionRequest(cell, second.id, second.size)
+			if got := rm.GetPositionRequest(cell); got != tc.wantWins {
+				t.Errorf("%s (claimed %d then %d): cell went to %d, want %d",
+					tc.name, first.id, second.id, got, tc.wantWins)
+			}
+		}
+	}
+}
+
+func TestAnUnclaimedCellReportsNoClaimant(t *testing.T) {
+	var rm RequestManager
+	rm.ClearMaps()
+
+	never := utils.Point{X: 1, Y: 2}
+	if got := rm.GetPositionRequest(never); got != -1 {
+		t.Errorf("an unclaimed cell reports claimant %d, want -1", got)
+	}
+	if rm.HasPositionRequest(never) {
+		t.Error("an unclaimed cell reports having a claim")
+	}
+
+	rm.AddPositionRequest(never, 0, 5)
+	if got := rm.GetPositionRequest(never); got != 0 {
+		t.Errorf("organism 0's real claim reports %d; 0 has to be a usable ID", got)
 	}
 }

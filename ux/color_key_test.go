@@ -18,15 +18,8 @@ import (
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
-// testKeyWidth is the width the key is measured at: the widest a minimap
-// gets, which is the widest the key ever is. A narrower world gives a
-// narrower minimap and therefore a narrower key, but text that fits the
-// widest plate is the thing worth pinning — a narrower one just wraps to
-// more lines, which height() accounts for.
 const testKeyWidth = minimapMaxW
 
-// loadKeyGlobals installs the shipped defaults, which the pH-effect ramp
-// reads for its hues and the theme background.
 func loadKeyGlobals(t *testing.T) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
@@ -40,9 +33,7 @@ func loadKeyGlobals(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// TestTrueColorShowsNoKey: True's colours are a lineage's inherited
-// identity, not a measurement, so there is no scale to explain and the
-// corner is left alone rather than filled with a plate saying so.
+// TestTrueColorShowsNoKey: True's colours are a lineage's inherited identity, not a measurement.
 func TestTrueColorShowsNoKey(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -51,12 +42,6 @@ func TestTrueColorShowsNoKey(t *testing.T) {
 	}
 }
 
-// TestEveryColorModeHasAKey: a colour mode that measures something and
-// says nothing about it is a gradient with no scale — "greener" with no
-// answer to "than what". Every mode but True therefore needs a populated
-// key, and this is also what catches a *new* mode added without one:
-// colorKeyFor falls through to the empty key, which would ship silently
-// showing nothing at all.
 func TestEveryColorModeHasAKey(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -91,12 +76,7 @@ func TestEveryColorModeHasAKey(t *testing.T) {
 	}
 }
 
-// TestColorKeyTextFitsItsPlate measures every key's wrapped note against
-// the width it is drawn in, and the end labels against each other. The
-// notes are authored as prose in colorKeyFor with no width in sight, so
-// this is what catches one that has grown past the box — which would
-// otherwise run out over the grid, or in the labels' case collide in the
-// middle.
+// TestColorKeyTextFitsItsPlate measures every key's wrapped note against the width it is drawn in.
 func TestColorKeyTextFitsItsPlate(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
@@ -125,9 +105,7 @@ func TestColorKeyTextFitsItsPlate(t *testing.T) {
 					t.Errorf("%s: subtitle line %q is %dpx wide, plate holds %d", k.title, line, w, maxW)
 				}
 			}
-			// The three axis labels share one line — flush left, centred,
-			// flush right — so each needs clear air either side of the
-			// centred one, not merely room for all three end to end.
+			// The three axis labels share one line.
 			lw := boundString(r.FontSourceCodePro8, bar.axis[0]).Dx()
 			mw := boundString(r.FontSourceCodePro8, bar.axis[1]).Dx()
 			hw := boundString(r.FontSourceCodePro8, bar.axis[2]).Dx()
@@ -140,11 +118,6 @@ func TestColorKeyTextFitsItsPlate(t *testing.T) {
 	}
 }
 
-// TestColorKeyTextIsFlushLeft: every wrapped line has to start at the
-// left margin. The key first shared the rules screen's splitWords, which
-// keeps a word's leading whitespace on purpose so indented bullets keep
-// their indent — here that put a space on the front of each wrapped line
-// and stepped the whole paragraph rightwards one line at a time.
 func TestColorKeyTextIsFlushLeft(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
@@ -167,8 +140,6 @@ func TestColorKeyTextIsFlushLeft(t *testing.T) {
 	}
 }
 
-// TestColorKeyExplanationsReadAsSentences: the notes are prose under a
-// title, so they start with a capital. Easy to lose when one is reworded.
 func TestColorKeyExplanationsReadAsSentences(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -184,10 +155,6 @@ func TestColorKeyExplanationsReadAsSentences(t *testing.T) {
 	}
 }
 
-// TestAbilityKeyCoversTheWholeRange: the axis claims the bar runs 0 to
-// the cap, so the bar's ends have to be the colours the grid gives a
-// score of 0 and a score at the cap. The two were out of step while the
-// ramp topped out at the specialist score.
 func TestAbilityKeyCoversTheWholeRange(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -207,10 +174,6 @@ func TestAbilityKeyCoversTheWholeRange(t *testing.T) {
 	}
 }
 
-// TestEveryAbilityHasAKeyNote: the Ability key explains what the ability
-// being coloured actually does, so a new ability arriving without an
-// entry would show "Organism foo ability, 0-10." and then stop — the half
-// of the sentence that matters missing, with nothing else to say so.
 func TestEveryAbilityHasAKeyNote(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
@@ -225,8 +188,7 @@ func TestEveryAbilityHasAKeyNote(t *testing.T) {
 		if !unicode.IsUpper([]rune(note)[0]) {
 			t.Errorf("%s: note %q does not start with a capital", a.Name(), note)
 		}
-		// It goes on a plate the width of the minimap, so it has to wrap
-		// into something that still fits.
+		// It goes on a plate the width of the minimap, so it has to wrap into something that still fits.
 		k := colorKeyFor(orgColorAbility, a)
 		for _, line := range k.noteLines(testKeyWidth) {
 			if w := boundString(r.FontSourceCodePro8, line).Dx(); w > keyInnerWidth(testKeyWidth) {
@@ -234,28 +196,20 @@ func TestEveryAbilityHasAKeyNote(t *testing.T) {
 					a.Name(), line, w, keyInnerWidth(testKeyWidth))
 			}
 		}
-		// The ability being coloured has to be the one named and the one
-		// described.
+		// The ability being coloured has to be the one named and the one described.
 		if k.note != note {
 			t.Errorf("%s: key note is %q, want its description", a.Name(), k.note)
 		}
 		if !strings.Contains(k.title, a.Name()) {
 			t.Errorf("%s: key is titled %q and does not name the ability", a.Name(), k.title)
 		}
-		// The score range is on the axis (0 .. cap); the subtitle
-		// carries the one thing the axis has no slot for, the score
-		// the ramp saturates at.
+		// The score range is on the axis (0 ..
 		if !strings.Contains(k.bars[0].subtitle, fmt.Sprintf("%g", gh.AbilityFullGreenScore)) {
 			t.Errorf("%s: subtitle %q does not say where the colour tops out", a.Name(), k.bars[0].subtitle)
 		}
 	}
 }
 
-// TestColorKeyHeightCoversWhatItDraws pins the plate against its
-// contents. height() is computed from the same pieces drawColorKey lays
-// out, but separately — the caller needs the height before drawing, to
-// stack the key above the minimap — so the two can drift, and the way it
-// shows is the last line of a note printed below the plate it belongs to.
 func TestColorKeyHeightCoversWhatItDraws(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
@@ -267,8 +221,7 @@ func TestColorKeyHeightCoversWhatItDraws(t *testing.T) {
 			continue
 		}
 
-		// Mirror drawColorKey's cursor: it starts at pad + one line and
-		// advances by the same steps.
+		// Mirror drawColorKey's cursor: it starts at pad + one line and advances by the same steps.
 		ty := colorKeyPad + len(k.titleLines(testKeyWidth))*colorKeyLineH - 2
 		for _, bar := range k.bars {
 			ty += len(bar.subtitleLines(testKeyWidth))*colorKeyLineH +
@@ -282,11 +235,6 @@ func TestColorKeyHeightCoversWhatItDraws(t *testing.T) {
 	}
 }
 
-// TestToleranceKeyMidpointIsTheDocumentedOne: the grid tints by damage,
-// which has no top end, so the key walks the tolerance *fraction*
-// backwards instead. That only tells the truth if the middle of the bar
-// is the colour an organism losing phToleranceMidpointDamage per cycle
-// actually gets — the number the key prints under it.
 func TestToleranceKeyMidpointIsTheDocumentedOne(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -299,17 +247,11 @@ func TestToleranceKeyMidpointIsTheDocumentedOne(t *testing.T) {
 		t.Errorf("mid of the bar is %v, an organism at the midpoint damage is %v", got, want)
 	}
 
-	// And the ends are the right way round: no loss at the left.
 	if free := k.bars[0].ramp(0); !sameColor(free, phToleranceColor(0)) {
 		t.Errorf("left end is %v, an environment costing nothing is %v", free, phToleranceColor(0))
 	}
 }
 
-// TestToleranceAxisNamesTheDamageItShows: the axis is the whole point of
-// the rework — "0 / 0.01 / 0.1+" is a claim about health per cycle, and
-// it has to be the health per cycle those points on the bar are actually
-// the colour of. The labels are formatted from the constants, so this
-// checks the bar agrees with them rather than that two literals match.
 func TestToleranceAxisNamesTheDamageItShows(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -328,8 +270,7 @@ func TestToleranceAxisNamesTheDamageItShows(t *testing.T) {
 		}
 	}
 
-	// The right edge is past the top the label names, which is what the
-	// "+" is promising: everything from there on is this colour.
+	// The right edge is past the top the label names.
 	top := phToleranceColor(phToleranceKeyTop)
 	atTop := gh.GreenRedColor(phToleranceFraction(phToleranceKeyTop))
 	if !sameColor(top, atTop) {
@@ -340,17 +281,11 @@ func TestToleranceAxisNamesTheDamageItShows(t *testing.T) {
 	}
 }
 
-// TestPhEffectKeyShowsWhatTheGridPaints: the key samples the same ramp
-// function the organisms are tinted with, so the ends of the bar have to
-// be the colours a fully acid and fully base organism get. A key with its
-// own copy of the hue maths would pass every other test here and still be
-// wrong the first time the colour scheme moved.
 func TestPhEffectKeyShowsWhatTheGridPaints(t *testing.T) {
 	loadKeyGlobals(t)
 
 	k := colorKeyFor(orgColorPhEffect, physiology.AbilityChemosynthesis)
-	// A lifetime that only ever pushed pH one way, past the ratio the
-	// spectrum saturates at.
+	// A lifetime that only ever pushed pH one way, past the ratio the spectrum saturates at.
 	acid := phEffectColor(0, 1)
 	base := phEffectColor(1, 0)
 
@@ -362,13 +297,6 @@ func TestPhEffectKeyShowsWhatTheGridPaints(t *testing.T) {
 	}
 }
 
-// TestFamilyKeyShowsBothRamps: the Family key carries two bars because
-// its colours fan out from the selection along more than one axis, and a
-// single bar can only follow one. Each has to be the ramp the grid
-// actually paints for that kind of relative — the descendant bar's ends
-// against a direct descendant, the cousin bar's against a real cousin,
-// which is the part that would silently go wrong if the bar were built
-// from its own idea of the colour scheme.
 func TestFamilyKeyShowsBothRamps(t *testing.T) {
 	loadKeyGlobals(t)
 
@@ -386,9 +314,7 @@ func TestFamilyKeyShowsBothRamps(t *testing.T) {
 			got, familyFadeGenerations, familyColor(kinship{down: familyFadeGenerations, related: true}))
 	}
 
-	// Every sample of the cousin bar must be a genuine cousin, not a
-	// point on the direct line the first bar already covers — a cousin
-	// has someone in both directions.
+	// Every sample of the cousin bar must be a genuine cousin, not a point on the direct line the first bar already covers.
 	if got := cousins.ramp(0); !sameColor(got, familyColor(kinship{up: 1, down: 1, related: true})) {
 		t.Errorf("the cousin bar starts at %v, a sibling is %v", got, familyColor(kinship{up: 1, down: 1, related: true}))
 	}
@@ -402,8 +328,7 @@ func TestFamilyKeyShowsBothRamps(t *testing.T) {
 	}
 }
 
-// sameColor compares within a tolerance well under one 8-bit step, so the
-// tests read as "the same colour" rather than pinning float bits.
+// sameColor compares within a tolerance well under one 8-bit step.
 func sameColor(a, b colorful.Color) bool {
 	const eps = 1.0 / 512
 	return math.Abs(a.R-b.R) < eps && math.Abs(a.G-b.G) < eps && math.Abs(a.B-b.B) < eps

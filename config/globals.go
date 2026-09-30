@@ -11,54 +11,42 @@ import (
 var defaultFilePath = "settings/default.json"
 var constants *Globals
 
-// SetGlobals initializes all globally-referenced constants. It
-// normalises the sign-bound settings first, so a file written under an
-// older convention still means what it meant.
 func SetGlobals(g *Globals) {
 	g.NormalizeSigns()
+	g.repairWallBreak()
+	g.repairDecisionNodes()
+	g.repairMutationWeights()
+	g.repairChemoPhWidth()
 	constants = g
 }
 
-// settingSigns lists the settings that only make sense on one side of
-// zero: the cost of an action is always a loss, damage is always damage.
-// A slider that can cross zero there offers a setting that turns a cost
-// into free health or an attack into a heal, which is never what the
-// user is reaching for.
-//
-// Damage is stored as a positive magnitude and subtracted where it
-// lands, so the settings read the way they're spoken about ("650 damage"
-// rather than "-650 health"). NormalizeSigns is what keeps files written
-// under the old negative convention working.
+// settingSigns lists the settings that only make sense on one side of zero.
 var settingSigns = map[string]int{
-	"health_change_from_idle":           -1,
-	"health_change_from_turning":        -1,
-	"health_change_from_moving":         -1,
-	"health_change_from_moving_at_max":  -1,
-	"health_change_from_digging_at_max": -1,
-	"health_change_from_turning_at_max": -1,
-	"health_change_from_eating_attempt": -1,
-	"health_change_from_spawning":       -1,
-	"health_change_from_attacking":      -1,
-	"health_change_from_digging":        -1,
-	"health_change_from_blocked_move":   -1,
-	"health_change_inflicted_by_attack": 1,
-	"health_change_inflicted_by_thorns": 1,
-	"max_chemosynthesis_gain":           1,
-	"health_per_food_unit":              1,
-	"unhealthy_ph_damage":               1,
-	"chemo_ph_effect":                   1,
-	"eating_ph_effect":                  1,
+	"health_change_from_idle":                  -1,
+	"health_change_from_turning":               -1,
+	"health_change_from_moving":                -1,
+	"health_change_from_moving_at_max":         -1,
+	"health_change_from_digging_at_max":        -1,
+	"health_change_from_turning_at_max":        -1,
+	"health_change_from_eating_attempt":        -1,
+	"health_change_from_eating_attempt_at_max": -1,
+	"health_change_from_spawning":              -1,
+	"health_change_from_attacking":             -1,
+	"health_change_from_digging":               -1,
+	"health_change_from_blocked_move":          -1,
+	"health_change_inflicted_by_attack":        1,
+	"health_change_inflicted_by_thorns":        1,
+	"max_chemosynthesis_gain":                  1,
+	"health_per_food_unit":                     1,
+	"unhealthy_ph_damage":                      1,
+	"chemo_ph_effect":                          1,
+	"eating_ph_effect":                         1,
 }
 
-// SettingSign is 1 for a setting that must be positive, -1 for one that
-// must be negative, and 0 for one that is genuinely signed.
+// SettingSign is 1 for a setting that must be positive, -1 for one that must be negative.
 func SettingSign(jsonTag string) int { return settingSigns[jsonTag] }
 
-// NormalizeSigns puts every sign-bound float on its own side of zero,
-// keeping the magnitude. Called on every path that installs settings, so
-// a value typed, loaded or replayed from a file under the old convention
-// (attack damage was stored as -650) lands as the same amount of damage
-// rather than as healing.
+// NormalizeSigns puts every sign-bound float on its own side of zero, keeping the magnitude.
 func NormalizeSign(v float64, jsonTag string) float64 {
 	if sign := SettingSign(jsonTag); sign != 0 {
 		return float64(sign) * math.Abs(v)
@@ -66,8 +54,59 @@ func NormalizeSign(v float64, jsonTag string) float64 {
 	return v
 }
 
-// NormalizeSigns applies the sign convention to every field that has
-// one.
+// DefaultWallBreakAtMax is the wall strength a full-Digging organism shoulders through per unit of size.
+const DefaultWallBreakAtMax = 10
+
+// repairWallBreak fills in the burrow endpoints for a settings file or replay header written before they existed.
+func (g *Globals) repairWallBreak() {
+	if g.WallBreakAtMaxDigging == 0 && g.WallBreakMultiplier != 0 {
+		g.WallBreakAtMaxDigging = DefaultWallBreakAtMax
+	}
+}
+
+// DefaultDisabledNodes are the node types held out of mutation unless a settings file says otherwise.
+var DefaultBasicOnlyFamilies = []string{
+	"IsHealthyPhHere",
+	"IsFoodHere",
+	"IsFoodBuriedHere",
+}
+
+// DefaultDisabledNodes now holds only what a family toggle cannot say.
+var DefaultDisabledNodes = []string{
+	"IsAgeMultipleOfTwo",
+	"IsAgeMultipleOfTen",
+}
+
+// DefaultMaxChemosynthesisPhWidth is the band the simulation had before the setting existed: the curve multiplier alone, which tops out at 1. Multiplying by exactly 1.0 is bit-identical, so a repaired file runs the world it recorded.
+const DefaultMaxChemosynthesisPhWidth = 1.0
+
+func (g *Globals) repairChemoPhWidth() {
+	if g.MaxChemosynthesisPhWidth == 0 {
+		g.MaxChemosynthesisPhWidth = DefaultMaxChemosynthesisPhWidth
+	}
+}
+
+const DefaultMutationWeight = 1.0
+
+// repairMutationWeights fills in the defaults for a settings file or replay header written before the weights existed, where all four decode to 0. The test is that the PAIR sums to zero, not that an individual weight does.
+func (g *Globals) repairMutationWeights() {
+	if g.MutationWeightSwapAction+g.MutationWeightGrowBranch == 0 {
+		g.MutationWeightSwapAction = DefaultMutationWeight
+		g.MutationWeightGrowBranch = DefaultMutationWeight
+	}
+	if g.MutationWeightSwapCondition+g.MutationWeightPruneBranch == 0 {
+		g.MutationWeightSwapCondition = DefaultMutationWeight
+		g.MutationWeightPruneBranch = DefaultMutationWeight
+	}
+}
+
+func (g *Globals) repairDecisionNodes() {
+	if g.DisabledDecisionNodes == nil {
+		g.DisabledDecisionNodes = append([]string(nil), DefaultDisabledNodes...)
+	}
+}
+
+// NormalizeSigns applies the sign convention to every field that has one.
 func (g *Globals) NormalizeSigns() {
 	val := reflect.ValueOf(g).Elem()
 	t := val.Type()
@@ -83,45 +122,34 @@ func (g *Globals) NormalizeSigns() {
 	}
 }
 
-// GetCurrentGlobals returns a pointer to the current globals for modification.
 func GetCurrentGlobals() *Globals {
 	return constants
 }
 
-// Accessors are grouped by config-screen section so adding a new
-// knob slots into the right neighbourhood for readability. Section
-// order matches default.json's grouping and the editor's section
-// list (see ux/config_screen.go).
-
-// --- Simulation ---
 func Seed() int { return constants.Seed }
 
-// --- Display ---
 func GridUnitsWide() int { return constants.GridUnitsWide }
 func GridUnitsHigh() int { return constants.GridUnitsHigh }
 func ScreenWidth() int   { return constants.ScreenWidth }
 func ScreenHeight() int  { return constants.ScreenHeight }
 
-// --- Environment ---
 func InitialOrganisms() int        { return constants.InitialOrganisms }
 func InitialFood() int             { return constants.InitialFood }
 func InitialWalls() int            { return constants.InitialWalls }
 func ChanceToAddFoodItem() float64 { return constants.ChanceToAddFoodItem }
 func MinFoodValue() int            { return constants.MinFoodValue }
+func BurialAmount() int            { return constants.BurialAmount }
+func InitialBuriedFood() int       { return constants.InitialBuriedFood }
+func MinInitialBuriedValue() int   { return constants.MinInitialBuriedValue }
+func MaxInitialBuriedValue() int   { return constants.MaxInitialBuriedValue }
+func BurialInterval() int          { return constants.BurialInterval }
 func MaxFoodValue() int            { return constants.MaxFoodValue }
 
-// --- pH ---
-
-// The pH scale is fixed rather than configurable. Colour schemes, the pH
-// graph's buckets and every tolerance are all tuned against 0-10, so a
-// different range would quietly break them rather than rescale them.
+// The pH scale is fixed rather than configurable.
 const (
 	minPh = 0.0
 	maxPh = 10.0
 	// initialPh is the pH every cell starts at: the middle of the scale.
-	// Not configurable — a world that starts uniform and drifts from
-	// whatever its organisms do is the interesting case, and a starting
-	// offset only shifts which way it drifts first.
 	initialPh = (minPh + maxPh) / 2
 )
 
@@ -130,25 +158,48 @@ func MaxPh() float64        { return maxPh }
 func InitialPh() float64    { return initialPh }
 func IdealPhRange() float64 { return constants.IdealPhRange }
 
-// MinIdealPh and MaxIdealPh are the ends of the ideal-pH range lineages
-// can evolve within: IdealPhRange wide, centred on the middle of the pH
-// scale. One setting rather than two ends, since an off-centre range
-// would just bias every lineage the same way.
+// MinIdealPh and MaxIdealPh are the ends of the ideal-pH range lineages can evolve within.
 func MinIdealPh() float64          { return initialPh - constants.IdealPhRange/2 }
 func MaxIdealPh() float64          { return initialPh + constants.IdealPhRange/2 }
 func IdealPhMutationStep() float64 { return constants.IdealPhMutationStep }
 func MaxPhToleranceWidth() float64 { return constants.MaxPhToleranceWidth }
 
+func MaxChemosynthesisPhWidth() float64 { return constants.MaxChemosynthesisPhWidth }
+
 func ChemoPhEffect() float64        { return constants.ChemoPhEffect }
 func EatingPhEffect() float64       { return constants.EatingPhEffect }
 func PhDiffuseFactor() float64      { return constants.PhDiffuseFactor }
+func WallPhBlockAtMax() float64     { return constants.WallPhBlockAtMax }
+func WallPhBlockCurve() float64     { return constants.WallPhBlockCurve }
 func PhIncrementToDisplay() float64 { return constants.PhIncrementToDisplay }
 
-// --- Organisms ---
-func MinOrganisms() int                  { return constants.MinOrganisms }
-func MaxCycles() int                     { return constants.MaxCycles }
-func MaxReplaySizeMb() int               { return constants.MaxReplaySizeMb }
-func WallBreakMultiplier() float64       { return constants.WallBreakMultiplier }
+func MinOrganisms() int               { return constants.MinOrganisms }
+func MaxCycles() int                  { return constants.MaxCycles }
+func MaxReplaySizeMb() int            { return constants.MaxReplaySizeMb }
+func WallBreakMultiplier() float64    { return constants.WallBreakMultiplier }
+func WallBreakAtZeroDigging() float64 { return constants.WallBreakAtZeroDigging }
+func WallBreakAtMaxDigging() float64  { return constants.WallBreakAtMaxDigging }
+func BurrowSpoilFraction() float64    { return constants.BurrowSpoilFraction }
+
+func MuchBiggerSizeRatio() float64  { return constants.MuchBiggerSizeRatio }
+func MuchSmallerSizeRatio() float64 { return constants.MuchSmallerSizeRatio }
+func MuchFoodPerSize() float64      { return constants.MuchFoodPerSize }
+
+// SmartTreeMutation reports whether mutation skips conditions whose answer is already settled where it would put them.
+func SmartTreeMutation() bool { return constants.SmartTreeMutation }
+
+func BasicOnlyConditionFamilies() []string { return constants.BasicOnlyConditionFamilies }
+
+// TieredConditionMutation reports whether a new condition node is limited to the basic reads.
+func TieredConditionMutation() bool { return constants.TieredConditionMutation }
+
+func MutationWeightSwapAction() float64    { return constants.MutationWeightSwapAction }
+func MutationWeightGrowBranch() float64    { return constants.MutationWeightGrowBranch }
+func MutationWeightSwapCondition() float64 { return constants.MutationWeightSwapCondition }
+func MutationWeightPruneBranch() float64   { return constants.MutationWeightPruneBranch }
+
+// DisabledDecisionNodes is the set of node types mutation may not pick.
+func DisabledDecisionNodes() []string    { return constants.DisabledDecisionNodes }
 func MaxOrganisms() int                  { return constants.MaxOrganisms }
 func GrowthFactor() float64              { return constants.GrowthFactor }
 func EatingGrowthFactor() float64        { return constants.EatingGrowthFactor }
@@ -162,14 +213,11 @@ func MinSpawnHealth() float64            { return constants.MinSpawnHealth }
 func MaxSpawnHealthPercent() float64     { return constants.MaxSpawnHealthPercent }
 func MaxLifespan() int                   { return constants.MaxLifespan }
 
-// --- Decision Trees ---
 func InitialDecisionTreeMutations() int   { return constants.InitialDecisionTreeMutations }
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
 func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize }
 
-// --- Health Changes ---
-// Per-action costs/gains paid by the actor; size-scaled at the apply
-// site. Signed: negative = cost, positive = gain (only chemo today).
+// --- Health Changes --- Per-action costs/gains paid by the actor; size-scaled at the apply site.
 func MaxChemosynthesisGain() float64         { return constants.MaxChemosynthesisGain }
 func HealthChangeFromIdle() float64          { return constants.HealthChangeFromIdle }
 func HealthChangeFromTurning() float64       { return constants.HealthChangeFromTurning }
@@ -178,36 +226,31 @@ func HealthChangeFromTurningAtMax() float64  { return constants.HealthChangeFrom
 func HealthChangeFromDiggingAtMax() float64  { return constants.HealthChangeFromDiggingAtMax }
 func HealthChangeFromMoving() float64        { return constants.HealthChangeFromMoving }
 func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFromEatingAttempt }
-func HealthChangeFromSpawning() float64      { return constants.HealthChangeFromSpawning }
-func HealthChangeFromAttacking() float64     { return constants.HealthChangeFromAttacking }
-func HealthChangeFromDigging() float64       { return constants.HealthChangeFromDigging }
-func HealthChangeFromBlockedMove() float64   { return constants.HealthChangeFromBlockedMove }
+func HealthChangeFromEatingAttemptAtMax() float64 {
+	return constants.HealthChangeFromEatingAttemptAtMax
+}
+func HealthChangeFromSpawning() float64    { return constants.HealthChangeFromSpawning }
+func HealthChangeFromAttacking() float64   { return constants.HealthChangeFromAttacking }
+func HealthChangeFromDigging() float64     { return constants.HealthChangeFromDigging }
+func HealthChangeFromBlockedMove() float64 { return constants.HealthChangeFromBlockedMove }
 
-// Damage delivered to targets — size-scaled positive magnitudes,
-// subtracted where they land.
+// Damage delivered to targets — size-scaled positive magnitudes, subtracted where they land.
 func AttackDamageAtFullAttack() float64 { return constants.AttackDamageAtFullAttack }
+func AttackDamageAtZeroAttack() float64 { return constants.AttackDamageAtZeroAttack }
 func CorpseFoodMultiplier() float64     { return constants.CorpseFoodMultiplier }
 
-// Environmental health changes.
 func UnhealthyPhDamage() float64 { return constants.UnhealthyPhDamage }
 
-// --- Ability scores ---
-// Every organism distributes a fixed budget (physiology.PointTotal, 200)
-// across seven ability scores, each capped at physiology.MaxAbilityScore
-// (100), which drive multiplier curves between 0 and 1 across scores 0 to
-// 100 (see physiology.CurveFor and the per-shape K settings).
+// --- Ability scores --- Every organism distributes a fixed budget (physiology.PointTotal, 200) across seven ability scores, each capped at physiology.MaxAbilityScore (100).
 func HealthPerFoodUnit() float64         { return constants.HealthPerFoodUnit }
 func InitialAbilityScores() []int        { return constants.InitialAbilityScores }
 func RandomInitialAbilities() bool       { return constants.RandomInitialAbilities }
 func InitialDesigns() []string           { return constants.InitialDesigns }
 func ChanceToMutateAbilities() float64   { return constants.ChanceToMutateAbilities }
 func ThornsDamageAtFullDefense() float64 { return constants.ThornsDamageAtFullDefense }
+func ThornsDamageAtZeroDefense() float64 { return constants.ThornsDamageAtZeroDefense }
 
-// --- Appearance thresholds ---
-// Sprite overlays are derived from ability scores, not inherited, so
-// these decide at what point an organism starts *looking* like what it
-// has specialised in. A threshold at or below the initial scores
-// gives every founder the overlay from the start.
+// --- Appearance thresholds --- Sprite overlays are derived from ability scores, not inherited.
 func ShellBodyThreshold() int     { return constants.ShellBodyThreshold }
 func SpikesBodyThreshold() int    { return constants.SpikesBodyThreshold }
 func PiliMotorThreshold() int     { return constants.PiliMotorThreshold }
@@ -217,35 +260,15 @@ func FangsMouthThreshold() int    { return constants.FangsMouthThreshold }
 func TusksMouthThreshold() int    { return constants.TusksMouthThreshold }
 func SensorMinConditions() int    { return constants.SensorMinConditions }
 
-// --- Physiology ---
-func WallStrengthDeltaSmall() int  { return constants.WallStrengthDeltaSmall }
-func WallStrengthDeltaMedium() int { return constants.WallStrengthDeltaMedium }
-func WallStrengthDeltaLarge() int  { return constants.WallStrengthDeltaLarge }
-
-// Sensors tree
-
-// Defense tree
-
-// Teeth tree
-
-// --- Statistics ---
 func PopulationUpdateInterval() int { return constants.PopulationUpdateInterval }
 
-// Theme returns the active GUI theme name. Recognised values: "dark",
-// "light". Anything else falls back to dark behaviour at render time.
 func Theme() string { return constants.Theme }
 
-// PH colour scheme names. Stored in Globals.PhColorScheme so the
-// preference survives across config-screen launches and snapshot
-// reloads. The default ("green-pink") matches the original palette;
-// "blue-orange" is the colour-blind-safer alternative.
 const (
 	PhColorSchemeGreenPink  = "green-pink"
 	PhColorSchemeBlueOrange = "blue-orange"
 )
 
-// PhColorScheme returns the active pH colour palette. Anything other
-// than the recognised values is treated as the green-pink default.
 func PhColorScheme() string {
 	switch constants.PhColorScheme {
 	case PhColorSchemeBlueOrange:
@@ -256,9 +279,6 @@ func PhColorScheme() string {
 }
 
 // SetPhColorScheme swaps the active pH colour palette at runtime.
-// Callers are expected to invalidate any cached pH-coloured artefacts
-// (env layer, pH graphs, pre-coloured descendant tree nodes) so the
-// new palette is picked up on the next render.
 func SetPhColorScheme(name string) {
 	switch name {
 	case PhColorSchemeGreenPink, PhColorSchemeBlueOrange:
@@ -268,17 +288,11 @@ func SetPhColorScheme(name string) {
 	}
 }
 
-// IsLightTheme reports whether the theme has a light-valued background.
-// Drives whichever code paths need to flip lightness curves (e.g. pH
-// colour mapping) so content stays readable against the window fill.
 func IsLightTheme() bool {
 	return constants.Theme == "light"
 }
 
-// ThemeBackgroundRGB returns the window / panel fill colour for the
-// active theme as RGB floats in [0, 1]. Kept in the config package so
-// deep modules (ux, graph helpers, organism) can blend pH colours
-// towards it without having to import ux.
+// ThemeBackgroundRGB returns the window / panel fill colour for the active theme as RGB floats in [0, 1].
 func ThemeBackgroundRGB() (r, g, b float64) {
 	switch constants.Theme {
 	case "light":
@@ -288,14 +302,7 @@ func ThemeBackgroundRGB() (r, g, b float64) {
 	}
 }
 
-// PhTargetColorRGB returns the "extreme" colour that a pH cell blends
-// towards as it moves away from neutral, in RGB floats [0, 1]. The
-// extremes depend on the active pH colour scheme:
-//   - green-pink:  acid #A9C218 (yellow-green) / base #E74766 (red-pink)
-//   - blue-orange: acid #2C7BB6 (blue)         / base #E66101 (orange)
-//
-// At exactly neutral the caller should use a weight of 0 so the target
-// colour has no effect.
+// PhTargetColorRGB returns the "extreme" colour that a pH cell blends towards as it moves away from neutral, in RGB floats [0, 1].
 func PhTargetColorRGB(ph float64) (r, g, b float64) {
 	neutral := (maxPh + minPh) / 2.0
 	acid := ph < neutral
@@ -313,26 +320,17 @@ func PhTargetColorRGB(ph float64) (r, g, b float64) {
 	}
 }
 
-// PhEffectHueRange returns the HSLuv hue endpoints for the active pH
-// colour scheme. spec=0 (acid) maps to the first value, spec=1 (base)
-// to the second. ComputePhEffectColor interpolates between them.
+// PhEffectHueRange returns the HSLuv hue endpoints for the active pH colour scheme.
 func PhEffectHueRange() (acidHue, baseHue float64) {
 	switch PhColorScheme() {
 	case PhColorSchemeBlueOrange:
-		// Blue (~hue 250°) → orange (~hue 40°). The spectrum
-		// blends through purple/pink (going forward through 360°)
-		// rather than through green, but at neutral the colour
-		// blends to background so the intermediate hue isn't shown.
+		// Blue (~hue 250°) → orange (~hue 40°).
 		return 250.0, 40.0
 	default:
 		return 100.0, 0.0
 	}
 }
 
-// SetTheme swaps the active theme at runtime. The UI chrome (background
-// fill, text colour, pH blending) recomputes on the next render without
-// needing to touch sprite resources — sprites themselves are theme-
-// agnostic now and designed to read against any background.
 func SetTheme(theme string) {
 	switch theme {
 	case "dark", "light":
@@ -343,116 +341,65 @@ func SetTheme(theme string) {
 }
 
 type Globals struct {
-	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
-	// or the time-based default chosen by the runner". Editable via
-	// the config screen so wasm builds (no CLI) can pick a seed.
-	// Fields grouped by config-screen section. New knobs should be
-	// added under the matching section so default.json stays
-	// readable and the editor and source stay aligned.
-
-	// --- Simulation ---
-	// Seed for the simulation RNG. 0 means "use the CLI --seed flag
-	// or the time-based default chosen by the runner". Editable via
-	// the config screen so wasm builds (no CLI) can pick a seed.
+	// --- Simulation --- Seed for the simulation RNG.
 	Seed int `json:"seed"`
 
-	// --- Display ---
-	GridUnitsWide int `json:"grid_units_wide"`
-	GridUnitsHigh int `json:"grid_units_high"`
-	ScreenWidth   int `json:"screen_width"`
-	ScreenHeight  int `json:"screen_height"`
-	// GUI theme: "light" or "dark". Controls the window background
-	// and selects between <theme>-prefixed sprite sheets.
-	Theme string `json:"theme"`
-	// PhColorScheme: "green-pink" (default) or "blue-orange". Drives
-	// the pH grid layer, organism PH-effect tints, panel pH stat
-	// colours, and the pH/PhEffect graphs. Blue-orange is friendlier
-	// to red-green colour blindness.
+	GridUnitsWide int    `json:"grid_units_wide"`
+	GridUnitsHigh int    `json:"grid_units_high"`
+	ScreenWidth   int    `json:"screen_width"`
+	ScreenHeight  int    `json:"screen_height"`
+	Theme         string `json:"theme"`
 	PhColorScheme string `json:"ph_color_scheme"`
 
-	// --- Environment ---
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`
 	InitialWalls        int     `json:"initial_walls"`
 	ChanceToAddFoodItem float64 `json:"chance_to_add_food_item"`
 	MinFoodValue        int     `json:"min_food_value"`
-	MaxFoodValue        int     `json:"max_food_value"`
+	// BurialAmount and BurialInterval are the burial rate.
+	BurialAmount   int `json:"burial_amount"`
+	BurialInterval int `json:"burial_interval"`
 
-	// --- pH ---
-	// IdealPhRange is how wide a band of ideal pH values lineages can
-	// evolve across, centred on the middle of the pH scale: 9 gives
-	// 0.5-9.5. Every cell starts at that middle (config.InitialPh).
+	// InitialBuriedFood is how many cells start with food already in the buried layer.
+	InitialBuriedFood     int `json:"initial_buried_food"`
+	MinInitialBuriedValue int `json:"min_initial_buried_value"`
+	MaxInitialBuriedValue int `json:"max_initial_buried_value"`
+	MaxFoodValue          int `json:"max_food_value"`
+
+	// --- pH --- IdealPhRange is how wide a band of ideal pH values lineages can evolve across, centred on the middle of the pH scale.
 	IdealPhRange float64 `json:"ideal_ph_range"`
-	// IdealPhMutationStep is the furthest a child's ideal pH can land
-	// from its parent's, up or down. It sets how fast a lineage can
-	// follow a drifting world: 0 pins every lineage to the pH it started
-	// at, so a world that drifts far enough kills them.
+	// IdealPhMutationStep is the furthest a child's ideal pH can land from its parent's, up or down.
 	IdealPhMutationStep float64 `json:"ideal_ph_mutation_step"`
-	// PhTolerance is the absolute pH distance every organism can sit
-	// from its IdealPh without taking unhealthy-pH damage. Global
-	// rather than per-organism — variation between organisms now
-	// comes from IdealPh alone.
-	// MaxPhToleranceWidth is T at 100 Tolerance: the pH offset an
-	// organism can bear for one unit of damage. Lower scores bear less,
-	// along the pH tolerance curve.
+	// PhTolerance is the absolute pH distance every organism can sit from its IdealPh without taking unhealthy-pH damage.
 	MaxPhToleranceWidth float64 `json:"max_ph_tolerance_width"`
-	// ChemoPhEffect and EatingPhEffect are how much pH an action moves
-	// **at full score**, scaled from there by CurveChemoPhEffect /
-	// CurveEatingPhEffect. They used to be flat multipliers on the health
-	// gained, which locked an organism's effect on its environment to its
-	// yield from it at a fixed ratio — so no amount of specialisation
-	// could tip the local chemistry. See effects.ChemoPhPush.
-	// per unit of health it gained: chemosynthesis pushes the local pH
-	// down, eating pushes it up. Tied to the health gained rather than to
-	// size or food value, so an action that barely paid off barely moves
-	// the water — the feedback that stops a population from driving its
-	// own pH away without limit. Actions that gain nothing move nothing.
+
+	// The pH offset an organism at full Chemosynthesis can still gain health at; lower scores reach less of it along the chemosynthesis curve. 0 is not settable — max_chemosynthesis_gain 0 is what switches chemosynthesis off.
+	MaxChemosynthesisPhWidth float64 `json:"max_chemosynthesis_ph_width"`
+	// ChemoPhEffect and EatingPhEffect are how much pH an action moves **at full score**, scaled from there by CurveChemoPhEffect / CurveEatingPhEffect.
 	ChemoPhEffect        float64 `json:"chemo_ph_effect"`
 	EatingPhEffect       float64 `json:"eating_ph_effect"`
 	PhDiffuseFactor      float64 `json:"ph_diffuse_factor"`
 	PhIncrementToDisplay float64 `json:"ph_increment_to_display"`
 
-	// --- Organisms ---
-	// MinOrganisms ends a run once the living population falls below it,
-	// so a sim doesn't idle for thousands of cycles waiting for the last
-	// few stragglers to die. Only armed after the population has reached
-	// twice this number, so the small founding population of a run that
-	// is just getting started never trips it. 0 disables it, leaving
-	// extinction as the only end condition. (This key once topped the
-	// population back up with random organisms; that behaviour was
-	// removed and the key sat unused until it took on this meaning.)
+	// A wall slows pH diffusion in proportion to its strength rather than stopping it.
+	WallPhBlockAtMax float64 `json:"wall_ph_block_at_max"`
+	WallPhBlockCurve float64 `json:"wall_ph_block_curve"`
+
+	// --- Organisms --- MinOrganisms ends a run once the living population falls below it.
 	MinOrganisms int `json:"min_organisms"`
-	// MaxCycles ends a run once it reaches this cycle, so a simulation
-	// can be started and walked away from. 0 leaves it unlimited, which
-	// is what every run did before: the only way to stop one was to
-	// watch it. Unlike MinOrganisms it needs no arming, since a cycle
-	// count only ever goes up.
+	// MaxCycles ends a run once it reaches this cycle, so a simulation can be started and walked away from.
 	MaxCycles int `json:"max_cycles"`
-	// MaxReplaySizeMb ends a run once its replay file is projected to
-	// reach this many megabytes, so a sim left running can't quietly fill
-	// a disk. Deliberately has no unlimited setting: the point is that
-	// this one is always in force, and a run long enough to matter writes
-	// a snapshot of every organism every interval.
+	// MaxReplaySizeMb ends a run once its replay file is projected to reach this many megabytes.
 	MaxReplaySizeMb int     `json:"max_replay_size_mb"`
 	MaxOrganisms    int     `json:"max_organisms"`
 	GrowthFactor    float64 `json:"growth_factor"`
-	// MaxFoodPerEatAtFullEating is the most food an organism with 100
-	// Eating removes in one eating action, as a multiple of its size.
-	// Lower Eating scores remove a fraction of this along the Eating
-	// curve. The json tag still says "bite": renaming it would drop the
-	// setting from every settings file and replay header already written.
+	// MaxFoodPerEatAtFullEating is the most food an organism with 100 Eating removes in one eating action, as a multiple of its size.
 	MaxFoodPerEatAtFullEating float64 `json:"max_bite_at_full_eating"`
-	// HealthPerFoodUnit is the health one unit of food is worth to
-	// whoever eats it. Flat — how much an organism can swallow is what
-	// its Eating score buys, and what the food is worth is a property of
-	// the food, so this doesn't ride the Eating curve. It used to be
-	// implicitly 1, which made "max food per eat" read as a health
-	// number and hid how far above the food supply the cap sat.
+	// MaxFoodPerEatAtZeroEating is what one bite takes at 0 Eating.
+	MaxFoodPerEatAtZeroEating float64 `json:"max_bite_at_zero_eating"`
+	// HealthPerFoodUnit is the health one unit of food is worth to whoever eats it.
 	HealthPerFoodUnit float64 `json:"health_per_food_unit"`
-	// EatingGrowthFactor is the share of health gained from eating, beyond
-	// an organism's current size, that turns into growth. GrowthFactor
-	// plays the same role for every other gain. At 1 an eater keeps all of
-	// a big meal (up to its max size) instead of losing the overflow.
+	// EatingGrowthFactor is the share of health gained from eating, beyond an organism's current size, that turns into growth.
 	EatingGrowthFactor            float64 `json:"eating_growth_factor"`
 	MaximumMaxSize                float64 `json:"maximum_max_size"`
 	MinimumMaxSize                float64 `json:"minimum_max_size"`
@@ -462,92 +409,52 @@ type Globals struct {
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
 	MinSpawnHealth                float64 `json:"min_spawn_health"`
 	MaxSpawnHealthPercent         float64 `json:"max_spawn_health_percent"`
-	// MaxLifespan is the global lifespan cap (in cycles) every
-	// organism dies at when reached. Set to 0 to disable lifespan-
-	// based death entirely.
+	// MaxLifespan is the global lifespan cap (in cycles) every organism dies at when reached.
 	MaxLifespan int `json:"max_lifespan"`
 
-	// --- Decision Trees ---
 	InitialDecisionTreeMutations int     `json:"initial_organism_decision_tree_mutations"`
 	ChanceToMutateDecisionTree   float64 `json:"chance_to_mutate_decision_tree"`
 	MaxDecisionTreeSize          int     `json:"max_decision_tree_size"`
 
-	// --- Health Changes ---
-	// HealthChange* values follow a single naming convention:
-	//   - HealthChangeFrom<Action> — size-scaled health delta the
-	//     actor pays (negative cost) or gains (positive). One per
-	//     action.
-	//   - <Thing>Damage — size-scaled damage delivered to a target,
-	//     stored as a positive magnitude and subtracted where it lands.
-	//   - HealthChangePer<Source> — environmental health delta.
-	// The costs are held negative and the damages positive by
-	// settingSigns; their json tags predate the split.
+	// --- Health Changes --- HealthChange* values follow a single naming convention.
 	MaxChemosynthesisGain   float64 `json:"max_chemosynthesis_gain"`
 	HealthChangeFromIdle    float64 `json:"health_change_from_idle"`
 	HealthChangeFromTurning float64 `json:"health_change_from_turning"`
-	// The far end of the cost curves: what each action costs at full
-	// ability, where the curve alone would have taken it to nothing. No
-	// action is ever free — a body still has to move itself, and still
-	// has to shift the terrain — so the ability buys a discount, not
-	// exemption. The curve carries each cost from the value at ability 0
-	// down to the value here.
-	HealthChangeFromMovingAtMax   float64 `json:"health_change_from_moving_at_max"`
-	HealthChangeFromTurningAtMax  float64 `json:"health_change_from_turning_at_max"`
-	HealthChangeFromDiggingAtMax  float64 `json:"health_change_from_digging_at_max"`
-	HealthChangeFromMoving        float64 `json:"health_change_from_moving"`
-	HealthChangeFromEatingAttempt float64 `json:"health_change_from_eating_attempt"`
-	HealthChangeFromSpawning      float64 `json:"health_change_from_spawning"`
-	HealthChangeFromAttacking     float64 `json:"health_change_from_attacking"`
-	HealthChangeFromDigging       float64 `json:"health_change_from_digging"`
-	// HealthChangeFromBlockedMove is charged on top of the move cost,
-	// per unit of size, when an organism walks into something that was
-	// already there — a wall, food, or another organism — so misreading
-	// the world ahead costs more than reading it right. Size-scaled like
-	// every other health change, so it keeps biting as an organism grows,
-	// but no ability scales it: no score makes a wall passable. It is NOT
-	// charged when the cell was empty at decision time and someone else
-	// reached it first; losing a race is luck, not a misread.
+	// The far end of the cost curves.
+	HealthChangeFromMovingAtMax  float64 `json:"health_change_from_moving_at_max"`
+	HealthChangeFromTurningAtMax float64 `json:"health_change_from_turning_at_max"`
+	HealthChangeFromDiggingAtMax float64 `json:"health_change_from_digging_at_max"`
+	HealthChangeFromMoving       float64 `json:"health_change_from_moving"`
+	// HealthChangeFromEatingAttempt is what one eating attempt costs at 0 Eating and HealthChangeFromEatingAttemptAtMax at full.
+	HealthChangeFromEatingAttempt      float64 `json:"health_change_from_eating_attempt"`
+	HealthChangeFromEatingAttemptAtMax float64 `json:"health_change_from_eating_attempt_at_max"`
+	HealthChangeFromSpawning           float64 `json:"health_change_from_spawning"`
+	HealthChangeFromAttacking          float64 `json:"health_change_from_attacking"`
+	HealthChangeFromDigging            float64 `json:"health_change_from_digging"`
+	// HealthChangeFromBlockedMove is charged on top of the move cost, per unit of size, when an organism walks into something that was already there.
 	HealthChangeFromBlockedMove float64 `json:"health_change_from_blocked_move"`
-	// AttackDamageAtFullAttack is the damage an attacker with 100 Attack
-	// deals per unit of its size, before the target's Defense. A positive
-	// magnitude: applyAttack subtracts it.
+	// AttackDamageAtFullAttack is the damage an attacker with 100 Attack deals per unit of its size, before the target's Defense.
 	AttackDamageAtFullAttack float64 `json:"health_change_inflicted_by_attack"`
-	// CorpseFoodMultiplier scales the food a dead organism leaves behind,
-	// as a multiple of its size.
+	// AttackDamageAtZeroAttack is the damage an attack deals at 0 Attack.
+	AttackDamageAtZeroAttack float64 `json:"attack_damage_at_zero"`
+	// CorpseFoodMultiplier scales the food a dead organism leaves behind, as a multiple of its size.
 	CorpseFoodMultiplier float64 `json:"corpse_food_multiplier"`
 	UnhealthyPhDamage    float64 `json:"unhealthy_ph_damage"`
 
-	// --- Ability scores ---
-	// InitialAbilityScores is the ability distribution the simulation's
-	// initial organisms start with, in physiology.AllAbilities order
-	// (chemosynthesis, eating, movement, digging, attack, defense,
-	// tolerance). It must sum to the 200-point budget with no entry over
-	// 100; the config screen refuses to start otherwise, and a bad value
-	// loaded from a file falls back to the balanced distribution.
+	// --- Ability scores --- InitialAbilityScores is the ability distribution the simulation's initial organisms start with, in physiology.AllAbilities order (chemosynthesis, eating, movement, digging, attack, defense, tolerance).
 	InitialAbilityScores []int `json:"initial_ability_scores"`
-	// RandomInitialAbilities gives each initial organism its own random
-	// split of the budget instead of InitialAbilityScores.
+	// RandomInitialAbilities gives each initial organism its own random split of the budget instead of InitialAbilityScores.
 	RandomInitialAbilities bool `json:"random_initial_abilities"`
-	// InitialDesigns names saved organism designs (from the designs
-	// directory) to start the simulation with, dealt round-robin across
-	// the initial organisms. Empty means the usual random founders. A
-	// name with no file behind it is skipped, so a settings file shared
-	// without its designs still runs.
+	// InitialDesigns names saved organism designs (from the designs directory) to start the simulation with, dealt round-robin across the initial organisms.
 	InitialDesigns []string `json:"initial_designs"`
-	// ChanceToMutateAbilities is the per-spawn probability that a child
-	// shifts points between two abilities. Higher than the old feature
-	// gain rate because a transfer is a small nudge rather than a whole
-	// new capability.
+	// ChanceToMutateAbilities is the per-spawn probability that a child shifts points between two abilities.
 	ChanceToMutateAbilities float64 `json:"chance_to_mutate_abilities"`
-	// ThornsDamageAtFullDefense is the damage a defender with 100
-	// Defense deals back to each organism that hits it, per unit of the
-	// defender's size, along the Thorns curve. Independent of the attack:
-	// the counter-attack is the defender's, so a soft hit is answered as
-	// hard as a heavy one.
+	// ThornsDamageAtFullDefense is the damage a defender with 100 Defense deals back to each organism that hits it, per unit of the defender's size, along the Thorns curve.
 	ThornsDamageAtFullDefense float64 `json:"health_change_inflicted_by_thorns"`
+	// ThornsDamageAtZeroDefense is what a defender with 0 Defense returns per hit taken.
+	ThornsDamageAtZeroDefense float64 `json:"thorns_damage_at_zero"`
 
-	// --- Appearance thresholds ---
-	// Score at which each overlay starts being drawn.
+	// --- Appearance thresholds --- Score at which each overlay starts being drawn.
 	ShellBodyThreshold     int `json:"shell_body_threshold"`
 	SpikesBodyThreshold    int `json:"spikes_body_threshold"`
 	PiliMotorThreshold     int `json:"pili_motor_threshold"`
@@ -555,19 +462,9 @@ type Globals struct {
 	TeethMouthThreshold    int `json:"teeth_mouth_threshold"`
 	FangsMouthThreshold    int `json:"fangs_mouth_threshold"`
 	TusksMouthThreshold    int `json:"tusks_mouth_threshold"`
-	// SensorMinConditions is how many conditions of one sense category
-	// a decision tree must contain before the matching sensor overlay
-	// is drawn. Unlike the others this counts tree nodes, not score:
-	// sensing is a behaviour, so the sprite follows what the organism
-	// actually checks for.
+	// SensorMinConditions is how many conditions of one sense category a decision tree must contain before the matching sensor overlay is drawn.
 	SensorMinConditions int `json:"sensor_min_conditions"`
 
-	// Ability curves. Each ability multiplier is a dampened cosine curve
-	// between 0 and 1 across scores 0 to 100 — rising for effects, falling
-	// for costs — scaling the health change or damage setting that defines
-	// its full value. These K values set how strongly each curve suppresses
-	// early values, from 0 (a pure cosine S-curve) to 1 (the most). See
-	// physiology.Curve.
 	ChemosynthesisCosineK      float64 `json:"chemosynthesis_cosine_k"`
 	ChemosynthesisSaturatingK  float64 `json:"chemosynthesis_saturating_k"`
 	EatingCosineK              float64 `json:"eating_cosine_k"`
@@ -591,13 +488,10 @@ type Globals struct {
 	ChemoPhEffectCosineK       float64 `json:"chemo_ph_effect_cosine_k"`
 	ChemoPhEffectSaturatingK   float64 `json:"chemo_ph_effect_saturating_k"`
 	EatingPhEffectCosineK      float64 `json:"eating_ph_effect_cosine_k"`
+	EatingCostCosineK          float64 `json:"eating_cost_cosine_k"`
 	EatingPhEffectSaturatingK  float64 `json:"eating_ph_effect_saturating_k"`
+	EatingCostSaturatingK      float64 `json:"eating_cost_saturating_k"`
 
-	// Curve shapes. Each names how its curve climbs from 0 to 1 —
-	// "linear", "quadratic", "cosine" or "saturating" — so an ability can
-	// be made an early buy or a late commitment without touching the
-	// values it scales. Anything else falls back to the curve's default.
-	// See physiology.ShapeKind.
 	ChemosynthesisCurveShape  string `json:"chemosynthesis_curve_shape"`
 	EatingCurveShape          string `json:"eating_curve_shape"`
 	MovementCostCurveShape    string `json:"movement_cost_curve_shape"`
@@ -610,73 +504,54 @@ type Globals struct {
 	PhToleranceCurveShape     string `json:"ph_tolerance_curve_shape"`
 	ChemoPhEffectCurveShape   string `json:"chemo_ph_effect_curve_shape"`
 	EatingPhEffectCurveShape  string `json:"eating_ph_effect_curve_shape"`
+	EatingCostCurveShape      string `json:"eating_cost_curve_shape"`
 
-	// --- Physiology ---
-	// ChanceToGainFeature is the per-spawn probability that a child
-	// gains one new physiological feature (drawn uniformly at random
-	// from those whose prerequisites the parent already meets).
-	// ChanceToLoseFeature is the per-spawn probability that a child
-	// loses the deepest feature from one of its non-empty modality
-	// trees (drawn uniformly at random across non-empty trees). Lets
-	// lineages back out of a branch so descendants can re-grow down
-	// a sibling — without this the population saturates at the same
-	// leaf set in every tree and physiological diversity vanishes.
-	// Posture-state modifiers applied during the cycle an organism
-	// is in the matching posture. Multipliers default to 1.0 = no
-	// effect; the additive modifier is a signed delta.
-	// WallStrengthDeltaSmall/Medium/Large set how much wall strength
-	// a single ActDig adds or removes, bucketed by the
-	// organism's size class (thirds of MaximumMaxSize).
-	// Wall strength one dig moves, and food one dig roots up, by the
-	// digger's size class. Both are whole units — wall strength and food
-	// values are ints — so each is the value at 100 Digging, and the
-	// *AtZero setting beside it is the value at 0. The Digging strength
-	// curve interpolates between the two and the result is rounded, which
-	// is what makes these step from one whole unit to the next rather
-	// than fading to a fraction nothing can hold.
-	WallStrengthDeltaSmall  int `json:"wall_strength_delta_small"`
-	WallStrengthDeltaMedium int `json:"wall_strength_delta_medium"`
-	WallStrengthDeltaLarge  int `json:"wall_strength_delta_large"`
-	// WallStrengthDeltaAtZero is what a dig clears with no Digging at all.
-	// 1 keeps a scratch from doing literally nothing, which would read as
-	// a bug from the outside: the dig still costs health.
-	WallStrengthDeltaAtZero int `json:"wall_strength_delta_at_zero"`
-	// Wall strength a dig packs into the cell either side of it, by size
-	// class, along its own curve. Separate from what the dig clears ahead
-	// so the two can differ: a small organism can tunnel slowly without
-	// being able to raise walls at all (set its class to 0), which one
-	// shared number could never express.
+	// --- Physiology --- ChanceToGainFeature is the per-spawn probability that a child gains one new physiological feature (drawn uniformly at random from those whose prerequisites the parent already meets).
 	WallCreatedSmall  int `json:"wall_created_small"`
 	WallCreatedMedium int `json:"wall_created_medium"`
 	WallCreatedLarge  int `json:"wall_created_large"`
 	// WallCreatedAtZero is what a dig raises with no Digging at all.
 	WallCreatedAtZero int `json:"wall_created_at_zero"`
-	// WallBreakMultiplier scales an organism's size × Digging score into
-	// the wall strength it can shoulder straight through. Burrowing is
-	// the fast way past a wall — digging wears one down a few points at a
-	// time, which on a 1-100 strength scale is dozens of cycles — and it
-	// is gated on the ability twice over, by score and by the size an
-	// organism only reaches by surviving. 0 switches it off, leaving
-	// digging as the only way through.
+	// WallBreakMultiplier scales an organism's size × Digging score into the wall strength it can shoulder straight through.
 	WallBreakMultiplier float64 `json:"wall_break_multiplier"`
-	// Food a dig roots up in the cell ahead when it isn't a wall or
-	// occupied. The only food source besides random spawns and corpses,
-	// so energy can enter the world without chemosynthesis.
+
+	// WallBreakAtZeroDigging and WallBreakAtMaxDigging are the wall strength an organism shoulders through per unit of its size, at 0 Digging and at the ability cap.
+	WallBreakAtZeroDigging float64 `json:"wall_break_at_zero"`
+	WallBreakAtMaxDigging  float64 `json:"wall_break_at_max"`
+
+	// BurrowSpoilFraction is how much of a burrowed wall's strength survives as spoil, piled onto the two cells flanking the tunnel.
+	BurrowSpoilFraction float64 `json:"burrow_spoil_fraction"`
+
+	// DisabledDecisionNodes names the actions and conditions mutation is not allowed to put into a decision tree, by their decision.Names identifiers.
+	MuchBiggerSizeRatio  float64 `json:"much_bigger_size_ratio"`
+	MuchSmallerSizeRatio float64 `json:"much_smaller_size_ratio"`
+
+	// MuchFoodPerSize is how many food units per unit of its own size a pile has to hold before an organism reads it as "much" food, for the IsMuchFood conditions.
+	MuchFoodPerSize float64 `json:"much_food_per_size"`
+
+	DisabledDecisionNodes []string `json:"disabled_decision_nodes"`
+
+	// BasicOnlyConditionFamilies names the condition families that offer only their basic read.
+	BasicOnlyConditionFamilies []string `json:"basic_only_condition_families"`
+
+	// SmartTreeMutation keeps mutation from asking a question whose answer is already settled where it is asking it.
+	SmartTreeMutation bool `json:"smart_tree_mutation"`
+
+	// TieredConditionMutation restricts a NEW condition node to the basic reads.
+	TieredConditionMutation bool `json:"tiered_condition_mutation"`
+
+	// The relative likelihood of each KIND of tree mutation, once a node has been picked at random.
+	MutationWeightSwapAction    float64 `json:"mutation_weight_swap_action"`
+	MutationWeightGrowBranch    float64 `json:"mutation_weight_grow_branch"`
+	MutationWeightSwapCondition float64 `json:"mutation_weight_swap_condition"`
+	MutationWeightPruneBranch   float64 `json:"mutation_weight_prune_branch"`
+	// Food a dig roots up in the cell ahead when it isn't a wall or occupied.
 	FoodFromDiggingSmall  int `json:"food_from_digging_small"`
 	FoodFromDiggingMedium int `json:"food_from_digging_medium"`
 	FoodFromDiggingLarge  int `json:"food_from_digging_large"`
-	// FoodFromDiggingAtZero is what a dig roots up with no Digging at
-	// all. 0 by default: rooting for nutrients is the ability's payoff,
-	// so an organism that hasn't invested in it gets nothing.
+	// FoodFromDiggingAtZero is what a dig roots up with no Digging at all.
 	FoodFromDiggingAtZero int `json:"food_from_digging_at_zero"`
 
-	// Sensors tree
-
-	// Defense tree
-
-	// Teeth tree
-
-	// --- Statistics ---
 	PopulationUpdateInterval int `json:"population_update_interval"`
 }
 
@@ -688,10 +563,7 @@ func LoadFile(filePath string) io.Reader {
 	return file
 }
 
-// GetDefaultGlobals returns the project-baseline Globals decoded from
-// the embedded settings/default.json. Used both by the config screen
-// (as the starting point) and by anyone who wants a known-good
-// configuration without going through user input.
+// GetDefaultGlobals returns the project-baseline Globals decoded from the embedded settings/default.json.
 func GetDefaultGlobals() Globals {
 	g := applyGlobalsFromJson(loadEmbeddedDefault(), Globals{})
 	return *g

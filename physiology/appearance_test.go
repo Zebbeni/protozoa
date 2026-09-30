@@ -7,16 +7,11 @@ import (
 	"github.com/Zebbeni/protozoa/decision"
 )
 
-// plainScores is a chemosynthesis-heavy distribution with 2 in every
-// other ability: below every appearance threshold, so it wears no
-// overlays. The base the appearance tests raise single abilities from.
 func plainScores() Scores {
 	return Scores{8, 2, 2, 2, 2, 2, 2}
 }
 
-// scoresWith builds a valid distribution with one ability raised to
-// `to`, taking the difference out of chemosynthesis so the budget still
-// sums to PointTotal.
+// scoresWith builds a valid distribution with one ability raised to `to`, taking the difference out of chemosynthesis so the budget still sums to PointTotal.
 func scoresWith(t *testing.T, a Ability, to int) Scores {
 	t.Helper()
 	s := plainScores()
@@ -29,10 +24,7 @@ func scoresWith(t *testing.T, a Ability, to int) Scores {
 	return s
 }
 
-// TestPlainScoresLookPlain: an organism sitting near the even split in
-// every non-chemo ability has specialised in nothing, so it should wear
-// nothing. A threshold at or below the starting score would hand almost
-// every organism an overlay for free.
+// TestPlainScoresLookPlain: an organism sitting near the even split in every non-chemo ability has specialised in nothing.
 func TestPlainScoresLookPlain(t *testing.T) {
 	loadGlobals(t)
 
@@ -51,8 +43,7 @@ func TestPlainScoresLookPlain(t *testing.T) {
 	}
 }
 
-// TestBodyAndMotorThresholds: a shell comes from Tolerance and spikes
-// from Defense, each past its own threshold.
+// TestBodyAndMotorThresholds: a shell comes from Tolerance and spikes from Defense, each past its own threshold.
 func TestBodyAndMotorThresholds(t *testing.T) {
 	loadGlobals(t)
 
@@ -73,9 +64,7 @@ func TestBodyAndMotorThresholds(t *testing.T) {
 		}
 	}
 
-	// With both past their thresholds the higher score wins, and a tie
-	// goes to the shell. The high score clears both thresholds, so this
-	// holds whichever of the two is configured higher.
+	// With both past their thresholds the higher score wins, and a tie goes to the shell.
 	both := plainScores()
 	hi, lo := max(shell, spikes)+1, spikes
 	both[AbilityChemosynthesis] -= hi + lo - both[AbilityTolerance] - both[AbilityDefense]
@@ -110,9 +99,7 @@ func TestBodyAndMotorThresholds(t *testing.T) {
 	}
 }
 
-// TestMouthPicksDominantAbility covers the one place appearance has to
-// choose between competing claims: the renderer draws a single mouth,
-// but Eating, Attack and Digging each want one.
+// TestMouthPicksDominantAbility covers the one place appearance has to choose between competing claims.
 func TestMouthPicksDominantAbility(t *testing.T) {
 	loadGlobals(t)
 
@@ -139,10 +126,6 @@ func TestMouthPicksDominantAbility(t *testing.T) {
 	}
 }
 
-// TestMouthTiesAreStable pins the tie-break. Equal scores must resolve
-// to the same class every time — an appearance that alternated between
-// two sprites on equal scores would look like a rendering glitch, and
-// nothing would point at the tie as the cause.
 func TestMouthTiesAreStable(t *testing.T) {
 	loadGlobals(t)
 
@@ -169,8 +152,7 @@ func TestMouthTiesAreStable(t *testing.T) {
 	}
 }
 
-// treeWith builds a tree whose conditions are the given ones, nested so
-// every condition ends up as a real node.
+// treeWith builds a tree whose conditions are the given ones, nested so every condition ends up as a real node.
 func treeWith(conds ...decision.Condition) *decision.Tree {
 	node := decision.NodeFromAction(decision.ActChemosynthesis)
 	for _, c := range conds {
@@ -183,8 +165,6 @@ func treeWith(conds ...decision.Condition) *decision.Tree {
 	return &decision.Tree{Node: node}
 }
 
-// TestSensorFollowsTreeConditions covers the half of appearance that
-// comes from behaviour rather than from scores.
 func TestSensorFollowsTreeConditions(t *testing.T) {
 	loadGlobals(t)
 
@@ -223,30 +203,22 @@ func TestSensorFollowsTreeConditions(t *testing.T) {
 	}
 }
 
-// TestSelfChecksGrowNoSensors guards the classification boundary.
-// Health, age and own-cell pH need no sense organ, so a tree full of
-// them must stay bare — otherwise every organism sprouts antennae for
-// introspecting.
 func TestSelfChecksGrowNoSensors(t *testing.T) {
 	loadGlobals(t)
 
 	tree := treeWith(
-		decision.IsHealthAboveFiftyPercent,
+		decision.IsHealthy,
 		decision.IsHealthyPhHere,
 		decision.CanChemosynthesizeHere,
 		decision.IsAgeMultipleOfTwo,
 		decision.IsAgeMultipleOfTen,
-		decision.IsHealthAboveFiftyPercent,
+		decision.IsHealthy,
 	)
 	if got := AppearanceFor(plainScores(), tree).Sensor; got != SensorNone {
 		t.Errorf("self-checks should need no sense organ, got %v", got)
 	}
 }
 
-// TestSensorPicksDominantCategory: counting every occurrence rather
-// than distinct conditions is what makes "leans on this sense"
-// meaningful, so a tree that checks food repeatedly should read as
-// food-focused even against a broader spread of wall checks.
 func TestSensorPicksDominantCategory(t *testing.T) {
 	loadGlobals(t)
 

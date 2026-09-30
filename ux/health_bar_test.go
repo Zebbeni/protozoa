@@ -7,9 +7,6 @@ import (
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
-// TestHealthBarExample pins the worked example: size 35 with health 21 is
-// divided into 3.5 segments across the full width, with 60% filled — the
-// first two segments full and 10% of the third.
 func TestHealthBarExample(t *testing.T) {
 	const width = 35.0 // one pixel per point keeps the numbers readable
 	fill, dividers := healthBarGeometry(21, 35, width)
@@ -31,8 +28,6 @@ func TestHealthBarExample(t *testing.T) {
 	}
 }
 
-// TestHealthBarSpansFullWidth: size changes the number of segments, never
-// the bar's width, and a healthy organism fills all of it.
 func TestHealthBarSpansFullWidth(t *testing.T) {
 	for _, size := range []float64{5, 35, 100} {
 		fill, dividers := healthBarGeometry(size, size, 96)

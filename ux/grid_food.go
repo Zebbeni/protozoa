@@ -39,14 +39,7 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	g.drawStaticSprite(img, x, y, sprite, foodColor)
 }
 
-// foodRoleForValue maps a food item's value to one of the four food
-// size-tier sprites. Quarters of MaxFoodValue, matching the organism
-// and wall splits:
-//
-//	value < MaxFoodValue/4     → tiny
-//	value < MaxFoodValue/2     → small
-//	value < 3*MaxFoodValue/4   → medium
-//	else                       → large
+// foodRoleForValue maps a food item's value to one of the four food size-tier sprites.
 func foodRoleForValue(value int) resources.ImageRole {
 	maxVal := config.MaxFoodValue()
 	if maxVal <= 0 {

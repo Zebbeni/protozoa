@@ -9,17 +9,6 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// GraphPopup is the graph again, bigger. Opened from the expand control
-// in the panel graph's corner.
-//
-// It owns no graph state of its own: the mode buttons it draws are the
-// panel's, drawn at this size, and they write straight back to the panel
-// — so the popup and the panel can never disagree about what is being
-// shown, and closing it leaves the panel on whatever was picked here.
-//
-// The image is the one the panel already rendered this frame, not a
-// second render: the graph is drawn at a fixed resolution and scaled to
-// fit wherever it lands, so there is nothing to redraw for a bigger box.
 type GraphPopup struct {
 	panel *Panel
 	open  bool
@@ -32,24 +21,23 @@ func (g *GraphPopup) IsOpen() bool { return g.open }
 func (g *GraphPopup) Open()  { g.open = true }
 func (g *GraphPopup) Close() { g.open = false }
 
-// Popup geometry: a margin off every edge, with the graph filling what
-// is left above a row of controls.
+// Popup geometry: a margin off every edge, with the graph filling what is left above a row of controls.
 const (
 	graphPopupMargin  = 48
 	graphPopupPad     = 16
 	graphPopupTitleH  = 26
 	graphPopupCloseW  = 24
 	graphPopupFooterH = 3*graphButtonPitch + graphPopupPad
+	graphPopupScale   = 0.75
 )
 
-// rect is the popup's outer bounds. popupRectT rather than
-// image.Rectangle so it uses the same helpers as every other modal here.
 func (g *GraphPopup) rect() popupRectT {
-	return newRect(graphPopupMargin, graphPopupMargin,
-		config.ScreenWidth()-2*graphPopupMargin, config.ScreenHeight()-2*graphPopupMargin)
+	// Scaled off the old near-fullscreen box and centred, rather than by growing the margin.
+	w := int(float64(config.ScreenWidth()-2*graphPopupMargin) * graphPopupScale)
+	h := int(float64(config.ScreenHeight()-2*graphPopupMargin) * graphPopupScale)
+	return newRect((config.ScreenWidth()-w)/2, (config.ScreenHeight()-h)/2, w, h)
 }
 
-// graphRect is where the enlarged graph itself goes.
 func (g *GraphPopup) graphRect() popupRectT {
 	r := g.rect()
 	return newRect(
@@ -58,16 +46,13 @@ func (g *GraphPopup) graphRect() popupRectT {
 	)
 }
 
-// closeRect is the close control in the title bar.
 func (g *GraphPopup) closeRect() popupRectT {
 	r := g.rect()
 	return newRect(r.Max.X-graphPopupPad-graphPopupCloseW, r.Min.Y+4,
 		graphPopupCloseW, graphPopupCloseW)
 }
 
-// Update handles the popup's input and reports whether it consumed this
-// frame's mouse. Everything is consumed while it is open: it is modal,
-// and a click that fell through would act on the grid behind it.
+// Update handles the popup's input and reports whether it consumed this frame's mouse.
 func (g *GraphPopup) Update() bool {
 	if !g.open {
 		return false
@@ -76,11 +61,17 @@ func (g *GraphPopup) Update() bool {
 		g.Close()
 		return true
 	}
-	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	mx, my := ebiten.CursorPosition()
+
+	// The graph's own controls first, at this popup's geometry.
+	gr := g.graphRect()
+	if g.panel.graphMouseAt(mx, my, gr.Min.X, gr.Min.Y, gr.Dx(), gr.Dy()) {
 		return true
 	}
 
-	mx, my := ebiten.CursorPosition()
+	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		return true
+	}
 	if hitRect(mx, my, g.closeRect()) {
 		g.Close()
 		return true
@@ -90,16 +81,11 @@ func (g *GraphPopup) Update() bool {
 		g.Close()
 		return true
 	}
-	// The buttons were drawn in screen coordinates, so the cursor needs
-	// no adjusting — see renderGraphButtons on why sharing the hitboxes
-	// with the panel is safe. Nothing has to restore the panel's own
-	// hitboxes on close either: this Update consumes the closing click,
-	// and the panel redraws its buttons before any input reaches it.
+	// The buttons were drawn in screen coordinates.
 	g.panel.handleGraphButtonClick(mx, my)
 	return true
 }
 
-// Draw paints the popup over everything else.
 func (g *GraphPopup) Draw(screen *ebiten.Image) {
 	if !g.open {
 		return
@@ -122,8 +108,6 @@ func (g *GraphPopup) Draw(screen *ebiten.Image) {
 		drawGraphProgress(screen, gr.Min.X, gr.Min.Y, gr.Dx(), gr.Dy(), fraction)
 	}
 
-	// The same buttons the panel draws, at this width. They write back
-	// to the panel, so what is picked here is what the panel shows once
-	// this closes.
+	// The same buttons the panel draws, at this width.
 	g.panel.renderGraphButtons(screen, gr.Min.X, gr.Max.Y+graphPopupPad, gr.Dx())
 }
