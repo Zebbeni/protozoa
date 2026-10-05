@@ -1,20 +1,20 @@
 {
-  "name": "chemattack",
+  "name": "big_chemo",
   "color": "#588249",
   "secondary_color": "#b28b2b",
-  "max_size": 20,
-  "spawn_health": 3,
+  "max_size": 50,
+  "spawn_health": 5,
   "min_health_to_spawn": 10,
   "min_cycles_between_spawns": 1,
   "ideal_ph": 5,
   "abilities": [
-    3,
-    3,
-    3,
-    3,
-    3,
-    3,
+    8,
+    2,
+    2,
+    2,
+    2,
+    2,
     2
   ],
-  "decision_tree": "1001131404002502190305"
+  "decision_tree": "02"
 }

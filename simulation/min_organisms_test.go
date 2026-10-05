@@ -87,8 +87,8 @@ func runUntilDone(t *testing.T, seed, maxCycles int) (sim *Simulation, peak int)
 
 // tailOffSeed and the small grid below give a run that grows past twice the minimum and then crashes below it within about a thousand cycles.
 const (
-	// Was 1, and before that 2. Any change to mutation can make the chosen seed survive instead.
-	tailOffSeed  = 4
+	// Was 4, and 1 and 2 before that. Any change to mutation can make the chosen seed survive instead.
+	tailOffSeed  = 8
 	tailOffGridW = 24
 	tailOffGridH = 20
 )

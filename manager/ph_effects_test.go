@@ -18,6 +18,8 @@ type phRecorder struct {
 	organism.API
 	ph      float64
 	changes map[utils.Point]float64
+	corpses map[utils.Point]int
+	walls   map[utils.Point]int
 }
 
 func (s *phRecorder) GetPhAtPoint(utils.Point) float64 { return s.ph }
@@ -27,9 +29,19 @@ func (s *phRecorder) AddPhChangeAtPoint(p utils.Point, v float64) {
 	}
 	s.changes[p] += v
 }
-func (s *phRecorder) IsWallAtPoint(utils.Point) bool { return false }
-func (s *phRecorder) AddPhUpdate(utils.Point)        {}
-func (s *phRecorder) AddOrganismUpdate(utils.Point)  {}
+func (s *phRecorder) AddFoodAtPoint(p utils.Point, value int) {
+	if s.corpses == nil {
+		s.corpses = map[utils.Point]int{}
+	}
+	s.corpses[p] += value
+}
+func (s *phRecorder) IsWallAtPoint(p utils.Point) bool { return s.walls[p] > 0 }
+
+// Agrees with IsWallAtPoint, so a test can put a wall somewhere and have
+// every wall question answer the same way.
+func (s *phRecorder) GetWallStrengthAtPoint(p utils.Point) int { return s.walls[p] }
+func (s *phRecorder) AddPhUpdate(utils.Point)                  {}
+func (s *phRecorder) AddOrganismUpdate(utils.Point)            {}
 
 // chemoOrganism is one sitting at ph, with the given Chemosynthesis score.
 func chemoOrganism(t *testing.T, score int, ph float64) (*OrganismManager, *organism.Organism, *phRecorder) {

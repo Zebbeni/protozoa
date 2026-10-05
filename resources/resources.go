@@ -19,18 +19,27 @@ import (
 
 // animationFileName is the filename stem used for per-action spritesheet PNGs (e.g. "small_move.png").
 var animationFileName = map[animation.Animation]string{
-	animation.AnimIdle:      "idle",
-	animation.AnimMove:      "move",
-	animation.AnimBlocked:   "blocked",
-	animation.AnimTurnLeft:  "turn_left",
-	animation.AnimTurnRight: "turn_right",
-	animation.AnimAttack:    "attack",
-	animation.AnimEat:       "eat",
-	animation.AnimEatFail:   "eatfail",
-	animation.AnimChemo:     "chemo",
-	animation.AnimChemoFail: "chemofail",
-	animation.AnimDie:       "die",
-	animation.AnimDig:       "dig",
+	animation.AnimIdle:       "idle",
+	animation.AnimMove:       "move",
+	animation.AnimBlocked:    "blocked",
+	animation.AnimTurnLeft:   "turn_left",
+	animation.AnimTurnRight:  "turn_right",
+	animation.AnimAttack:     "attack",
+	animation.AnimEat:        "eat",
+	animation.AnimEatFail:    "eatfail",
+	animation.AnimChemo:      "chemo",
+	animation.AnimChemoFail:  "chemofail",
+	animation.AnimDie:        "die",
+	animation.AnimDig:        "dig",
+	animation.AnimAttackMove: "attack_success",
+}
+
+// animationBorrows is the sheet an animation falls back to when it has none
+// of its own, instead of the role's static base image. An action whose art
+// has not been drawn yet should look like the nearest action that has been,
+// not like an organism standing still.
+var animationBorrows = map[animation.Animation]animation.Animation{
+	animation.AnimAttackMove: animation.AnimAttack,
 }
 
 // organismRoleName maps each organism role to the filename stem used by the per-action spritesheets (e.g. "small", "medium", "large").
@@ -425,6 +434,10 @@ func loadAnimSheets(path, prefix string, role ImageRole, fallback *ebiten.Image,
 			sheetPath = path + prefix + "_" + roleName + "_" + animName + ".png"
 		}
 		if !assetExists(sheetPath) {
+			// Borrowed below, once every sheet that exists has loaded.
+			if _, borrows := animationBorrows[anim]; borrows {
+				continue
+			}
 			if fallback != nil {
 				set[anim] = repeatSprite(fallback, orgFrames)
 				loaded = true
@@ -438,6 +451,20 @@ func loadAnimSheets(path, prefix string, role ImageRole, fallback *ebiten.Image,
 			set[anim] = sliceSheet(sheet, orgFrames)
 		}
 		loaded = true
+	}
+	// A second pass, so a borrow does not depend on AllAnimations order.
+	for anim, from := range animationBorrows {
+		if set[anim] != nil {
+			continue
+		}
+		if set[from] != nil {
+			set[anim] = set[from]
+			continue
+		}
+		if fallback != nil {
+			set[anim] = repeatSprite(fallback, orgFrames)
+			loaded = true
+		}
 	}
 	if !loaded {
 		return nil

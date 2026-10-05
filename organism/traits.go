@@ -24,34 +24,72 @@ type Traits struct {
 	Abilities              physiology.Scores
 }
 
-// spawnHealthCap is the most health an organism may hand a child: the
-// configured share of its max size, reduced further if that would not leave
-// MinSpawnHealth behind for the parent.
+// spawnHealthCap is the most health an organism may hand a child: a share of
+// the health it has to reach before it can spawn, so the parent keeps the
+// rest of that.
 //
-// Never above the configured share and never above maxSize. An organism
-// whose whole capacity is under MinSpawnHealth cannot leave that reserve at
-// all, and there the share alone applies — it still keeps a positive
-// remainder, which is the most the arithmetic allows.
-func spawnHealthCap(maxSize float64) float64 {
-	cap := maxSize * c.MaxSpawnHealthPercent()
-	if maxSize-cap < c.MinSpawnHealth() && maxSize > c.MinSpawnHealth() {
-		cap = maxSize - c.MinSpawnHealth()
-	}
-	return cap
+// Against the SPAWN THRESHOLD, not against max size. A share of max size says
+// nothing about what the parent is holding when it actually spawns — an
+// organism with max size 100, a threshold of 10 and a 0.1 share could still
+// hand over all 10 and die doing it, which is the shape of the bug this
+// setting exists to prevent.
+func spawnHealthCap(minHealthToSpawn float64) float64 {
+	return minHealthToSpawn * c.MaxSpawnHealthPercent()
 }
 
-// spawnThresholdFloor is the lowest spawn threshold that leaves the parent
-// alive: it hands over spawnHealth, so it has to hold at least
-// MinSpawnHealth more than that to still exist afterwards.
-func spawnThresholdFloor(spawnHealth, maxSize float64) float64 {
-	return math.Min(spawnHealth+c.MinSpawnHealth(), maxSize)
+// spawnThresholdFloor is the lowest spawn threshold that can still produce a
+// viable child: under it the share leaves less than MinSpawnHealth to give.
+//
+// A share of 0 means no child could ever be viable, so the floor falls back
+// to MinSpawnHealth and the cap below does the clamping.
+func spawnThresholdFloor() float64 {
+	percent := c.MaxSpawnHealthPercent()
+	if percent <= 0 {
+		return c.MinSpawnHealth()
+	}
+	return c.MinSpawnHealth() / percent
+}
+
+// spawnTraits decides the spawn threshold and then what a child gets, in
+// that order, because the cap on the child is a share of the threshold.
+//
+// The pair is worked out in one place so the random and mutated paths cannot
+// drift on which depends on which.
+func spawnTraits(threshold, maxSize float64) (spawnThreshold, childCap float64) {
+	floor := math.Min(spawnThresholdFloor(), maxSize)
+	spawnThreshold = math.Max(floor, math.Min(threshold, maxSize))
+	childCap = spawnHealthCap(spawnThreshold)
+	return spawnThreshold, childCap
+}
+
+// childFloor is the least a child may be given. Normally MinSpawnHealth, but
+// never more than the cap allows, so an organism too small to give that much
+// gives what it can rather than more than it holds.
+func childFloor(cap float64) float64 {
+	return math.Min(c.MinSpawnHealth(), cap)
+}
+
+// initialSize is the size and health a FOUNDER starts at: a fraction of its
+// max size, or its spawn health when the fraction is 0.
+//
+// Clamped to at least the spawn health, so the setting can only ever start a
+// founder BIGGER than it used to be.
+func initialSize(t Traits) float64 {
+	fraction := c.InitialOrganismSizeFraction()
+	if fraction <= 0 {
+		return t.SpawnHealth
+	}
+	return math.Max(t.SpawnHealth, math.Min(fraction, 1)*t.MaxSize)
 }
 
 func newRandomTraits(rng *simrand.RNG) Traits {
 	maxSize := rng.Float64() * c.MaximumInitialSize()
-	spawnHealth := rng.Float64() * math.Min(spawnHealthCap(maxSize), c.MaximumInitialSpawnHealth())
-	floor := spawnThresholdFloor(spawnHealth, maxSize)
+	// The threshold is drawn first: what a child gets is a share of it.
+	floor := math.Min(spawnThresholdFloor(), maxSize)
 	minHealthToSpawn := floor + rng.Float64()*(maxSize-floor)
+	_, cap := spawnTraits(minHealthToSpawn, maxSize)
+	spawnHealth := clampFloat(rng.Float64()*math.Min(cap, c.MaximumInitialSpawnHealth()),
+		childFloor(cap), cap)
 	minCyclesBetweenSpawns := rng.Intn(c.MaxInitialCyclesBetweenSpawns() + 1)
 	idealPh := c.InitialPh()
 	return Traits{
@@ -70,8 +108,10 @@ func newRandomTraits(rng *simrand.RNG) Traits {
 func (t Traits) copyMutated(rng *simrand.RNG) Traits {
 	maxSize := mutateFloat(rng, t.MaxSize, 5.0, c.MinimumMaxSize(), c.MaximumMaxSize())
 	minCyclesBetweenSpawns := mutateInt(rng, t.MinCyclesBetweenSpawns, 5, 0, c.MaxCyclesBetweenSpawns())
-	spawnHealth := mutateFloat(rng, t.SpawnHealth, 0.5, c.MinSpawnHealth(), spawnHealthCap(maxSize))
-	minHealthToSpawn := mutateFloat(rng, t.MinHealthToSpawn, 5.0, spawnThresholdFloor(spawnHealth, maxSize), maxSize)
+	minHealthToSpawn := mutateFloat(rng, t.MinHealthToSpawn, 5.0,
+		math.Min(spawnThresholdFloor(), maxSize), maxSize)
+	_, cap := spawnTraits(minHealthToSpawn, maxSize)
+	spawnHealth := mutateFloat(rng, t.SpawnHealth, 0.5, childFloor(cap), cap)
 	idealPh := mutateFloat(rng, t.IdealPh, c.IdealPhMutationStep(), c.MinIdealPh(), c.MaxIdealPh())
 	abilities := t.Abilities.Mutated(rng)
 	// A visible shift in what the organism IS drives a larger colour step.

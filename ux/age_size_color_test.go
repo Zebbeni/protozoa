@@ -1,6 +1,7 @@
 package ux
 
 import (
+	d "github.com/Zebbeni/protozoa/decision"
 	"testing"
 
 	"github.com/Zebbeni/protozoa/config"
@@ -65,10 +66,10 @@ func TestAgeKeyNamesItsDenominator(t *testing.T) {
 	loadKeyGlobals(t)
 
 	config.GetCurrentGlobals().MaxLifespan = 5000
-	fixed := colorKeyFor(orgColorAge, 0).bars[0].subtitle
+	fixed := colorKeyFor(orgColorAge, 0, d.ActEat).bars[0].subtitle
 
 	config.GetCurrentGlobals().MaxLifespan = 0
-	moving := colorKeyFor(orgColorAge, 0).bars[0].subtitle
+	moving := colorKeyFor(orgColorAge, 0, d.ActEat).bars[0].subtitle
 
 	if fixed == moving {
 		t.Errorf("the age key reads %q either way; it should say which span it means", fixed)

@@ -3,6 +3,7 @@ package ux
 import (
 	"encoding/json"
 	"fmt"
+	d "github.com/Zebbeni/protozoa/decision"
 	"math"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func loadKeyGlobals(t *testing.T) {
 func TestTrueColorShowsNoKey(t *testing.T) {
 	loadKeyGlobals(t)
 
-	if k := colorKeyFor(orgColorTrue, physiology.AbilityDigging); !k.empty() {
+	if k := colorKeyFor(orgColorTrue, physiology.AbilityDigging, d.ActEat); !k.empty() {
 		t.Errorf("True should show no key, got %q", k.title)
 	}
 }
@@ -49,7 +50,7 @@ func TestEveryColorModeHasAKey(t *testing.T) {
 		if m == orgColorTrue {
 			continue
 		}
-		k := colorKeyFor(m, physiology.AbilityChemosynthesis)
+		k := colorKeyFor(m, physiology.AbilityChemosynthesis, d.ActEat)
 		if k.empty() {
 			t.Errorf("colour mode %d has no key at all", m)
 			continue
@@ -84,7 +85,7 @@ func TestColorKeyTextFitsItsPlate(t *testing.T) {
 
 	maxW := keyInnerWidth(testKeyWidth)
 	for _, m := range allOrgColorModes {
-		k := colorKeyFor(m, physiology.AbilityChemosynthesis)
+		k := colorKeyFor(m, physiology.AbilityChemosynthesis, d.ActEat)
 		if k.empty() {
 			continue
 		}
@@ -124,7 +125,7 @@ func TestColorKeyTextIsFlushLeft(t *testing.T) {
 	r.Init()
 
 	for _, m := range allOrgColorModes {
-		k := colorKeyFor(m, physiology.AbilityDigging)
+		k := colorKeyFor(m, physiology.AbilityDigging, d.ActEat)
 		var blocks [][]string
 		blocks = append(blocks, k.titleLines(testKeyWidth), k.noteLines(testKeyWidth))
 		for _, bar := range k.bars {
@@ -144,7 +145,7 @@ func TestColorKeyExplanationsReadAsSentences(t *testing.T) {
 	loadKeyGlobals(t)
 
 	for _, m := range allOrgColorModes {
-		k := colorKeyFor(m, physiology.AbilityDigging)
+		k := colorKeyFor(m, physiology.AbilityDigging, d.ActEat)
 		if k.empty() {
 			continue
 		}
@@ -158,7 +159,7 @@ func TestColorKeyExplanationsReadAsSentences(t *testing.T) {
 func TestAbilityKeyCoversTheWholeRange(t *testing.T) {
 	loadKeyGlobals(t)
 
-	k := colorKeyFor(orgColorAbility, physiology.AbilityDigging)
+	k := colorKeyFor(orgColorAbility, physiology.AbilityDigging, d.ActEat)
 	var lo, hi physiology.Scores
 	lo[physiology.AbilityDigging] = 0
 	hi[physiology.AbilityDigging] = physiology.MaxAbilityScore
@@ -189,7 +190,7 @@ func TestEveryAbilityHasAKeyNote(t *testing.T) {
 			t.Errorf("%s: note %q does not start with a capital", a.Name(), note)
 		}
 		// It goes on a plate the width of the minimap, so it has to wrap into something that still fits.
-		k := colorKeyFor(orgColorAbility, a)
+		k := colorKeyFor(orgColorAbility, a, d.ActEat)
 		for _, line := range k.noteLines(testKeyWidth) {
 			if w := boundString(r.FontSourceCodePro8, line).Dx(); w > keyInnerWidth(testKeyWidth) {
 				t.Errorf("%s: note line %q is %dpx wide, plate holds %d",
@@ -216,7 +217,7 @@ func TestColorKeyHeightCoversWhatItDraws(t *testing.T) {
 	r.Init()
 
 	for _, m := range allOrgColorModes {
-		k := colorKeyFor(m, physiology.AbilityChemosynthesis)
+		k := colorKeyFor(m, physiology.AbilityChemosynthesis, d.ActEat)
 		if k.empty() {
 			continue
 		}
@@ -238,7 +239,7 @@ func TestColorKeyHeightCoversWhatItDraws(t *testing.T) {
 func TestToleranceKeyMidpointIsTheDocumentedOne(t *testing.T) {
 	loadKeyGlobals(t)
 
-	k := colorKeyFor(orgColorTolerance, physiology.AbilityChemosynthesis)
+	k := colorKeyFor(orgColorTolerance, physiology.AbilityChemosynthesis, d.ActEat)
 	if len(k.bars) == 0 {
 		t.Fatal("the tolerance key should paint a scale")
 	}
@@ -255,7 +256,7 @@ func TestToleranceKeyMidpointIsTheDocumentedOne(t *testing.T) {
 func TestToleranceAxisNamesTheDamageItShows(t *testing.T) {
 	loadKeyGlobals(t)
 
-	k := colorKeyFor(orgColorTolerance, physiology.AbilityChemosynthesis)
+	k := colorKeyFor(orgColorTolerance, physiology.AbilityChemosynthesis, d.ActEat)
 	for _, tc := range []struct {
 		at     float64
 		damage float64
@@ -284,7 +285,7 @@ func TestToleranceAxisNamesTheDamageItShows(t *testing.T) {
 func TestPhEffectKeyShowsWhatTheGridPaints(t *testing.T) {
 	loadKeyGlobals(t)
 
-	k := colorKeyFor(orgColorPhEffect, physiology.AbilityChemosynthesis)
+	k := colorKeyFor(orgColorPhEffect, physiology.AbilityChemosynthesis, d.ActEat)
 	// A lifetime that only ever pushed pH one way, past the ratio the spectrum saturates at.
 	acid := phEffectColor(0, 1)
 	base := phEffectColor(1, 0)
@@ -300,7 +301,7 @@ func TestPhEffectKeyShowsWhatTheGridPaints(t *testing.T) {
 func TestFamilyKeyShowsBothRamps(t *testing.T) {
 	loadKeyGlobals(t)
 
-	k := colorKeyFor(orgColorFamily, physiology.AbilityDigging)
+	k := colorKeyFor(orgColorFamily, physiology.AbilityDigging, d.ActEat)
 	if len(k.bars) != 2 {
 		t.Fatalf("the family key has %d bars, want 2 (descendants and cousins)", len(k.bars))
 	}

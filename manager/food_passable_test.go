@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"github.com/Zebbeni/protozoa/effects"
 	"testing"
 
 	c "github.com/Zebbeni/protozoa/config"
@@ -61,13 +62,20 @@ func TestWalkingOntoFoodIsNotChargedAsBlocked(t *testing.T) {
 	m.applyMove(o)
 	spent := before - o.Health
 
+	// Against the move cost itself, not against the penalty alone: the move
+	// cost can exceed the penalty under some settings, and then "spent less
+	// than the penalty" is unsatisfiable however the penalty is charged.
+	// What this is about is whether the PENALTY was added on top.
+	moveCost := -effects.MoveCost(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityMovement], o.Size)
 	blockPenalty := -c.HealthChangeFromBlockedMove() * o.Size
 	if blockPenalty <= 0 {
 		t.Fatalf("expected a positive blocked-move penalty magnitude, got %v", blockPenalty)
 	}
-	if spent >= blockPenalty {
-		t.Errorf("spent %v health, at least the %v blocked-move penalty on its own; "+
-			"stepping onto food is not a misread", spent, blockPenalty)
+	if spent > moveCost+blockPenalty/2 {
+		t.Errorf("spent %v health against a %v move cost, so the %v blocked-move "+
+			"penalty was charged; stepping onto food is not a misread",
+			spent, moveCost, blockPenalty)
 	}
 }
 

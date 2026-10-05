@@ -25,11 +25,14 @@ func loadDefaults(t *testing.T) *config.Globals {
 
 func TestNewConditionsShipDisabled(t *testing.T) {
 	loadDefaults(t)
+	// Only what disabled_decision_nodes holds back. The refined reads are
+	// governed by basic_only_condition_families now, and the shipped
+	// settings leave every family open — so naming one here would be
+	// asserting a balance choice rather than the hold-out rule. The rule
+	// itself is TestOnlyBasicReadsAreOfferedToANewNode below.
 	for _, c := range []Condition{
-		IsPhTooLowHere, IsPhTooHighHere,
 		IsHealthAboveTwentyPercent,
 		IsAgeMultipleOfTwo, IsAgeMultipleOfTen,
-		IsMuchFoodHere, IsMuchFoodBuriedHere,
 	} {
 		if IsNodeEnabled(c) {
 			t.Errorf("%s is offered to mutation by default", Names[c])

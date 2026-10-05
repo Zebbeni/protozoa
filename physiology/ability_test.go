@@ -136,6 +136,8 @@ func setCurveShape(g *config.Globals, id CurveID, kind ShapeKind) {
 		g.EatingPhEffectCurveShape = name
 	case CurveEatingCost:
 		g.EatingCostCurveShape = name
+	case CurveAttackCost:
+		g.AttackCostCurveShape = name
 	default:
 		// Loud rather than silent: a curve missing from this switch keeps whatever shape the settings gave it.
 		panic("setCurveShape: no case for curve " + id.Name())

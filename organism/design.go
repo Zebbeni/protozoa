@@ -93,13 +93,14 @@ func (ds Design) Traits() (Traits, error) {
 	}
 
 	maxSize := clampFloat(ds.MaxSize, c.MinimumMaxSize(), c.MaximumMaxSize())
-	spawnHealth := clampFloat(ds.SpawnHealth, c.MinSpawnHealth(), spawnHealthCap(maxSize))
+	minHealthToSpawn, childCap := spawnTraits(ds.MinHealthToSpawn, maxSize)
+	spawnHealth := clampFloat(ds.SpawnHealth, childFloor(childCap), childCap)
 	return Traits{
 		OrganismColor:          primary,
 		SecondaryColor:         secondary,
 		MaxSize:                maxSize,
 		SpawnHealth:            spawnHealth,
-		MinHealthToSpawn:       clampFloat(ds.MinHealthToSpawn, spawnThresholdFloor(spawnHealth, maxSize), maxSize),
+		MinHealthToSpawn:       minHealthToSpawn,
 		MinCyclesBetweenSpawns: clampInt(ds.MinCyclesBetweenSpawns, 0, c.MaxCyclesBetweenSpawns()),
 		IdealPh:                clampFloat(ds.IdealPh, c.MinIdealPh(), c.MaxIdealPh()),
 		Abilities:              scores,
@@ -148,8 +149,8 @@ func NewDesigned(rng *simrand.RNG, id int, point utils.Point, api LookupAPI, ds 
 	}
 	return &Organism{
 		ID:                 id,
-		Health:             traits.SpawnHealth,
-		Size:               traits.SpawnHealth,
+		Health:             initialSize(traits),
+		Size:               initialSize(traits),
 		Location:           point,
 		Direction:          utils.GetRandomDirection(rng),
 		OriginalAncestorID: id,
@@ -157,6 +158,7 @@ func NewDesigned(rng *simrand.RNG, id int, point utils.Point, api LookupAPI, ds 
 		traits:       traits,
 		decisionTree: tree,
 		action:       d.ActChemosynthesis,
+		KilledBy:     -1,
 		appearance:   physiology.AppearanceFor(traits.Abilities, tree),
 
 		lookupAPI: api,
@@ -164,21 +166,7 @@ func NewDesigned(rng *simrand.RNG, id int, point utils.Point, api LookupAPI, ds 
 }
 
 func DesignFileName(name string) string {
-	clean := strings.ToLower(strings.TrimSpace(name))
-	clean = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		case r == ' ', r == '-', r == '_':
-			return '-'
-		default:
-			return -1
-		}
-	}, clean)
-	if clean == "" {
-		clean = "design"
-	}
-	return clean + ".json"
+	return c.SlugName(name, "design") + ".json"
 }
 
 // SaveDesign writes a design into dir, creating the directory if needed.

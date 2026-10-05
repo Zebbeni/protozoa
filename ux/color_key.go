@@ -2,6 +2,7 @@ package ux
 
 import (
 	"fmt"
+	d "github.com/Zebbeni/protozoa/decision"
 	"image"
 	"image/color"
 	"strings"
@@ -49,7 +50,7 @@ type colorBar struct {
 // phToleranceKeyTop is the health-loss-per-cycle the tolerance bar's right edge stands for.
 const phToleranceKeyTop = phToleranceMidpointDamage * 10
 
-func colorKeyFor(m mode, colorAbility physiology.Ability) colorKey {
+func colorKeyFor(m mode, colorAbility physiology.Ability, colorAction d.Action) colorKey {
 	switch m {
 	case orgColorPhEffect:
 		return colorKey{
@@ -90,6 +91,26 @@ func colorKeyFor(m mode, colorAbility physiology.Ability) colorKey {
 			}},
 			// The range is on the subtitle and the axis already, so the explanation is only about what the ability does.
 			note: abilityKeyNotes[colorAbility],
+		}
+	case orgColorAction:
+		return colorKey{
+			// Named for the action, like an ability's key is named for the
+			// ability: "Action" alone would make all eight read as one mode.
+			title: "Org Color: " + d.Map[colorAction],
+			bars: []colorBar{{
+				subtitle: "share of the decision tree",
+				ramp: func(t float64) colorful.Color {
+					// The weight ramp only, to its own ceiling. The brightest
+					// green is reserved for acting now and is named in the
+					// note rather than drawn, since one bar cannot carry a
+					// scale and a separate state at once.
+					return gh.GrayGreenColor(t * midActionGreen)
+				},
+				axis: [3]string{"none", fmt.Sprintf("%.0f%%", actionWeightCeiling*50), fmt.Sprintf("%.0f%%+", actionWeightCeiling*100)},
+			}},
+			note: "How much of an organism's decision tree is this action, as a share of its action nodes. " +
+				"Brightest green is an organism taking the action right now, which is always brighter than any amount of the ramp. " +
+				"So a dim organism that flares is one acting on a branch it rarely reaches, and a steady mid-green one is built for the action without currently doing it.",
 		}
 	case orgColorSuccess:
 		return colorKey{

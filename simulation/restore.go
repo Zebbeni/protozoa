@@ -148,7 +148,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*o
 
 	tree := d.DeserializeTree(rec.DecisionTree)
 
-	return organism.Restore(
+	o := organism.Restore(
 		int(rec.ID), int(rec.Age), rec.Health, rec.Size, int(rec.Children),
 		int(rec.TraveledDist), int(rec.CyclesSinceLastSpawn),
 		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
@@ -158,5 +158,13 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*o
 		int(rec.AttackTotal), int(rec.AttackHits),
 		rec.PhPositive, rec.PhNegative,
 		api,
-	), abilitiesOK
+	)
+	// Set apart from the constructor rather than threading another parameter
+	// through a signature this long. 0 means nobody, which is what a snapshot
+	// written before the field existed decodes to.
+	o.KilledBy = -1
+	if rec.KilledBy > 0 {
+		o.KilledBy = int(rec.KilledBy) - 1
+	}
+	return o, abilitiesOK
 }

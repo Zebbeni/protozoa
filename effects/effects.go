@@ -38,6 +38,55 @@ func ChemosynthesisGain(g *config.Globals, score int, size, distance float64) fl
 	return full * max(-1, 1-ratio*ratio)
 }
 
+// ChemoCrowdingCells is how many cells a chemosynthesis gain is drawn from:
+// the organism's own and its four neighbours.
+const ChemoCrowdingCells = 5
+
+// ChemoCrowdingFactor scales a chemosynthesis gain by how much of the ground
+// it draws on it has to itself.
+//
+// The gain comes in equal shares from five cells, and every chemosynthesising
+// organism within one step of a cell draws on it — so a cell worked by three
+// of them yields each a third of its share. claimants is that count for each
+// of the five cells, and is never below 1, since the organism itself always
+// draws on all five.
+//
+// An organism alone keeps the whole gain; one boxed in on four sides by
+// chemosynthesisers, each of whose cells is fully contested, keeps a fifth.
+//
+// chemo_crowding_penalty carries between the two: at 0 the gain is untouched,
+// which is bit-identical to the simulation before this existed, and at 1 the
+// split applies in full. It is a strength rather than an on/off because the
+// split is otherwise parameterless.
+func ChemoCrowdingFactor(g *config.Globals, claimants [ChemoCrowdingCells]int) float64 {
+	if g.ChemoCrowdingPenalty <= 0 {
+		return 1
+	}
+	shared := 0.0
+	for _, n := range claimants {
+		if n < 1 {
+			n = 1
+		}
+		shared += 1 / float64(n)
+	}
+	shared /= float64(ChemoCrowdingCells)
+	return 1 - g.ChemoCrowdingPenalty*(1-shared)
+}
+
+// ChemoCrowdedGain applies the crowding split to a chemosynthesis gain.
+//
+// Only to a GAIN. ChemosynthesisGain goes negative past the band an organism
+// can feed in, and that loss is its own wasted effort rather than anything
+// drawn from the ground — there is nothing to share, so dividing it would
+// mean a failed attempt hurt LESS for being surrounded, which is the
+// opposite of a crowding penalty.
+func ChemoCrowdedGain(g *config.Globals, gain float64, claimants [ChemoCrowdingCells]int) float64 {
+	if gain <= 0 {
+		return gain
+	}
+	return gain * ChemoCrowdingFactor(g, claimants)
+}
+
 // ChemoWidth is C: how far from its ideal pH an organism can chemosynthesize before the attempt costs more than it gains, from its Chemosynthesis score.
 func ChemoWidth(g *config.Globals, score int) float64 {
 	return g.MaxChemosynthesisPhWidth * Multiplier(g, physiology.CurveChemosynthesis, score)
@@ -79,6 +128,12 @@ func DigCost(g *config.Globals, score int, size float64) float64 {
 func EatCost(g *config.Globals, score int, size float64) float64 {
 	return size * costBetween(g.HealthChangeFromEatingAttempt, g.HealthChangeFromEatingAttemptAtMax,
 		Multiplier(g, physiology.CurveEatingCost, score))
+}
+
+// AttackCost is what one attack costs the attacker, per unit of its size, carried between both endpoints along the attack cost curve. Separate from the damage the attack lands.
+func AttackCost(g *config.Globals, score int, size float64) float64 {
+	return size * costBetween(g.HealthChangeFromAttacking, g.HealthChangeFromAttackingAtMax,
+		Multiplier(g, physiology.CurveAttackCost, score))
 }
 
 func SizeFoodFromDigging(g *config.Globals, size float64) int {
@@ -129,6 +184,23 @@ func AttackDamage(g *config.Globals, score int, size float64) float64 {
 // DamageTakenMultiplier scales incoming attack damage by the defender's Damage taken curve.
 func DamageTakenMultiplier(g *config.Globals, defense int) float64 {
 	return max(0, Multiplier(g, physiology.CurveDamageTaken, defense))
+}
+
+// AttackHealthGained is what an attacker feeds back from a hit, as a share of
+// the health the hit actually REMOVED.
+//
+// Removed, not dealt: attack damage runs far past what an organism holds — a
+// full-Attack hit is worth many times its target's whole health — so paying
+// on the nominal damage would make one blow on a runt worth more than the
+// runt ever was. What a predator takes is bounded by what was there.
+//
+// 0 means a kill pays only in the corpse it leaves, which is whoever eats it
+// rather than whoever made it.
+func AttackHealthGained(g *config.Globals, healthRemoved float64) float64 {
+	if g.AttackHealthGain <= 0 || healthRemoved <= 0 {
+		return 0
+	}
+	return healthRemoved * g.AttackHealthGain
 }
 
 // ThornsDamage is the damage a defender deals back to each organism that hits it.

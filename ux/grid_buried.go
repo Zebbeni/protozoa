@@ -1,6 +1,7 @@
 package ux
 
 import (
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/Zebbeni/protozoa/animation"
@@ -32,7 +33,7 @@ func (g *Grid) renderBuriedAt(point utils.Point, value int, img *ebiten.Image) {
 		return
 	}
 	us := float64(g.unitSize())
-	sprite := resources.Sprite(foodRoleForValue(value), animation.AnimIdle, 0)
+	sprite := resources.Sprite(foodRoleAgainst(value, config.MaxBuriedFoodValue()), animation.AnimIdle, 0)
 	g.drawStaticSpriteAlpha(img, float64(point.X)*us, float64(point.Y)*us,
 		sprite, foodColor, buriedFoodAlpha)
 }

@@ -65,7 +65,7 @@ func (s *saveShot) Draw(screen *ebiten.Image) {
 
 	for i, build := range []func(*ReplayMenu){
 		func(m *ReplayMenu) { m.Open() },
-		func(m *ReplayMenu) { m.Open(); m.openNaming() },
+		func(m *ReplayMenu) { m.Open(); m.openNaming(namingRecording) },
 	} {
 		m := NewReplayMenu(g, "/tmp/protozoa_last.pzr")
 		build(m)

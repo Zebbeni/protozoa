@@ -71,7 +71,11 @@ type ReplayMenu struct {
 	source string
 	// naming is true while the save prompt is up; name is what has been typed into it so far.
 	naming bool
-	name   string
+	// namingWhat is what the prompt is saving. One prompt serves the
+	// recording and the settings: they differ in the title, the pre-filled
+	// name, the extension shown under the field and where the bytes go.
+	namingWhat namingTarget
+	name       string
 	// settings is the read-only settings viewer, non-nil while showing.
 	settings *ConfigScreen
 	pending  ReplayMenuChoice
@@ -94,7 +98,7 @@ type settingsButton struct {
 
 var settingsButtons = []settingsButton{
 	{"Copy Seed", settingsSmallBtnW, true, false, (*ReplayMenu).copySeed},
-	{"Export", settingsSmallBtnW, true, false, (*ReplayMenu).exportSettings},
+	{"Save As...", settingsSmallBtnW, true, false, (*ReplayMenu).exportSettings},
 	{"Close", popupCancelW, false, false, (*ReplayMenu).Close},
 	{"Edit Settings", popupBtnW, false, true, func(m *ReplayMenu) {
 		m.Close()
@@ -170,7 +174,7 @@ func (m *ReplayMenu) activate(b replayMenuButton) {
 		m.Close()
 		m.pending = b.choice
 	case replayActionSaveAs:
-		m.openNaming()
+		m.openNaming(namingRecording)
 	}
 }
 
@@ -220,16 +224,9 @@ func (m *ReplayMenu) copySeed() {
 	m.setNotice(fmt.Sprintf("Copied seed %d", m.globals.Seed), false)
 }
 
-// exportSettings saves the replay's settings as a JSON config file, the same format -config loads.
+// exportSettings opens the name prompt for the replay's settings.
 func (m *ReplayMenu) exportSettings() {
-	var buf bytes.Buffer
-	c.DumpGlobals(&m.globals, &buf)
-	path, err := saveExport(fmt.Sprintf("settings_seed_%d.json", m.globals.Seed), buf.Bytes())
-	if err != nil {
-		m.setNotice("Export failed: "+err.Error(), true)
-		return
-	}
-	m.setNotice("Exported to "+path, false)
+	m.openNaming(namingSettings)
 }
 
 func (m *ReplayMenu) setNotice(msg string, isErr bool) {
@@ -298,10 +295,33 @@ const (
 	nameMaxRunes = 40
 )
 
+type namingTarget int
+
+const (
+	namingRecording namingTarget = iota
+	namingSettings
+)
+
+func (t namingTarget) title() string {
+	if t == namingSettings {
+		return "SAVE SETTINGS"
+	}
+	return "SAVE RECORDING"
+}
+
+func (t namingTarget) fileName(name string) string {
+	if t == namingSettings {
+		return c.SettingsFileName(name)
+	}
+	return checkpoint.RecordingFileName(name)
+}
+
 // openNaming shows the prompt, pre-filled with the replay's seed so a user who just wants it kept can press Enter.
-func (m *ReplayMenu) openNaming() {
+func (m *ReplayMenu) openNaming(what namingTarget) {
 	m.open = false
+	m.settings = nil
 	m.naming = true
+	m.namingWhat = what
 	m.name = fmt.Sprintf("seed-%d", m.globals.Seed)
 }
 
@@ -312,7 +332,7 @@ func (m *ReplayMenu) updateNaming() {
 		return
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadEnter) {
-		m.saveRecording()
+		m.commitNaming()
 		return
 	}
 	m.typeName()
@@ -352,6 +372,32 @@ func (m *ReplayMenu) typeName() {
 }
 
 // saveRecording copies the viewed .pzr into the recordings directory.
+// commitNaming saves whatever the prompt was opened for.
+func (m *ReplayMenu) commitNaming() {
+	if m.namingWhat == namingSettings {
+		m.saveSettings()
+		return
+	}
+	m.saveRecording()
+}
+
+// saveSettings writes the replay's settings as a JSON config file under the
+// typed name, in the format -config loads and the New Simulation screen's
+// Load Settings lists.
+func (m *ReplayMenu) saveSettings() {
+	var buf bytes.Buffer
+	c.DumpGlobals(&m.globals, &buf)
+	path, err := c.SaveSettingsAs(c.SettingsDir, m.name, buf.Bytes())
+	if err != nil {
+		// The prompt stays up with the name intact, so a collision is
+		// corrected rather than retyped.
+		m.setNotice("Save failed: "+err.Error(), true)
+		return
+	}
+	m.naming = false
+	m.setNotice("Saved to "+path, false)
+}
+
 func (m *ReplayMenu) saveRecording() {
 	if m.source == "" {
 		m.setNotice("No recording file to save", true)
@@ -392,7 +438,7 @@ func (m *ReplayMenu) drawNaming(screen *ebiten.Image) {
 	fillRect(screen, box, themeBackgroundColor())
 	drawModalBorder(screen, box)
 
-	title := "SAVE RECORDING"
+	title := m.namingWhat.title()
 	tb := boundString(r.FontSourceCodePro12, title)
 	text.Draw(screen, title, r.FontSourceCodePro12, box.Min.X+(nameBoxW-tb.Dx())/2,
 		box.Min.Y+30, themedForeground())
@@ -411,7 +457,7 @@ func (m *ReplayMenu) drawNaming(screen *ebiten.Image) {
 	text.Draw(screen, shown, r.FontSourceCodePro12, field.Min.X+8, field.Min.Y+22, themedValue())
 
 	// What it will actually be called, since the name is slugged.
-	asFile := checkpoint.RecordingFileName(m.name)
+	asFile := m.namingWhat.fileName(m.name)
 	text.Draw(screen, "saves as "+asFile, r.FontSourceCodePro8,
 		field.Min.X, field.Max.Y+13, themedMuted())
 

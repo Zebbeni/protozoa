@@ -102,6 +102,11 @@ type ConfigScreen struct {
 	embedded bool
 	// readOnly shows the settings without letting them change: no sliders, toggles, text entry or reset buttons.
 	readOnly bool
+	// The LOAD SETTINGS browser, see settings_browser.go.
+	loadOpen   bool
+	loadFiles  []c.SettingsFile
+	loadScroll int
+	loadErr    string
 	// graphExpanded records which abilities' blocks are showing.
 	graphExpanded map[physiology.Ability]bool
 	graphCanvas   *ebiten.Image
@@ -190,6 +195,11 @@ func (cs *ConfigScreen) sliderColWidth() int {
 func (cs *ConfigScreen) Update() bool {
 	if cs.accepted {
 		return true
+	}
+	// Modal: it covers the rows, so a click must not reach them.
+	if cs.loadOpen {
+		cs.updateLoad()
+		return false
 	}
 
 	_, wy := ebiten.Wheel()
@@ -302,6 +312,8 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 		}
 	} else if by+bh > clipTop && by < clipBottom {
 		cs.drawSmallButton(screen, bx, by, bw, bh, "RESTORE ALL DEFAULTS", !cs.allDefaults())
+		lx, ly, lw, lh := cs.loadSettingsRect()
+		cs.drawSmallButton(screen, lx, ly, lw, lh, "LOAD SETTINGS", true)
 	}
 
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
@@ -550,6 +562,10 @@ func (cs *ConfigScreen) handleClick() {
 
 	cs.commitEdit()
 
+	if bx, by, bw, bh := cs.loadSettingsRect(); !cs.readOnly && mx >= bx && mx < bx+bw && my >= by && my < by+bh {
+		cs.openLoad()
+		return
+	}
 	if bx, by, bw, bh := cs.restoreAllRect(); !cs.readOnly && mx >= bx && mx < bx+bw && my >= by && my < by+bh {
 		cs.restoreAllDefaults()
 		return
@@ -858,8 +874,11 @@ var fixedBounds = map[string][2]float64{
 	"wall_ph_block_curve":   {0, 4},
 	"burrow_spoil_fraction": {0, 1},
 	// The size ratios are bounded where their names stop meaning what they say.
-	"much_bigger_size_ratio":  {1, 10},
-	"much_smaller_size_ratio": {0, 1},
+	// A parent must keep a real share of what it spawned at: 1 is the
+	// organism that dies spawning, and 0 is a child born with no health.
+	"max_spawn_health_percent": {c.MinSpawnHealthShare, c.MaxSpawnHealthShare},
+	"much_bigger_size_ratio":   {1, 10},
+	"much_smaller_size_ratio":  {0, 1},
 }
 
 func centeredSliderRange(jsonTag string, initial float64) (float64, float64) {
@@ -943,11 +962,15 @@ func (cs *ConfigScreen) buildSections() {
 			field("Chance to Add Food", "chance_to_add_food_item"),
 			field("Min Food Value", "min_food_value"),
 			field("Max Food Value", "max_food_value"),
+			field("Max Buried Food Value", "max_buried_food_value"),
 		}},
 		{title: "— PH —", fields: []configField{
 			field("Ideal pH Range", "ideal_ph_range"),
 			field("Ideal pH Mutation Step", "ideal_ph_mutation_step"),
 			field("pH Diffuse Factor", "ph_diffuse_factor"),
+			field("Chemo Crowding Penalty", "chemo_crowding_penalty"),
+			field("Attack Health Gain", "attack_health_gain"),
+			field("Smooth pH Rendering", "ph_smoothing"),
 			field("Wall pH Block at Max Strength", "wall_ph_block_at_max"),
 			field("Wall pH Block Curve", "wall_ph_block_curve"),
 			{label: "", jsonTag: "", row: rowWallPhGraph, fieldIdx: -1},
@@ -963,6 +986,7 @@ func (cs *ConfigScreen) buildSections() {
 			field("Maximum Max Size", "maximum_max_size"),
 			field("Minimum Max Size", "minimum_max_size"),
 			field("Max Initial Size", "maximum_initial_size"),
+			field("Initial Size (0=spawn HP)", "initial_organism_size_fraction"),
 			field("Max Initial Spawn Health", "maximum_initial_spawn_health"),
 			field("Max Cycles Between Spawns", "max_cycles_between_spawns"),
 			field("Max Initial Cycles Between Spawns", "max_initial_cycles_between_spawns"),
@@ -1021,6 +1045,8 @@ func (cs *ConfigScreen) buildSections() {
 			field("Digging creation K", "digging_creation_saturating_k"),
 			field("Attack K", "attack_cosine_k"),
 			field("Attack K", "attack_saturating_k"),
+			field("Attack cost K", "attack_cost_cosine_k"),
+			field("Attack cost K", "attack_cost_saturating_k"),
 			field("Damage taken K", "damage_taken_cosine_k"),
 			field("Damage taken K", "damage_taken_saturating_k"),
 			field("Thorns K", "thorns_cosine_k"),
@@ -1475,6 +1501,12 @@ func (cs *ConfigScreen) rowAt(mx, my int) (configField, bool) {
 
 // DrawTooltip draws the explanation for the row under the mouse once it has rested there for tooltipDelay.
 func (cs *ConfigScreen) DrawTooltip(screen *ebiten.Image) {
+	// The browser sits over the rows, so the row under the mouse is not what
+	// the user is pointing at.
+	if cs.loadOpen {
+		cs.drawLoad(screen)
+		return
+	}
 	mx, my := ebiten.CursorPosition()
 	field, ok := cs.rowAt(mx, my)
 	tip := ""
@@ -1561,6 +1593,14 @@ const resetBtnW = 34
 // resetRect is the reset button's rect for the row at y: right-aligned in the panel, past the value column.
 func (cs *ConfigScreen) resetRect(panelX, y int) (x, top, w, h int) {
 	return panelX + cs.panelWidth() - resetBtnW, y, resetBtnW, cfgRowHeight - 4
+}
+
+// loadSettingsRect is the LOAD SETTINGS button, to the left of RESTORE ALL
+// DEFAULTS and the same height, so the two read as one row of actions.
+func (cs *ConfigScreen) loadSettingsRect() (x, y, w, h int) {
+	const bw = 120
+	rx, ry, _, rh := cs.restoreAllRect()
+	return rx - bw - 8, ry, bw, rh
 }
 
 func (cs *ConfigScreen) restoreAllRect() (x, y, w, h int) {

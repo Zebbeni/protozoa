@@ -39,9 +39,15 @@ func (g *Grid) renderFoodItem(item *food.Item, img *ebiten.Image) {
 	g.drawStaticSprite(img, x, y, sprite, foodColor)
 }
 
-// foodRoleForValue maps a food item's value to one of the four food size-tier sprites.
+// foodRoleForValue maps a surface food item's value to one of the four food size-tier sprites.
 func foodRoleForValue(value int) resources.ImageRole {
-	maxVal := config.MaxFoodValue()
+	return foodRoleAgainst(value, config.MaxFoodValue())
+}
+
+// foodRoleAgainst buckets a value against the ceiling its own layer has. The
+// buried layer can hold far more than the surface, and bucketing it against
+// the surface ceiling would draw every stocked cell as the largest tier.
+func foodRoleAgainst(value, maxVal int) resources.ImageRole {
 	if maxVal <= 0 {
 		return resources.RoleFoodMedium
 	}

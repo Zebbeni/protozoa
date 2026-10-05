@@ -39,6 +39,9 @@ const (
 	AnimChemoFail
 	AnimDie
 	AnimDig
+	// AnimAttackMove is an attack that killed and took the victim's cell. Its
+	// two cells are the one the killer left and the one it took.
+	AnimAttackMove
 )
 
 var AllAnimations = [...]Animation{
@@ -48,6 +51,7 @@ var AllAnimations = [...]Animation{
 	AnimChemo, AnimChemoFail,
 	AnimDie,
 	AnimDig,
+	AnimAttackMove,
 }
 
 // ForStatus maps a resolved organism.Status to the Animation sheet that should play during its cycle transition.
@@ -59,6 +63,8 @@ func ForStatus(s organism.Status) Animation {
 		return AnimBlocked
 	case organism.StatusAttacking:
 		return AnimAttack
+	case organism.StatusAttackMove:
+		return AnimAttackMove
 	case organism.StatusEatSuccess:
 		return AnimEat
 	case organism.StatusEatFailed:

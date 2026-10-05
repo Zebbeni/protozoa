@@ -193,3 +193,36 @@ func (t *Tree) Print() string {
 func (t *Tree) PrintLines() []PrintLine {
 	return t.printLines("", true, false)
 }
+
+// ActionWeights is each action's share of the tree's action nodes, indexed by
+// the action's own code.
+//
+// A share rather than a count, so a big tree and a small one that do the same
+// thing read the same. Duplicates are kept by ActionNodes, so a tree reaching
+// one action down three branches weighs it three times — which is the sense
+// in which an action has weight in a tree.
+//
+// It is NOT the chance of taking the action: that depends on the conditions
+// above each node and on what the world does. This is what the tree is made
+// of, which is a property of the organism rather than of its surroundings.
+func (t *Tree) ActionWeights() []float64 {
+	out := make([]float64, len(Actions))
+	// Nil-safe like AppearanceFor, which reads the same tree: Restore is
+	// handed one by a snapshot that may not carry it.
+	if t == nil || t.Node == nil {
+		return out
+	}
+	nodes := t.ActionNodes()
+	if len(nodes) == 0 {
+		return out
+	}
+	for _, a := range nodes {
+		if int(a) >= 0 && int(a) < len(out) {
+			out[a]++
+		}
+	}
+	for i := range out {
+		out[i] /= float64(len(nodes))
+	}
+	return out
+}

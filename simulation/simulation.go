@@ -187,7 +187,13 @@ func (s *Simulation) RestoreHistory(payload *checkpoint.HistoryPayload) {
 
 // CloseRecorder writes the descendant trees and finalizes the checkpoint file.
 const (
-	replayBytesPerNode  = 26
+	// Re-measured with SIZE_PROBE=1 after max_decision_tree_size doubled:
+	// a descendant node carries its serialized tree, so a bigger tree limit
+	// is a bigger node. 27.2-33.7 observed; 30 with the fixed overhead below
+	// clears every sample, and it rounds UP on purpose because this drives a
+	// cap — over-estimating ends a run slightly early, under-estimating
+	// overruns the limit the user set.
+	replayBytesPerNode  = 30
 	replayCloseOverhead = 8 << 10
 )
 

@@ -2,6 +2,7 @@ package ux
 
 import (
 	"fmt"
+	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/instrument"
+	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
@@ -49,6 +51,8 @@ const (
 	orgColorAge
 	// orgColorSize tints each organism gray→green by its size against maximum_max_size.
 	orgColorSize
+	// orgColorAction tints by one action: brightest for an organism taking it right now, gray→mid green by that action's share of its decision tree otherwise.
+	orgColorAction
 )
 
 var allOrgColorModes = []mode{
@@ -61,6 +65,7 @@ var allOrgColorModes = []mode{
 	orgColorFamily,
 	orgColorAge,
 	orgColorSize,
+	orgColorAction,
 }
 
 const (
@@ -93,13 +98,17 @@ type Grid struct {
 	selectMode     mode
 	// colorAbility is the ability orgColorAbility colours by.
 	colorAbility physiology.Ability
+	// colorAction is the action orgColorAction colours by, kept when the mode changes like colorAbility is.
+	colorAction d.Action
 
 	// familyTint answers the FAMILY colour mode's "how is this organism related to the selected one".
 	familyTint *familyTinter
 
 	// oldestAlive is the age of the oldest living organism, refreshed once per organism-layer pass.
 	oldestAlive int
-	clearImg    *ebiten.Image
+	// drawOrder is the per-frame organism draw order, reused to keep the sort out of the allocator.
+	drawOrder []*organism.Info
+	clearImg  *ebiten.Image
 	// selectionBoxImg is the source bitmap stamped onto layerSelection for every highlighted organism.
 	selectionBoxImg *ebiten.Image
 
@@ -357,6 +366,8 @@ func (g *Grid) ShowFood() bool { return g.showFood }
 func (g *Grid) applyReplayViewDefaults() {
 	g.showBuriedFood = true
 }
+
+func (g *Grid) ColorAction() d.Action { return g.colorAction }
 
 func (g *Grid) ShowBuriedFood() bool { return g.showBuriedFood }
 

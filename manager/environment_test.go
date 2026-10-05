@@ -2,6 +2,7 @@ package manager
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,10 @@ func TestDiffusionIsSymmetric(t *testing.T) {
 		{"north vs south", north, south},
 		{"east vs north", east, north},
 	} {
-		if tc.a != tc.b {
+		// Within a tolerance rather than bit-identical: the four directions
+		// are summed in different orders, so the last bit can differ while
+		// the claim being made — that no direction is favoured — holds.
+		if math.Abs(tc.a-tc.b) > 1e-9 {
 			t.Errorf("diffusion should be symmetric, %s: %g != %g", tc.name, tc.a, tc.b)
 		}
 	}

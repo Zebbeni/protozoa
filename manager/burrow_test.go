@@ -16,6 +16,16 @@ import (
 func burrowSetup(t *testing.T, digging int, size float64, wallStrength int) (*OrganismManager, *organism.Organism) {
 	t.Helper()
 	loadDefaultGlobals(t)
+	// The burrow endpoints are set here rather than taken from the shipped
+	// settings: these tests are about what a burrow DOES — the hole, the
+	// spoil, the repaint — and a configuration that makes the test's wall
+	// unbreakable fails them for a reason that has nothing to do with any
+	// of that. The wall strengths below are chosen against these.
+	bg := c.GetCurrentGlobals()
+	bg.WallBreakAtZeroDigging = 0
+	bg.WallBreakAtMaxDigging = 10
+	bg.WallBreakMultiplier = 1
+	c.SetGlobals(bg)
 	ahead := utils.Point{X: 11, Y: 10}
 
 	scores := physiology.Scores{}

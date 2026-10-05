@@ -31,6 +31,10 @@ const (
 	StatusSpawning
 	StatusDigging
 	StatusDying // one cycle after lethal damage — AnimDie plays, then finalizeDeaths replaces with food
+	// StatusAttackMove is an attacker that killed its target and took the
+	// target's cell. Appended rather than inserted: a snapshot stores Status
+	// as its ordinal, so inserting would reinterpret every recorded status.
+	StatusAttackMove
 )
 
 type Organism struct {
@@ -65,6 +69,12 @@ type Organism struct {
 
 	// appearance is derived from the ability scores and the decision tree, both of which are fixed for an organism's lifetime.
 	appearance physiology.Appearance
+	// KilledBy is the organism whose attack killed this one, or -1. Read on the cycle AFTER the kill, when finalizeDeaths clears the body, so it has to survive a snapshot taken in between.
+	KilledBy int
+	// actionWeights is each action's share of the decision tree, computed once for the same reason appearance is: the tree never changes after construction, and deriving it per frame would walk every node of every organism.
+	actionWeights []float64
+	// healthLedger is this cycle's health changes by source, for the panel. Not snapshot state: Recorded says so.
+	healthLedger HealthLedger
 
 	lookupAPI LookupAPI
 
@@ -86,18 +96,20 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 	organism := Organism{
 		ID:                   id,
 		Age:                  0,
-		Health:               traits.SpawnHealth,
-		Size:                 traits.SpawnHealth,
+		Health:               initialSize(traits),
+		Size:                 initialSize(traits),
 		Children:             0,
 		CyclesSinceLastSpawn: 0,
 		Location:             point,
 		Direction:            utils.GetRandomDirection(rng),
 		OriginalAncestorID:   id,
 
-		traits:       traits,
-		decisionTree: decisionTree,
-		action:       d.ActChemosynthesis,
-		appearance:   physiology.AppearanceFor(traits.Abilities, decisionTree),
+		traits:        traits,
+		decisionTree:  decisionTree,
+		action:        d.ActChemosynthesis,
+		KilledBy:      -1,
+		appearance:    physiology.AppearanceFor(traits.Abilities, decisionTree),
+		actionWeights: decisionTree.ActionWeights(),
 
 		lookupAPI: api,
 	}
@@ -126,7 +138,9 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 		traits:        traits,
 		decisionTree:  inheritedTree,
 		action:        d.ActChemosynthesis,
+		KilledBy:      -1,
 		appearance:    physiology.AppearanceFor(traits.Abilities, inheritedTree),
+		actionWeights: inheritedTree.ActionWeights(),
 		BornThisCycle: true,
 
 		lookupAPI: api,
@@ -154,7 +168,9 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		traits:               traits,
 		decisionTree:         tree,
 		action:               action,
+		KilledBy:             -1,
 		appearance:           physiology.AppearanceFor(traits.Abilities, tree),
+		actionWeights:        tree.ActionWeights(),
 		Status:               status,
 		AttackTotal:          attackTotal,
 		AttackHits:           attackHits,
@@ -187,6 +203,8 @@ func (o *Organism) Info() *Info {
 		IdealPh:         o.traits.IdealPh,
 		Abilities:       o.traits.Abilities,
 		Appearance:      o.appearance,
+		ActionWeights:   o.actionWeights,
+		HealthLedger:    o.healthLedger,
 		LineageEndCycle: lineageEndCycle(o.TreeNode),
 	}
 }

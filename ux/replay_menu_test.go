@@ -86,23 +86,44 @@ func TestExportSettingsWritesLoadableConfig(t *testing.T) {
 	defer os.Chdir(wd)
 
 	m := NewReplayMenu(g, "")
+	// Save As opens the name prompt rather than writing a file of its own
+	// choosing, so the user picks what it is called.
 	m.exportSettings()
-	m.exportSettings()
-	if m.noticeErr {
-		t.Fatalf("export failed: %s", m.notice)
+	if !m.naming || m.namingWhat != namingSettings {
+		t.Fatalf("Save As did not open the settings name prompt (naming %v, what %v)",
+			m.naming, m.namingWhat)
 	}
-	for _, name := range []string{"settings_seed_4242.json", "settings_seed_4242-2.json"} {
-		data, err := os.ReadFile(filepath.Join(dir, "settings", name))
-		if err != nil {
-			t.Fatalf("expected export %s: %v", name, err)
-		}
-		var loaded c.Globals
-		if err := json.Unmarshal(data, &loaded); err != nil {
-			t.Fatalf("%s isn't a config file: %v", name, err)
-		}
-		if loaded.Seed != 4242 || loaded.MaxLifespan != 777 {
-			t.Errorf("%s loads seed %d / max_lifespan %d, want 4242 / 777", name, loaded.Seed, loaded.MaxLifespan)
-		}
+	m.name = "My Tuned Run"
+	m.commitNaming()
+	if m.noticeErr {
+		t.Fatalf("save failed: %s", m.notice)
+	}
+	if m.naming {
+		t.Error("the prompt stayed open after a successful save")
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "settings", "my-tuned-run.json"))
+	if err != nil {
+		t.Fatalf("expected the typed name to be slugged to my-tuned-run.json: %v", err)
+	}
+	var loaded c.Globals
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("the saved file isn't a config file: %v", err)
+	}
+	if loaded.Seed != 4242 || loaded.MaxLifespan != 777 {
+		t.Errorf("loads seed %d / max_lifespan %d, want 4242 / 777", loaded.Seed, loaded.MaxLifespan)
+	}
+
+	// Saving the same name again refuses rather than replacing a file
+	// someone has tuned, and leaves the prompt up with the name intact.
+	m.exportSettings()
+	m.name = "My Tuned Run"
+	m.commitNaming()
+	if !m.noticeErr {
+		t.Error("saving over an existing settings file was allowed")
+	}
+	if !m.naming || m.name != "My Tuned Run" {
+		t.Error("after a collision the prompt should stay open with the typed name")
 	}
 }
 
@@ -145,7 +166,7 @@ func TestSavePromptPrefillsAndSlugs(t *testing.T) {
 	g := c.Globals{Seed: 4242}
 	m := NewReplayMenu(g, "somewhere/protozoa_last.pzr")
 	m.Open()
-	m.openNaming()
+	m.openNaming(namingRecording)
 
 	if !m.IsOpen() {
 		t.Error("the prompt doesn't count as open, so the viewer would take clicks behind it")
@@ -167,7 +188,7 @@ func TestSavePromptPrefillsAndSlugs(t *testing.T) {
 func TestSaveWithNoSourceSaysSo(t *testing.T) {
 	m := NewReplayMenu(c.Globals{}, "")
 	m.Open()
-	m.openNaming()
+	m.openNaming(namingRecording)
 	m.saveRecording()
 
 	if !m.noticeErr {

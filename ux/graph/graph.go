@@ -89,6 +89,12 @@ type Graph struct {
 
 	// prewarming is set while the in-flight render is speculative work.
 	prewarming bool
+	// prewarmColor is the colouring that speculative render is drawing, so a
+	// switch to it can take the work instead of discarding it.
+	prewarmColor PopulationColor
+	// adoptPrewarm marks that in-flight prewarm as the render the user is now
+	// waiting on: its result is installed rather than filed away.
+	adoptPrewarm bool
 
 	// prewarmOrder is the colourings to draw ahead of being asked for, in the order the buttons offer them.
 	prewarmOrder []PopulationColor
@@ -184,13 +190,20 @@ func (g *Graph) SetPopulationColor(pc PopulationColor) {
 		g.installPopulationRender(entry)
 		return
 	}
+	// A speculative render is already drawing exactly this, so take it rather
+	// than bumping renderGen — which would drop that result when it lands and
+	// queue an identical render behind it, making the user wait twice.
+	if g.rendering && g.prewarming && g.prewarmColor == pc {
+		g.adoptPrewarm = true
+		return
+	}
 	// Nothing to come back to, so draw it.
 	g.discardCachedRenders(true)
 }
 
 // stashPopulationRender files the colouring being left under its own key, so returning to it costs nothing.
 func (g *Graph) stashPopulationRender() {
-	if g.rendering && g.renderingPopColor == g.popColor {
+	if g.popRenderInFlight(g.popColor) {
 		return
 	}
 	r, ok := g.renderers[ModePopulation]
@@ -212,7 +225,20 @@ func (g *Graph) stashPopulationRender() {
 
 // canReusePopRender reports whether the cached entry for pc is safe to install.
 func (g *Graph) canReusePopRender(pc PopulationColor) bool {
-	return !g.rendering || g.renderingPopColor != pc
+	return !g.popRenderInFlight(pc)
+}
+
+// popRenderInFlight reports whether a goroutine is writing to the renderers
+// belonging to pc, which is the only reason to withhold them.
+//
+// A PREWARM never is: it builds its own renderers and hands those to the
+// goroutine, so nothing on display is being written to. beginRender records
+// the displayed colouring either way, which made a prewarm look like a real
+// render of whatever was on screen — so switching colouring while one ran
+// refused to cache the colouring being left, and returning to it redrew from
+// scratch a moment after it had been in hand.
+func (g *Graph) popRenderInFlight(pc PopulationColor) bool {
+	return g.rendering && !g.prewarming && g.renderingPopColor == pc
 }
 
 // installPopulationRender puts a cached colouring back on screen.
@@ -259,6 +285,8 @@ func (g *Graph) installPopulationRender(entry popRender) {
 // discardCachedRenders throws away every cached population render and schedules a full repaint, without touching anything a background render may be using.
 func (g *Graph) discardCachedRenders(popOnly bool) {
 	g.renderGen++
+	// Whatever was in flight is stale now, adopted or not.
+	g.adoptPrewarm = false
 	g.replacePopulationRenderers()
 	g.forceRender = true
 	g.popOnlyRender = popOnly
@@ -352,6 +380,8 @@ func (g *Graph) startPrewarm() bool {
 
 	progress := g.beginRender()
 	g.prewarming = true
+	g.prewarmColor = pc
+	g.adoptPrewarm = false
 	barCount := g.currentBarCount
 	gen := g.renderGen
 	go func() {
@@ -402,6 +432,36 @@ func (g *Graph) filePrewarm(result renderResult) {
 	g.popCache[result.prewarm] = entry
 }
 
+// installPrewarm puts an adopted speculative render on screen, using the
+// renderers the goroutine built rather than the ones on display.
+//
+// Shares installPopulationRender so an adopted prewarm and a cache hit end in
+// exactly the same state; the only difference between them is where the
+// renderers came from.
+func (g *Graph) installPrewarm(result renderResult) {
+	held := g.pendingPrewarm.Load()
+	g.pendingPrewarm.Store(nil)
+	if held == nil || held.pc != result.prewarm {
+		// The renderers did not come back, so there is nothing to install;
+		// fall back to drawing it.
+		g.discardCachedRenders(true)
+		return
+	}
+	entry := popRender{
+		renderer:    held.renderer,
+		selRenderer: held.selRenderer,
+		barCount:    result.barCount,
+	}
+	if result.images != nil {
+		entry.image = result.images[ModePopulation]
+	}
+	if result.selImages != nil {
+		entry.selImage = result.selImages[ModePopulation]
+	}
+	g.installPopulationRender(entry)
+	g.currentBarCount = result.barCount
+}
+
 // prewarmRenderers carries a speculative render's renderers back to the main goroutine alongside its images.
 type prewarmRenderers struct {
 	pc          PopulationColor
@@ -422,6 +482,14 @@ func (g *Graph) Render() *ebiten.Image {
 		g.prewarming = false
 		g.progress = nil
 		if result.isPrewarm {
+			// Adopted: the user switched to this colouring while it was being
+			// drawn speculatively, so it is the render they are waiting on
+			// and goes on screen rather than into the cache.
+			if g.adoptPrewarm && result.prewarm == g.popColor && result.renderGen == g.renderGen {
+				g.adoptPrewarm = false
+				g.installPrewarm(result)
+				break
+			}
 			g.filePrewarm(result)
 			break
 		}

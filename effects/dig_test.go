@@ -33,6 +33,11 @@ func digGlobals(t *testing.T) *config.Globals {
 
 func TestDigEffectsHitBothEndpoints(t *testing.T) {
 	g := digGlobals(t)
+	// A shape, set here rather than taken from the settings: ShapeFlat is 1
+	// at every score, so it reaches the at-max endpoint even at 0 and the
+	// at-zero is unreachable by definition. That is what flat MEANS, so a
+	// test about endpoints has to engage the curve first.
+	g.DiggingStrengthCurveShape = string(physiology.ShapeLinear)
 	g.FoodFromDiggingAtZero = 2
 	g.FoodFromDiggingSmall = 9
 
@@ -93,9 +98,14 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 	}
 	t.Logf("at Eating 1, a full bite is %.1fx the attempt cost", margin)
 
-	// Eating 0 is the one dead case, and it's deliberate.
-	if got := MaxFoodPerEat(g, 0, size); got != 0 {
-		t.Errorf("Eating 0 has capacity %v, want none", got)
+	// Eating 0 must not pay for itself, which is the property that matters
+	// rather than its capacity being exactly 0. A floor of 0 says a zero
+	// score cannot eat AT ALL; a small floor says it can and should not
+	// bother. Either is fine; what is not is a free bite, which removes the
+	// reason to invest in the ability.
+	if zero := HealthFromFood(g, MaxFoodPerEat(g, 0, size)); zero > cost(size) {
+		t.Errorf("at Eating 0 a full bite returns %.4f against a %.4f attempt cost, "+
+			"so eating pays without investing in it", zero, cost(size))
 	}
 }
 

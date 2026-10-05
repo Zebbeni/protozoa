@@ -51,9 +51,10 @@ func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 		g.stampPhBorderedFromBuffer()
 	}
 
-	// The one smoothing pass: linear upscale to sprite resolution.
+	// Upscale to sprite resolution. Nearest keeps each cell one flat colour;
+	// linear blends neighbours so the field reads as a gradient.
 	op := &ebiten.DrawImageOptions{}
-	op.Filter = ebiten.FilterLinear
+	op.Filter = phUpscaleFilter()
 	op.GeoM.Scale(float64(cell), float64(cell))
 	g.phLinear.DrawImage(g.phBordered, op)
 
@@ -127,4 +128,18 @@ func (g *Grid) phToColor(phVal float64) colorful.Color {
 	bg := colorful.Color{R: bgR, G: bgG, B: bgB}
 	target := colorful.Color{R: tgtR, G: tgtG, B: tgtB}
 	return bg.BlendRgb(target, weight).Clamped()
+}
+
+// phUpscaleFilter is how the one-pixel-per-cell pH buffer is enlarged to
+// sprite resolution.
+//
+// Nearest gives every cell a single flat colour, which reads as a map of
+// discrete readings; linear blends across cell boundaries, which reads as a
+// continuous field. The simulation's pH IS per-cell, so nearest is the
+// honest one and linear is the prettier one.
+func phUpscaleFilter() ebiten.Filter {
+	if config.PhSmoothing() {
+		return ebiten.FilterLinear
+	}
+	return ebiten.FilterNearest
 }

@@ -15,12 +15,18 @@ import (
 func burialManager(t *testing.T, piles map[utils.Point]int) *FoodManager {
 	t.Helper()
 	loadDefaultGlobals(t)
-	m := NewFoodManager(&foodAPIStub{}, simrand.New(1))
+	// Zeroed BEFORE the manager is built, not after: it lays down
+	// initial_food and initial_buried_food as it is constructed, so
+	// clearing the maps afterwards left whatever the shipped settings
+	// seeded underground and the conservation count included it.
 	g := c.GetCurrentGlobals()
 	g.InitialFood = 0
+	g.InitialBuriedFood = 0
 	g.ChanceToAddFoodItem = 0
 	c.SetGlobals(g)
+	m := NewFoodManager(&foodAPIStub{}, simrand.New(1))
 	m.Items = map[utils.Point]*food.Item{}
+	m.Buried = map[utils.Point]int{}
 	for p, v := range piles {
 		m.AddFoodAtPoint(p, v)
 	}
@@ -83,14 +89,14 @@ func TestBurialTakesOnlyWhatIsThere(t *testing.T) {
 func TestBurialStopsAtAFullStore(t *testing.T) {
 	p := utils.Point{X: 4, Y: 4}
 	m := burialManager(t, map[utils.Point]int{p: 50})
-	m.Buried[p] = c.MaxFoodValue()
+	m.Buried[p] = c.MaxBuriedFoodValue()
 
 	m.BuryFood(10)
 
 	if got := m.Items[p].Value; got != 50 {
 		t.Errorf("the pile lost %d units into a full store", 50-got)
 	}
-	if got := m.Buried[p]; got != c.MaxFoodValue() {
+	if got := m.Buried[p]; got != c.MaxBuriedFoodValue() {
 		t.Errorf("the buried store went past its cap to %d", got)
 	}
 }
@@ -427,5 +433,50 @@ func TestInitialBuriedFoodOffDrawsNothing(t *testing.T) {
 	}
 	if len(NewFoodManager(&foodAPIStub{}, simrand.New(1)).Buried) != 0 {
 		t.Error("a count of 0 still seeded buried food")
+	}
+}
+
+// TestTheBuriedCeilingIsItsOwnSetting: the ground holds far more than a
+// surface pile, which is what lets a world bank potential energy
+// underground. Bucketing the two together put the ceiling at the surface
+// limit and capped the store at a tenth of what it now holds.
+func TestTheBuriedCeilingIsItsOwnSetting(t *testing.T) {
+	p := utils.Point{X: 6, Y: 6}
+	m := burialManager(t, map[utils.Point]int{p: 50})
+	g := c.GetCurrentGlobals()
+	g.MaxFoodValue = 100
+	g.MaxBuriedFoodValue = 1000
+	c.SetGlobals(g)
+
+	// Already past what a surface pile may hold, and burial keeps going.
+	m.Buried[p] = 400
+	m.BuryFood(10)
+	if got := m.Buried[p]; got != 410 {
+		t.Errorf("buried %d, want 410: the surface limit must not cap the ground", got)
+	}
+
+	// And it still stops at its own ceiling.
+	m.Buried[p] = 1000
+	before := m.Items[p].Value
+	m.BuryFood(10)
+	if got := m.Buried[p]; got != 1000 {
+		t.Errorf("the buried store went past its own cap to %d", got)
+	}
+	if got := m.Items[p].Value; got != before {
+		t.Errorf("the pile lost %d units into a full store", before-got)
+	}
+}
+
+// TestAbsentBuriedCeilingFallsBackToTheFoodValue: a settings file written
+// before the setting decodes it to 0, and a ceiling of 0 would mean nothing
+// could ever be buried.
+func TestAbsentBuriedCeilingFallsBackToTheFoodValue(t *testing.T) {
+	loadDefaultGlobals(t)
+	g := c.GetCurrentGlobals()
+	g.MaxFoodValue = 100
+	g.MaxBuriedFoodValue = 0
+	c.SetGlobals(g)
+	if got := c.MaxBuriedFoodValue(); got != 100 {
+		t.Errorf("an absent buried ceiling reports %d, want the food value 100", got)
 	}
 }

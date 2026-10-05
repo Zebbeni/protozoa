@@ -683,3 +683,62 @@ func TestNoCurveGraphIsAConstantLine(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryCurveSettingHasALabel: a curve block builds its sliders from
+// curveSettingTags and names each one with curveSettingLabels[tag], so a
+// tag with no entry draws a working slider with no label at all. Five did
+// — the three burrow settings and the two damage at-zero endpoints — and
+// nothing failed, because a missing map entry is an empty string rather
+// than an error.
+func TestEveryCurveSettingHasALabel(t *testing.T) {
+	seen := map[string]bool{}
+	for curve, tags := range curveSettingTags {
+		for _, tag := range tags {
+			seen[tag] = true
+			if curveSettingLabels[tag] == "" {
+				t.Errorf("%v holds %q with no label, so its slider draws nameless",
+					curve, tag)
+			}
+		}
+	}
+	// And no label left behind for a setting no block holds any more, which
+	// is the other way the two lists drift apart.
+	for tag := range curveSettingLabels {
+		if !seen[tag] {
+			t.Errorf("curveSettingLabels has %q, which no curve block holds", tag)
+		}
+	}
+}
+
+// TestEveryCurveIsRegisteredEverywhere: a curve has to appear in four maps
+// before the screen can draw it, and a missing entry is silent in three of
+// them. Adding the attack cost curve missed curveFieldTags and
+// curveFieldNames, and the symptoms pointed somewhere else entirely — the
+// ATTACK ability lost its graph block, because the block is emitted for an
+// ability's LAST curve and the new curve had become the last one without a
+// curveFieldTags entry to trigger it.
+func TestEveryCurveIsRegisteredEverywhere(t *testing.T) {
+	for _, id := range physiology.AllCurves {
+		if curveShapeTags[id] == "" {
+			t.Errorf("%s has no entry in curveShapeTags", id.Name())
+		}
+		if curveFieldTags[id].last == "" {
+			t.Errorf("%s has no entry in curveFieldTags, so its block emits no "+
+				"sliders and its ability may lose its graph row", id.Name())
+		}
+		names := curveFieldNames[id]
+		if names.shape == "" || names.cosineK == "" || names.saturatingK == "" {
+			t.Errorf("%s has an incomplete entry in curveFieldNames: %+v", id.Name(), names)
+		}
+		// Deliberately not asserting that a curve holds settings: Damage
+		// taken holds none, being a pure multiplier on damage the
+		// ATTACKER's setting defines, so its block is graphs and a shape.
+	}
+	// And the K tags resolve back to a real curve, so a renamed setting
+	// cannot leave an entry pointing at nothing.
+	for tag, kt := range curveKTags {
+		if curveFieldNames[kt.curve].shape == "" {
+			t.Errorf("curveKTags has %q for an unregistered curve", tag)
+		}
+	}
+}

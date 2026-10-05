@@ -2,6 +2,7 @@ package ux
 
 import (
 	"encoding/json"
+	d "github.com/Zebbeni/protozoa/decision"
 	"image/color"
 	"image/png"
 	"os"
@@ -170,14 +171,14 @@ func (s *keyShot) Update() error {
 func (s *keyShot) Draw(screen *ebiten.Image) {
 	fillThemeBackground(screen)
 	if os.Getenv("KEY_CORNER") == "1" {
-		k := colorKeyFor(orgColorTolerance, physiology.AbilityDigging)
+		k := colorKeyFor(orgColorTolerance, physiology.AbilityDigging, d.ActEat)
 		drawColorKey(screen, k, minimapMaxW, config.ScreenHeight()-minimapPadding-minimapMaxH-minimapPadding)
 	} else {
 		if os.Getenv("KEY_ABILITIES") == "1" {
 			// One key per ability, since each now carries its own explanation of what that ability does.
 			bottom := 20
 			for _, a := range physiology.AllAbilities {
-				k := colorKeyFor(orgColorAbility, a)
+				k := colorKeyFor(orgColorAbility, a, d.ActEat)
 				bottom += k.height(minimapMaxW) + 12
 				drawColorKey(screen, k, minimapMaxW, bottom)
 			}
@@ -189,7 +190,7 @@ func (s *keyShot) Draw(screen *ebiten.Image) {
 		}
 		bottom := 20
 		for _, m := range allOrgColorModes {
-			k := colorKeyFor(m, physiology.AbilityDigging)
+			k := colorKeyFor(m, physiology.AbilityDigging, d.ActEat)
 			if k.empty() {
 				continue
 			}

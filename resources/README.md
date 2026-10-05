@@ -73,6 +73,7 @@ single `base` tag for static art:
 | `turn_left` | StatusTurnLeft |
 | `turn_right` | StatusTurnRight |
 | `attack` | StatusAttacking |
+| `attack_success` | StatusAttackMove — an attack that killed and took the victim's cell (pending art) |
 | `eat` | StatusEatSuccess |
 | `eatfail` | StatusEatFailed |
 | `chemo` | StatusChemoSuccess |
@@ -82,9 +83,17 @@ single `base` tag for static art:
 | `spawn` | StatusSpawning (pending) |
 | `base` | Static, paired only with `_static` slices |
 
-The "pending" tags can be authored now; they'll produce PNGs that sit
-unused until `animation.ForStatus` is extended to route those statuses
-to dedicated animations.
+The "pending" tags can be authored now. `spawn` and `dig` produce PNGs
+that sit unused until `animation.ForStatus` routes those statuses to
+dedicated animations. `attack_success` is already routed — until its
+sheets exist each one borrows the matching `attack` sheet, so drawing
+it replaces the borrowed art with no code change.
+
+`attack_success` is a two-cell (`_xl`) tag, and the two cells are the
+one the killer left and the one it took: the frame is anchored at the
+attacker's previous cell, so the art should read as a body moving
+forward into the victim's cell rather than as a strike reaching into
+it, which is what `attack_xl` already shows.
 
 Tags for retired mechanics — `hunker`, `hide`, `circulate` (fimbriae),
 `flare`, `sting` and `burrow` — are skipped by the script with a note

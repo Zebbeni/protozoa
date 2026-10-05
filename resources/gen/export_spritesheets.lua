@@ -343,7 +343,7 @@ local expectedTagActions = {
     "idle", "move", "blocked", "turn_left", "turn_right",
     "attack", "eat", "eatfail", "chemo", "chemofail", "die",
 }
-local pendingTagActions = { "dig", "spawn" }
+local pendingTagActions = { "dig", "spawn", "attack_success" }
 
 -- Retired actions belong to removed mechanics (hunker, hide, fimbriae
 -- currents, flare, sting, burrowing). Their tags are skipped rather than

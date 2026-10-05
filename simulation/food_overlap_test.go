@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
@@ -33,6 +34,16 @@ func TestFoodNeverLandsOnAnOrganism(t *testing.T) {
 
 		curOrg := map[utils.Point]int{}
 		for _, o := range sim.organismManager.Organisms() {
+			// A dying body is excluded: its corpse is dropped at its own
+			// cell in the cycle it dies, while it is still in the
+			// population for its death animation, and a body turning into
+			// food is not food arriving from nowhere. The invariant is
+			// about food materialising inside something ALIVE. It also
+			// keeps the killer, which shares the cell for that one cycle,
+			// as the organism this cell is judged by.
+			if o.Status == organism.StatusDying {
+				continue
+			}
 			curOrg[o.Location] = o.ID
 		}
 		curTotal := map[utils.Point]int{}

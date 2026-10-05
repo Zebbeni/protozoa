@@ -314,6 +314,11 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 			{title: "Health cost per eating attempt (per unit of size)",
 				series: []curveGraphSeries{perSizeMagnitude("attempt", effects.EatCost)}},
 		}
+	case physiology.CurveAttackCost:
+		return []curveGraph{
+			{title: "Health cost per attack (per unit of size)",
+				series: []curveGraphSeries{perSizeMagnitude("attack", effects.AttackCost)}},
+		}
 	case physiology.CurveDiggingCost:
 		return []curveGraph{
 			{title: "Health cost per dig (per unit of size)", series: []curveGraphSeries{perSizeMagnitude("dig", effects.DigCost)}},
@@ -743,7 +748,9 @@ var curveKTags = map[string]struct {
 	"chemo_ph_effect_saturating_k":  {physiology.CurveChemoPhEffect, physiology.ShapeSaturating},
 	"eating_ph_effect_cosine_k":     {physiology.CurveEatingPhEffect, physiology.ShapeCosine},
 	"eating_cost_cosine_k":          {physiology.CurveEatingCost, physiology.ShapeCosine},
+	"attack_cost_cosine_k":          {physiology.CurveAttackCost, physiology.ShapeCosine},
 	"eating_cost_saturating_k":      {physiology.CurveEatingCost, physiology.ShapeSaturating},
+	"attack_cost_saturating_k":      {physiology.CurveAttackCost, physiology.ShapeSaturating},
 	"eating_ph_effect_saturating_k": {physiology.CurveEatingPhEffect, physiology.ShapeSaturating},
 }
 
@@ -858,7 +865,8 @@ var curveSettingTags = map[physiology.CurveID][]string{
 	physiology.CurveDiggingCreate: {"wall_created_small", "wall_created_medium", "wall_created_large",
 		"wall_created_at_zero", "wall_break_multiplier", "wall_break_at_zero", "wall_break_at_max",
 		"burrow_spoil_fraction"},
-	physiology.CurveAttack:         {"health_change_inflicted_by_attack", "attack_damage_at_zero", "health_change_from_attacking"},
+	physiology.CurveAttack:         {"health_change_inflicted_by_attack", "attack_damage_at_zero"},
+	physiology.CurveAttackCost:     {"health_change_from_attacking", "health_change_from_attacking_at_max"},
 	physiology.CurveThorns:         {"health_change_inflicted_by_thorns", "thorns_damage_at_zero"},
 	physiology.CurvePhTolerance:    {"unhealthy_ph_damage", "max_ph_tolerance_width"},
 	physiology.CurveChemoPhEffect:  {"chemo_ph_effect"},
@@ -892,10 +900,16 @@ var curveSettingLabels = map[string]string{
 	"wall_created_medium":                      "raise M",
 	"wall_created_large":                       "raise L",
 	"wall_created_at_zero":                     "raise @0",
-	"wall_break_multiplier":                    "burrow",
-	"health_change_inflicted_by_attack":        "damage",
-	"health_change_from_attacking":             "cost",
-	"health_change_inflicted_by_thorns":        "thorns",
+	"wall_break_multiplier":                    "burrow mult",
+	"wall_break_at_zero":                       "burrow @0",
+	"wall_break_at_max":                        "burrow @max",
+	"burrow_spoil_fraction":                    "spoil kept",
+	"health_change_inflicted_by_attack":        "damage @max",
+	"attack_damage_at_zero":                    "damage @0",
+	"health_change_from_attacking":             "attack @0",
+	"health_change_from_attacking_at_max":      "attack @max",
+	"health_change_inflicted_by_thorns":        "thorns @max",
+	"thorns_damage_at_zero":                    "thorns @0",
 	"unhealthy_ph_damage":                      "pH damage",
 	"max_ph_tolerance_width":                   "max width",
 }
@@ -915,6 +929,7 @@ var curveShapeTags = map[physiology.CurveID]string{
 	physiology.CurveChemoPhEffect:   "chemo_ph_effect_curve_shape",
 	physiology.CurveEatingPhEffect:  "eating_ph_effect_curve_shape",
 	physiology.CurveEatingCost:      "eating_cost_curve_shape",
+	physiology.CurveAttackCost:      "attack_cost_curve_shape",
 }
 
 var curveFieldTags = map[physiology.CurveID]struct{ last string }{
@@ -931,6 +946,7 @@ var curveFieldTags = map[physiology.CurveID]struct{ last string }{
 	physiology.CurveChemoPhEffect:   {"chemo_ph_effect_saturating_k"},
 	physiology.CurveEatingPhEffect:  {"eating_ph_effect_saturating_k"},
 	physiology.CurveEatingCost:      {"eating_cost_saturating_k"},
+	physiology.CurveAttackCost:      {"attack_cost_saturating_k"},
 }
 
 var curveFieldNames = map[physiology.CurveID]struct{ cosineK, saturatingK, shape string }{
@@ -947,6 +963,7 @@ var curveFieldNames = map[physiology.CurveID]struct{ cosineK, saturatingK, shape
 	physiology.CurveChemoPhEffect:   {"ChemoPhEffectCosineK", "ChemoPhEffectSaturatingK", "ChemoPhEffectCurveShape"},
 	physiology.CurveEatingPhEffect:  {"EatingPhEffectCosineK", "EatingPhEffectSaturatingK", "EatingPhEffectCurveShape"},
 	physiology.CurveEatingCost:      {"EatingCostCosineK", "EatingCostSaturatingK", "EatingCostCurveShape"},
+	physiology.CurveAttackCost:      {"AttackCostCosineK", "AttackCostSaturatingK", "AttackCostCurveShape"},
 }
 
 // graphCanvasFor returns a reusable offscreen image at least w × h.

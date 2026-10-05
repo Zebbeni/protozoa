@@ -10,6 +10,13 @@ import (
 func TestBurrowingIsGatedOnSizeAndScore(t *testing.T) {
 	g := digGlobals(t)
 	g.WallBreakMultiplier = 1
+	// The at-zero endpoint is set here rather than taken from the shipped
+	// settings: this is about the ABILITY gating burrowing, which is only
+	// what an at-zero of 0 says. A non-zero one is a legitimate thing to
+	// configure (it means a scoreless organism shoulders through weak
+	// walls), and it would make this test measure the setting instead.
+	g.WallBreakAtZeroDigging = 0
+	g.WallBreakAtMaxDigging = 10
 
 	// Neither alone is enough: a big organism that never invested in Digging gets through nothing at all.
 	if CanBreakWall(g, 0, 100, 1) {
@@ -61,6 +68,8 @@ func TestBurrowingOffByMultiplier(t *testing.T) {
 func TestBurrowingNeverBreaksEvenOnAZeroWall(t *testing.T) {
 	g := digGlobals(t)
 	g.WallBreakMultiplier = 1
+	g.WallBreakAtZeroDigging = 0 // about the ability gating it; see the test above
+	g.WallBreakAtMaxDigging = 10
 
 	if CanBreakWall(g, 0, 1, 0) {
 		t.Error("a 0-score organism broke a 0-strength wall")
@@ -90,6 +99,8 @@ func TestMaxBreakableWallAgreesWithCanBreakWall(t *testing.T) {
 func TestMaxBreakableWallIsZeroWhenNothingBreaks(t *testing.T) {
 	g := digGlobals(t)
 	g.WallBreakMultiplier = 1
+	g.WallBreakAtZeroDigging = 0
+	g.WallBreakAtMaxDigging = 10
 
 	if got := MaxBreakableWall(g, 0, 100); got != 0 {
 		t.Errorf("a Digging score of 0 reports %d, want 0", got)

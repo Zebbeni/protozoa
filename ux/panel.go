@@ -178,6 +178,8 @@ type Panel struct {
 
 	// orgColorBtnRects caches hitboxes for the ORGANISM COLOR radio row (TRUE / PH EFFECT / HEALTH).
 	orgColorBtnRects []orgColorBtnHitbox
+	// actionBtnRects are the ACTION mode's selector buttons.
+	actionBtnRects []actionBtnHitbox
 	// abilityBtnRects caches hitboxes for the ability sub-row.
 	abilityBtnRects []abilityBtnHitbox
 
@@ -384,6 +386,35 @@ var displayToggles = [...]displayToggle{
 		get:   func(g *Grid) bool { return g.showBuriedFood },
 		set:   func(g *Grid, v bool) { g.showBuriedFood = v },
 	},
+}
+
+// colorActionButtons are the actions the ACTION colour mode can show. The
+// pool mutation draws from, minus ActSpawn, which no tree chooses.
+var colorActionButtons = []struct {
+	label  string
+	action d.Action
+}{
+	{"CHEMO", d.ActChemosynthesis},
+	{"EAT", d.ActEat},
+	{"DIG", d.ActDig},
+	{"MOVE", d.ActMove},
+	{"LEFT", d.ActTurnLeft},
+	{"RIGHT", d.ActTurnRight},
+	{"ATTACK", d.ActAttack},
+	{"IDLE", d.ActIdle},
+}
+
+// actionRows splits them like the colour and ability rows, for the same
+// reason: eight across leaves each label too narrow to read.
+const actionRows = 2
+
+func actionRowSplit(i int) (row, idxInRow, countInRow int) {
+	return buttonRowSplit(i, len(colorActionButtons), actionRows)
+}
+
+type actionBtnHitbox struct {
+	x, y, w, h int
+	action     d.Action
 }
 
 var orgColorButtons = [...]struct {
@@ -647,6 +678,40 @@ func drawRowLabel(panelImage *ebiten.Image, label string, y int) {
 	text.Draw(panelImage, label, r.FontSourceCodePro12, sectionRowX, ty, themedForeground())
 }
 
+// groupBracketGap is the space between the bracket and the buttons it marks,
+// and between the bracket and its label.
+const (
+	groupBracketGap  = 5
+	groupBracketTick = 4
+)
+
+// drawGroupBracket marks a run of button rows with a bracket and a name, for
+// the sub-groups of the ORGANISM COLOR section.
+//
+// The rows are in the same column as the colour modes above them and are
+// read the same way, so without this they look like more colour modes. The
+// bracket says where one group ends and the next begins, which a label on
+// its own would not — the ability and action groups are adjacent and the
+// same shape.
+//
+// top is the first row's y and bottom is the last row's y PLUS its height,
+// so the bracket spans what it marks rather than stopping at the last row's
+// baseline.
+func drawGroupBracket(panelImage *ebiten.Image, label string, top, bottom int) {
+	ink := themedMuted()
+	x := float64(sectionBtnsX - groupBracketGap)
+	ebitenutil.DrawRect(panelImage, x, float64(top), 1, float64(bottom-top), ink)
+	// Ticks turn in toward the buttons, so the bracket reads as holding them
+	// rather than as a divider between columns.
+	ebitenutil.DrawRect(panelImage, x, float64(top), groupBracketTick, 1, ink)
+	ebitenutil.DrawRect(panelImage, x, float64(bottom-1), groupBracketTick, 1, ink)
+
+	bounds := boundString(r.FontSourceCodePro10, label)
+	tx := sectionBtnsX - groupBracketGap - groupBracketGap - bounds.Dx()
+	ty := top + (bottom-top)/2 + bounds.Dy()/2
+	text.Draw(panelImage, label, r.FontSourceCodePro10, tx, ty, ink)
+}
+
 // renderMode paints the MODE row: a label plus DARK / LIGHT theme buttons sharing the row to its right.
 func (p *Panel) renderMode(panelImage *ebiten.Image, yOff int) {
 	y := modeYOffset + yOff
@@ -756,42 +821,112 @@ var abilityButtonLabels = map[physiology.Ability]string{
 	physiology.AbilityTolerance:      "PH TOL",
 }
 
+// orgColorRows is how many rows the colour modes are laid out over.
+//
+// Eight buttons in one row left each about 30px for labels like "TOLERANCE"
+// and "PH EFFECT", which is not enough to read; over two rows each is twice
+// as wide. The row a button lands in is its index, so the first row is the
+// four most-used modes in declaration order rather than an arbitrary split.
+const orgColorRows = 2
+
+// buttonRowSplit places the i-th of total buttons across rows, the earlier
+// rows filling up first so a short final row is the one that stretches.
+func buttonRowSplit(i, total, rows int) (row, idxInRow, countInRow int) {
+	perRow := (total + rows - 1) / rows
+	row = i / perRow
+	idxInRow = i - row*perRow
+	countInRow = perRow
+	if last := total - row*perRow; last < perRow {
+		countInRow = last
+	}
+	return row, idxInRow, countInRow
+}
+
+func orgColorRowSplit(i int) (row, idxInRow, countInRow int) {
+	return buttonRowSplit(i, len(orgColorButtons), orgColorRows)
+}
+
+// abilityRows splits the seven ability buttons the same way, for the same
+// reason: at seven across, ATTACK, DEFENSE and PH TOL were drawn clipped.
+const abilityRows = 2
+
+func abilityRowSplit(i int) (row, idxInRow, countInRow int) {
+	return buttonRowSplit(i, len(physiology.AllAbilities), abilityRows)
+}
+
 func (p *Panel) renderOrgColor(panelImage *ebiten.Image, yOff int) int {
 	y := orgColorYOffset + yOff
 	drawRowLabel(panelImage, "ORGANISM COLOR", y)
 
 	rects := make([]orgColorBtnHitbox, 0, len(orgColorButtons))
 	for i, b := range orgColorButtons {
-		x, w := sectionRowButtonRect(i, len(orgColorButtons))
+		row, idxInRow, countInRow := orgColorRowSplit(i)
+		x, w := sectionRowButtonRect(idxInRow, countInRow)
+		by := y + row*sectionRowPitch
 		active := p.grid.orgColor == b.color
-		drawGraphButton(panelImage, x, y, w, sectionRowHeight, b.label, active)
+		drawGraphButton(panelImage, x, by, w, sectionRowHeight, b.label, active)
 		rects = append(rects, orgColorBtnHitbox{
-			x: x, y: y, w: w, h: sectionRowHeight, color: b.color,
+			x: x, y: by, w: w, h: sectionRowHeight, color: b.color,
 		})
 	}
 	p.orgColorBtnRects = rects
 
-	// The ability buttons stay visible whatever the colour mode.
-	abilityY := y + sectionRowPitch
+	// The ability buttons stay visible whatever the colour mode, below the
+	// colour rows.
+	abilityY := y + orgColorRows*sectionRowPitch
 	abilityRects := make([]abilityBtnHitbox, 0, len(physiology.AllAbilities))
 	for i, a := range physiology.AllAbilities {
-		x, w := sectionRowButtonRect(i, len(physiology.AllAbilities))
+		row, idxInRow, countInRow := abilityRowSplit(i)
+		x, w := sectionRowButtonRect(idxInRow, countInRow)
+		by := abilityY + row*sectionRowPitch
 		label, ok := abilityButtonLabels[a]
 		if !ok {
 			label = strings.ToUpper(a.Name())
 		}
 		active := p.grid.orgColor == orgColorAbility && p.grid.colorAbility == a
-		drawGraphButton(panelImage, x, abilityY, w, sectionRowHeight, label, active)
+		drawGraphButton(panelImage, x, by, w, sectionRowHeight, label, active)
 		abilityRects = append(abilityRects, abilityBtnHitbox{
-			x: x, y: abilityY, w: w, h: sectionRowHeight, ability: a,
+			x: x, y: by, w: w, h: sectionRowHeight, ability: a,
 		})
 	}
 	p.abilityBtnRects = abilityRects
-	return sectionRowPitch
+	drawGroupBracket(panelImage, "ability", abilityY,
+		abilityY+(abilityRows-1)*sectionRowPitch+sectionRowHeight)
+
+	// The action buttons, which are both the ACTION mode's selector and the
+	// only way into it — the same arrangement the ability row has.
+	actionY := abilityY + abilityRows*sectionRowPitch
+	actionRects := make([]actionBtnHitbox, 0, len(colorActionButtons))
+	for i, b := range colorActionButtons {
+		row, idxInRow, countInRow := actionRowSplit(i)
+		x, w := sectionRowButtonRect(idxInRow, countInRow)
+		by := actionY + row*sectionRowPitch
+		active := p.grid.orgColor == orgColorAction && p.grid.colorAction == b.action
+		drawGraphButton(panelImage, x, by, w, sectionRowHeight, b.label, active)
+		actionRects = append(actionRects, actionBtnHitbox{
+			x: x, y: by, w: w, h: sectionRowHeight, action: b.action,
+		})
+	}
+	p.actionBtnRects = actionRects
+	drawGroupBracket(panelImage, "action", actionY,
+		actionY+(actionRows-1)*sectionRowPitch+sectionRowHeight)
+
+	// Every row this section draws, so what follows is placed under it.
+	return (orgColorRows + abilityRows + actionRows - 1) * sectionRowPitch
 }
 
 // handleOrgColorButtonClick sets the active organism colour mode, or the ability the ABILITY mode colours by.
 func (p *Panel) handleOrgColorButtonClick(mx, my int) bool {
+	for _, r := range p.actionBtnRects {
+		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			// Picking an action is also how the ACTION mode is chosen; the
+			// ORGANISM COLOR row has no button for it.
+			p.grid.orgColor = orgColorAction
+			p.grid.colorAction = r.action
+			p.grid.doRefresh = true
+			return true
+		}
+	}
 	for _, r := range p.abilityBtnRects {
 		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
 			// Picking an ability is also how the ability colour mode is chosen; the ORGANISM COLOR row has no button for it.
@@ -1618,8 +1753,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 
 	// The info block is the taller of the stats column, the abilities column and the portrait.
 	blockY := infoY + tabStripHeight + infoTabsGap
-	statsBottom := max(blockY+portraitSize+healthBarGap+healthBarH,
-		blockY+infoBlockHeight())
+	statsBottom := max(blockY+portraitColumnHeight(), blockY+infoBlockHeight())
 
 	if info == nil || decisionTree == nil {
 		// We have a selection but no stats to show.
@@ -1659,7 +1793,9 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	p.renderInfoTabs(panelImage, infoY)
 	p.renderPortrait(panelImage, info, dim, selectedPortraitX, blockY)
 	drawPortraitHealth(panelImage, info.Health, info.Size, dim, selectedPortraitX, blockY)
-	drawHealthBar(panelImage, info.Health, info.Size, dim, selectedPortraitX, blockY+portraitSize+healthBarGap)
+	barY := blockY + portraitSize + healthBarGap
+	drawHealthBar(panelImage, info.Health, info.Size, dim, selectedPortraitX, barY)
+	drawHealthLedger(panelImage, info.HealthLedger, dim, selectedPortraitX, barY+healthBarH, portraitSize)
 
 	// Whichever tab is up, level with the top of the portrait.
 	p.renderInfoBlock(panelImage, info, traits, dim, blockY)

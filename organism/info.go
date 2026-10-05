@@ -37,6 +37,10 @@ type Info struct {
 	Abilities physiology.Scores
 	// Appearance is the derived sprite composition — body silhouette plus motor / mouth / sensor overlays.
 	Appearance physiology.Appearance
+	// ActionWeights is each action's share of the decision tree, indexed by the action's code. Shared read-only; never written through.
+	ActionWeights []float64
+	// HealthLedger is the most recent resolved cycle's health changes by source.
+	HealthLedger HealthLedger
 	// LineageEndCycle is the latest death in this organism's line of descent, or 0 if a descendant survives to the end of the recorded run (always 0 in a live run).
 	LineageEndCycle int
 }

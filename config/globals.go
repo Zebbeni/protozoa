@@ -12,12 +12,23 @@ var defaultFilePath = "settings/default.json"
 var constants *Globals
 
 func SetGlobals(g *Globals) {
+	g.Repair()
+	constants = g
+}
+
+// Repair fills in what a settings file or replay header may be missing and
+// normalises the signs, so a configuration decoded from JSON means the same
+// thing whenever it was written.
+//
+// Exported because loading a settings file into the New Simulation screen
+// has to apply it without installing the result as the active globals.
+func (g *Globals) Repair() {
 	g.NormalizeSigns()
+	g.repairSpawnShare()
 	g.repairWallBreak()
 	g.repairDecisionNodes()
 	g.repairMutationWeights()
 	g.repairChemoPhWidth()
-	constants = g
 }
 
 // settingSigns lists the settings that only make sense on one side of zero.
@@ -78,7 +89,35 @@ var DefaultDisabledNodes = []string{
 }
 
 // DefaultMaxChemosynthesisPhWidth is the band the simulation had before the setting existed: the curve multiplier alone, which tops out at 1. Multiplying by exactly 1.0 is bit-identical, so a repaired file runs the world it recorded.
+// The share of its spawn threshold a parent may give a child is held inside
+// these, because both ends are degenerate rather than extreme.
+//
+// At 1 the parent hands over everything it had to reach and dies spawning,
+// which is the failure max_spawn_health_percent exists to prevent — and a
+// share near 1 is the same failure scaled down, so the ceiling leaves a
+// tenth rather than an epsilon. At 0 a child is born with no health at all.
+//
+// The floor also bounds how high spawnThresholdFloor can push the spawn
+// threshold, since that is min_spawn_health divided by this.
+const (
+	MinSpawnHealthShare = 0.01
+	MaxSpawnHealthShare = 0.9
+)
+
 const DefaultMaxChemosynthesisPhWidth = 1.0
+
+// repairSpawnShare holds the spawn share inside its bounds. Unlike the other
+// repairs this clamps a value that was SET rather than filling in one that
+// was absent, because both ends of the range are degenerate: a file naming 1
+// is asking for the organism that dies spawning.
+func (g *Globals) repairSpawnShare() {
+	if g.MaxSpawnHealthPercent > MaxSpawnHealthShare {
+		g.MaxSpawnHealthPercent = MaxSpawnHealthShare
+	}
+	if g.MaxSpawnHealthPercent < MinSpawnHealthShare {
+		g.MaxSpawnHealthPercent = MinSpawnHealthShare
+	}
+}
 
 func (g *Globals) repairChemoPhWidth() {
 	if g.MaxChemosynthesisPhWidth == 0 {
@@ -145,6 +184,15 @@ func MaxInitialBuriedValue() int   { return constants.MaxInitialBuriedValue }
 func BurialInterval() int          { return constants.BurialInterval }
 func MaxFoodValue() int            { return constants.MaxFoodValue }
 
+// MaxBuriedFoodValue is the per-cell ceiling on the buried layer, falling
+// back to MaxFoodValue for a settings file written before it existed.
+func MaxBuriedFoodValue() int {
+	if constants.MaxBuriedFoodValue <= 0 {
+		return constants.MaxFoodValue
+	}
+	return constants.MaxBuriedFoodValue
+}
+
 // The pH scale is fixed rather than configurable.
 const (
 	minPh = 0.0
@@ -165,6 +213,10 @@ func IdealPhMutationStep() float64 { return constants.IdealPhMutationStep }
 func MaxPhToleranceWidth() float64 { return constants.MaxPhToleranceWidth }
 
 func MaxChemosynthesisPhWidth() float64 { return constants.MaxChemosynthesisPhWidth }
+
+func ChemoCrowdingPenalty() float64 { return constants.ChemoCrowdingPenalty }
+
+func AttackHealthGain() float64 { return constants.AttackHealthGain }
 
 func ChemoPhEffect() float64        { return constants.ChemoPhEffect }
 func EatingPhEffect() float64       { return constants.EatingPhEffect }
@@ -199,19 +251,21 @@ func MutationWeightSwapCondition() float64 { return constants.MutationWeightSwap
 func MutationWeightPruneBranch() float64   { return constants.MutationWeightPruneBranch }
 
 // DisabledDecisionNodes is the set of node types mutation may not pick.
-func DisabledDecisionNodes() []string    { return constants.DisabledDecisionNodes }
-func MaxOrganisms() int                  { return constants.MaxOrganisms }
-func GrowthFactor() float64              { return constants.GrowthFactor }
-func EatingGrowthFactor() float64        { return constants.EatingGrowthFactor }
-func MaximumMaxSize() float64            { return constants.MaximumMaxSize }
-func MinimumMaxSize() float64            { return constants.MinimumMaxSize }
-func MaximumInitialSize() float64        { return constants.MaximumInitialSize }
-func MaximumInitialSpawnHealth() float64 { return constants.MaximumInitialSpawnHealth }
-func MaxCyclesBetweenSpawns() int        { return constants.MaxCyclesBetweenSpawns }
-func MaxInitialCyclesBetweenSpawns() int { return constants.MaxInitialCyclesBetweenSpawns }
-func MinSpawnHealth() float64            { return constants.MinSpawnHealth }
-func MaxSpawnHealthPercent() float64     { return constants.MaxSpawnHealthPercent }
-func MaxLifespan() int                   { return constants.MaxLifespan }
+func DisabledDecisionNodes() []string { return constants.DisabledDecisionNodes }
+func MaxOrganisms() int               { return constants.MaxOrganisms }
+func GrowthFactor() float64           { return constants.GrowthFactor }
+func EatingGrowthFactor() float64     { return constants.EatingGrowthFactor }
+func MaximumMaxSize() float64         { return constants.MaximumMaxSize }
+func MinimumMaxSize() float64         { return constants.MinimumMaxSize }
+func MaximumInitialSize() float64     { return constants.MaximumInitialSize }
+
+func InitialOrganismSizeFraction() float64 { return constants.InitialOrganismSizeFraction }
+func MaximumInitialSpawnHealth() float64   { return constants.MaximumInitialSpawnHealth }
+func MaxCyclesBetweenSpawns() int          { return constants.MaxCyclesBetweenSpawns }
+func MaxInitialCyclesBetweenSpawns() int   { return constants.MaxInitialCyclesBetweenSpawns }
+func MinSpawnHealth() float64              { return constants.MinSpawnHealth }
+func MaxSpawnHealthPercent() float64       { return constants.MaxSpawnHealthPercent }
+func MaxLifespan() int                     { return constants.MaxLifespan }
 
 func InitialDecisionTreeMutations() int   { return constants.InitialDecisionTreeMutations }
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
@@ -229,8 +283,11 @@ func HealthChangeFromEatingAttempt() float64 { return constants.HealthChangeFrom
 func HealthChangeFromEatingAttemptAtMax() float64 {
 	return constants.HealthChangeFromEatingAttemptAtMax
 }
-func HealthChangeFromSpawning() float64    { return constants.HealthChangeFromSpawning }
-func HealthChangeFromAttacking() float64   { return constants.HealthChangeFromAttacking }
+func HealthChangeFromSpawning() float64  { return constants.HealthChangeFromSpawning }
+func HealthChangeFromAttacking() float64 { return constants.HealthChangeFromAttacking }
+func HealthChangeFromAttackingAtMax() float64 {
+	return constants.HealthChangeFromAttackingAtMax
+}
 func HealthChangeFromDigging() float64     { return constants.HealthChangeFromDigging }
 func HealthChangeFromBlockedMove() float64 { return constants.HealthChangeFromBlockedMove }
 
@@ -268,6 +325,8 @@ const (
 	PhColorSchemeGreenPink  = "green-pink"
 	PhColorSchemeBlueOrange = "blue-orange"
 )
+
+func PhSmoothing() bool { return constants.PhSmoothing }
 
 func PhColorScheme() string {
 	switch constants.PhColorScheme {
@@ -350,6 +409,8 @@ type Globals struct {
 	ScreenHeight  int    `json:"screen_height"`
 	Theme         string `json:"theme"`
 	PhColorScheme string `json:"ph_color_scheme"`
+	// Whether the pH layer is blended across cell boundaries when it is enlarged. Off draws every cell as one flat colour, which is what the simulation actually holds.
+	PhSmoothing bool `json:"ph_smoothing"`
 
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`
@@ -365,6 +426,8 @@ type Globals struct {
 	MinInitialBuriedValue int `json:"min_initial_buried_value"`
 	MaxInitialBuriedValue int `json:"max_initial_buried_value"`
 	MaxFoodValue          int `json:"max_food_value"`
+	// The most that can sit buried under one cell. Separate from MaxFoodValue so the ground can hold far more than the surface, which is what lets a world bank potential energy underground. 0 falls back to MaxFoodValue.
+	MaxBuriedFoodValue int `json:"max_buried_food_value"`
 
 	// --- pH --- IdealPhRange is how wide a band of ideal pH values lineages can evolve across, centred on the middle of the pH scale.
 	IdealPhRange float64 `json:"ideal_ph_range"`
@@ -375,6 +438,13 @@ type Globals struct {
 
 	// The pH offset an organism at full Chemosynthesis can still gain health at; lower scores reach less of it along the chemosynthesis curve. 0 is not settable — max_chemosynthesis_gain 0 is what switches chemosynthesis off.
 	MaxChemosynthesisPhWidth float64 `json:"max_chemosynthesis_ph_width"`
+
+	// How much a chemosynthesising neighbour takes off the share of a chemosynthesis gain that comes from its cell. 0.5 halves that cell's contribution; 0 switches crowding off.
+	ChemoCrowdingPenalty float64 `json:"chemo_crowding_penalty"`
+
+	// The share of the health an attack actually removes that the attacker gains. 0 means a kill pays only in the corpse it leaves, which whoever eats it collects.
+	AttackHealthGain float64 `json:"attack_health_gain"`
+
 	// ChemoPhEffect and EatingPhEffect are how much pH an action moves **at full score**, scaled from there by CurveChemoPhEffect / CurveEatingPhEffect.
 	ChemoPhEffect        float64 `json:"chemo_ph_effect"`
 	EatingPhEffect       float64 `json:"eating_ph_effect"`
@@ -400,10 +470,12 @@ type Globals struct {
 	// HealthPerFoodUnit is the health one unit of food is worth to whoever eats it.
 	HealthPerFoodUnit float64 `json:"health_per_food_unit"`
 	// EatingGrowthFactor is the share of health gained from eating, beyond an organism's current size, that turns into growth.
-	EatingGrowthFactor            float64 `json:"eating_growth_factor"`
-	MaximumMaxSize                float64 `json:"maximum_max_size"`
-	MinimumMaxSize                float64 `json:"minimum_max_size"`
-	MaximumInitialSize            float64 `json:"maximum_initial_size"`
+	EatingGrowthFactor float64 `json:"eating_growth_factor"`
+	MaximumMaxSize     float64 `json:"maximum_max_size"`
+	MinimumMaxSize     float64 `json:"minimum_max_size"`
+	MaximumInitialSize float64 `json:"maximum_initial_size"`
+	// The size and health an INITIAL organism starts at, as a fraction of its own max size. 0 starts it at its spawn health, which is what founders did before this existed, and 1 starts it full grown and able to reproduce at once.
+	InitialOrganismSizeFraction   float64 `json:"initial_organism_size_fraction"`
 	MaximumInitialSpawnHealth     float64 `json:"maximum_initial_spawn_health"`
 	MaxCyclesBetweenSpawns        int     `json:"max_cycles_between_spawns"`
 	MaxInitialCyclesBetweenSpawns int     `json:"max_initial_cycles_between_spawns"`
@@ -430,7 +502,9 @@ type Globals struct {
 	HealthChangeFromEatingAttemptAtMax float64 `json:"health_change_from_eating_attempt_at_max"`
 	HealthChangeFromSpawning           float64 `json:"health_change_from_spawning"`
 	HealthChangeFromAttacking          float64 `json:"health_change_from_attacking"`
-	HealthChangeFromDigging            float64 `json:"health_change_from_digging"`
+	// The attack cost at a full Attack score, carried from HealthChangeFromAttacking along the attack cost curve. Equal ends make the curve inert, which is the flat cost attacking had before.
+	HealthChangeFromAttackingAtMax float64 `json:"health_change_from_attacking_at_max"`
+	HealthChangeFromDigging        float64 `json:"health_change_from_digging"`
 	// HealthChangeFromBlockedMove is charged on top of the move cost, per unit of size, when an organism walks into something that was already there.
 	HealthChangeFromBlockedMove float64 `json:"health_change_from_blocked_move"`
 	// AttackDamageAtFullAttack is the damage an attacker with 100 Attack deals per unit of its size, before the target's Defense.
@@ -489,8 +563,10 @@ type Globals struct {
 	ChemoPhEffectSaturatingK   float64 `json:"chemo_ph_effect_saturating_k"`
 	EatingPhEffectCosineK      float64 `json:"eating_ph_effect_cosine_k"`
 	EatingCostCosineK          float64 `json:"eating_cost_cosine_k"`
+	AttackCostCosineK          float64 `json:"attack_cost_cosine_k"`
 	EatingPhEffectSaturatingK  float64 `json:"eating_ph_effect_saturating_k"`
 	EatingCostSaturatingK      float64 `json:"eating_cost_saturating_k"`
+	AttackCostSaturatingK      float64 `json:"attack_cost_saturating_k"`
 
 	ChemosynthesisCurveShape  string `json:"chemosynthesis_curve_shape"`
 	EatingCurveShape          string `json:"eating_curve_shape"`
@@ -505,6 +581,7 @@ type Globals struct {
 	ChemoPhEffectCurveShape   string `json:"chemo_ph_effect_curve_shape"`
 	EatingPhEffectCurveShape  string `json:"eating_ph_effect_curve_shape"`
 	EatingCostCurveShape      string `json:"eating_cost_curve_shape"`
+	AttackCostCurveShape      string `json:"attack_cost_curve_shape"`
 
 	// --- Physiology --- ChanceToGainFeature is the per-spawn probability that a child gains one new physiological feature (drawn uniformly at random from those whose prerequisites the parent already meets).
 	WallCreatedSmall  int `json:"wall_created_small"`

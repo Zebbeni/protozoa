@@ -207,6 +207,7 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		Status:                 uint8(o.Status),
 		AttackTotal:            uint32(o.AttackTotal),
 		AttackHits:             uint32(o.AttackHits),
+		KilledBy:               killedByRecord(o.KilledBy),
 		PhPositive:             o.PhPositive,
 		PhNegative:             o.PhNegative,
 		Abilities:              captureAbilities(traits.Abilities),
@@ -243,4 +244,13 @@ func captureAbilities(s physiology.Scores) checkpoint.AbilityScores {
 		out[a] = uint8(s[a])
 	}
 	return out
+}
+
+// killedByRecord stores a killer's ID plus one, so 0 means nobody and a
+// snapshot written before the field existed decodes to that.
+func killedByRecord(id int) uint32 {
+	if id < 0 {
+		return 0
+	}
+	return uint32(id + 1)
 }

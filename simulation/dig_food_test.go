@@ -32,6 +32,14 @@ func TestDiggingCannotCreateFood(t *testing.T) {
 	for _, yield := range []int{0, 3, 20} {
 		g := digFoodGlobals(t)
 		g.InitialFood = 0
+		// "Nothing buried" is the premise, and the shipped settings seed the
+		// ground, so digging would be recovering food exactly as it should.
+		g.InitialBuriedFood = 0
+		// The other two ways food enters a world, switched off so what is
+		// counted is digging. A corpse is food an organism left behind, and
+		// it would be counted here as food digging created.
+		g.CorpseFoodMultiplier = 0
+		g.ChanceToAddFoodItem = 0
 		g.FoodFromDiggingSmall, g.FoodFromDiggingMedium, g.FoodFromDiggingLarge = yield, yield, yield
 		g.FoodFromDiggingAtZero = yield
 		config.SetGlobals(g)

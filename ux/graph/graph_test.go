@@ -11,6 +11,7 @@ import (
 
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	s "github.com/Zebbeni/protozoa/simulation"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 	"github.com/Zebbeni/protozoa/ux/graph/population"
@@ -471,5 +472,187 @@ func TestStalePrewarmIsDropped(t *testing.T) {
 
 	if _, ok := g.popCache[pc]; ok {
 		t.Error("a prewarm from before an invalidation was filed anyway")
+	}
+}
+
+// TestSwitchingAwayDuringAPrewarmStillCaches is the reported fault: clicking
+// a new colouring while a speculative render is in flight loses the one being
+// left, so coming back to it costs a full redraw even though it was cached a
+// moment ago.
+//
+// The guard that caused it is right for a REAL render — that one was handed
+// the displayed renderers and a goroutine is writing to them — and wrong for
+// a prewarm, which builds its own. beginRender records the displayed colour
+// either way, so a prewarm marked the displayed colouring as in flight when
+// nothing of its was.
+func TestSwitchingAwayDuringAPrewarmStillCaches(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popLineage,
+	}
+
+	// A prewarm of some OTHER colouring is in flight. It holds the rendering
+	// flag, and beginRender recorded the displayed colour.
+	g.rendering = true
+	g.prewarming = true
+	g.renderingPopColor = g.popColor
+
+	g.SetPopulationColor(popByAbility)
+
+	if _, ok := g.popCache[popLineage]; !ok {
+		t.Error("the colouring being left was not cached, so returning to it " +
+			"will redraw from scratch; a prewarm does not touch its renderers")
+	}
+}
+
+// TestSwitchingAwayDuringARealRenderDoesNotCache is the other half, and the
+// reason the guard exists: a real render WAS handed the displayed renderers,
+// so filing them away hands out something a goroutine is still writing to.
+func TestSwitchingAwayDuringARealRenderDoesNotCache(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popLineage,
+	}
+	g.rendering = true
+	g.prewarming = false
+	g.renderingPopColor = g.popColor
+
+	g.SetPopulationColor(popByAbility)
+
+	if _, ok := g.popCache[popLineage]; ok {
+		t.Error("renderers a live render is writing to were filed into the cache")
+	}
+}
+
+// stubRenderer stands in for a population renderer: these tests are about
+// which renderer object ends up where, never about pixels.
+type stubRenderer struct{ id int }
+
+func (stubRenderer) Render(*s.Simulation, int, int, *gh.Progress) *ebiten.Image { return nil }
+func (stubRenderer) Reset()                                                     {}
+
+var (
+	popLineage   = PopulationColor{}
+	popByAbility = PopulationColor{ByAbility: true, Ability: physiology.AbilityDigging}
+)
+
+// TestSwitchingToTheColouringBeingPrewarmedAdoptsIt: clicking the colouring a
+// speculative render is ALREADY drawing used to discard it — renderGen was
+// bumped, which drops the result when it lands, and a second render of the
+// same thing was queued behind it. The user waited for the prewarm to finish,
+// watched it be thrown away, then waited again for an identical render.
+//
+// The work in flight is exactly what was asked for, so it is adopted.
+func TestSwitchingToTheColouringBeingPrewarmedAdoptsIt(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popLineage,
+	}
+	g.rendering = true
+	g.prewarming = true
+	g.prewarmColor = popByAbility
+	g.renderingPopColor = g.popColor
+	gen := g.renderGen
+
+	g.SetPopulationColor(popByAbility)
+
+	if g.renderGen != gen {
+		t.Errorf("renderGen moved from %d to %d, which drops the prewarm that was "+
+			"drawing exactly this colouring", gen, g.renderGen)
+	}
+	if g.forceRender {
+		t.Error("a second render was queued for a colouring already being drawn")
+	}
+	if !g.adoptPrewarm {
+		t.Error("the in-flight prewarm was not adopted")
+	}
+	// The colouring being left is still cached, as in the test above.
+	if _, ok := g.popCache[popLineage]; !ok {
+		t.Error("the colouring being left was not cached")
+	}
+}
+
+// TestSwitchingToAnUnrelatedColourStillRedraws: adoption applies only when
+// the in-flight prewarm is for the colouring being asked for.
+func TestSwitchingToAnUnrelatedColourStillRedraws(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popLineage,
+	}
+	g.rendering = true
+	g.prewarming = true
+	g.prewarmColor = PopulationColor{ByAbility: true, Ability: physiology.AbilityEating}
+	gen := g.renderGen
+
+	g.SetPopulationColor(popByAbility)
+
+	if g.renderGen == gen {
+		t.Error("switching to a colouring nothing is drawing should start a render")
+	}
+	if g.adoptPrewarm {
+		t.Error("a prewarm for a different colouring was adopted")
+	}
+}
+
+// TestAnAdoptedPrewarmGoesOnScreen is the other end of adoption: the result
+// is the render the user is waiting on, so it must be installed rather than
+// filed into the cache and left invisible.
+func TestAnAdoptedPrewarmGoesOnScreen(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{id: 1}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popByAbility,
+	}
+	drawn := stubRenderer{id: 2}
+	g.pendingPrewarm.Store(&prewarmRenderers{pc: popByAbility, renderer: drawn})
+
+	g.installPrewarm(renderResult{prewarm: popByAbility, barCount: 42})
+
+	if got := g.renderers[ModePopulation]; got != Renderer(drawn) {
+		t.Errorf("the displayed renderer is %v, want the one the prewarm drew with", got)
+	}
+	if g.currentBarCount != 42 {
+		t.Errorf("bar count is %d, want the adopted render's 42", g.currentBarCount)
+	}
+}
+
+// TestAnAdoptedPrewarmWithoutItsRenderersRedraws: the renderers come back
+// through an atomic handoff, and a result whose handoff did not arrive has
+// nothing to install — falling through would leave the old colouring's
+// renderer on screen under the new colouring's name.
+func TestAnAdoptedPrewarmWithoutItsRenderersRedraws(t *testing.T) {
+	g := &Graph{
+		popCache:     map[PopulationColor]popRender{},
+		renderers:    map[Mode]Renderer{ModePopulation: stubRenderer{id: 1}},
+		selRenderers: map[Mode]Renderer{},
+		images:       map[Mode]*ebiten.Image{},
+		selImages:    map[Mode]*ebiten.Image{},
+		popColor:     popByAbility,
+	}
+	gen := g.renderGen
+
+	g.installPrewarm(renderResult{prewarm: popByAbility, barCount: 42})
+
+	if g.renderGen == gen || !g.forceRender {
+		t.Error("with no renderers handed back, the colouring should be redrawn")
 	}
 }

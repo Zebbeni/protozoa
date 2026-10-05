@@ -166,8 +166,13 @@ func TestDesignedOrganismMatchesItsDesign(t *testing.T) {
 	if o.Appearance() != physiology.AppearanceFor(want, o.GetDecisionTreeCopy()) {
 		t.Error("a designed organism's appearance should be derived from its scores and tree, like any other")
 	}
-	if o.Health != o.Traits().SpawnHealth {
-		t.Errorf("starts with %v health, want its design's spawn health %v", o.Health, o.Traits().SpawnHealth)
+	// initialSize, not SpawnHealth: initial_organism_size_fraction starts
+	// FOUNDERS at a share of their max size, and a designed organism is a
+	// founder. At a fraction of 0 the two are the same number, which is
+	// what this asserted before the setting existed.
+	if o.Health != initialSize(o.Traits()) {
+		t.Errorf("starts with %v health, want the founder start %v for its design",
+			o.Health, initialSize(o.Traits()))
 	}
 }
 

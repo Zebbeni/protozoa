@@ -66,6 +66,8 @@ type OrganismRecord struct {
 	// Lifetime attack counters used by the "MOST AGGRESSIVE" highlight and the "Attacks: hits/total" display.
 	AttackTotal uint32
 	AttackHits  uint32
+	// KilledBy is the killer's ID PLUS ONE, so a file written before this decodes 0 and means nobody.
+	KilledBy uint32
 
 	Abilities AbilityScores
 }

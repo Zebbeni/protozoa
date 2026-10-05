@@ -13,6 +13,15 @@ import (
 func permTestEnv(t *testing.T, strength int) (*EnvironmentManager, utils.Point, utils.Point) {
 	t.Helper()
 	loadDefaultGlobals(t)
+	// The linear ramp, set rather than read: these tests are about how
+	// permeability varies WITH STRENGTH, and the exponent is a separate
+	// knob whose whole point is to change that. A shipped exponent under 1
+	// makes even a strength-1 wall a real barrier, which would fail the
+	// weak-wall test for the exponent's reason rather than the formula's.
+	pg := c.GetCurrentGlobals()
+	pg.WallPhBlockAtMax = 1
+	pg.WallPhBlockCurve = 1
+	c.SetGlobals(pg)
 
 	const left, mid, right = 5, 6, 7
 	stub := wallEnvStub{
@@ -44,6 +53,10 @@ func phAcross(m *EnvironmentManager, probe utils.Point, cycles int) float64 {
 	return math.Abs(m.GetPhAtPoint(probe) - 5)
 }
 
+// TestWeakWallsBarelySlowDiffusion is about the LINEAR ramp, so it sets the
+// curve rather than reading it: an exponent under 1 makes even a flimsy wall
+// a real barrier, which is what that setting is for and would fail this for
+// the setting's own reason.
 func TestWeakWallsBarelySlowDiffusion(t *testing.T) {
 	open, _, openProbe := permTestEnv(t, 0)
 	weak, _, weakProbe := permTestEnv(t, 1)
@@ -131,21 +144,28 @@ func phAcrossTuned(t *testing.T, strength int, atMax, curve float64, cycles int)
 	return phAcross(m, probe, cycles)
 }
 
-func TestWallBlockDefaultsKeepTheLinearRamp(t *testing.T) {
+// TestOneOneIsTheLinearRamp pins the compatibility claim: at
+// wall_ph_block_at_max 1 and wall_ph_block_curve 1, a wall of strength s
+// passes exactly 1 - s/MaxWallStrength of the diffusion — the plain linear
+// ramp to a full seal that the permeability work shipped with, so a settings
+// file or replay header written before those knobs existed means what it
+// meant.
+//
+// Against the FORMULA rather than against the shipped defaults, which no
+// longer carry 1/1: the claim is about what those two values do, and tying
+// it to whatever the defaults happen to be made a balance change fail a
+// compatibility test.
+func TestOneOneIsTheLinearRamp(t *testing.T) {
 	loadDefaultGlobals(t)
 	g := c.GetCurrentGlobals()
-	if g.WallPhBlockAtMax != 1 || g.WallPhBlockCurve != 1 {
-		t.Fatalf("shipped defaults are %v / %v, want 1 / 1", g.WallPhBlockAtMax, g.WallPhBlockCurve)
-	}
+	g.WallPhBlockAtMax = 1
+	g.WallPhBlockCurve = 1
+	c.SetGlobals(g)
 
-	for _, strength := range []int{1, 25, 50, 75, 100} {
-		got := phAcrossTuned(t, strength, 1, 1, 40)
-
-		plain, _, plainProbe := permTestEnv(t, strength)
-		want := phAcross(plain, plainProbe, 40)
-
-		if got != want {
-			t.Errorf("strength %d: %v with the settings at 1/1, %v with the shipped defaults", strength, got, want)
+	for strength := 0; strength <= MaxWallStrength; strength++ {
+		want := 1 - float64(strength)/float64(MaxWallStrength)
+		if got := WallPermeability(g, strength); got != want {
+			t.Errorf("strength %d passes %v, want exactly %v", strength, got, want)
 		}
 	}
 }

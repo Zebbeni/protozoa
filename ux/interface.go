@@ -351,7 +351,7 @@ func (i *Interface) colorKeyPlacement() (k colorKey, width, bottom int, ok bool)
 	if !i.grid.ShowOrganisms() {
 		return colorKey{}, 0, 0, false
 	}
-	k = colorKeyFor(i.grid.OrgColor(), i.grid.ColorAbility())
+	k = colorKeyFor(i.grid.OrgColor(), i.grid.ColorAbility(), i.grid.ColorAction())
 	if k.empty() {
 		return colorKey{}, 0, 0, false
 	}

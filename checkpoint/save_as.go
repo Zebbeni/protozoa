@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"fmt"
+	"github.com/Zebbeni/protozoa/config"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,21 +17,7 @@ const recordingExt = ".pzr"
 
 // RecordingFileName turns a user-typed name into a file name, the same way designs do.
 func RecordingFileName(name string) string {
-	clean := strings.ToLower(strings.TrimSpace(name))
-	clean = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		case r == ' ', r == '-', r == '_':
-			return '-'
-		default:
-			return -1
-		}
-	}, clean)
-	if clean == "" {
-		clean = "recording"
-	}
-	return clean + recordingExt
+	return config.SlugName(name, "recording") + recordingExt
 }
 
 // SaveRecordingAs copies the recording at srcPath into dir under a file name derived from name.

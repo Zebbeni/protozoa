@@ -25,16 +25,16 @@ func spawnGlobals(t *testing.T, percent float64) *c.Globals {
 	return &g
 }
 
-// TestAParentSurvivesItsOwnSpawn: an organism spawns when its health
-// reaches MinHealthToSpawn and hands SpawnHealth to the child, so a
-// threshold equal to what it gives away leaves it with nothing.
+// TestAParentKeepsItsShareOfTheThreshold is what max_spawn_health_percent
+// means: a child gets at most that share of the health the parent had to
+// reach to spawn, so the parent keeps the rest of it.
 //
-// Both trait paths floored MinHealthToSpawn at SpawnHealth itself, which
-// made that legal, and mutation walks into it because spawning as early as
-// possible is selected for right up to the point it is lethal: 5.9% of
-// 20,000 mutated generations ended with the two exactly equal, showing in
-// the panel as SPAWN HP and CHILD HP reading the same number.
-func TestAParentSurvivesItsOwnSpawn(t *testing.T) {
+// It used to be a share of MAX SIZE, which says nothing about what the
+// parent is holding when it actually spawns — an organism with max size 100,
+// a threshold of 10 and a 0.1 share could still hand over all 10 and die
+// doing it. The cap has to be against the threshold for the setting to mean
+// what its name says.
+func TestAParentKeepsItsShareOfTheThreshold(t *testing.T) {
 	const eps = 1e-9
 	for _, percent := range []float64{0.1, 0.25, 0.5, 0.9} {
 		spawnGlobals(t, percent)
@@ -43,86 +43,85 @@ func TestAParentSurvivesItsOwnSpawn(t *testing.T) {
 		for i := 0; i < 20000; i++ {
 			traits = traits.copyMutated(rng)
 			kept := traits.MinHealthToSpawn - traits.SpawnHealth
-			if kept < c.MinSpawnHealth()-eps {
-				t.Fatalf("percent %.2f, generation %d: spawns at %.3f and gives %.3f, "+
-					"keeping %.3f — under the %.3f minimum, so the parent dies spawning",
-					percent, i, traits.MinHealthToSpawn, traits.SpawnHealth,
-					kept, c.MinSpawnHealth())
+			want := (1 - percent) * traits.MinHealthToSpawn
+			if kept < want-eps {
+				t.Fatalf("percent %.2f, generation %d: spawns at %.4f and gives %.4f, "+
+					"keeping %.4f of the %.4f its share promises",
+					percent, i, traits.MinHealthToSpawn, traits.SpawnHealth, kept, want)
 			}
 		}
 	}
 }
 
-// TestRandomFoundersKeepSomething covers the other trait path, and asks
-// less of it than TestAParentSurvivesItsOwnSpawn asks of a mutated lineage.
-//
-// A founder's MaxSize is drawn against maximum_initial_size, which ships at
-// 1.0 while minimum_max_size — the floor every later generation is held to
-// — is 20. So a founder's whole capacity is under 1 health and it cannot
-// hold a child's worth plus the min_spawn_health reserve whatever the
-// clamps do; the strong invariant is unsatisfiable there by arithmetic, not
-// by a missing check. What is still required is that it keeps something.
-//
-// Worth knowing rather than asserting away: under the shipped numbers a
-// founder spawns at under 1 health and hands most of it over, which is a
-// candidate for some of the founding-phase deaths in the sweep records.
-// Raising maximum_initial_size is a balance change, not a bug fix.
-func TestRandomFoundersKeepSomething(t *testing.T) {
-	spawnGlobals(t, 0.25)
-	rng := simrand.New(2)
-	for i := 0; i < 20000; i++ {
+// TestNoParentGivesEverythingAway: whatever the share, a parent under 1 keeps
+// something, which is the failure first reported — SPAWN HP and CHILD HP
+// reading the same number on the panel.
+func TestNoParentGivesEverythingAway(t *testing.T) {
+	for _, percent := range []float64{0.1, 0.5, 0.9, 0.99} {
+		spawnGlobals(t, percent)
+		rng := simrand.New(6)
 		traits := newRandomTraits(rng)
-		if kept := traits.MinHealthToSpawn - traits.SpawnHealth; kept <= 0 {
-			t.Fatalf("founder %d spawns at %.3f and gives away %.3f, keeping %.3f",
-				i, traits.MinHealthToSpawn, traits.SpawnHealth, kept)
+		for i := 0; i < 5000; i++ {
+			traits = traits.copyMutated(rng)
+			if kept := traits.MinHealthToSpawn - traits.SpawnHealth; kept <= 0 {
+				t.Fatalf("percent %.2f, generation %d: spawns at %.4f and gives %.4f",
+					percent, i, traits.MinHealthToSpawn, traits.SpawnHealth)
+			}
 		}
 	}
 }
 
-// TestTheReserveIsKeptWheneverItFits is the precise statement, and the one
-// that tests the code rather than the settings: whenever an organism's max
-// size can hold a child's worth of health PLUS the minimum reserve, the
-// floor has to deliver that reserve. Only when the arithmetic makes it
-// impossible may the parent keep less.
-//
-// A founder's max size is rng.Float64() * maximum_initial_size — a uniform
-// draw from zero, with no lower bound at any setting — so the impossible
-// case is always reachable there and never reachable for a mutated lineage,
-// which is floored at minimum_max_size.
-func TestTheReserveIsKeptWheneverItFits(t *testing.T) {
+// TestRandomFoundersKeepTheirShare covers the other trait path.
+func TestRandomFoundersKeepTheirShare(t *testing.T) {
 	const eps = 1e-9
-	g := spawnGlobals(t, 0.25)
-	// Widened so the draw spans both cases. At the shipped
-	// maximum_initial_size of 1.0 a founder's whole capacity is under the
-	// min_spawn_health of 1, so the reserve is NEVER arithmetically
-	// possible and this would only ever exercise one branch.
-	g.MaximumInitialSize = g.MaximumMaxSize
-	c.SetGlobals(g)
-	rng := simrand.New(4)
-	fits, impossible := 0, 0
-	for i := 0; i < 20000; i++ {
-		traits := newRandomTraits(rng)
-		kept := traits.MinHealthToSpawn - traits.SpawnHealth
-		if traits.SpawnHealth+c.MinSpawnHealth() <= traits.MaxSize+eps {
-			fits++
-			if kept < c.MinSpawnHealth()-eps {
-				t.Fatalf("founder %d had room (max size %.3f, child HP %.3f) but kept only %.3f",
-					i, traits.MaxSize, traits.SpawnHealth, kept)
-			}
-		} else {
-			impossible++
-			if kept <= 0 {
-				t.Fatalf("founder %d kept nothing at all (%.3f)", i, kept)
+	for _, percent := range []float64{0.25, 0.5} {
+		spawnGlobals(t, percent)
+		rng := simrand.New(2)
+		for i := 0; i < 20000; i++ {
+			traits := newRandomTraits(rng)
+			kept := traits.MinHealthToSpawn - traits.SpawnHealth
+			if want := (1 - percent) * traits.MinHealthToSpawn; kept < want-eps {
+				t.Fatalf("percent %.2f: founder %d keeps %.4f of %.4f",
+					percent, i, kept, want)
 			}
 		}
 	}
-	if fits == 0 || impossible == 0 {
-		t.Fatalf("only one branch was exercised (%d with room, %d without), "+
-			"so this checked less than it claims", fits, impossible)
+}
+
+// TestTheCapIsTheShareOfTheThreshold states the rule directly, against the
+// helper rather than through a trait walk, so a change to the formula fails
+// here with the formula in the message.
+func TestTheCapIsTheShareOfTheThreshold(t *testing.T) {
+	// Inside the bounds: a share of 1 is clamped on the way in, so asking
+	// for it here would test the clamp rather than the formula.
+	for _, percent := range []float64{0.1, 0.5, c.MaxSpawnHealthShare} {
+		spawnGlobals(t, percent)
+		for _, threshold := range []float64{2, 10, 40, 100} {
+			if got, want := spawnHealthCap(threshold), threshold*percent; got != want {
+				t.Errorf("percent %.2f, threshold %.1f: cap %.4f, want %.4f",
+					percent, threshold, got, want)
+			}
+		}
 	}
-	t.Logf("%d of 20000 founders had room for the reserve and kept it; "+
-		"%d were too small to hold one and kept a positive remainder",
-		fits, impossible)
+}
+
+// TestTheThresholdFloorKeepsChildrenViable: a child still has to be worth
+// producing, so the threshold cannot sit so low that its share is under
+// min_spawn_health. The floor is what stops a lineage evolving toward
+// spawning constantly for nothing.
+func TestTheThresholdFloorKeepsChildrenViable(t *testing.T) {
+	for _, percent := range []float64{0.1, 0.25, 0.5} {
+		spawnGlobals(t, percent)
+		want := c.MinSpawnHealth() / percent
+		if got := spawnThresholdFloor(); got != want {
+			t.Errorf("percent %.2f: floor %.4f, want %.4f", percent, got, want)
+		}
+		// At the floor, the share is exactly a viable child.
+		if got := spawnHealthCap(want); got < c.MinSpawnHealth()-1e-9 {
+			t.Errorf("percent %.2f: at the floor a child gets %.4f, under the %.4f minimum",
+				percent, got, c.MinSpawnHealth())
+		}
+	}
 }
 
 // TestSpawnHealthStaysUnderTheConfiguredShare is the setting the symptom
@@ -145,23 +144,6 @@ func TestSpawnHealthStaysUnderTheConfiguredShare(t *testing.T) {
 	}
 }
 
-// TestSpawnHealthLeavesRoomForAReserve: the share of max size is not the
-// only bound. An organism also cannot promise more than it can hold
-// alongside the minimum it must keep, which binds when the percent is high.
-func TestSpawnHealthLeavesRoomForAReserve(t *testing.T) {
-	spawnGlobals(t, 0.9)
-	for _, maxSize := range []float64{2, 5, 20, 50, 100} {
-		cap := spawnHealthCap(maxSize)
-		if cap > maxSize-c.MinSpawnHealth() && cap > c.MinSpawnHealth() {
-			t.Errorf("at max size %.1f the cap is %.3f, leaving under the %.3f reserve",
-				maxSize, cap, c.MinSpawnHealth())
-		}
-		if cap > maxSize*0.9+1e-9 {
-			t.Errorf("at max size %.1f the cap %.3f exceeds the configured share", maxSize, cap)
-		}
-	}
-}
-
 // TestDesignedOrganismsGetTheSameFloor: a hand-built design goes through
 // its own clamps, so the floor has to be applied there too or the designer
 // can save an organism that dies on its first spawn.
@@ -170,14 +152,58 @@ func TestDesignedOrganismsGetTheSameFloor(t *testing.T) {
 	ds := NewDesign("spawn-floor")
 	ds.MaxSize = 40
 	ds.SpawnHealth = 8
-	ds.MinHealthToSpawn = 8 // asking to die
+	ds.MinHealthToSpawn = 8 // asking to give away everything it has
 	traits, err := ds.Traits()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kept := traits.MinHealthToSpawn - traits.SpawnHealth; kept < c.MinSpawnHealth()-1e-9 {
+	kept := traits.MinHealthToSpawn - traits.SpawnHealth
+	if want := 0.75 * traits.MinHealthToSpawn; kept < want-1e-9 {
 		t.Errorf("a design asking to spawn at exactly its child HP was allowed: "+
-			"spawns at %.3f, gives %.3f, keeps %.3f",
-			traits.MinHealthToSpawn, traits.SpawnHealth, kept)
+			"spawns at %.3f, gives %.3f, keeps %.3f of the %.3f a 0.25 share promises",
+			traits.MinHealthToSpawn, traits.SpawnHealth, kept, want)
+	}
+}
+
+// TestTheSpawnShareIsBoundedBelowOne: at a share of 1 a parent hands over
+// everything it had to reach and dies spawning, which is the failure the
+// setting exists to prevent, and a share near 1 is that failure scaled down.
+// Both ends are clamped on the way in, so a hand-edited file or an old replay
+// header cannot ask for it.
+func TestTheSpawnShareIsBoundedBelowOne(t *testing.T) {
+	for _, asked := range []float64{1, 1.5, 100} {
+		spawnGlobals(t, asked)
+		if got := c.MaxSpawnHealthPercent(); got != c.MaxSpawnHealthShare {
+			t.Errorf("asked for a share of %.2f, got %.2f, want it held to %.2f",
+				asked, got, c.MaxSpawnHealthShare)
+		}
+	}
+	for _, asked := range []float64{0, -1} {
+		spawnGlobals(t, asked)
+		if got := c.MaxSpawnHealthPercent(); got != c.MinSpawnHealthShare {
+			t.Errorf("asked for a share of %.2f, got %.2f, want it held to %.2f",
+				asked, got, c.MinSpawnHealthShare)
+		}
+	}
+	// A value inside the range is left alone.
+	spawnGlobals(t, 0.25)
+	if got := c.MaxSpawnHealthPercent(); got != 0.25 {
+		t.Errorf("a share of 0.25 was changed to %.4f", got)
+	}
+}
+
+// TestAParentAlwaysKeepsATenth follows from the ceiling: whatever a file
+// asks for, a parent keeps at least 1 - MaxSpawnHealthShare of its threshold.
+func TestAParentAlwaysKeepsATenth(t *testing.T) {
+	const eps = 1e-9
+	spawnGlobals(t, 1) // clamped to the ceiling
+	rng := simrand.New(9)
+	traits := newRandomTraits(rng)
+	for i := 0; i < 20000; i++ {
+		traits = traits.copyMutated(rng)
+		kept := traits.MinHealthToSpawn - traits.SpawnHealth
+		if want := (1 - c.MaxSpawnHealthShare) * traits.MinHealthToSpawn; kept < want-eps {
+			t.Fatalf("generation %d keeps %.4f of the %.4f the ceiling promises", i, kept, want)
+		}
 	}
 }

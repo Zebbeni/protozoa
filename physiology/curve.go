@@ -28,6 +28,8 @@ const (
 	CurveEatingPhEffect
 	// CurveEatingCost is what one eating attempt costs, whether or not it finds anything.
 	CurveEatingCost
+	// CurveAttackCost is what one attack costs the attacker, separate from the damage it lands.
+	CurveAttackCost
 	curveCount
 )
 
@@ -46,6 +48,7 @@ var AllCurves = []CurveID{
 	CurveChemoPhEffect,
 	CurveEatingPhEffect,
 	CurveEatingCost,
+	CurveAttackCost,
 }
 
 var curveInfo = [curveCount]struct {
@@ -69,6 +72,7 @@ var curveInfo = [curveCount]struct {
 	CurveChemoPhEffect:   {"Chemosynthesis pH push", AbilityChemosynthesis, false, ShapeFlat},
 	CurveEatingPhEffect:  {"Eating pH push", AbilityEating, false, ShapeFlat},
 	CurveEatingCost:      {"Eating cost", AbilityEating, true, ShapeCosine},
+	CurveAttackCost:      {"Attack cost", AbilityAttack, true, ShapeCosine},
 }
 
 // CurvesFor lists the curves an ability drives, in declaration order.
@@ -197,6 +201,8 @@ func curveShapeName(g *config.Globals, id CurveID) string {
 		return g.EatingPhEffectCurveShape
 	case CurveEatingCost:
 		return g.EatingCostCurveShape
+	case CurveAttackCost:
+		return g.AttackCostCurveShape
 	}
 	return ""
 }
@@ -239,6 +245,8 @@ func cosineK(g *config.Globals, id CurveID) float64 {
 		return g.EatingPhEffectCosineK
 	case CurveEatingCost:
 		return g.EatingCostCosineK
+	case CurveAttackCost:
+		return g.AttackCostCosineK
 	}
 	return 0
 }
@@ -271,6 +279,8 @@ func saturatingK(g *config.Globals, id CurveID) float64 {
 		return g.EatingPhEffectSaturatingK
 	case CurveEatingCost:
 		return g.EatingCostSaturatingK
+	case CurveAttackCost:
+		return g.AttackCostSaturatingK
 	}
 	return 0
 }

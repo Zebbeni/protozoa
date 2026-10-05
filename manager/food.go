@@ -63,7 +63,7 @@ func (m *FoodManager) InitializeBuriedFood(count int) {
 		}
 		m.mutex.Lock()
 		m.Buried[point] += value
-		if maxV := config.MaxFoodValue(); m.Buried[point] > maxV {
+		if maxV := config.MaxBuriedFoodValue(); m.Buried[point] > maxV {
 			m.Buried[point] = maxV
 		}
 		m.mutex.Unlock()
@@ -92,7 +92,7 @@ func (m *FoodManager) BuryFood(amount int) {
 	if amount <= 0 {
 		return
 	}
-	maxBuried := config.MaxFoodValue()
+	maxBuried := config.MaxBuriedFoodValue()
 
 	m.mutex.Lock()
 	buried := make([]utils.Point, 0, len(m.Items))

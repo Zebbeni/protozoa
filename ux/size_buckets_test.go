@@ -85,3 +85,33 @@ func TestEverySizeTierIsReachable(t *testing.T) {
 		}
 	}
 }
+
+// TestBuriedSpritesBucketAgainstTheBuriedCeiling: the buried layer draws
+// with the food sprites, and bucketing it against the SURFACE limit drew
+// every stocked cell as the largest tier once the ground could hold ten
+// times as much.
+func TestBuriedSpritesBucketAgainstTheBuriedCeiling(t *testing.T) {
+	loadKeyGlobals(t)
+	g := config.GetCurrentGlobals()
+	g.MaxFoodValue = 100
+	g.MaxBuriedFoodValue = 1000
+	config.SetGlobals(g)
+
+	seen := map[resources.ImageRole]bool{}
+	for v := 1; v <= 1000; v += 7 {
+		seen[foodRoleAgainst(v, config.MaxBuriedFoodValue())] = true
+	}
+	for _, want := range []resources.ImageRole{
+		resources.RoleFoodTiny, resources.RoleFoodSmall,
+		resources.RoleFoodMedium, resources.RoleFoodLarge,
+	} {
+		if !seen[want] {
+			t.Errorf("no buried amount up to the ceiling draws %v; the tiers are not reachable", want)
+		}
+	}
+	// A value a surface pile could hold is near the bottom of the buried
+	// range, not the top.
+	if got := foodRoleAgainst(100, 1000); got != resources.RoleFoodTiny {
+		t.Errorf("100 buried of 1000 draws %v, want the smallest tier", got)
+	}
+}

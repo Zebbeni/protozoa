@@ -140,7 +140,7 @@ func TestLongRunScratch(t *testing.T) {
 				a.eatOK++
 			case organism.StatusEatFailed:
 				a.eatFail++
-			case organism.StatusAttacking:
+			case organism.StatusAttacking, organism.StatusAttackMove:
 				a.atkAct++
 			case organism.StatusChemoSuccess:
 				a.chemoOK++
