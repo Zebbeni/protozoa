@@ -273,6 +273,10 @@ type displayBtnHitbox struct {
 type abilityBtnHitbox struct {
 	x, y, w, h int
 	ability    physiology.Ability
+	// enabled is false while this colouring is still being drawn ahead:
+	// clicking it would throw the speculative work away and make the user
+	// wait for a render that was nearly in hand.
+	enabled bool
 }
 
 // orgColorBtnHitbox associates an ORGANISM COLOR radio button's screen rect with the colour mode it selects.
@@ -490,15 +494,22 @@ func (p *Panel) renderGraphButtons(panelImage *ebiten.Image, x, topY, totalWidth
 		n := len(physiology.AllAbilities)
 		abW := (totalWidth - graphButtonGap*(n-1)) / n
 		abilityRects := make([]abilityBtnHitbox, 0, n)
+		prewarming := p.graph.PrewarmActive()
 		for i, a := range physiology.AllAbilities {
 			ax := x + i*(abW+graphButtonGap)
 			label, ok := abilityButtonLabels[a]
 			if !ok {
 				label = strings.ToUpper(a.Name())
 			}
-			drawGraphButton(panelImage, ax, rowY, abW, graphButtonRowHeight, label, p.graphColorAbility == a)
+			st := p.graph.PopulationColorStatus(graph.PopulationColor{ByAbility: true, Ability: a})
+			// Clickable once it is in hand, and also whenever nothing is
+			// drawing colourings ahead: a button that can never become
+			// ready must not be dead.
+			enabled := st.Ready || !prewarming
+			drawGraphColorButton(panelImage, ax, rowY, abW, graphButtonRowHeight, label,
+				p.graphColorAbility == a, enabled, st.Fraction)
 			abilityRects = append(abilityRects, abilityBtnHitbox{
-				x: ax, y: rowY, w: abW, h: graphButtonRowHeight, ability: a,
+				x: ax, y: rowY, w: abW, h: graphButtonRowHeight, ability: a, enabled: enabled,
 			})
 		}
 		p.graphAbilityBtnRects = abilityRects
@@ -627,6 +638,33 @@ func drawGraphButton(img *ebiten.Image, x, y, w, h int, label string, active boo
 	text.Draw(img, label, r.FontSourceCodePro8, tx, ty, fg)
 }
 
+// drawGraphColorButton draws a population-colouring button, faded while the
+// colouring is still being drawn ahead, with a fill showing how far that has
+// got. The fill is the button's own background rather than a bar over the
+// graph: this is the state of a control, not of what is on screen.
+func drawGraphColorButton(img *ebiten.Image, x, y, w, h int, label string, active, enabled bool, fraction float64) {
+	if enabled {
+		drawGraphButton(img, x, y, w, h, label, active)
+		return
+	}
+	bg := chrome(
+		color.RGBA{R: 26, G: 26, B: 33, A: 255},
+		color.RGBA{R: 231, G: 231, B: 235, A: 255},
+	)
+	ebitenutil.DrawRect(img, float64(x), float64(y), float64(w), float64(h), bg)
+	if fraction > 0 {
+		fill := chrome(
+			color.RGBA{R: 45, G: 56, B: 78, A: 255},
+			color.RGBA{R: 196, G: 206, B: 226, A: 255},
+		)
+		ebitenutil.DrawRect(img, float64(x), float64(y),
+			float64(w)*min(1, max(0, fraction)), float64(h), fill)
+	}
+	bounds := boundString(r.FontSourceCodePro8, label)
+	text.Draw(img, label, r.FontSourceCodePro8,
+		x+(w-bounds.Dx())/2, y+(h+bounds.Dy())/2, themedForegroundDim())
+}
+
 // handleGraphButtonClick consumes a click at (mx, my) if it landed on any graph-mode button.
 func (p *Panel) handleGraphButtonClick(mx, my int) bool {
 	if t := p.graphAbilityToggleRect; t != nil &&
@@ -639,6 +677,12 @@ func (p *Panel) handleGraphButtonClick(mx, my int) bool {
 	}
 	for _, r := range p.graphAbilityBtnRects {
 		if mx >= r.x && mx < r.x+r.w && my >= r.y && my < r.y+r.h {
+			if !r.enabled {
+				// Swallowed, not passed through: the click landed on a
+				// button, and letting it fall to whatever is behind would be
+				// worse than doing nothing.
+				return true
+			}
 			p.graphColorAbility = r.ability
 			p.showPopulationForAbility()
 			return true

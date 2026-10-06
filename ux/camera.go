@@ -27,7 +27,12 @@ const (
 var zoomUnitSizes = [5]int{4, 8, 16, 32, 64}
 
 // zoomSpriteSet maps each zoom level to the sprite set index (0=4x4, 1=8x8, 2=16x16).
-var zoomSpriteSet = [5]int{0, 1, 2, 2, 2}
+//
+// Zoom8 draws the 16x16 art at half scale rather than the 8x8 set: only the
+// high-res set carries the layered overlays, so the 8x8 art shows a bare
+// body with no motor, mouth or sensors. EXPERIMENT — the 8x8 set is still
+// loaded and this is a one-value revert.
+var zoomSpriteSet = [5]int{0, 2, 2, 2, 2}
 
 var zoomSpriteSizes = [3]int{4, 8, 16}
 

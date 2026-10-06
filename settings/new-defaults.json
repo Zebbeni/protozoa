@@ -1,9 +1,9 @@
 {
-  "seed": 0,
+  "seed": 1791297456313568600,
   "grid_units_wide": 100,
   "grid_units_high": 80,
-  "screen_width": 1400,
-  "screen_height": 800,
+  "screen_width": 1920,
+  "screen_height": 1057,
   "theme": "dark",
   "ph_color_scheme": "",
   "ph_smoothing": true,

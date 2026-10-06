@@ -87,6 +87,8 @@ type Graph struct {
 	// renderingPopColor is the colouring whose renderers were handed to the in-flight render, meaningful only.
 	renderingPopColor PopulationColor
 
+	// speculative is set while the in-flight render will not change what is on screen when it lands.
+	speculative bool
 	// prewarming is set while the in-flight render is speculative work.
 	prewarming bool
 	// prewarmColor is the colouring that speculative render is drawing, so a
@@ -378,7 +380,7 @@ func (g *Graph) startPrewarm() bool {
 		selRenderer = population.NewRenderer(pc.colorFn(), g.selectedSubTreeRoot, startBar, nil)
 	}
 
-	progress := g.beginRender()
+	progress := g.beginRender(true)
 	g.prewarming = true
 	g.prewarmColor = pc
 	g.adoptPrewarm = false
@@ -480,6 +482,7 @@ func (g *Graph) Render() *ebiten.Image {
 	case result := <-g.pendingResult:
 		g.rendering = false
 		g.prewarming = false
+		g.speculative = false
 		g.progress = nil
 		if result.isPrewarm {
 			// Adopted: the user switched to this colouring while it was being
@@ -514,7 +517,7 @@ func (g *Graph) Render() *ebiten.Image {
 		g.forceRender = false
 		popOnly := g.popOnlyRender
 		g.popOnlyRender = false
-		progress := g.beginRender()
+		progress := g.beginRender(false)
 		barCount := g.targetBarCount()
 		hasSelection := g.selectedSubTreeRoot != nil
 		g.selectionDirty = false
@@ -540,7 +543,7 @@ func (g *Graph) Render() *ebiten.Image {
 		for _, r := range g.selRenderers {
 			r.Reset()
 		}
-		progress := g.beginRender()
+		progress := g.beginRender(false)
 		hasSelection := g.selectedSubTreeRoot != nil
 		g.selectionDirty = false
 		go g.renderInBackground(g.renderers, g.selRenderers, hasSelection, 0, targetBarCount, 0, g.renderGen, progress, nil)
@@ -550,7 +553,10 @@ func (g *Graph) Render() *ebiten.Image {
 	// A sub-tree render, for a selection nothing else is going to cover.
 	if g.needsSelectionRender() && !g.rendering {
 		g.selectionDirty = false
-		progress := g.beginRender()
+		// Drawn ahead for a view that is switched off: nothing will show it
+		// until the user turns the selected view on, so it must not blank
+		// the graph they ARE looking at.
+		progress := g.beginRender(!g.showSelected)
 		go g.renderSelectedOnly(g.images, g.selRenderers, g.selectedSubTreeRoot != nil,
 			g.currentBarCount, g.renderGen, progress)
 		return g.currentImage()
@@ -563,7 +569,7 @@ func (g *Graph) Render() *ebiten.Image {
 	}
 
 	if g.shouldUpdate() && !g.rendering {
-		progress := g.beginRender()
+		progress := g.beginRender(false)
 		newBarCount := g.targetBarCount()
 		oldBarCount := g.currentBarCount
 		selOldBarCount := g.selBarCount
@@ -595,8 +601,50 @@ func (g *Graph) needsSelectionRender() bool {
 	return g.showSelected && g.selImages[g.mode] == nil
 }
 
-// beginRender marks a background render as in flight and returns the progress tracker to hand it.
-func (g *Graph) beginRender() *gh.Progress {
+// PopColorStatus is what a colouring's button should show: whether
+// switching to it is instant yet, and how far along the speculative render
+// that will make it instant has got.
+type PopColorStatus struct {
+	// Ready: drawn and in hand, so switching costs nothing.
+	Ready bool
+	// Drawing: the speculative render for this colouring is running now.
+	Drawing bool
+	// Fraction of that render done, 0 unless Drawing and the renderer
+	// reports work.
+	Fraction float64
+}
+
+// PopulationColorStatus reports the state of one colouring.
+func (g *Graph) PopulationColorStatus(pc PopulationColor) PopColorStatus {
+	if pc == g.popColor {
+		// On screen: as ready as it gets.
+		return PopColorStatus{Ready: true}
+	}
+	if _, cached := g.popCache[pc]; cached {
+		return PopColorStatus{Ready: true}
+	}
+	if g.rendering && g.prewarming && g.prewarmColor == pc {
+		st := PopColorStatus{Drawing: true}
+		if f, ok := g.progressFraction(); ok {
+			st.Fraction = f
+		}
+		return st
+	}
+	return PopColorStatus{}
+}
+
+// PrewarmActive reports whether speculative rendering is running at all.
+//
+// prewarmOrder is only filled once the first real render has landed, so
+// before that no colouring is ever going to become ready on its own and a
+// caller that greys out un-ready buttons would leave every one of them dead.
+func (g *Graph) PrewarmActive() bool { return g.prewarmOrder != nil }
+
+// beginRender marks a background render as in flight and returns the
+// progress tracker to hand it. speculative marks a render whose result will
+// not change what is on screen, so the bar must not blank the graph for it.
+func (g *Graph) beginRender(speculative bool) *gh.Progress {
+	g.speculative = speculative
 	g.rendering = true
 	// Whose renderers this render is about to be handed.
 	g.renderingPopColor = g.popColor
@@ -606,21 +654,37 @@ func (g *Graph) beginRender() *gh.Progress {
 	return g.progress
 }
 
-// RenderProgress reports whether the panel should replace the graph with a progress bar.
-func (g *Graph) RenderProgress() (fraction float64, show bool) {
-	// A prewarm is speculative: blanking the user's graph for a bar showing work they didn't ask for would be worse than the wait it is saving them.
-	if g.prewarming {
-		return 0, false
-	}
-	if !g.rendering || g.now().Sub(g.renderStarted) < progressDelay {
-		return 0, false
-	}
+// progressFraction is the in-flight render's progress, held monotonic.
+//
+// One render's tracker is shared by the graphs it draws in sequence: a
+// prewarm runs the population graph and then the selected sub-tree through
+// the same Progress, so AddWork grows the total when the second starts and
+// the raw fraction drops back to about a half. A bar that visibly restarts
+// reads as the work being redone. The cost is that it reaches 100% when the
+// last declared work is done rather than when the render lands.
+func (g *Graph) progressFraction() (float64, bool) {
 	f, ok := g.progress.Fraction()
 	if !ok {
 		return 0, false
 	}
 	g.shownProgress = max(g.shownProgress, f)
 	return g.shownProgress, true
+}
+
+// RenderProgress reports whether the panel should replace the graph with a progress bar.
+func (g *Graph) RenderProgress() (fraction float64, show bool) {
+	// Speculative work: blanking the user's graph for a bar showing a render
+	// whose result will not appear would be worse than the wait it saves.
+	// A prewarm is one; so is a sub-tree render for a selected view that is
+	// switched off, which every selection change schedules whether or not
+	// anything is going to show it.
+	if g.prewarming || g.speculative {
+		return 0, false
+	}
+	if !g.rendering || g.now().Sub(g.renderStarted) < progressDelay {
+		return 0, false
+	}
+	return g.progressFraction()
 }
 
 func (g *Graph) updateSelection() {

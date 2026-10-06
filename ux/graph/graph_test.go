@@ -78,7 +78,7 @@ func TestPopulationColorChangeLeavesInFlightRenderersAlone(t *testing.T) {
 func progressGraph() (*Graph, *time.Time) {
 	clock := time.Unix(1000, 0)
 	g := &Graph{now: func() time.Time { return clock }}
-	g.beginRender()
+	g.beginRender(false)
 	return g, &clock
 }
 
@@ -425,8 +425,39 @@ func TestPrewarmShowsNoProgressBar(t *testing.T) {
 
 	// A render the user *did* ask for still reports.
 	g.prewarming = false
+	g.speculative = false
 	if _, show := g.RenderProgress(); !show {
 		t.Error("a real render should still show progress")
+	}
+}
+
+// TestASubTreeRenderForAHiddenViewShowsNoProgressBar: every selection change
+// schedules a sub-tree render whether or not anything is going to show it,
+// so with the selected view switched off the bar would blank the graph the
+// user is actually looking at, repeatedly, as the selection moves.
+func TestASubTreeRenderForAHiddenViewShowsNoProgressBar(t *testing.T) {
+	g := prewarmTestGraph(t)
+	g.showSelected = false
+
+	g.beginRender(!g.showSelected)
+	g.now = func() time.Time { return time.Now().Add(time.Hour) }
+	g.progress.AddWork(10)
+	g.progress.Step()
+
+	if _, show := g.RenderProgress(); show {
+		t.Error("a sub-tree render for a hidden view put a progress bar over the graph on screen")
+	}
+
+	// With the view ON the user is waiting for exactly that image.
+	g.showSelected = true
+	g.beginRender(!g.showSelected)
+	// beginRender restamps renderStarted from the clock, so the clock has to
+	// move again for this render to count as slow.
+	g.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
+	g.progress.AddWork(10)
+	g.progress.Step()
+	if _, show := g.RenderProgress(); !show {
+		t.Error("a sub-tree render the user is waiting for should report progress")
 	}
 }
 

@@ -10,6 +10,22 @@ import (
 )
 
 // drawAnimatedSprite draws a sprite rotated to face `direction`, anchored to its base cell.
+// spriteDownscaleFilter is the texture filter used when a sprite is drawn
+// SMALLER than its source, which today is only Zoom8 drawing the 16x16 art
+// at half size. Everything else in the pipeline is nearest, and an upscale
+// stays nearest whatever this says: linear on pixel art blurs it.
+//
+// EXPERIMENT. One value to settle.
+var spriteDownscaleFilter = ebiten.FilterLinear
+
+// spriteFilter picks the filter for a draw at this scale.
+func spriteFilter(scale float64) ebiten.Filter {
+	if scale < 1 {
+		return spriteDownscaleFilter
+	}
+	return ebiten.FilterNearest
+}
+
 func drawAnimatedSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image, direction utils.Point, col colorful.Color, cellSize, scale float64) {
 	if spriteImg == nil {
 		return
@@ -25,6 +41,7 @@ func drawAnimatedSprite(img *ebiten.Image, x, y float64, spriteImg *ebiten.Image
 	compensateY := (cellSize/2 - anchorY) * scale
 
 	op := &ebiten.DrawImageOptions{}
+	op.Filter = spriteFilter(scale)
 	op.GeoM.Translate(-anchorX, -anchorY)
 	op.GeoM.Rotate(directionAngle(direction))
 	op.GeoM.Translate(anchorX, anchorY)

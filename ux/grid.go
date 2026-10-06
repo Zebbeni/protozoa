@@ -398,6 +398,7 @@ func (g *Grid) drawStaticSpriteAlpha(img *ebiten.Image, x, y float64, spriteImg 
 	}
 	op := &ebiten.DrawImageOptions{}
 	if s := g.Camera.SpriteScale(); s != 1 {
+		op.Filter = spriteFilter(s)
 		op.GeoM.Scale(s, s)
 	}
 	op.GeoM.Translate(x, y)
