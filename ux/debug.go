@@ -24,8 +24,7 @@ type Debug struct {
 	gridRenderTime  time.Duration
 	panelRenderTime time.Duration
 
-	// Per-phase grid breakdown, set by Interface.renderGrid right after
-	// the grid finishes drawing each frame.
+	// Per-phase grid breakdown, set by Interface.renderGrid right after the grid finishes drawing each frame.
 	gridTimings RenderTimings
 }
 
@@ -40,7 +39,6 @@ func (d *Debug) render() *ebiten.Image {
 
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	// write info to screen
 	info := fmt.Sprintf("FPS: %0.2f", ebiten.CurrentFPS())
 	info = fmt.Sprintf("%s\nAlloc: %v", info, m.Alloc/1024)
 	info = fmt.Sprintf("%s\nTotalAlloc: %v", info, m.TotalAlloc/1024)
@@ -54,7 +52,7 @@ func (d *Debug) render() *ebiten.Image {
 	info = fmt.Sprintf("%s\nTotal Update:   %10s", info, d.simulation.UpdateTime)
 	info = fmt.Sprintf("%s\nRender Grid:    %10s", info, d.gridRenderTime)
 	info = fmt.Sprintf("%s\n  Walls:        %10s", info, d.gridTimings.Walls)
-	info = fmt.Sprintf("%s\n  Environment:  %10s", info, d.gridTimings.Env)
+	info = fmt.Sprintf("%s\n  pH:           %10s", info, d.gridTimings.Ph)
 	info = fmt.Sprintf("%s\n  Food:         %10s", info, d.gridTimings.Food)
 	info = fmt.Sprintf("%s\n  Organisms:    %10s", info, d.gridTimings.Organisms)
 	info = fmt.Sprintf("%s\n  Compose:      %10s", info, d.gridTimings.Compose)

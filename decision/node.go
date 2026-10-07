@@ -7,8 +7,7 @@ import (
 	"sync"
 )
 
-// Node contains an Action or Condition NodeType and (if a Condition), child
-// references for its conditional branches
+// Node contains an Action or Condition NodeType and (if a Condition), child references for its conditional branches
 type Node struct {
 	NodeType                      interface{}
 	InDecisionTree, UsedLastCycle bool
@@ -19,22 +18,25 @@ type Node struct {
 	mutex sync.Mutex
 }
 
-// PrintLine represents a single line of decision tree output with
-// metadata. UsedLastCycle is true for nodes on the path chooseAction
-// took on the most recent cycle. WasTravelled is the lifetime-
-// cumulative flag — true for any node ever visited. The panel renders
-// a three-tier highlight: brightest for the current path, mid-tone
-// for ever-travelled-but-not-this-cycle, dim for never-visited.
+// PrintLine represents a single line of decision tree output with metadata.
 type PrintLine struct {
 	Text          string
+	Prefix        string
 	UsedLastCycle bool
 	WasTravelled  bool
+	NodeType      interface{}
 }
 
-// NodeFromAction creates a simple Node object from an Action type
 func NodeFromAction(action Action) *Node {
 	return &Node{
 		NodeType: action,
+		size:     1,
+	}
+}
+
+func NodeFromCondition(condition Condition) *Node {
+	return &Node{
+		NodeType: condition,
 		size:     1,
 	}
 }
@@ -49,7 +51,6 @@ func (n *Node) IsCondition() bool {
 	return isCondition(n.NodeType)
 }
 
-// CopyNode returns a new Node with the same structure as the original
 func (n Node) CopyNode() *Node {
 	copy := &Node{
 		NodeType:      n.NodeType,
@@ -65,8 +66,7 @@ func (n Node) CopyNode() *Node {
 	return copy
 }
 
-// SetUsedInCurrentTree sets whether this Node is contained in a
-// currently-used decision tree
+// SetUsedInCurrentTree sets whether this Node is contained in a currently-used decision tree
 func (n *Node) SetUsedInCurrentTree(isUsing bool) {
 	n.InDecisionTree = isUsing
 	if n.IsCondition() {
@@ -75,8 +75,6 @@ func (n *Node) SetUsedInCurrentTree(isUsing bool) {
 	}
 }
 
-// ResetUsedLastCycle triggers this Node (and any previously-used child Nodes)
-// to set UsedLastCycle to false
 func (n *Node) ResetUsedLastCycle() {
 	n.UsedLastCycle = false
 	if n.IsCondition() {
@@ -88,11 +86,7 @@ func (n *Node) ResetUsedLastCycle() {
 	}
 }
 
-// Serialize generates and returns a string representing a Node's
-// full Tree structure.
-//
-// Recursively walks through the Node tree to accumulate a string representing
-// itself and all its children
+// Serialize generates and returns a string representing a Node's full Tree structure.
 func (n *Node) Serialize() string {
 	var buffer bytes.Buffer
 	nodeTypeString := fmt.Sprintf("%02d", n.NodeType)
@@ -121,7 +115,6 @@ func (n *Node) printLines(indent string, first, last bool) []PrintLine {
 	prefix := indent
 	newIndent := indent
 	if first {
-		// root node, no prefix
 	} else if last {
 		prefix = fmt.Sprintf("%s└─", prefix)
 		newIndent = fmt.Sprintf("%s  ", newIndent)
@@ -133,7 +126,13 @@ func (n *Node) printLines(indent string, first, last bool) []PrintLine {
 	if n.UsedLastCycle {
 		lineText += " ◀◀"
 	}
-	lines := []PrintLine{{Text: lineText, UsedLastCycle: n.UsedLastCycle, WasTravelled: n.WasTravelled}}
+	lines := []PrintLine{{
+		Text:          lineText,
+		Prefix:        prefix,
+		UsedLastCycle: n.UsedLastCycle,
+		WasTravelled:  n.WasTravelled,
+		NodeType:      n.NodeType,
+	}}
 	if n.IsCondition() {
 		lines = append(lines, n.YesNode.printLines(newIndent, false, false)...)
 		lines = append(lines, n.NoNode.printLines(newIndent, false, true)...)
@@ -165,26 +164,7 @@ func (n *Node) print(indent string, first, last bool) string {
 	return toPrint
 }
 
-func (n *Node) accumulateActionWeights(weight float64, weights map[Action]float64) {
-	if n.IsAction() {
-		weights[n.NodeType.(Action)] += weight
-		return
-	}
-	n.YesNode.accumulateActionWeights(weight/2, weights)
-	n.NoNode.accumulateActionWeights(weight/2, weights)
-}
-
-func (n *Node) accumulateConditionWeights(weight float64, weights map[Condition]float64) {
-	if n.IsAction() {
-		return
-	}
-	weights[n.NodeType.(Condition)] += weight
-	n.YesNode.accumulateConditionWeights(weight/2, weights)
-	n.NoNode.accumulateConditionWeights(weight/2, weights)
-}
-
-// intToNodeType maps a serialized int code back to an Action or Condition.
-// Built once at init from the Actions and Conditions arrays.
+// codeToNodeType maps a serialized int code back to its typed Action or Condition.
 var codeToNodeType map[int]interface{}
 
 func init() {
@@ -195,12 +175,9 @@ func init() {
 	for _, c := range Conditions {
 		codeToNodeType[int(c)] = c
 	}
-	// ActSpawn isn't in Actions array but can appear in serialized trees
-	codeToNodeType[int(ActSpawn)] = ActSpawn
 }
 
 // Deserialize parses a serialized tree string back into a Node tree.
-// Returns the node and the number of characters consumed from the string.
 func Deserialize(s string) (*Node, int) {
 	if len(s) < 2 {
 		return nil, 0

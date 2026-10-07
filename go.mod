@@ -5,6 +5,7 @@ go 1.22.0
 toolchain go1.23.2
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/hajimehoshi/ebiten/v2 v2.8.9
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	golang.org/x/image v0.21.0

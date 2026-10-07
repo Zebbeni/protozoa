@@ -13,6 +13,7 @@ const (
 	UpdateOrganism UpdateType = iota
 	UpdatePh
 	UpdateFood
+	UpdateWall
 )
 
 type UpdateManager struct {
@@ -32,6 +33,7 @@ func (m *UpdateManager) ClearMaps() {
 		UpdateOrganism: make(map[utils.Point]bool),
 		UpdatePh:       make(map[utils.Point]bool),
 		UpdateFood:     make(map[utils.Point]bool),
+		UpdateWall:     make(map[utils.Point]bool),
 	}
 	m.mutex.Unlock()
 }
@@ -50,6 +52,7 @@ func (m *UpdateManager) GetUpdatedPoints(t UpdateType) map[utils.Point]bool {
 func (m *UpdateManager) AddOrganismUpdate(p utils.Point) { m.AddUpdate(UpdateOrganism, p) }
 func (m *UpdateManager) AddPhUpdate(p utils.Point)       { m.AddUpdate(UpdatePh, p) }
 func (m *UpdateManager) AddFoodUpdate(p utils.Point)     { m.AddUpdate(UpdateFood, p) }
+func (m *UpdateManager) AddWallUpdate(p utils.Point)     { m.AddUpdate(UpdateWall, p) }
 
 func (m *UpdateManager) GetUpdatedOrganismPoints() map[utils.Point]bool {
 	return m.GetUpdatedPoints(UpdateOrganism)
@@ -59,4 +62,7 @@ func (m *UpdateManager) GetUpdatedPhPoints() map[utils.Point]bool {
 }
 func (m *UpdateManager) GetUpdatedFoodPoints() map[utils.Point]bool {
 	return m.GetUpdatedPoints(UpdateFood)
+}
+func (m *UpdateManager) GetUpdatedWallPoints() map[utils.Point]bool {
+	return m.GetUpdatedPoints(UpdateWall)
 }

@@ -1,0 +1,232 @@
+package physiology
+
+import (
+	"testing"
+
+	"github.com/Zebbeni/protozoa/config"
+	"github.com/Zebbeni/protozoa/decision"
+)
+
+func plainScores() Scores {
+	return Scores{8, 2, 2, 2, 2, 2, 2}
+}
+
+// scoresWith builds a valid distribution with one ability raised to `to`, taking the difference out of chemosynthesis so the budget still sums to PointTotal.
+func scoresWith(t *testing.T, a Ability, to int) Scores {
+	t.Helper()
+	s := plainScores()
+	delta := to - s[a]
+	s[a] = to
+	s[AbilityChemosynthesis] -= delta
+	if err := s.Validate(); err != nil {
+		t.Fatalf("test scores invalid: %v", err)
+	}
+	return s
+}
+
+// TestPlainScoresLookPlain: an organism sitting near the even split in every non-chemo ability has specialised in nothing.
+func TestPlainScoresLookPlain(t *testing.T) {
+	loadGlobals(t)
+
+	app := AppearanceFor(plainScores(), nil)
+	if app.Body != BodyBasic {
+		t.Errorf("genesis body = %v, want BodyBasic", app.Body)
+	}
+	if app.Motor != MotorNone {
+		t.Errorf("genesis motor = %v, want MotorNone", app.Motor)
+	}
+	if app.Mouth != MouthNone {
+		t.Errorf("genesis mouth = %v, want MouthNone", app.Mouth)
+	}
+	if app.Sensor != SensorNone {
+		t.Errorf("genesis sensor = %v, want SensorNone", app.Sensor)
+	}
+}
+
+// TestBodyAndMotorThresholds: a shell comes from Tolerance and spikes from Defense, each past its own threshold.
+func TestBodyAndMotorThresholds(t *testing.T) {
+	loadGlobals(t)
+
+	shell, spikes := config.ShellBodyThreshold(), config.SpikesBodyThreshold()
+	for _, tc := range []struct {
+		ability Ability
+		score   int
+		want    BodyClass
+	}{
+		{AbilityTolerance, shell - 1, BodyBasic},
+		{AbilityTolerance, shell, BodyShell},
+		{AbilityDefense, spikes - 1, BodyBasic},
+		{AbilityDefense, spikes, BodySpikes},
+	} {
+		got := AppearanceFor(scoresWith(t, tc.ability, tc.score), nil).Body
+		if got != tc.want {
+			t.Errorf("%s %d: body = %v, want %v", tc.ability.Name(), tc.score, got, tc.want)
+		}
+	}
+
+	// With both past their thresholds the higher score wins, and a tie goes to the shell.
+	both := plainScores()
+	hi, lo := max(shell, spikes)+1, spikes
+	both[AbilityChemosynthesis] -= hi + lo - both[AbilityTolerance] - both[AbilityDefense]
+	both[AbilityTolerance], both[AbilityDefense] = hi, lo
+	if err := both.Validate(); err != nil {
+		t.Fatalf("test scores invalid: %v", err)
+	}
+	if got := AppearanceFor(both, nil).Body; got != BodyShell {
+		t.Errorf("tolerance %d over defense %d: body = %v, want BodyShell",
+			both[AbilityTolerance], both[AbilityDefense], got)
+	}
+	both[AbilityTolerance], both[AbilityDefense] = both[AbilityDefense], both[AbilityTolerance]
+	if got := AppearanceFor(both, nil).Body; got != BodySpikes {
+		t.Errorf("defense %d over tolerance %d: body = %v, want BodySpikes",
+			both[AbilityDefense], both[AbilityTolerance], got)
+	}
+
+	pili, flagella := config.PiliMotorThreshold(), config.FlagellaMotorThreshold()
+	for _, tc := range []struct {
+		score int
+		want  MotorClass
+	}{
+		{pili - 1, MotorNone},
+		{pili, MotorPili},
+		{flagella - 1, MotorPili},
+		{flagella, MotorFlagella},
+	} {
+		got := AppearanceFor(scoresWith(t, AbilityMovement, tc.score), nil).Motor
+		if got != tc.want {
+			t.Errorf("movement %d: motor = %v, want %v", tc.score, got, tc.want)
+		}
+	}
+}
+
+// TestMouthPicksDominantAbility covers the one place appearance has to choose between competing claims.
+func TestMouthPicksDominantAbility(t *testing.T) {
+	loadGlobals(t)
+
+	s := plainScores()
+	s[AbilityChemosynthesis] = 2
+	s[AbilityEating] = 5
+	s[AbilityAttack] = 9
+	s[AbilityDigging] = 0
+	s[AbilityMovement] = 2
+	s[AbilityDefense] = 2
+	s[AbilityTolerance] = 0
+	if err := s.Validate(); err != nil {
+		t.Fatalf("test scores invalid: %v", err)
+	}
+
+	if got := AppearanceFor(s, nil).Mouth; got != MouthFangs {
+		t.Errorf("attack 9 should beat eating 5: mouth = %v, want MouthFangs", got)
+	}
+
+	// Flip the two and the mouth follows.
+	s[AbilityEating], s[AbilityAttack] = s[AbilityAttack], s[AbilityEating]
+	if got := AppearanceFor(s, nil).Mouth; got != MouthTeeth {
+		t.Errorf("eating 9 should beat attack 5: mouth = %v, want MouthTeeth", got)
+	}
+}
+
+func TestMouthTiesAreStable(t *testing.T) {
+	loadGlobals(t)
+
+	s := plainScores()
+	s[AbilityChemosynthesis] = 4
+	s[AbilityEating] = 5
+	s[AbilityAttack] = 5
+	s[AbilityDigging] = 5
+	s[AbilityMovement] = 1
+	s[AbilityDefense] = 0
+	s[AbilityTolerance] = 0
+	if err := s.Validate(); err != nil {
+		t.Fatalf("test scores invalid: %v", err)
+	}
+
+	first := AppearanceFor(s, nil).Mouth
+	for i := 0; i < 50; i++ {
+		if got := AppearanceFor(s, nil).Mouth; got != first {
+			t.Fatalf("tie resolved inconsistently: %v then %v", first, got)
+		}
+	}
+	if first != MouthTeeth {
+		t.Errorf("tie should resolve to the first declared class, got %v", first)
+	}
+}
+
+// treeWith builds a tree whose conditions are the given ones, nested so every condition ends up as a real node.
+func treeWith(conds ...decision.Condition) *decision.Tree {
+	node := decision.NodeFromAction(decision.ActChemosynthesis)
+	for _, c := range conds {
+		node = &decision.Node{
+			NodeType: c,
+			YesNode:  node,
+			NoNode:   decision.NodeFromAction(decision.ActIdle),
+		}
+	}
+	return &decision.Tree{Node: node}
+}
+
+func TestSensorFollowsTreeConditions(t *testing.T) {
+	loadGlobals(t)
+
+	minimum := config.SensorMinConditions()
+	genesis := plainScores()
+
+	food := make([]decision.Condition, minimum)
+	for i := range food {
+		food[i] = decision.IsFoodAhead
+	}
+	if got := AppearanceFor(genesis, treeWith(food...)).Sensor; got != SensorAntennae {
+		t.Errorf("%d food checks should give antennae, got %v", minimum, got)
+	}
+
+	// One short of the minimum earns nothing.
+	if minimum > 1 {
+		if got := AppearanceFor(genesis, treeWith(food[:minimum-1]...)).Sensor; got != SensorNone {
+			t.Errorf("%d food checks is below the minimum but gave %v", minimum-1, got)
+		}
+	}
+
+	walls := make([]decision.Condition, minimum)
+	for i := range walls {
+		walls[i] = decision.IsWallAhead
+	}
+	if got := AppearanceFor(genesis, treeWith(walls...)).Sensor; got != SensorFeelers {
+		t.Errorf("wall checks should give feelers, got %v", got)
+	}
+
+	ph := make([]decision.Condition, minimum)
+	for i := range ph {
+		ph[i] = decision.IsHealthierPhAhead
+	}
+	if got := AppearanceFor(genesis, treeWith(ph...)).Sensor; got != SensorTasters {
+		t.Errorf("pH checks should give tasters, got %v", got)
+	}
+}
+
+func TestSelfChecksGrowNoSensors(t *testing.T) {
+	loadGlobals(t)
+
+	tree := treeWith(
+		decision.IsHealthy,
+		decision.IsHealthyPhHere,
+		decision.CanChemosynthesizeHere,
+		decision.IsAgeMultipleOfTwo,
+		decision.IsAgeMultipleOfTen,
+		decision.IsHealthy,
+	)
+	if got := AppearanceFor(plainScores(), tree).Sensor; got != SensorNone {
+		t.Errorf("self-checks should need no sense organ, got %v", got)
+	}
+}
+
+func TestSensorPicksDominantCategory(t *testing.T) {
+	loadGlobals(t)
+
+	tree := treeWith(
+		decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight, decision.IsFoodAhead,
+		decision.IsWallAhead, decision.IsWallLeft,
+	)
+	if got := AppearanceFor(plainScores(), tree).Sensor; got != SensorAntennae {
+		t.Errorf("4 food vs 2 wall checks should give antennae, got %v", got)
+	}
+}

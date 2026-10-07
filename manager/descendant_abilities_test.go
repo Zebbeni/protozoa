@@ -1,0 +1,50 @@
+package manager
+
+import (
+	"testing"
+
+	"github.com/Zebbeni/protozoa/checkpoint"
+	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
+)
+
+// TestDescendantNodeAbilitiesRoundTrip pins the save path the population graph's ability colouring depends on.
+func TestDescendantNodeAbilitiesRoundTrip(t *testing.T) {
+	loadDefaultGlobals(t)
+
+	parentScores := physiology.Scores{6, 1, 5, 2, 4, 1, 1}
+	childScores := physiology.Scores{2, 8, 1, 1, 4, 2, 2}
+	for _, s := range []physiology.Scores{parentScores, childScores} {
+		if err := s.Validate(); err != nil {
+			t.Fatalf("test scores invalid: %v", err)
+		}
+	}
+
+	parent := &organism.DescendantNode{ID: 1, Abilities: parentScores}
+	child := &organism.DescendantNode{ID: 2, Abilities: childScores}
+	parent.AddChild(child)
+
+	restored := recordToNode(nodeToRecord(parent), nil)
+	if restored.Abilities != parentScores {
+		t.Errorf("parent abilities %v after round trip, want %v", restored.Abilities, parentScores)
+	}
+	if len(restored.Children) != 1 {
+		t.Fatalf("restored %d children, want 1", len(restored.Children))
+	}
+	if got := restored.Children[0].Abilities; got != childScores {
+		t.Errorf("child abilities %v after round trip, want %v", got, childScores)
+	}
+}
+
+// TestPreAbilitiesNodeRecordFallsBack: a node saved before ability scores existed has an all-zero record.
+func TestPreAbilitiesNodeRecordFallsBack(t *testing.T) {
+	loadDefaultGlobals(t)
+
+	node := recordToNode(checkpoint.DescendantNodeRecord{ID: 7}, nil)
+	if err := node.Abilities.Validate(); err != nil {
+		t.Errorf("stale node restored with invalid scores: %v", err)
+	}
+	if node.Abilities != physiology.BalancedScores() {
+		t.Errorf("stale node abilities = %v, want balanced %v", node.Abilities, physiology.BalancedScores())
+	}
+}

@@ -3,24 +3,23 @@ package resources
 import (
 	"embed"
 	"io/fs"
+	"os"
 )
 
 // assetsFS is the asset filesystem the resource loaders read from.
-// Set once at startup by main.go via UseEmbeddedAssets; before that
-// any load attempt panics. Paths are project-relative
-// (e.g. "resources/images/play_button.png").
 var assetsFS fs.FS
 
-// UseEmbeddedAssets wires the embedded asset bundle into the resource
-// loaders. Must be called before Init / SelectZoom / any sprite or font
-// access.
+// UseEmbeddedAssets wires the embedded asset bundle into the resource loaders.
 func UseEmbeddedAssets(efs embed.FS) {
 	assetsFS = efs
 }
 
-// assetExists reports whether the given path resolves to a regular file
-// in the asset FS. Used for the loadOrGenerate* helpers' "fall back to
-// generated art" decision.
+// UseDirAssets repoints the asset loaders at a live directory on disk (rooted at `root`, typically the project working directory).
+func UseDirAssets(root string) {
+	assetsFS = os.DirFS(root)
+}
+
+// assetExists reports whether the given path resolves to a regular file in the asset FS.
 func assetExists(path string) bool {
 	if assetsFS == nil {
 		return false

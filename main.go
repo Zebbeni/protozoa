@@ -16,11 +16,7 @@ func main() {
 }
 
 func init() {
-	// Wire the embedded asset bundle into the packages that need to
-	// read sprites / fonts / default settings. Done first so any of
-	// the config or resource calls below can find what they need
-	// without falling back to filesystem paths — important for
-	// wasm builds where there's no real filesystem.
+	// Wire the embedded asset bundle into the packages that need to read sprites / fonts / default settings.
 	config.UseEmbeddedAssets(embeddedAssets)
 	resources.UseEmbeddedAssets(embeddedAssets)
 

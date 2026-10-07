@@ -1,8 +1,6 @@
 package ux
 
 import (
-	"image/color"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -12,20 +10,13 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// RulesScreen renders a scrollable explanation of how the simulated
-// world works — meant to ship the README's rules section in-app so a
-// new viewer doesn't have to leave the program to find them.
-//
-// Returns true from Update once the user clicks Back.
+// RulesScreen renders a scrollable explanation of how the simulated world works.
 type RulesScreen struct {
 	scrollY  float64
 	finished bool
 }
 
 // rulesParagraphs is the body text, one entry per visual paragraph.
-// Section headers start with "# " — drawn larger / accented — body
-// paragraphs are plain. Wrapping is done at draw time using a fixed
-// character width so layout doesn't drift across windows.
 var rulesParagraphs = []string{
 	"# THE WORLD",
 	"Protozoa is a 2D wraparound grid of cells. Each cell has a pH value between 0 and 10 that diffuses cycle-by-cycle towards a global equilibrium. Acidic cells render green, alkaline cells pink, neutral cells dark. Walls can divide the grid into sealed pools so isolated lineages develop in parallel.",
@@ -110,8 +101,6 @@ func (r *RulesScreen) Update() bool {
 	return false
 }
 
-// contentHeight pre-counts how tall the body will render, used to clamp
-// scrollY so the user can't scroll past the last paragraph.
 func (rs *RulesScreen) contentHeight() int {
 	h := rulesContentPad
 	for _, p := range rulesParagraphs {
@@ -128,7 +117,6 @@ func (rs *RulesScreen) contentHeight() int {
 func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 	fillThemeBackground(screen)
 
-	// Title
 	title := "RULES"
 	tb := boundString(r.FontSourceCodePro12, title)
 	tx := (c.ScreenWidth() - tb.Dx()) / 2
@@ -142,8 +130,7 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 		if isHeading(p) {
 			label := p[2:]
 			if y > -rulesLineHeightHead && y < sh {
-				text.Draw(screen, label, r.FontSourceCodePro12, panelX, y+14,
-					color.RGBA{R: 180, G: 180, B: 255, A: 255})
+				text.Draw(screen, label, r.FontSourceCodePro12, panelX, y+14, themedSectionTitle())
 			}
 			y += rulesLineHeightHead + rulesParaGap
 			continue
@@ -162,8 +149,7 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 	mx, my := ebiten.CursorPosition()
 	hovered := mx >= bx && mx < bx+rulesBackBtnW && my >= by && my < by+rulesBackBtnH
 	pressed := hovered && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-	// Cover any text that scrolled under the button area before drawing
-	// it, so the button always reads clearly.
+	// Cover any text that scrolled under the button area before drawing it, so the button always reads clearly.
 	ebitenutil.DrawRect(screen, float64(bx-10), float64(by-5),
 		float64(rulesBackBtnW+20), float64(rulesBackBtnH+10),
 		themeBackgroundColor())
@@ -179,8 +165,6 @@ func (rs *RulesScreen) backButtonRect() (int, int) {
 func isHeading(s string) bool { return len(s) >= 2 && s[0] == '#' && s[1] == ' ' }
 
 // wrapParagraph splits s into lines whose rendered width fits panelW.
-// Word-wraps at spaces; never splits a word. Uses the body font's
-// advance for measurement so the wrap matches what Draw will paint.
 func wrapParagraph(s string, panelW int) []string {
 	face := r.FontSourceCodePro10
 	if boundString(face, s).Dx() <= panelW {
@@ -209,9 +193,7 @@ func wrapParagraph(s string, panelW int) []string {
 	return lines
 }
 
-// splitWords splits s on spaces, preserving leading whitespace runs as
-// part of the next word so indented bullets like "  Color — ..." keep
-// their indent on the first line.
+// splitWords splits s on spaces, preserving leading whitespace runs as part of the next word so indented bullets like " Color.
 func splitWords(s string) []string {
 	var out []string
 	i := 0

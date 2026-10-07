@@ -16,7 +16,6 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 		GridUnitsHigh:      8,
 	}
 
-	// Write
 	w, err := NewWriter(path, header)
 	if err != nil {
 		t.Fatal(err)
@@ -53,14 +52,12 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Read
 	r, err := OpenReader(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r.Close()
 
-	// Verify header
 	if r.Header.Seed != 42 {
 		t.Errorf("seed: got %d, want 42", r.Header.Seed)
 	}
@@ -68,12 +65,10 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 		t.Errorf("grid width: got %d, want 10", r.Header.GridUnitsWide)
 	}
 
-	// Verify snapshot index
 	if r.SnapshotCount() != 1 {
 		t.Fatalf("snapshot count: got %d, want 1", r.SnapshotCount())
 	}
 
-	// Read snapshot
 	readSnap, err := r.ReadSnapshot(0)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +86,6 @@ func TestWriterReaderRoundTrip(t *testing.T) {
 		t.Errorf("decision tree: got %q, want %q", readSnap.Organisms[1].DecisionTree, "030102")
 	}
 
-	// Read sections sequentially
 	r.SeekAfterHeader()
 	sType, cycle, payload, err := r.ReadNextSection()
 	if err != nil {

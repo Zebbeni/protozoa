@@ -4,8 +4,7 @@ import (
 	"github.com/Zebbeni/protozoa/simrand"
 )
 
-// CalcAndUpdateSize returns the total number of nodes descending from this root node (including itself)
-// Update each node's size value to avoid calculating this multiple times
+// CalcAndUpdateSize returns the total number of nodes descending from this root node (including itself) Update each node's size value to avoid calculating this multiple times
 func (n *Node) CalcAndUpdateSize() int {
 	if n.IsAction() {
 		n.size = 1
@@ -16,17 +15,15 @@ func (n *Node) CalcAndUpdateSize() int {
 	return n.size
 }
 
-// GetRandomCondition returns a random Condition from the Conditions array
-func GetRandomCondition(rng *simrand.RNG) Condition {
-	return Conditions[rng.Intn(len(Conditions))]
+// GetRandomCondition returns a random Condition drawn from the supplied pool — in practice MutableConditions.
+func GetRandomCondition(rng *simrand.RNG, allowed []Condition) Condition {
+	return allowed[rng.Intn(len(allowed))]
 }
 
-// GetRandomAction returns a random Action from the Actions array
-func GetRandomAction(rng *simrand.RNG) Action {
-	return Actions[rng.Intn(len(Actions))]
+func GetRandomAction(rng *simrand.RNG, allowed []Action) Action {
+	return allowed[rng.Intn(len(allowed))]
 }
 
-// isAction returns true if the object passed in is an Action
 func isAction(v interface{}) bool {
 	switch v.(type) {
 	case Action:
@@ -35,7 +32,6 @@ func isAction(v interface{}) bool {
 	return false
 }
 
-// isCondition returns true if the object passed in is a Condition
 func isCondition(v interface{}) bool {
 	switch v.(type) {
 	case Condition:

@@ -17,16 +17,11 @@ const (
 	splashHold   = 700 * time.Millisecond
 	splashTotal  = splashFadeIn + splashHold
 	splashTitle  = "protozoa"
-	// FontInversionz40 is already a chunky display face — a small
-	// FilterNearest upscale gets the deliberately-blocky look without
-	// blowing the title out of the centre column.
+	// FontInversionz40 is already a chunky display face.
 	splashPixelize = 2
 )
 
-// Splash is the title-card screen shown at first launch when no CLI
-// flags steered us elsewhere. The title is rendered to a small offscreen
-// image and scaled up with nearest-neighbour filtering, so the type
-// reads as deliberately blocky rather than just a big font.
+// Splash is the title-card screen shown at first launch when no CLI flags steered us elsewhere.
 type Splash struct {
 	start    time.Time
 	titleImg *ebiten.Image
@@ -39,10 +34,7 @@ func NewSplash() *Splash {
 	return s
 }
 
-// bakeTitle renders the title text once into a tight offscreen image so
-// every Draw can DrawImage it (scaled + tinted) instead of re-rasterising
-// the glyphs each frame. Same Inversionz face the replay panel uses,
-// then upscaled with FilterNearest for a pixel-art feel.
+// bakeTitle renders the title text once into a tight offscreen image so every Draw can DrawImage it (scaled + tinted) instead of re-rasterising the glyphs each frame.
 func (s *Splash) bakeTitle() {
 	face := r.FontInversionz40
 	bounds := boundString(face, splashTitle)
@@ -53,10 +45,6 @@ func (s *Splash) bakeTitle() {
 	s.titleImg = img
 }
 
-// Update advances the splash and reports whether it's finished. Returns
-// true after the full fade-in + hold elapses, or as soon as the user
-// clicks/taps a key — splash is skippable so impatient launches don't
-// pay the animation cost.
 func (s *Splash) Update() bool {
 	if s.done {
 		return true
@@ -102,9 +90,7 @@ func (s *Splash) Draw(screen *ebiten.Image) {
 	screen.DrawImage(s.titleImg, op)
 }
 
-// foregroundFloats returns the active theme's foreground colour as
-// 0..1 floats for use with ColorScale.Scale (which expects pre-
-// multiplied scale factors when the alpha channel is also scaled).
+// foregroundFloats returns the active theme's foreground colour as 0..1 floats for use with ColorScale.Scale (which expects pre- multiplied scale factors when the alpha channel is also scaled).
 func foregroundFloats() (float32, float32, float32) {
 	r, g, b, _ := themedForeground().RGBA()
 	return float32(r) / 0xffff, float32(g) / 0xffff, float32(b) / 0xffff

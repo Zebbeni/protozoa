@@ -10,25 +10,54 @@ import (
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
 )
 
-// HistoryType identifies the type of per-cycle history data.
 type HistoryType int
 
 const (
 	HistoryPopulation     HistoryType = iota // cycle : ancestorId : livingDescendantsCount
 	HistoryPhDistribution                    // cycle : phBucket : gridCellCount
+	HistoryFood                              // cycle : 0 : totalFoodItemCount
+	HistoryWalls                             // cycle : 0 : totalWallCellCount
+	// HistoryBuriedFood counts CELLS holding buried food, not units, to match HistoryFood.
+	HistoryBuriedFood // cycle : 0 : totalBuriedFoodCellCount
 )
+
+// AllHistoryTypes is every history series, and the canonical list the maps are built from.
+var AllHistoryTypes = []HistoryType{
+	HistoryPopulation,
+	HistoryPhDistribution,
+	HistoryFood,
+	HistoryWalls,
+	HistoryBuriedFood,
+}
+
+func newHistoryMaps() map[HistoryType]map[int]map[int]int32 {
+	h := make(map[HistoryType]map[int]map[int]int32, len(AllHistoryTypes))
+	for _, t := range AllHistoryTypes {
+		h[t] = make(map[int]map[int]int32)
+	}
+	return h
+}
 
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
+	// chemoClaims counts how many chemosynthesising organisms draw on each cell this cycle, row-major. Nil when crowding is off.
+	chemoClaims    []int32
 	api            organism.API
 	rng            *simrand.RNG
 	requestManager RequestManager
+
+	// designs are the saved organism designs this simulation founds from (config initial_designs), loaded once and dealt round-robin.
+	designs       []organism.Design
+	designsLoaded bool
+	designsDealt  int
 
 	organisms             map[int]*organism.Organism
 	organismIDGrid        [][]int
@@ -36,42 +65,31 @@ type OrganismManager struct {
 
 	organismIds []int
 
-	oldestId         int
-	oldestAge        int
-	mostChildrenId   int
-	mostChildren     int
-	mostTraveledId   int
-	mostTraveledDist int
+	oldestId           int
+	oldestAge          int
+	mostChildrenId     int
+	mostChildren       int
+	mostTraveledId     int
+	mostTraveledDist   int
 	mostAggressiveId   int
 	mostAggressiveHits int
 
 	originalAncestors      []int
 	originalAncestorColors map[int]color.Color              // all original ancestor IDs with at least one descendant
 	descendantTrees        map[int]*organism.DescendantNode // ancestorId : root node
-	// descendantNodeIndex maps every node ID (alive or dead) to its
-	// DescendantNode for O(1) lookup. Populated alongside descendantTrees
-	// (RestoreDescendantTrees seeds it from the loaded payload; spawn
-	// paths append to it as new organisms are born). Without this,
-	// GetTreeNodeByID for a dead organism would walk every tree from its
-	// root every call — quadratic in tree size when called per render
-	// frame from the descendant-highlight code.
+	// descendantNodeIndex maps every node ID (alive or dead) to its DescendantNode for O(1) lookup.
 	descendantNodeIndex map[int]*organism.DescendantNode
-	// mostSuccessful is the precomputed set of IDs whose descendant tree
-	// node has AllBranchesDeadCycle == 0 (lineage survives to end) or
-	// equal to the maximum AllBranchesDeadCycle across the loaded tree.
-	// Populated once in RestoreDescendantTrees so the per-tick "Most
-	// Successful" select mode just does an O(1) lookup per live
-	// organism instead of walking the full tree every frame. Empty
-	// (nil) in pure live mode where the tree is built up dynamically;
-	// callers fall back to the walking implementation when nil.
+	// mostSuccessful is the precomputed set of IDs whose descendant tree node has AllBranchesDeadCycle == 0 (lineage survives to end) or equal to the maximum AllBranchesDeadCycle across the loaded tree.
 	mostSuccessful map[int]struct{}
-	history map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
+	// recordedEndCycle is the end of the recorded run, set alongside each node's LineageEndCycle when trees are restored.
+	recordedEndCycle int
+	// treesGeneration identifies the decoded trees installed here; see DescendantTrees.
+	treesGeneration int
+	history         map[HistoryType]map[int]map[int]int32 // type : cycle : key : count
 
 	UpdateDuration, ResolveDuration, SortDuration, HistoryDuration time.Duration
 
-	// Sub-timings within Decide phase
-	DecideStatsDuration, DecideTreeDuration, DecideRequestDuration time.Duration
-	// Sub-timings within Resolve phase
+	DecideStatsDuration, DecideTreeDuration, DecideRequestDuration    time.Duration
 	ResolveHealthDuration, ResolveActionDuration, ResolveDeadDuration time.Duration
 	ResolveSpawnDuration                                              time.Duration
 	SpawnCount                                                        int
@@ -82,7 +100,6 @@ type OrganismManager struct {
 	organismMutex sync.RWMutex
 }
 
-// NewOrganismManager creates all Organisms and updates grid
 func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 	grid := initializeGrid()
 	organisms := make(map[int]*organism.Organism)
@@ -96,10 +113,7 @@ func NewOrganismManager(api organism.API, rng *simrand.RNG) *OrganismManager {
 		originalAncestorColors: make(map[int]color.Color),
 		descendantTrees:        make(map[int]*organism.DescendantNode),
 		descendantNodeIndex:    make(map[int]*organism.DescendantNode),
-		history: map[HistoryType]map[int]map[int]int32{
-			HistoryPopulation:     make(map[int]map[int]int32),
-			HistoryPhDistribution: make(map[int]map[int]int32),
-		},
+		history:                newHistoryMaps(),
 	}
 	manager.InitializeOrganisms(c.InitialOrganisms())
 	return manager
@@ -111,8 +125,7 @@ func (m *OrganismManager) InitializeOrganisms(count int) {
 	}
 }
 
-// Update walks through decision tree of each organism and applies the
-// chosen action to the organism, the grid, and the environment
+// Update walks through decision tree of each organism and applies the chosen action to the organism, the grid.
 func (m *OrganismManager) Update() {
 	m.requestManager.ClearMaps()
 	m.organismIds = make([]int, 0, c.MaxOrganisms())
@@ -125,18 +138,12 @@ func (m *OrganismManager) Update() {
 	m.updateHistory()
 }
 
-// updateOrganismActions runs each organism's per-cycle stats update,
-// decision-tree walk, and request submission. Sequential by design:
-// an earlier parallel-by-CPU implementation made the simulation
-// non-deterministic across replays — replays starting from different
-// snapshots reached different states at the same target cycle, which
-// broke step-back/forward repeatability and caused organism IDs to be
-// assigned to different organisms across timeline jumps. The race
-// wasn't on shared writes (workers only modified their own organism)
-// but somewhere in the read paths through lookupAPI, so until that's
-// pinned down, sequential execution is the source of truth.
+// updateOrganismActions runs each organism's per-cycle stats update, decision-tree walk, and request submission.
 func (m *OrganismManager) updateOrganismActions() {
 	start := time.Now()
+
+	// Drain any organisms that finished their dying cycle in the previous tick.
+	m.finalizeDeaths()
 
 	// Collect IDs in deterministic sorted order
 	ids := make([]int, 0, len(m.organisms))
@@ -149,17 +156,23 @@ func (m *OrganismManager) updateOrganismActions() {
 	m.requestManager.ClearMaps()
 	for _, id := range ids {
 		o := m.organisms[id]
+		// Dying organisms are frozen — no decisions, no requests, no stats updates.
+		if o.Status == organism.StatusDying {
+			m.organismIds = append(m.organismIds, o.ID)
+			continue
+		}
 		if o.Action() == d.ActAttack {
 			m.addUpdatedPoint(o.Location)
 		}
+		// Cleared here, before ANY organism resolves: thorns and predation
+		// credit the attacker's ledger while the defender resolves, so a
+		// reset inside the resolve loop wiped whichever of the two came
+		// later by id. Dying organisms are skipped above and keep the
+		// ledger of the cycle that killed them.
+		o.ResetHealthLedger()
 		o.UpdateStats()
 		o.UpdateAction()
-		// Promote to ActSpawn only if the organism is eligible AND
-		// the grid actually has room for a child. Doing this at
-		// decide time (rather than the old "always promote, fall
-		// back at resolve" approach) keeps the request map aligned
-		// with what will run and removes any out-of-order side
-		// effects later in the cycle.
+		// Promote to ActSpawn only if the organism is eligible AND the grid actually has room for a child.
 		if o.ShouldSpawn() {
 			if _, _, ok := m.getChildSpawnLocation(o); ok {
 				o.PromoteToSpawn()
@@ -207,6 +220,8 @@ func (m *OrganismManager) updateInterestingStats(o *organism.Organism) {
 func (m *OrganismManager) resolveOrganismActions() {
 	start := time.Now()
 
+	m.buildChemoClaims()
+
 	var accHealth, accAction, accDead, accSpawn time.Duration
 	spawnCount := 0
 
@@ -217,19 +232,32 @@ func (m *OrganismManager) resolveOrganismActions() {
 		}
 
 		t0 := time.Now()
+		// Dying organisms skip the resolve loop entirely.
+		if o.Status == organism.StatusDying {
+			continue
+		}
 		m.applyCycleHealthChanges(o)
 		t1 := time.Now()
-		if o.Action() == d.ActSpawn {
+		// If health-change just killed the organism, skip its action this cycle.
+		if m.markDyingIfDead(o) {
+			t2 := time.Now()
+			accHealth += t1.Sub(t0)
+			accDead += t2.Sub(t1)
+			continue
+		}
+		switch {
+		case o.Action() == d.ActSpawn:
 			m.applySpawn(o)
 			t2 := time.Now()
 			accSpawn += t2.Sub(t1)
 			spawnCount++
 			t1 = t2
-		} else {
+		default:
 			m.applyAction(o)
 		}
 		t2 := time.Now()
-		m.removeIfDead(o)
+		// Post-action death check: an action like Attack with extreme cost could drop the organism below the threshold.
+		m.markDyingIfDead(o)
 		m.updateInterestingStats(o)
 		t3 := time.Now()
 
@@ -237,6 +265,8 @@ func (m *OrganismManager) resolveOrganismActions() {
 		accAction += t2.Sub(t1)
 		accDead += t3.Sub(t2)
 	}
+
+	m.applyKillClaims()
 
 	m.ResolveHealthDuration = accHealth
 	m.ResolveActionDuration = accAction
@@ -246,8 +276,7 @@ func (m *OrganismManager) resolveOrganismActions() {
 	m.ResolveDuration = time.Since(start)
 }
 
-// updateHistory updates the population map, average phEffect per ancestor,
-// and pH distribution for all living organisms and the environment
+// updateHistory updates the population map, average phEffect per ancestor.
 func (m *OrganismManager) updateHistory() {
 	cycle := m.api.Cycle()
 	if cycle%c.PopulationUpdateInterval() != 0 {
@@ -284,6 +313,14 @@ func (m *OrganismManager) updateHistory() {
 	m.historyMutex.Lock()
 	m.history[HistoryPhDistribution][cycle] = phDist
 	m.historyMutex.Unlock()
+
+	// Record the total food-item and wall counts, each under a single fixed key (0).
+	m.historyMutex.Lock()
+	m.history[HistoryFood][cycle] = map[int]int32{0: int32(m.api.FoodCount())}
+	m.history[HistoryWalls][cycle] = map[int]int32{0: int32(m.api.WallCount())}
+	m.history[HistoryBuriedFood][cycle] = map[int]int32{0: int32(m.api.BuriedFoodCount())}
+	m.historyMutex.Unlock()
+
 	m.HistoryDuration = time.Since(start)
 }
 
@@ -293,27 +330,26 @@ func (m *OrganismManager) updateRequestMap(o *organism.Organism) {
 
 func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestManager) {
 	switch o.Action() {
-	case d.ActEat:
-		target := o.Location.Add(o.Direction)
-		value := int(math.Ceil(m.calculateValueToEat(o, target)))
-		rm.AddFoodRequest(target, value)
 	case d.ActMove:
 		target := o.Location.Add(o.Direction)
-		if m.isGridLocationEmpty(target) {
-			rm.AddPositionRequest(target, o.ID)
+		if m.canOccupy(o, target) {
+			rm.AddPositionRequest(target, o.ID, o.Size)
 		}
 	case d.ActSpawn:
 		if target, _, ok := m.getChildSpawnLocation(o); ok {
-			rm.AddPositionRequest(target, o.ID)
+			rm.AddPositionRequest(target, o.ID, o.Size)
 		}
 	case d.ActAttack:
 		effect := m.calculateAttackEffect(o)
 		target := o.Location.Add(o.Direction)
-		rm.AddHealthEffectRequest(target, effect)
-		// Track attack stats: every attack counts toward AttackTotal,
-		// and only those landing on a real organism count as a hit.
-		// Checked at decision-time so "in front of you when you decided
-		// to attack" is the criterion the user described.
+		rm.AddAttackRequest(target, effect, o.ID)
+		// An attack into open water carries the attacker forward, so it has
+		// to claim the cell the way a move does or two of them lunge into
+		// the same one.
+		if m.isOpenForLunge(target) {
+			rm.AddPositionRequest(target, o.ID, o.Size)
+		}
+		// Track attack stats: every attack counts toward AttackTotal.
 		o.AttackTotal++
 		if m.isOrganismAtLocation(target) {
 			o.AttackHits++
@@ -321,45 +357,10 @@ func (m *OrganismManager) updateRequestMapTo(o *organism.Organism, rm *RequestMa
 	}
 }
 
-func (m *OrganismManager) addAttackRequest(o *organism.Organism) {
-	effect := m.calculateAttackEffect(o)
-	target := o.Location.Add(o.Direction)
-	m.requestManager.AddHealthEffectRequest(target, effect)
-}
-
-func (m *OrganismManager) addSpawnRequest(o *organism.Organism) {
-	target, _, ok := m.getChildSpawnLocation(o)
-	if ok {
-		m.requestManager.AddPositionRequest(target, o.ID)
-	}
-}
-
-// determine the new position required for a move action add 1 to the number of
-// requests for this position in positionRequests
-func (m *OrganismManager) addMoveRequest(o *organism.Organism) {
-	target := o.Location.Add(o.Direction)
-
-	// Only make request if empty, to avoid complications resolving it later
-	if empty := m.isGridLocationEmpty(target); empty {
-		m.requestManager.AddPositionRequest(target, o.ID)
-	}
-}
-
-// calculate the amount of food the given organism requests to eat at a target
-// location. Add this to the food item stored for this location representing
-// the total eat requests made here.
-func (m *OrganismManager) addFoodRequest(o *organism.Organism) {
-	target := o.Location.Add(o.Direction)
-	value := int(math.Ceil(m.calculateValueToEat(o, target)))
-	m.requestManager.AddFoodRequest(target, value)
-}
-
-// GetHistory returns a history map by type. Caller must hold history read lock.
 func (m *OrganismManager) GetHistory(histType HistoryType) map[int]map[int]int32 {
 	return m.history[histType]
 }
 
-// GetAncestorColors returns a map all original ancestor IDs to their color
 func (m *OrganismManager) GetAncestorColors() map[int]color.Color {
 	return m.originalAncestorColors
 }
@@ -379,7 +380,6 @@ func (m *OrganismManager) GetDescendantTrees() map[int]*organism.DescendantNode 
 	return m.descendantTrees
 }
 
-// GetAncestors returns a list of all original ancestor IDs
 func (m *OrganismManager) GetAncestors() []int {
 	return m.originalAncestors
 }
@@ -392,23 +392,18 @@ func (m *OrganismManager) addToOrganismIds(o *organism.Organism) {
 	m.organismIds = append(m.organismIds, o.ID)
 }
 
-// SpawnRandomOrganism creates an Organism with random position.
-//
-// Checks random positions on the grid until it finds an empty one. Calls
-// NewOrganism to initialize decision tree, other random attributes.
 func (m *OrganismManager) SpawnRandomOrganism() {
 	if spawnPoint, found := m.getRandomSpawnLocation(); found {
 		id := m.generateId()
-		o := organism.NewRandom(m.rng, id, spawnPoint, m.api)
+		o := m.newFoundingOrganism(id, spawnPoint)
 
-		// In replay/resume modes the descendant tree is pre-loaded from the
-		// recorded simulation. Reuse the existing node for this ID instead of
-		// creating a duplicate, so the population graph isn't double-counted.
+		// In replay/resume modes the descendant tree is pre-loaded from the recorded simulation.
 		node, exists := m.descendantTrees[id]
 		if !exists {
 			node = &organism.DescendantNode{
 				ID:         id,
 				Color:      o.Color(),
+				Abilities:  o.Traits().Abilities,
 				StartCycle: m.api.Cycle(),
 			}
 			m.descendantTrees[id] = node
@@ -421,11 +416,7 @@ func (m *OrganismManager) SpawnRandomOrganism() {
 	}
 }
 
-// SpawnChildOrganism creates a new organism near an existing 'parent' organism
-// with a copy of its parent's node library. (No organism created if no room or
-// if more than 1 organism made a request to spawn and/or move into the desired
-// location.
-// Returns true / false depending on whether a child was actually spawned.
+// SpawnChildOrganism creates a new organism near an existing 'parent' organism with a copy of its parent's node library.
 func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	spawnPoint, spawnDirection, found := m.getChildSpawnLocation(parent)
 	if found == false {
@@ -436,15 +427,9 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	}
 	id := m.generateId()
 	// Face the child away from its parent (parent→child step vector).
-	// The birth-animation path synthesises Frame.FromLocation =
-	// child.Location.Sub(child.Direction), so as long as Direction is
-	// the outward step, the 2-cell move sprite draws parent→child
-	// correctly without anyone having to remember the parent's cell.
 	o := parent.NewChild(m.rng, id, spawnPoint, spawnDirection, m.api)
 
-	// In replay/resume modes the parent's existing tree (loaded from the
-	// recorded simulation) already has a child with this ID. Reuse it so we
-	// don't double the node under the same parent.
+	// In replay/resume modes the parent's existing tree (loaded from the recorded simulation) already has a child with this ID.
 	var node *organism.DescendantNode
 	if parent.TreeNode != nil {
 		parent.TreeNode.ForEachChild(func(child *organism.DescendantNode) {
@@ -457,6 +442,7 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 		node = &organism.DescendantNode{
 			ID:         id,
 			Color:      o.Color(),
+			Abilities:  o.Traits().Abilities,
 			StartCycle: m.api.Cycle(),
 		}
 		if parent.TreeNode != nil {
@@ -470,8 +456,7 @@ func (m *OrganismManager) SpawnChildOrganism(parent *organism.Organism) bool {
 	return true
 }
 
-// return true iff the request id stored in the position requests matches
-// the id of the organism checking
+// return true iff the request id stored in the position requests matches the id of the organism checking
 func (m *OrganismManager) isMatchingPositionRequest(p utils.Point, id int) bool {
 	requestId := m.requestManager.GetPositionRequest(p)
 	return id == requestId
@@ -512,31 +497,23 @@ func (m *OrganismManager) addToOriginalAncestors(o *organism.Organism) {
 	m.ancestorMutex.Unlock()
 }
 
-// getRandomSpawnLocation returns a random empty grid point with at
-// least one empty cardinal neighbour. Retries up to maxSpawnAttempts —
-// a single try used to fail silently when InitialFood was high enough
-// that the first random pick collided with food, and the entire
-// simulation would end at cycle -1 because no initial organism got
-// placed. The neighbour check avoids spawning a chemosynthesiser fully
-// walled in by food, which can't reproduce and ends the run early.
+// getRandomSpawnLocation returns a random empty grid point with at least one empty cardinal neighbour.
 func (m *OrganismManager) getRandomSpawnLocation() (utils.Point, bool) {
 	const maxSpawnAttempts = 1000
 	for i := 0; i < maxSpawnAttempts; i++ {
 		point := utils.GetRandomPoint(m.rng, c.GridUnitsWide(), c.GridUnitsHigh())
-		if m.isGridLocationEmpty(point) && m.hasEmptyNeighbor(point) {
+		if m.canPlaceOrganismAt(point) && m.hasEmptyNeighbor(point) {
 			return point, true
 		}
 	}
 	return utils.Point{}, false
 }
 
-// hasEmptyNeighbor reports whether at least one of point's four
-// cardinal neighbours is empty (no wall, food, or organism). Used to
-// pick initial spawn locations that aren't fully boxed in.
+// hasEmptyNeighbor reports whether at least one of point's four cardinal neighbours is empty (no wall, food, or organism).
 func (m *OrganismManager) hasEmptyNeighbor(point utils.Point) bool {
 	direction := utils.Point{X: 0, Y: -1}
 	for i := 0; i < 4; i++ {
-		if m.isGridLocationEmpty(point.Add(direction)) {
+		if m.canPlaceOrganismAt(point.Add(direction)) {
 			return true
 		}
 		direction = direction.Left()
@@ -544,11 +521,7 @@ func (m *OrganismManager) hasEmptyNeighbor(point utils.Point) bool {
 	return false
 }
 
-// getChildSpawnLocation returns an empty cell adjacent to the parent and the
-// unit cardinal step from parent→cell. The step is returned separately
-// because computing it via spawnPoint.Sub(parent.Location) would wrap on
-// grid edges (e.g. (-1, 0) → (gridWidth-1, 0)) and break direction-based
-// sprite rotation.
+// getChildSpawnLocation returns an empty cell adjacent to the parent and the unit cardinal step from parent→cell.
 func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (utils.Point, utils.Point, bool) {
 	var point utils.Point
 	direction := parent.Direction
@@ -556,7 +529,7 @@ func (m *OrganismManager) getChildSpawnLocation(parent *organism.Organism) (util
 		direction = direction.Left()
 		point = parent.Location.Add(direction)
 
-		empty := m.isGridLocationEmpty(point)
+		empty := m.canPlaceOrganismAt(point)
 		if empty {
 			return point, direction, true
 		}
@@ -578,14 +551,49 @@ func initializeGrid() [][]int {
 	return grid
 }
 
+func (m *OrganismManager) canPlaceOrganismAt(point utils.Point) bool {
+	return !m.api.IsWallAtPoint(point) && !m.isOrganismAtLocation(point)
+}
+
 func (m *OrganismManager) isGridLocationEmpty(point utils.Point) bool {
-	return !point.IsWall() && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+	return !m.api.IsWallAtPoint(point) && !m.isFoodAtLocation(point) && !m.isOrganismAtLocation(point)
+}
+
+// canOccupy reports whether o could end this cycle standing on point.
+func (m *OrganismManager) canOccupy(o *organism.Organism, point utils.Point) bool {
+	if m.isOrganismAtLocation(point) {
+		return false
+	}
+	strength := m.api.GetWallStrengthAtPoint(point)
+	if strength <= 0 {
+		return true
+	}
+	return m.canBurrow(o, strength)
+}
+
+// isOpenForLunge reports whether an attack into this cell carries the
+// attacker into it: nothing alive there and no wall at all.
+//
+// Deliberately NOT canOccupy, which lets a strong digger through a wall.
+// Burrowing belongs to ActMove; an attack does not open terrain.
+func (m *OrganismManager) isOpenForLunge(point utils.Point) bool {
+	return !m.isOrganismAtLocation(point) && m.api.GetWallStrengthAtPoint(point) <= 0
+}
+
+// canBurrow is the manager-side wall-break check.
+func (m *OrganismManager) canBurrow(o *organism.Organism, wallStrength int) bool {
+	return effects.CanBreakWall(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityDigging], o.Size, wallStrength)
 }
 
 func (m *OrganismManager) isFoodAtLocation(point utils.Point) bool {
 	return m.api.CheckFoodAtPoint(point, func(_ *food.Item, exists bool) bool {
 		return exists
 	})
+}
+
+func (m *OrganismManager) IsOrganismAtPoint(point utils.Point) bool {
+	return m.isOrganismAtLocation(point)
 }
 
 func (m *OrganismManager) isOrganismAtLocation(point utils.Point) bool {
@@ -616,8 +624,7 @@ func (m *OrganismManager) getOrganismIDAt(point utils.Point) (int, bool) {
 	return id, id != -1
 }
 
-// CheckOrganismAtPoint returns the result of running a check against any Organism
-// found at a given Point.
+// CheckOrganismAtPoint returns the result of running a check against any Organism found at a given Point.
 func (m *OrganismManager) CheckOrganismAtPoint(point utils.Point, checkFunc organism.OrgCheck) bool {
 	return checkFunc(m.getOrganismAt(point))
 }
@@ -632,9 +639,7 @@ func (m *OrganismManager) GetOrganismTreeNode(id int) *organism.DescendantNode {
 	return nil
 }
 
-// GetTreeNodeByID returns the DescendantNode for the given ID — alive
-// or dead — in O(1) via descendantNodeIndex. Used by UI render paths
-// like the descendant-highlight walk that runs every frame.
+// GetTreeNodeByID returns the DescendantNode for the given ID — alive or dead — in O(1) via descendantNodeIndex.
 func (m *OrganismManager) GetTreeNodeByID(id int) *organism.DescendantNode {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -644,12 +649,7 @@ func (m *OrganismManager) GetTreeNodeByID(id int) *organism.DescendantNode {
 	return m.descendantNodeIndex[id]
 }
 
-// GetOrganismInfoAtPoint returns the Organism Info at the given point
-// (nil if none). The fast path is the organismIDGrid lookup; a slower
-// fallback scans m.organisms by Location so a stray grid/organisms
-// inconsistency doesn't make a visibly-rendered organism unhoverable.
-// Production code shouldn't normally hit the fallback — if it does,
-// there's a bug elsewhere that's letting the grid drift from m.organisms.
+// GetOrganismInfoAtPoint returns the Organism Info at the given point (nil if none).
 func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.Info {
 	if id, found := m.getOrganismIDAt(point); found {
 		m.organismMutex.RLock()
@@ -660,8 +660,6 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 		}
 		m.organismMutex.RUnlock()
 	}
-	// Fallback: linear scan. Catches the case where the grid says
-	// nothing's at this cell but an organism is logically here.
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
 	for _, o := range m.organisms {
@@ -672,8 +670,7 @@ func (m *OrganismManager) GetOrganismInfoAtPoint(point utils.Point) *organism.In
 	return nil
 }
 
-// GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the
-// given organism (nil if no organism found)
+// GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the given organism (nil if no organism found)
 func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -684,7 +681,6 @@ func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	return nil
 }
 
-// GetOrganismInfoByID returns the Organism Info for a given Organism ID. (nil if not found)
 func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -695,8 +691,6 @@ func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 	return nil
 }
 
-// GetOrganismTraitsByID returns the Organism Traits for a given Organism ID and whether it was
-// successfully found
 func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -707,23 +701,19 @@ func (m *OrganismManager) GetOrganismTraitsByID(id int) (organism.Traits, bool) 
 	return organism.Traits{}, false
 }
 
-// GetOldestId returns the id of the oldest living organism
 func (m *OrganismManager) GetOldestId() int {
 	return m.oldestId
 }
 
-// GetMostChildrenId returns the id of the most traveled organism
 func (m *OrganismManager) GetMostChildrenId() int {
 	return m.mostChildrenId
 }
 
-// GetMostTraveledId returns the id of the most traveled organism
 func (m *OrganismManager) GetMostTraveledId() int {
 	return m.mostTraveledId
 }
 
-// GetMostAggressiveId returns the id of the organism with the most
-// attack hits (attacks that landed on a target organism). -1 if none.
+// GetMostAggressiveId returns the id of the organism with the most attack hits (attacks that landed on a target organism).
 func (m *OrganismManager) GetMostAggressiveId() int {
 	if m.mostAggressiveHits <= 0 {
 		return -1
@@ -731,12 +721,6 @@ func (m *OrganismManager) GetMostAggressiveId() int {
 	return m.mostAggressiveId
 }
 
-// mostSuccessfulSet returns the set of "most successful" tree node IDs.
-// In replay mode this is precomputed at restore time. In live mode the
-// recording hasn't ended yet, so we compute it on the fly: every node
-// whose subtree still contains an organism alive right now (EndCycle
-// == 0). EndCycle is set once by MarkDead and never overwritten, so
-// the walk is O(tree) and stable cycle-to-cycle.
 func (m *OrganismManager) mostSuccessfulSet() map[int]struct{} {
 	if m.mostSuccessful != nil {
 		return m.mostSuccessful
@@ -766,10 +750,6 @@ func (m *OrganismManager) mostSuccessfulSet() map[int]struct{} {
 	return set
 }
 
-// GetMostSuccessfulIds returns the IDs of currently-living organisms on
-// the most-successful lineage — last alive at recording end (or, in live
-// mode, currently alive) plus every ancestor of one. Result is sorted
-// by ID for stable rendering.
 func (m *OrganismManager) GetMostSuccessfulIds() []int {
 	set := m.mostSuccessfulSet()
 	if set == nil {
@@ -787,9 +767,6 @@ func (m *OrganismManager) GetMostSuccessfulIds() []int {
 	return living
 }
 
-// Organisms returns a snapshot slice of currently-living organisms.
-// Used by post-restore initialisation that needs to walk every
-// organism after the manager is wired into its parent simulation.
 func (m *OrganismManager) Organisms() []*organism.Organism {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -800,9 +777,7 @@ func (m *OrganismManager) Organisms() []*organism.Organism {
 	return out
 }
 
-// IsMostSuccessful reports whether the given organism ID is on the
-// surviving (or, in extinct recordings, longest-lived) lineage. Used
-// by panel UI to badge nodes in the descendant-tree view.
+// IsMostSuccessful reports whether the given organism ID is on the surviving (or, in extinct recordings, longest-lived) lineage.
 func (m *OrganismManager) IsMostSuccessful(id int) bool {
 	set := m.mostSuccessfulSet()
 	if set == nil {
@@ -812,8 +787,7 @@ func (m *OrganismManager) IsMostSuccessful(id int) bool {
 	return ok
 }
 
-// GetMostSuccessfulId returns the ID of the oldest currently-living
-// organism on the most-successful lineage, or -1 if none qualify.
+// GetMostSuccessfulId returns the ID of the oldest currently-living organism on the most-successful lineage, or -1 if none qualify.
 func (m *OrganismManager) GetMostSuccessfulId() int {
 	set := m.mostSuccessfulSet()
 	if set == nil {
@@ -835,7 +809,27 @@ func (m *OrganismManager) GetMostSuccessfulId() int {
 	return oldestID
 }
 
-// OrganismCount returns the current number of organisms alive in the simulation
+// OrganismCount returns the current number of organisms alive in the simulation AverageAbilityScores is the mean of every living organism's scores, ability by ability.
+func (m *OrganismManager) AverageAbilityScores() [physiology.AbilityCount]float64 {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+
+	var totals [physiology.AbilityCount]float64
+	if len(m.organisms) == 0 {
+		return totals
+	}
+	for _, o := range m.organisms {
+		scores := o.Abilities()
+		for _, a := range physiology.AllAbilities {
+			totals[a] += float64(scores[a])
+		}
+	}
+	for i := range totals {
+		totals[i] /= float64(len(m.organisms))
+	}
+	return totals
+}
+
 func (m *OrganismManager) OrganismCount() int {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -849,90 +843,178 @@ func (m *OrganismManager) DeadCount() int {
 }
 
 func (m *OrganismManager) applyAction(o *organism.Organism) {
-	switch o.Action() {
+	// No junk-DNA fallback: under ability scores every organism can resolve every action.
+	action := o.Action()
+	switch action {
 	case d.ActChemosynthesis:
 		m.applyChemosynthesis(o)
-		break
 	case d.ActAttack:
 		m.applyAttack(o)
-		break
 	case d.ActEat:
 		m.applyEat(o)
-		break
 	case d.ActMove:
 		m.applyMove(o)
-		break
 	case d.ActTurnLeft:
 		m.applyLeftTurn(o)
-		break
 	case d.ActTurnRight:
 		m.applyRightTurn(o)
-		break
 	case d.ActSpawn:
 		m.applySpawn(o)
-		break
 	case d.ActIdle:
 		m.applyIdle(o)
-		break
+	case d.ActDig:
+		m.applyDig(o)
 	}
 }
 
 func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 	traits := o.TraitsRef()
-	phEffect := 0.0
-	tolerance := c.PhTolerance()
-	// Subtract health if organism is too far away from its ideal ph
+	// Water away from an organism's ideal pH costs it health, more sharply the further off it is, less so the more Tolerance it has.
 	phDist := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
-	if phDist > tolerance {
-		phEffect = (phDist - tolerance) * c.HealthChangePerUnhealthyPh()
-	}
-	// Add effects due to attack (not related to organism size)
-	healthEffects := m.requestManager.GetHealthEffects(o.Location)
-	m.applyHealthChange(o, o.Size*phEffect+healthEffects)
+	phEffect := effects.PhDamage(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityTolerance], o.Size, phDist)
+	// Add effects due to attack (not related to organism size).
+	defense := o.Abilities()[physiology.AbilityDefense]
+	damageMult := defenseDamageMult(o.Abilities())
 
-	// Lifespan enforcement: when MaxLifespan > 0 every organism dies
-	// at that age. removeIfDead runs later in the same cycle and cleans
-	// up as usual.
+	// Walk the incoming effects individually rather than taking the sum.
+	healthEffects := 0.0
+	// Health left to take, so a hit pays its attacker only for what was
+	// actually there: damage runs far past what an organism holds.
+	remaining := o.Health
+	strongest, strongestScore := -1, -1
+	for _, e := range m.requestManager.GetHealthEffects(o.Location) {
+		landed := e.Amount * damageMult
+		healthEffects += landed
+		m.creditAttacker(o, e, landed, &remaining)
+		m.applyThorns(o, e, defense)
+		// Several attackers can land on one cell in a cycle; the cell goes to
+		// the strongest, with the lower ID breaking a tie so map order cannot
+		// decide it.
+		if e.Amount < 0 && e.SourceID >= 0 && e.SourceID != o.ID {
+			if a, ok := m.organisms[e.SourceID]; ok {
+				if sc := a.Abilities()[physiology.AbilityAttack]; sc > strongestScore ||
+					(sc == strongestScore && e.SourceID < strongest) {
+					strongest, strongestScore = e.SourceID, sc
+				}
+			}
+		}
+	}
+	o.RecordHealth(organism.HealthFromPh, o.Size*phEffect)
+	o.RecordHealth(organism.HealthFromAttack, healthEffects)
+	m.applyRecordedHealthChange(o, o.Size*phEffect+healthEffects)
+	// Only an attack that actually killed hands its cell over; starving
+	// after being hit is not a kill.
+	o.KilledBy = -1
+	if strongest >= 0 && o.Health <= deathHealthEpsilon {
+		o.KilledBy = strongest
+	}
+
+	// Lifespan enforcement: when MaxLifespan > 0 every organism dies at that age.
 	if maxLifespan := c.MaxLifespan(); maxLifespan > 0 && o.Age >= maxLifespan {
 		o.Health = 0
 	}
 }
 
-// applyIdle is the resolution for ActIdle: the organism holds its current
-// location and direction and pays only the configured idle health cost
-// (default 0). Per-cycle pH effects and any damage from attacks are still
-// applied separately by applyCycleHealthChanges.
-func (m *OrganismManager) applyIdle(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromIdle()*o.Size)
+func defenseDamageMult(scores physiology.Scores) float64 {
+	return effects.DamageTakenMultiplier(c.GetCurrentGlobals(), scores[physiology.AbilityDefense])
 }
 
-// add a positive health change if organism attempts chemosynthesis in a
-// favorable ph environment. The chemo-viable window is a scaled subset
-// (or superset) of the organism's general pH tolerance: PhTolerance is
-// multiplied by ChemosynthesisTolerance so the config can make
-// chemosynthesis strictly harder than merely surviving (factor < 1) or
-// easier (factor > 1). Also records whether the attempt failed so the
-// renderer can play the chemofail sprite in place of the normal one.
+func (m *OrganismManager) applyIdle(o *organism.Organism) {
+	m.applyHealthChange(o, c.HealthChangeFromIdle()*o.Size, organism.HealthFromAction)
+	o.Status = organism.StatusIdle
+}
+
+// add a positive health change if organism attempts chemosynthesis in a favorable ph environment.
 func (m *OrganismManager) applyChemosynthesis(o *organism.Organism) {
+	g := c.GetCurrentGlobals()
 	traits := o.TraitsRef()
-	ph := m.api.GetPhAtPoint(o.Location)
-	chemoTolerance := c.PhTolerance() * c.ChemosynthesisTolerance()
-	if math.Abs(traits.IdealPh-ph) < chemoTolerance {
-		m.applyHealthChange(o, c.HealthChangeFromChemosynthesis()*o.Size)
-		o.ChemoFailed = false
-		// Successful chemo pushes local pH down, scaled by organism
-		// size — bigger organisms acidify faster. Accumulate the
-		// magnitude on the organism for the per-organism tinting.
-		delta := c.ChemoPhEffectPerSize() * o.Size
-		m.api.AddPhChangeAtPoint(o.Location, -delta)
-		o.PhNegative += delta
+	distance := math.Abs(traits.IdealPh - m.api.GetPhAtPoint(o.Location))
+	gain := effects.ChemosynthesisGain(g, o.Abilities()[physiology.AbilityChemosynthesis], o.Size, distance)
+	gain = effects.ChemoCrowdedGain(g, gain, m.chemoClaimsAround(o))
+	m.applyHealthChange(o, gain, organism.HealthFromChemo)
+	if gain <= 0 {
+		o.Status = organism.StatusChemoFailed
+		return
+	}
+	o.Status = organism.StatusChemoSuccess
+
+	// Chemosynthesis pushes local pH down in proportion to the health it just gained.
+	delta := effects.ChemoPhPush(g, o.Traits().Abilities[physiology.AbilityChemosynthesis], gain)
+	m.api.AddPhChangeAtPoint(o.Location, -delta)
+	o.PhNegative += delta
+}
+
+// buildChemoClaims counts, for every cell, how many chemosynthesising
+// organisms draw on it this cycle — itself if it stands there, plus any
+// standing in the four cells around it.
+//
+// Built ONCE per cycle at the top of the resolve phase, where every
+// organism's action is already decided: UpdateAction runs for all of them
+// before any of this, so the counts do not depend on resolve order and two
+// neighbours contest each other symmetrically. Per organism it would be 25
+// lookups; per cycle it is one pass over the chemosynthesisers.
+//
+// Nil when crowding is off, which is what applyChemosynthesis checks.
+func (m *OrganismManager) buildChemoClaims() {
+	if c.ChemoCrowdingPenalty() <= 0 {
+		m.chemoClaims = nil
+		return
+	}
+	w, h := c.GridUnitsWide(), c.GridUnitsHigh()
+	if len(m.chemoClaims) != w*h {
+		m.chemoClaims = make([]int32, w*h)
 	} else {
-		m.applyHealthChange(o, c.HealthChangeFromFailedChemosynthesis()*o.Size)
-		o.ChemoFailed = true
+		for i := range m.chemoClaims {
+			m.chemoClaims[i] = 0
+		}
+	}
+	for _, id := range m.organismIds {
+		o, ok := m.organisms[id]
+		if !ok || o == nil || o.Status == organism.StatusDying {
+			continue
+		}
+		if o.Action() != d.ActChemosynthesis {
+			continue
+		}
+		// It draws on its own cell and the four around it.
+		m.chemoClaims[o.Location.Y*w+o.Location.X]++
+		for _, dir := range utils.Directions {
+			p := o.Location.Add(dir)
+			m.chemoClaims[p.Y*w+p.X]++
+		}
 	}
 }
 
-func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64) {
+// chemoClaimsAround is the claimant count for the five cells an organism
+// draws on, in Directions order after its own.
+func (m *OrganismManager) chemoClaimsAround(o *organism.Organism) [effects.ChemoCrowdingCells]int {
+	var out [effects.ChemoCrowdingCells]int
+	for i := range out {
+		out[i] = 1
+	}
+	if m.chemoClaims == nil {
+		return out
+	}
+	w := c.GridUnitsWide()
+	out[0] = int(m.chemoClaims[o.Location.Y*w+o.Location.X])
+	for i, dir := range utils.Directions {
+		p := o.Location.Add(dir)
+		out[i+1] = int(m.chemoClaims[p.Y*w+p.X])
+	}
+	return out
+}
+
+func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64, src organism.HealthSource) {
+	o.RecordHealth(src, amount)
+	m.applyRecordedHealthChange(o, amount)
+}
+
+// applyRecordedHealthChange is for a caller that has already split its own
+// accounting across sources. The ledger is an observation recorded beside a
+// health change rather than through it, so that no accounting can alter the
+// float arithmetic a replay depends on — which is why the pH damage and the
+// attacks landing on a cell stay one addition here.
+func (m *OrganismManager) applyRecordedHealthChange(o *organism.Organism, amount float64) {
 	prevSize := o.Size
 	o.ApplyHealthChange(amount)
 	if o.Size > prevSize {
@@ -942,123 +1024,471 @@ func (m *OrganismManager) applyHealthChange(o *organism.Organism, amount float64
 
 func (m *OrganismManager) applyAttack(o *organism.Organism) {
 	m.addUpdatedPoint(o.Location)
-	m.applyHealthChange(o, c.HealthChangeFromAttacking()*o.Size)
+	m.applyHealthChange(o, effects.AttackCost(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityAttack], o.Size), organism.HealthFromAction)
+	o.Status = organism.StatusAttacking
+	// Attacks land on organisms only, through the health-effect request map.
+
+	// An attack into open water carries the attacker into the cell: a lunge
+	// rather than a swing at nothing. The claim was staked in the decide
+	// phase against the world as it was then, so the cell is re-checked
+	// here exactly as applyMove re-checks its own.
+	target := o.Location.Add(o.Direction)
+	if m.isMatchingPositionRequest(target, o.ID) && m.isOpenForLunge(target) {
+		m.relocate(o, target)
+		o.Status = organism.StatusAttackMove
+	}
 }
 
+// calculateAttackEffect is the health change o's attack inflicts before the target's Defense.
 func (m *OrganismManager) calculateAttackEffect(o *organism.Organism) float64 {
-	return c.HealthChangeInflictedByAttack() * o.Size
+	return -effects.AttackDamage(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityAttack], o.Size)
 }
 
-// deathHealthEpsilon is the smallest Health value that still counts as
-// alive. Below this the organism is dead. The threshold matches the
-// panel's %5.2f display rounding cutoff, so anything that renders as
-// "0.00" is killed off — without it, Size-scaled eat / chemo costs can
-// converge asymptotically toward 0 in float64 and leave organisms
-// parked in a twilight "dead but not dying" state for thousands of
-// cycles.
+// applyDig resolves ActDig: pays the dig cost, brings buried food back up under the organism, AND reinforces / adds walls on both sides.
+func (m *OrganismManager) applyDig(o *organism.Organism) {
+	m.addUpdatedPoint(o.Location)
+	// Digging cuts both ways: a specialist pays less per dig AND shifts more wall strength.
+	g := c.GetCurrentGlobals()
+	digScore := o.Abilities()[physiology.AbilityDigging]
+	m.applyHealthChange(o, effects.DigCost(g, digScore, o.Size), organism.HealthFromAction)
+	o.Status = organism.StatusDigging
+
+	created := effects.DigWallCreated(g, digScore, o.Size)
+
+	if amount := effects.DigFood(g, digScore, o.Size); amount > 0 {
+		m.api.UnburyFoodAtPoint(o.Location, amount)
+	}
+
+	// An organism that raises nothing leaves its flanks alone entirely.
+	if created <= 0 {
+		return
+	}
+	for _, side := range []utils.Point{
+		o.Location.Add(o.Direction.Left()),
+		o.Location.Add(o.Direction.Right()),
+	} {
+		if m.isOrganismAtLocation(side) {
+			continue
+		}
+		// A wall going up buries the food that was there rather than destroying it.
+		if item, ok := m.api.GetFoodAtPoint(side); ok && item != nil {
+			m.api.BuryAllFoodAtPoint(side)
+		}
+		m.api.AddWallStrength(side, created)
+		m.api.AddWallUpdate(side)
+	}
+}
+
+// applyThorns hurts whoever dealt an incoming hit.
+// creditAttacker feeds an attacker back a share of the health its hit took.
+//
+// remaining is the defender's health not yet claimed by an earlier hit this
+// cycle, so two attackers splitting a kill are paid for their halves rather
+// than each for a whole one. It is decremented as it is spent.
+//
+// Reaches across to the attacker by SourceID exactly as thorns does, and for
+// the same reason: the cycle's request map has been consumed by the time
+// damage resolves, so there is nowhere left to queue it.
+func (m *OrganismManager) creditAttacker(defender *organism.Organism, hit HealthEffect, landed float64, remaining *float64) {
+	if hit.Amount >= 0 || hit.SourceID < 0 || hit.SourceID == defender.ID {
+		return
+	}
+	took := math.Min(-landed, *remaining)
+	if took <= 0 {
+		return
+	}
+	*remaining -= took
+	gain := effects.AttackHealthGained(c.GetCurrentGlobals(), took)
+	if gain <= 0 {
+		return
+	}
+	attacker, ok := m.organisms[hit.SourceID]
+	if !ok {
+		// Died this cycle; nothing left to feed.
+		return
+	}
+	m.applyHealthChange(attacker, gain, organism.HealthFromPredation)
+	m.addUpdatedPoint(attacker.Location)
+}
+
+func (m *OrganismManager) applyThorns(defender *organism.Organism, hit HealthEffect, defense int) {
+	// Only damage from another organism triggers thorns.
+	if hit.Amount >= 0 || hit.SourceID < 0 || hit.SourceID == defender.ID {
+		return
+	}
+	damage := thornsDamage(defense, defender.Size)
+	if damage >= 0 {
+		return
+	}
+	attacker, ok := m.organisms[hit.SourceID]
+	if !ok {
+		// Attacker already died this cycle; nothing to hurt back.
+		return
+	}
+	m.applyHealthChange(attacker, damage, organism.HealthFromThorns)
+	m.addUpdatedPoint(attacker.Location)
+}
+
+// thornsDamage is the health change a defender's thorns inflict per hit taken.
+func thornsDamage(defense int, defenderSize float64) float64 {
+	return -effects.ThornsDamage(c.GetCurrentGlobals(), defense, defenderSize)
+}
+
+// deathHealthEpsilon is the smallest Health value that still counts as alive.
 const deathHealthEpsilon = 0.005
 
-func (m *OrganismManager) removeIfDead(o *organism.Organism) bool {
-	if o.Health > deathHealthEpsilon {
+// claimKilledCell moves a killer onto the cell its victim has just vacated,
+// so a predator ends up standing on the body it made — which is what it has
+// to do to eat it.
+//
+// Everything is re-checked here because a cycle has passed since the kill:
+// the killer may have died, moved away, or had the cell taken. It reports
+// whether the move happened, so one killer cannot take two cells.
+// corpseValue is the food an organism's body is worth when it dies.
+func corpseValue(o *organism.Organism) int {
+	return int(o.Size * c.CorpseFoodMultiplier())
+}
+
+// applyKillClaims hands each victim's cell to the organism that killed it,
+// in the same cycle as the kill.
+//
+// After the resolve loop, not during it: an organism that changes cell
+// mid-phase would be read for health effects at a cell it was not standing
+// in when they were queued, and would take its own attack damage. Running
+// here also means the attacker's own action has already stamped its status,
+// so StatusAttackMove is the one the renderer sees.
+//
+// The body keeps rendering at the cell for the rest of the cycle so its
+// death animation plays; what it gives up is the grid square, which is the
+// only part that was holding the killer back.
+func (m *OrganismManager) applyKillClaims() {
+	claimed := map[int]bool{}
+	// m.organismIds is sorted, so which of two bodies a shared killer takes
+	// does not depend on map order.
+	for _, id := range m.organismIds {
+		victim, ok := m.organisms[id]
+		if !ok || victim.Status != organism.StatusDying || victim.KilledBy < 0 {
+			continue
+		}
+		killer := victim.KilledBy
+		// Consumed within the cycle that set it; a body lingers for its
+		// death animation and must not be claimed from twice.
+		victim.KilledBy = -1
+		if claimed[killer] {
+			continue
+		}
+		if m.claimKilledCell(killer, victim) {
+			claimed[killer] = true
+		}
+	}
+}
+
+// claimKilledCell moves an attacker into the cell of the organism it killed,
+// dropping the corpse there first so the killer ends up standing on it.
+func (m *OrganismManager) claimKilledCell(killerID int, victim *organism.Organism) bool {
+	attacker, ok := m.organisms[killerID]
+	if !ok || attacker.Status == organism.StatusDying {
+		return false
+	}
+	cell := victim.Location
+	if attacker.Location == cell {
+		return false
+	}
+	adjacent := false
+	for _, dir := range utils.Directions {
+		if attacker.Location.Add(dir) == cell {
+			adjacent = true
+			break
+		}
+	}
+	if !adjacent {
 		return false
 	}
 
+	m.gridMutex.Lock()
+	// The cell is the victim's to give up; anything else standing there is
+	// someone else's and is not taken.
+	free := m.organismIDGrid[cell.X][cell.Y] == victim.ID ||
+		m.organismIDGrid[cell.X][cell.Y] == -1
+	if free {
+		m.organismIDGrid[cell.X][cell.Y] = -1
+	}
+	m.gridMutex.Unlock()
+	if !free {
+		return false
+	}
+
+	// Dropped while the cell reads empty, since food is never placed on a
+	// living organism and the attacker is about to be one. This is the whole
+	// point of the mechanic: a kill pays in a corpse, and the killer has to
+	// be standing on it to eat it.
+	m.api.AddFoodAtPoint(cell, corpseValue(victim))
+
+	m.gridMutex.Lock()
+	m.organismIDGrid[attacker.Location.X][attacker.Location.Y] = -1
+	m.organismIDGrid[cell.X][cell.Y] = attacker.ID
+	m.gridMutex.Unlock()
+
+	m.addUpdatedPoint(attacker.Location)
+	attacker.Location = cell
+	attacker.TraveledDist++
+	attacker.Status = organism.StatusAttackMove
+	m.addUpdatedPoint(cell)
+	return true
+}
+
+// markDyingIfDead transitions an organism into the dying state when its health drops below the alive threshold.
+func (m *OrganismManager) markDyingIfDead(o *organism.Organism) bool {
+	if o.Status == organism.StatusDying {
+		return true
+	}
+	if o.Health > deathHealthEpsilon {
+		return false
+	}
 	if o.TreeNode != nil {
 		o.TreeNode.MarkDead(m.api.Cycle())
 	}
+	o.Status = organism.StatusDying
+	m.addUpdatedPoint(o.Location)
+	return true
+}
 
+// finalizeDeaths removes the dying organisms at the start of every cycle.
+func (m *OrganismManager) finalizeDeaths() {
+	type drop struct {
+		id   int
+		loc  utils.Point
+		size int
+		// yielded: a killer took this body's square in the cycle it died, and
+		// dropped its corpse there before moving in.
+		//
+		// Read off the GRID rather than remembered from last cycle. Nothing
+		// else clears a dying organism's own square, so the grid no longer
+		// naming it is exactly the claim having happened — and the grid is
+		// snapshot state, where a flag held on the manager between the claim
+		// and here is not. Snapshots are taken between cycles, which is
+		// precisely that gap, so a restore lost it and this cleared a square
+		// holding a living killer.
+		yielded bool
+	}
+	var drops []drop
+	for _, o := range m.organisms {
+		if o.Status != organism.StatusDying {
+			continue
+		}
+		drops = append(drops, drop{
+			id: o.ID, loc: o.Location, size: corpseValue(o),
+			yielded: m.organismIDGrid[o.Location.X][o.Location.Y] != o.ID,
+		})
+	}
+	// Sorted because a killer can only take one cell and two bodies can name
+	// the same one: map order would decide which, differently each run.
+	sort.Slice(drops, func(i, j int) bool { return drops[i].id < drops[j].id })
+	if len(drops) == 0 {
+		return
+	}
 	m.gridMutex.Lock()
 	m.organismMutex.Lock()
-
-	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
-	delete(m.organisms, o.ID)
-
+	for _, dr := range drops {
+		// A yielded square holds its killer now, so clearing it would erase
+		// a living organism from the grid.
+		if !dr.yielded {
+			m.organismIDGrid[dr.loc.X][dr.loc.Y] = -1
+		}
+		delete(m.organisms, dr.id)
+	}
 	m.gridMutex.Unlock()
 	m.organismMutex.Unlock()
-
-	m.api.AddFoodAtPoint(o.Location, int(o.Size))
-	m.addUpdatedPoint(o.Location)
-
-	return true
+	// AddFoodAtPoint takes the food-manager lock; do it outside the grid/organism critical section.
+	for _, dr := range drops {
+		// The claim dropped the corpse before it moved in, so a second one
+		// here would land on the killer, where the guard refuses it anyway.
+		if !dr.yielded {
+			m.api.AddFoodAtPoint(dr.loc, dr.size)
+		}
+		m.addUpdatedPoint(dr.loc)
+	}
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {
 	if success := m.SpawnChildOrganism(o); success {
-		m.applyHealthChange(o, o.HealthCostToReproduce())
+		m.applyHealthChange(o, o.HealthCostToReproduce(), organism.HealthFromSpawn)
 		o.Children++
 	}
-	// SpawnChildOrganism can still fail here despite the decide-phase
-	// "has empty neighbour" check (e.g. a higher-ID organism with the
-	// same target won the position-request priority), but the
-	// trapped-organism case the user reported is handled at decide
-	// time now: organisms without an empty neighbour resolve through
-	// their tree-picked action with real side effects, not ActSpawn.
+	o.Status = organism.StatusSpawning
+	// SpawnChildOrganism can still fail here despite the decide-phase "has empty neighbour" check (e.g. a higher-ID organism with the same target won the position-request priority), but the trapped-organism case the user reported is handled at decide time now.
 }
 
+// applyEat resolves ActEat against the cell the organism is STANDING ON, not the one ahead.
 func (m *OrganismManager) applyEat(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromEatingAttempt()*o.Size)
-	target := o.Location.Add(o.Direction)
+	m.applyHealthChange(o, effects.EatCost(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityEating], o.Size), organism.HealthFromAction)
+	target := o.Location
 
-	// apply health change but don't delete food until all eat requests have been
-	// processed. This may result in more total food being consumed by nearby organisms
-	// than exists at a given point, but this seems preferable right now to denying
-	// the eat request altogether or coming up with some perfect way to divvy it up.
 	amountToEat := m.calculateValueToEat(o, target)
-	o.EatFailed = amountToEat <= 0
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
-	m.applyHealthChange(o, amountToEat)
+	// Food removed and health gained are two different quantities.
+	gain := effects.HealthFromFood(c.GetCurrentGlobals(), amountToEat)
+	// A meal's overflow past the eater's size grows it at EatingGrowthFactor rather than the general GrowthFactor.
+	prevSize := o.Size
+	o.RecordHealth(organism.HealthFromFood, gain)
+	o.ApplyHealthChangeWithGrowth(gain, c.EatingGrowthFactor())
+	if o.Size > prevSize {
+		m.addUpdatedPoint(o.Location)
+	}
 	if amountToEat > 0 {
-		// Successful eating pushes local pH up, scaled by amount eaten.
-		// Accumulate the magnitude on the organism for the per-organism
-		// tinting.
-		delta := c.EatingPhEffectPerFood() * amountToEat
-		m.api.AddPhChangeAtPoint(target, delta)
+		o.Status = organism.StatusEatSuccess
+		// Pushes pH up at the organism's own cell, in proportion to the health the meal gave, like chemosynthesis pushes it down there.
+		delta := effects.EatingPhPush(c.GetCurrentGlobals(),
+			o.Traits().Abilities[physiology.AbilityEating], gain)
+		m.api.AddPhChangeAtPoint(o.Location, delta)
 		o.PhPositive += delta
+	} else {
+		o.Status = organism.StatusEatFailed
 	}
 }
 
 func (m *OrganismManager) calculateValueToEat(o *organism.Organism, target utils.Point) float64 {
 	if item, found := m.api.GetFoodAtPoint(target); found {
-		maxCanEat := o.Size
+		// A high Eating score means more health per action.
+		maxCanEat := effects.MaxFoodPerEat(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityEating], o.Size)
 		return math.Min(float64(item.Value), maxCanEat)
 	}
 	return 0
 }
 
 func (m *OrganismManager) applyMove(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromMoving()*o.Size)
+	// A high Movement score makes travel cheap; a low one still moves the organism, just at a steep price.
+	m.applyHealthChange(o, effects.MoveCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size), organism.HealthFromAction)
 
 	targetPoint := o.Location.Add(o.Direction)
 	if m.isMatchingPositionRequest(targetPoint, o.ID) == false {
+		// Nobody claimed the cell, so nobody found it empty when they decided.
+		if !m.requestManager.HasPositionRequest(targetPoint) {
+			m.applyHealthChange(o, c.HealthChangeFromBlockedMove()*o.Size, organism.HealthFromAction)
+		}
+		o.Status = organism.StatusMoveBlocked
 		return
 	}
+	// The claim was staked in the decide phase, against the world as it was then.
+	if m.isOrganismAtLocation(targetPoint) {
+		o.Status = organism.StatusMoveBlocked
+		return
+	}
+	if strength := m.api.GetWallStrengthAtPoint(targetPoint); strength > 0 {
+		if !m.canBurrow(o, strength) {
+			o.Status = organism.StatusMoveBlocked
+			return
+		}
+		// Through it: the wall is destroyed outright rather than worn down.
+		m.api.AddWallStrength(targetPoint, -strength)
+		// Flag the WALL layer, not just the organism layer.
+		m.api.AddWallUpdate(targetPoint)
+		m.addUpdatedPoint(targetPoint)
+		m.pileBurrowSpoil(o, targetPoint, strength)
+	}
 
+	m.relocate(o, targetPoint)
+	o.Status = organism.StatusMoveSuccess
+}
+
+// relocate moves an organism into a cell it has already been cleared for,
+// updating the grid and flagging both cells for repaint.
+func (m *OrganismManager) relocate(o *organism.Organism, target utils.Point) {
 	m.addUpdatedPoint(o.Location)
-	m.addUpdatedPoint(targetPoint)
+	m.addUpdatedPoint(target)
 
 	o.TraveledDist++
 
 	m.gridMutex.Lock()
 	m.organismIDGrid[o.Location.X][o.Location.Y] = -1
-	m.organismIDGrid[targetPoint.X][targetPoint.Y] = o.ID
+	m.organismIDGrid[target.X][target.Y] = o.ID
 	m.gridMutex.Unlock()
 
-	o.Location = targetPoint
+	o.Location = target
+}
+
+// pileBurrowSpoil banks part of a burrowed wall onto the two cells flanking the tunnel.
+func (m *OrganismManager) pileBurrowSpoil(o *organism.Organism, target utils.Point, strength int) {
+	spoil := effects.BurrowSpoilPerSide(c.GetCurrentGlobals(), strength)
+	if spoil <= 0 {
+		return
+	}
+	for _, side := range []utils.Point{
+		target.Add(o.Direction.Left()),
+		target.Add(o.Direction.Right()),
+	} {
+		if m.isOrganismAtLocation(side) {
+			continue
+		}
+		// A wall going up buries the food that was there rather than destroying it.
+		if item, ok := m.api.GetFoodAtPoint(side); ok && item != nil {
+			m.api.BuryAllFoodAtPoint(side)
+		}
+		m.api.AddWallStrength(side, spoil)
+		m.api.AddWallUpdate(side)
+		m.addUpdatedPoint(side)
+	}
 }
 
 func (m *OrganismManager) applyRightTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size)
+	m.applyHealthChange(o, effects.TurnCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size), organism.HealthFromAction)
 
 	o.Direction = o.Direction.Right()
+	o.Status = organism.StatusTurnRight
 }
 
 func (m *OrganismManager) applyLeftTurn(o *organism.Organism) {
-	m.applyHealthChange(o, c.HealthChangeFromTurning()*o.Size)
+	m.applyHealthChange(o, effects.TurnCost(c.GetCurrentGlobals(), o.Abilities()[physiology.AbilityMovement], o.Size), organism.HealthFromAction)
 
 	o.Direction = o.Direction.Left()
+	o.Status = organism.StatusTurnLeft
 }
 
-// GetAllOrganismInfo returns a map of all organisms' Info
+// newFoundingOrganism builds one of the simulation's initial organisms.
+func (m *OrganismManager) newFoundingOrganism(id int, point utils.Point) *organism.Organism {
+	designs := m.foundingDesigns()
+	if len(designs) == 0 {
+		return organism.NewRandom(m.rng, id, point, m.api)
+	}
+	ds := designs[m.designsDealt%len(designs)]
+	m.designsDealt++
+	o, err := organism.NewDesigned(m.rng, id, point, m.api, ds)
+	if err != nil {
+		fmt.Printf("\nWarning: design %q could not be used (%v); founding with a random organism instead.",
+			ds.Name, err)
+		return organism.NewRandom(m.rng, id, point, m.api)
+	}
+	return o
+}
+
+func (m *OrganismManager) foundingDesigns() []organism.Design {
+	if m.designsLoaded {
+		return m.designs
+	}
+	m.designsLoaded = true
+	names := c.InitialDesigns()
+	if len(names) == 0 {
+		return m.designs
+	}
+	found := organism.DesignsByName(organism.DesignsDir, names)
+	if len(found) < len(names) {
+		fmt.Printf("\nWarning: %d of %d configured designs were not found in %s/.",
+			len(names)-len(found), len(names), organism.DesignsDir)
+	}
+	// A design whose tree is over the configured limit is dropped rather than founded with.
+	for _, ds := range found {
+		if ds.ExceedsTreeLimit(c.MaxDecisionTreeSize()) {
+			fmt.Printf("\nWarning: design %q has %d decision-tree nodes, over the %d-node limit; not founding with it.",
+				ds.Name, ds.TreeSize(), c.MaxDecisionTreeSize())
+			continue
+		}
+		m.designs = append(m.designs, ds)
+	}
+	return m.designs
+}
+
 func (m *OrganismManager) GetAllOrganismInfo() map[int]*organism.Info {
 	infoMap := make(map[int]*organism.Info)
 	m.organismMutex.RLock()

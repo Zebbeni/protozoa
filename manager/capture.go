@@ -1,13 +1,15 @@
 package manager
 
 import (
+	"fmt"
+
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/organism"
+	"github.com/Zebbeni/protozoa/physiology"
 )
 
-// CaptureOrganismRecords returns all living organisms as checkpoint records.
 func (m *OrganismManager) CaptureOrganismRecords() []checkpoint.OrganismRecord {
 	records := make([]checkpoint.OrganismRecord, 0, len(m.organisms))
 	for _, o := range m.organisms {
@@ -16,7 +18,6 @@ func (m *OrganismManager) CaptureOrganismRecords() []checkpoint.OrganismRecord {
 	return records
 }
 
-// CaptureOrganismGrid returns a copy of the organism ID grid.
 func (m *OrganismManager) CaptureOrganismGrid() [][]int {
 	w := len(m.organismIDGrid)
 	if w == 0 {
@@ -31,7 +32,6 @@ func (m *OrganismManager) CaptureOrganismGrid() [][]int {
 	return grid
 }
 
-// CaptureAncestors returns ancestor records for checkpointing.
 func (m *OrganismManager) CaptureAncestors() []checkpoint.AncestorRecord {
 	records := make([]checkpoint.AncestorRecord, 0, len(m.originalAncestors))
 	for _, id := range m.originalAncestors {
@@ -46,12 +46,10 @@ func (m *OrganismManager) CaptureAncestors() []checkpoint.AncestorRecord {
 	return records
 }
 
-// TotalOrganismsCreated returns the total count of organisms ever created.
 func (m *OrganismManager) TotalOrganismsCreated() int {
 	return m.totalOrganismsCreated
 }
 
-// CaptureFoodRecords returns all food items as checkpoint records.
 func (m *FoodManager) CaptureFoodRecords() []checkpoint.FoodRecord {
 	records := make([]checkpoint.FoodRecord, 0, len(m.Items))
 	for _, item := range m.Items {
@@ -64,10 +62,20 @@ func (m *FoodManager) CaptureFoodRecords() []checkpoint.FoodRecord {
 	return records
 }
 
-// CopyCurrentPhMap returns a float64 deep copy of the current pH map.
-// Used by the per-cycle reverse-delta path to capture the pre-Update
-// pH state for later diffing — we keep the in-memory representation
-// at float64, only narrowing to float32 at the on-disk boundary.
+func (m *FoodManager) CaptureBuriedFoodRecords() []checkpoint.FoodRecord {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	records := make([]checkpoint.FoodRecord, 0, len(m.Buried))
+	for point, value := range m.Buried {
+		records = append(records, checkpoint.FoodRecord{
+			X:     uint16(point.X),
+			Y:     uint16(point.Y),
+			Value: uint16(value),
+		})
+	}
+	return records
+}
+
 func (m *EnvironmentManager) CopyCurrentPhMap() [][]float64 {
 	w := len(m.currentPhMap)
 	if w == 0 {
@@ -82,19 +90,10 @@ func (m *EnvironmentManager) CopyCurrentPhMap() [][]float64 {
 	return out
 }
 
-// CurrentPhMap returns a direct reference to the current pH map (no
-// copy). Caller must not mutate. Used by the reverse-delta diff to
-// compare against a previously copied pre-cycle state.
 func (m *EnvironmentManager) CurrentPhMap() [][]float64 {
 	return m.currentPhMap
 }
 
-// CapturePhMaps returns float64 copies of the current and previous pH
-// maps. Stored at full simulation precision so save/restore is exactly
-// lossless — replay from a snapshot reaches the same state at the
-// same cycle as the recording. An older version narrowed to float32
-// for ~halved snapshot size but the precision loss compounded across
-// pH-diffusion cycles into observable replay drift.
 func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	w := len(m.currentPhMap)
 	if w == 0 {
@@ -113,13 +112,16 @@ func (m *EnvironmentManager) CapturePhMaps() (current, previous [][]float64) {
 	return
 }
 
-// CaptureHistory returns a deep copy of the pH distribution and effect history maps.
+// CaptureHistory returns a deep copy of the history maps the graphs read (pH distribution, food count, wall count).
 func (m *OrganismManager) CaptureHistory() *checkpoint.HistoryPayload {
 	m.historyMutex.RLock()
 	defer m.historyMutex.RUnlock()
 
 	return &checkpoint.HistoryPayload{
 		PhDistribution: copyHistoryMap(m.history[HistoryPhDistribution]),
+		Food:           copyHistoryMap(m.history[HistoryFood]),
+		BuriedFood:     copyHistoryMap(m.history[HistoryBuriedFood]),
+		Walls:          copyHistoryMap(m.history[HistoryWalls]),
 	}
 }
 
@@ -135,7 +137,6 @@ func copyHistoryMap(src map[int]map[int]int32) map[int]map[int]int32 {
 	return dst
 }
 
-// CaptureDescendantTrees serializes all descendant trees for the final checkpoint section.
 func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPayload {
 	trees := make([]checkpoint.DescendantTreeRecord, 0, len(m.originalAncestors))
 	for _, id := range m.originalAncestors {
@@ -154,12 +155,7 @@ func (m *OrganismManager) CaptureDescendantTrees() *checkpoint.DescendantTreesPa
 func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 	col, _ := n.Color.(colorful.Color)
 
-	// Clamp StartCycle to 0 so the unsigned wire format doesn't round-trip
-	// negative values into huge positive ones. The very first ancestor
-	// node is created at sim.cycle == -1 (during NewSimulation, before
-	// the first Update); without this clamp, uint32(-1) decodes to
-	// 4294967295 and the descendant-tree walk in countAlive bails out
-	// at the root, making the population graph render as empty.
+	// Clamp StartCycle to 0 so the unsigned wire format doesn't round-trip negative values into huge positive ones.
 	startCycle := n.StartCycle
 	if startCycle < 0 {
 		startCycle = 0
@@ -173,6 +169,7 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 		StartCycle:           uint32(startCycle),
 		EndCycle:             uint32(n.EndCycle),
 		AllBranchesDeadCycle: uint32(n.AllBranchesDeadCycle),
+		Abilities:            captureAbilities(n.Abilities),
 	}
 
 	n.ForEachChild(func(child *organism.DescendantNode) {
@@ -185,18 +182,18 @@ func nodeToRecord(n *organism.DescendantNode) checkpoint.DescendantNodeRecord {
 func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 	traits := o.Traits()
 	return checkpoint.OrganismRecord{
-		ID:                         uint32(o.ID),
-		Age:                        uint32(o.Age),
-		Health:                     o.Health,
-		Size:                       o.Size,
-		Children:                   uint16(o.Children),
-		TraveledDist:               uint32(o.TraveledDist),
-		CyclesSinceLastSpawn:       uint16(o.CyclesSinceLastSpawn),
-		LocationX:                  uint16(o.Location.X),
-		LocationY:                  uint16(o.Location.Y),
-		DirectionX:                 int8(o.Direction.X),
-		DirectionY:                 int8(o.Direction.Y),
-		OriginalAncestorID:         uint32(o.OriginalAncestorID),
+		ID:                     uint32(o.ID),
+		Age:                    uint32(o.Age),
+		Health:                 o.Health,
+		Size:                   o.Size,
+		Children:               uint16(o.Children),
+		TraveledDist:           uint32(o.TraveledDist),
+		CyclesSinceLastSpawn:   uint16(o.CyclesSinceLastSpawn),
+		LocationX:              uint16(o.Location.X),
+		LocationY:              uint16(o.Location.Y),
+		DirectionX:             int8(o.Direction.X),
+		DirectionY:             int8(o.Direction.Y),
+		OriginalAncestorID:     uint32(o.OriginalAncestorID),
 		ColorR:                 float32(traits.OrganismColor.R),
 		ColorG:                 float32(traits.OrganismColor.G),
 		ColorB:                 float32(traits.OrganismColor.B),
@@ -207,9 +204,53 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		IdealPh:                traits.IdealPh,
 		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
 		CurrentAction:          uint8(o.Action()),
+		Status:                 uint8(o.Status),
 		AttackTotal:            uint32(o.AttackTotal),
 		AttackHits:             uint32(o.AttackHits),
+		KilledBy:               killedByRecord(o.KilledBy),
 		PhPositive:             o.PhPositive,
 		PhNegative:             o.PhNegative,
+		Abilities:              captureAbilities(traits.Abilities),
 	}
+}
+
+// The snapshot format pins the ability array to a literal length so the checkpoint package stays dependency-free.
+func init() {
+	var rec checkpoint.AbilityScores
+	if len(rec) != len(physiology.AllAbilities) {
+		panic(fmt.Sprintf(
+			"manager: checkpoint.AbilityScores holds %d entries but physiology has %d abilities — "+
+				"widen AbilityScores in checkpoint/types.go",
+			len(rec), len(physiology.AllAbilities)))
+	}
+}
+
+// AbilitiesFromRecord widens a snapshot's byte array back to live scores, reporting whether the stored distribution was valid.
+func AbilitiesFromRecord(rec checkpoint.AbilityScores) (physiology.Scores, bool) {
+	var out physiology.Scores
+	for _, a := range physiology.AllAbilities {
+		out[a] = int(rec[a])
+	}
+	if out.Validate() != nil {
+		return physiology.BalancedScores(), false
+	}
+	return out, true
+}
+
+// captureAbilities narrows the live scores to the snapshot's byte array.
+func captureAbilities(s physiology.Scores) checkpoint.AbilityScores {
+	var out checkpoint.AbilityScores
+	for _, a := range physiology.AllAbilities {
+		out[a] = uint8(s[a])
+	}
+	return out
+}
+
+// killedByRecord stores a killer's ID plus one, so 0 means nobody and a
+// snapshot written before the field existed decodes to that.
+func killedByRecord(id int) uint32 {
+	if id < 0 {
+		return 0
+	}
+	return uint32(id + 1)
 }

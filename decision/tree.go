@@ -11,11 +11,21 @@ type Tree struct {
 	*Node
 }
 
-// TreeFromAction returns a simple decision Tree from an Action type
 func TreeFromAction(action Action) *Tree {
 	tree := &Tree{
 		Node: NodeFromAction(action),
 	}
+	tree.ID = tree.Serialize()
+	return tree
+}
+
+// TreeFromNode wraps a hand-built node as a Tree, recomputing the sizes along it and deriving the ID from its serialized form.
+func TreeFromNode(node *Node) *Tree {
+	if node == nil {
+		return nil
+	}
+	node.CalcAndUpdateSize()
+	tree := &Tree{Node: node}
 	tree.ID = tree.Serialize()
 	return tree
 }
@@ -32,7 +42,6 @@ func DeserializeTree(s string) *Tree {
 	}
 }
 
-// CopyTree returns a new, identical decision tree
 func (t *Tree) CopyTree() *Tree {
 	tree := &Tree{
 		ID:   t.ID,
@@ -41,47 +50,50 @@ func (t *Tree) CopyTree() *Tree {
 	return tree
 }
 
-// MutateTree copies a root Tree, makes changes to the full tree, and returns
+// MutateTree copies a root Tree, makes changes to the full tree, and returns the mutated copy.
 func MutateTree(rng *simrand.RNG, original *Tree) *Tree {
 	tree := original.CopyTree()
 	tree.mutate(rng)
 	return tree
 }
 
+// mutate applies one mutation to the tree: pick a node at random, then pick what to do to it.
 func (t *Tree) mutate(rng *simrand.RNG) {
 	allSubNodes := t.getNodes()
 	idx := rng.Intn(len(allSubNodes))
-	isRoot := idx == 0
 	node := allSubNodes[idx]
 
 	maxTreeSize := config.MaxDecisionTreeSize()
 
 	if node.IsAction() {
-		if isRoot || (rng.Intn(2) == 0 && t.size <= maxTreeSize-2) {
+		// Growing adds two nodes, so it needs the room.
+		canGrow := t.size <= maxTreeSize-2
+		if canGrow && pickFirst(rng, config.MutationWeightGrowBranch(), config.MutationWeightSwapAction()) {
 			originalAction := node.NodeType.(Action)
-			node.NodeType = GetRandomCondition(rng)
+			node.NodeType = GetRandomCondition(rng, t.newConditionPool(node))
 			if rng.Intn(2) == 0 {
-				node.YesNode = NodeFromAction(GetRandomAction(rng))
+				node.YesNode = NodeFromAction(GetRandomAction(rng, EnabledActions()))
 				node.NoNode = NodeFromAction(originalAction)
 			} else {
 				node.YesNode = NodeFromAction(originalAction)
-				node.NoNode = NodeFromAction(GetRandomAction(rng))
+				node.NoNode = NodeFromAction(GetRandomAction(rng, EnabledActions()))
 			}
 		} else {
-			node.NodeType = GetRandomAction(rng)
+			node.NodeType = GetRandomAction(rng, EnabledActions())
 		}
 	} else {
-		randInt := rng.Intn(3)
-		switch randInt {
-		case 0:
-			node = node.YesNode
-			break
-		case 1:
-			node = node.NoNode
-			break
-		default:
-			node.NodeType = GetRandomCondition(rng)
-			break
+		// Pruning is only offered where it is the exact inverse of growing.
+		canPrune := node.YesNode != nil && node.NoNode != nil &&
+			node.YesNode.IsAction() && node.NoNode.IsAction()
+		if canPrune && pickFirst(rng, config.MutationWeightPruneBranch(), config.MutationWeightSwapCondition()) {
+			survivor := node.YesNode
+			if rng.Intn(2) == 0 {
+				survivor = node.NoNode
+			}
+			node.NodeType = survivor.NodeType
+			node.YesNode, node.NoNode = nil, nil
+		} else {
+			node.NodeType = GetRandomCondition(rng, t.swapConditionPool(node))
 		}
 	}
 
@@ -89,11 +101,90 @@ func (t *Tree) mutate(rng *simrand.RNG) {
 	t.ResetUsedLastCycle()
 }
 
+func pickFirst(rng *simrand.RNG, first, second float64) bool {
+	roll := rng.Float64()
+	total := first + second
+	if total <= 0 {
+		return true
+	}
+	return roll < first/total
+}
+
+func (t *Tree) newConditionPool(node *Node) []Condition {
+	if !config.TieredConditionMutation() {
+		return t.conditionPool(node)
+	}
+	return t.narrow(node, BasicConditions())
+}
+
+func (t *Tree) swapConditionPool(node *Node) []Condition {
+	if !config.TieredConditionMutation() {
+		return t.conditionPool(node)
+	}
+	current, ok := node.NodeType.(Condition)
+	if !ok {
+		// Only reached from the condition branch of mutate.
+		return t.conditionPool(node)
+	}
+	return t.narrow(node, LadderConditions(current))
+}
+
+// narrow applies the smart-mutation filter to an already-restricted pool, falling back to the unfiltered one if nothing survives.
+func (t *Tree) narrow(node *Node, pool []Condition) []Condition {
+	if !config.SmartTreeMutation() {
+		return pool
+	}
+	above, found := t.Node.factsAbove(node)
+	if !found {
+		return pool
+	}
+	if useful := usefulConditions(pool, above, node.downstreamConditions()); len(useful) > 0 {
+		return useful
+	}
+	return pool
+}
+
+// conditionPool is the set of conditions mutation may put at node.
+func (t *Tree) conditionPool(node *Node) []Condition {
+	pool := EnabledConditions()
+	if !config.SmartTreeMutation() {
+		return pool
+	}
+	above, found := t.Node.factsAbove(node)
+	if !found {
+		return pool
+	}
+	return usefulConditions(pool, above, node.downstreamConditions())
+}
+
+// ConditionNodes returns the condition at every condition node in the tree, in traversal order.
+func (t *Tree) ConditionNodes() []Condition {
+	nodes := t.getNodes()
+	out := make([]Condition, 0, len(nodes))
+	for _, n := range nodes {
+		if c, ok := n.NodeType.(Condition); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// ActionNodes returns every action the tree can take, in node order and with duplicates kept.
+func (t *Tree) ActionNodes() []Action {
+	nodes := t.getNodes()
+	out := make([]Action, 0, len(nodes))
+	for _, n := range nodes {
+		if a, ok := n.NodeType.(Action); ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func (t *Tree) Size() int {
 	return t.size
 }
 
-// Print prints the full tree structure
 func (t *Tree) Print() string {
 	return t.print("", true, false)
 }
@@ -103,16 +194,35 @@ func (t *Tree) PrintLines() []PrintLine {
 	return t.printLines("", true, false)
 }
 
-// ActionWeights returns the weighted probability distribution over actions.
-func (t *Tree) ActionWeights() map[Action]float64 {
-	weights := make(map[Action]float64)
-	t.Node.accumulateActionWeights(1.0, weights)
-	return weights
-}
-
-// ConditionWeights returns the weighted distribution over conditions.
-func (t *Tree) ConditionWeights() map[Condition]float64 {
-	weights := make(map[Condition]float64)
-	t.Node.accumulateConditionWeights(1.0, weights)
-	return weights
+// ActionWeights is each action's share of the tree's action nodes, indexed by
+// the action's own code.
+//
+// A share rather than a count, so a big tree and a small one that do the same
+// thing read the same. Duplicates are kept by ActionNodes, so a tree reaching
+// one action down three branches weighs it three times — which is the sense
+// in which an action has weight in a tree.
+//
+// It is NOT the chance of taking the action: that depends on the conditions
+// above each node and on what the world does. This is what the tree is made
+// of, which is a property of the organism rather than of its surroundings.
+func (t *Tree) ActionWeights() []float64 {
+	out := make([]float64, len(Actions))
+	// Nil-safe like AppearanceFor, which reads the same tree: Restore is
+	// handed one by a snapshot that may not carry it.
+	if t == nil || t.Node == nil {
+		return out
+	}
+	nodes := t.ActionNodes()
+	if len(nodes) == 0 {
+		return out
+	}
+	for _, a := range nodes {
+		if int(a) >= 0 && int(a) < len(out) {
+			out[a]++
+		}
+	}
+	for i := range out {
+		out[i] /= float64(len(nodes))
+	}
+	return out
 }

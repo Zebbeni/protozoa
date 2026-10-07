@@ -8,7 +8,6 @@ import (
 	"sync"
 )
 
-// EnvironmentManager contains an image
 type EnvironmentManager struct {
 	api environment.API
 
@@ -16,6 +15,8 @@ type EnvironmentManager struct {
 	previousPhMap [][]float64
 
 	averagePh float64
+	// minPh / maxPh are the extremes across the grid, tracked in the same pass that averages it.
+	minPh, maxPh float64
 
 	mutex sync.Mutex
 }
@@ -38,10 +39,8 @@ func (m *EnvironmentManager) initializePhMap() {
 		m.previousPhMap[x] = make([]float64, gridH)
 		m.currentPhMap[x] = make([]float64, gridH)
 		for y := 0; y < gridH; y++ {
-			// Start all locations at neutral ph
-			val := (c.MaxInitialPh() + c.MinInitialPh()) / 2.0
-			m.previousPhMap[x][y] = val
-			m.currentPhMap[x][y] = val
+			m.previousPhMap[x][y] = c.InitialPh()
+			m.currentPhMap[x][y] = c.InitialPh()
 		}
 	}
 }
@@ -55,24 +54,6 @@ func (m *EnvironmentManager) GetPhMap() [][]float64 {
 	return m.currentPhMap
 }
 
-func (m *EnvironmentManager) GetWalls() []utils.Point {
-	if c.UsePools() == false {
-		return []utils.Point{}
-	}
-
-	max := (c.GridUnitsWide() / c.PoolWidth()) * (c.GridUnitsHigh() / c.PoolHeight())
-	points := make([]utils.Point, 0, max)
-	for x := 0; x < c.GridUnitsWide(); x++ {
-		for y := 0; y < c.GridUnitsHigh(); y++ {
-			if utils.IsWall(x, y) {
-				points = append(points, utils.Point{X: x, Y: y})
-			}
-		}
-	}
-	return points
-}
-
-// GetPhAtPoint returns the current pH level of the environment at a given point
 func (m *EnvironmentManager) GetPhAtPoint(point utils.Point) float64 {
 	return m.getCurrentPh(point)
 }
@@ -81,8 +62,11 @@ func (m *EnvironmentManager) GetAveragePh() float64 {
 	return m.averagePh
 }
 
-// AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the
-// minimum and maximum pH values provided by the config
+func (m *EnvironmentManager) GetPhRange() (float64, float64) {
+	return m.minPh, m.maxPh
+}
+
+// AddPhChangeAtPoint adds a positive or negative value to pH, bounded by the minimum and maximum pH values provided by the config
 func (m *EnvironmentManager) AddPhChangeAtPoint(point utils.Point, change float64) {
 	value := change + m.getCurrentPh(point)
 	m.setPhAtPoint(point, value)
@@ -108,14 +92,12 @@ func (m *EnvironmentManager) setCurrentPh(point utils.Point, ph float64) {
 	m.mutex.Unlock()
 }
 
-// getCurrentPh returns the current pH level of the environment at a given point
 func (m *EnvironmentManager) getCurrentPh(point utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	return m.currentPhMap[point.X][point.Y]
 }
 
-// getPreviousPh returns the previous pH level of the environment at a given point
 func (m *EnvironmentManager) getPreviousPh(point utils.Point) float64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -126,85 +108,97 @@ func (m *EnvironmentManager) addUpdatedPoint(point utils.Point) {
 	m.api.AddPhUpdate(point)
 }
 
-// Between cycles, swap which phMap we're treating as the 'previous' ph values
-// and which 'current' ph map we will be updating
+// Between cycles, swap which phMap we're treating as the 'previous' ph values and which 'current' ph map we will be updating
 func (m *EnvironmentManager) updatePrevCurrentPhMaps() {
 	prevPhMap := m.previousPhMap
 	m.previousPhMap = m.currentPhMap
 	m.currentPhMap = prevPhMap
 }
 
-// simulate diffusion of ph across the environment by adjusting each
-// ph value toward its neighbors' values.
-// Also, while iterating, calculates average ph in environment
+// neighbourOffsets is the fixed iteration order for a cell's four cardinal neighbours, as (dx, dy) unit steps.
+var neighbourOffsets = [4]utils.Point{
+	{X: 0, Y: 1},  // down (+y)
+	{X: 0, Y: -1}, // up
+	{X: 1, Y: 0},  // right (+x)
+	{X: -1, Y: 0}, // left
+}
+
+// WallPermeability is how freely pH moves through a cell.
+func WallPermeability(g *c.Globals, strength int) float64 {
+	if strength <= 0 {
+		return 1
+	}
+	fraction := float64(strength) / float64(MaxWallStrength)
+	if g.WallPhBlockCurve != 1 {
+		fraction = math.Pow(fraction, g.WallPhBlockCurve)
+	}
+	return math.Max(0, 1-g.WallPhBlockAtMax*fraction)
+}
+
+// simulate diffusion of ph across the environment by adjusting each ph value toward its neighbors' values.
 func (m *EnvironmentManager) diffusePhLevels() {
 	gridW, gridH := c.GridUnitsWide(), c.GridUnitsHigh()
 	diffFactor := c.PhDiffuseFactor()
+	g := c.GetCurrentGlobals()
 
-	adjPh := func(x, y int) (float64, bool) {
-		return m.previousPhMap[x][y], !utils.IsWall(x, y)
+	// permeabilityAt is how freely pH moves through the cell at x,y.
+	permeabilityAt := func(x, y int) float64 {
+		return WallPermeability(g, m.api.GetWallStrengthAtPoint(utils.Point{X: x, Y: y}))
 	}
 
-	// return average of all diffuse-able adjacent points
+	// Mean of the adjacent points, each weighted by how freely pH gets through it.
 	avgAdjPh := func(x, y int) float64 {
-		neighbors := 0
-		avgPh := 0.0
-		if ph, ok := adjPh(x, (y+1)%gridH); ok {
-			avgPh += ph
-			neighbors++
+		weight := 0.0
+		total := 0.0
+		for _, off := range neighbourOffsets {
+			nx := (x + off.X + gridW) % gridW
+			ny := (y + off.Y + gridH) % gridH
+			w := permeabilityAt(nx, ny)
+			if w <= 0 {
+				continue
+			}
+			total += m.previousPhMap[nx][ny] * w
+			weight += w
 		}
-		if ph, ok := adjPh(x, (y+gridH-1)%gridH); ok {
-			avgPh += ph
-			neighbors++
+		if weight == 0 {
+			// Sealed in on every side — keep current value untouched.
+			return m.previousPhMap[x][y]
 		}
-		if ph, ok := adjPh((x+1)%gridW, y); ok {
-			avgPh += ph
-			neighbors++
-		}
-		if ph, ok := adjPh((x+gridW-1)%gridW, y); ok {
-			avgPh += ph
-			neighbors++
-		}
-		return avgPh / float64(neighbors)
-	}
-
-	// return average ph of all adjacent points (even if in walls)
-	avgAdjPhAll := func(x, y int) float64 {
-		avgPh := 0.0
-		ph, _ := adjPh(x, (y+1)%gridH)
-		avgPh += ph
-		ph, _ = adjPh(x, (y+gridH-1)%gridH)
-		avgPh += ph
-		ph, _ = adjPh((x+1)%gridW, y)
-		avgPh += ph
-		ph, _ = adjPh((x+gridW-1)%gridW, y)
-		avgPh += ph
-		return avgPh / 4.0
+		return total / weight
 	}
 
 	totalPh := 0.0
-	pointCount := float64(gridW * gridH)
-	// set each value in the current phMap to its value in the previous phMap, plus
-	// the average difference between itself and its N,S,E,W neighbors (times the
-	// diffusion factor provided by the config)
+	pointCount := 0.0
+	minPh, maxPh := math.Inf(1), math.Inf(-1)
+	// set each value in the current phMap to its value in the previous phMap, plus the average difference between itself and its N,S,E,W neighbors (times the diffusion factor provided by the config)
 	for x := 0; x < gridW; x++ {
 		for y := 0; y < gridH; y++ {
 			prevVal := m.previousPhMap[x][y]
-			totalPh += prevVal
 
-			// Just set wall ph to the average of its neighbors
-			// (doesn't really affect anything but appearance, since we don't
-			// diffuse this value back to the rest of the environment
-			if utils.IsWall(x, y) {
-				m.setPhAtPoint(utils.Point{X: x, Y: y}, avgAdjPhAll(x, y))
-				continue
+			// Wall cells stay out of the water stats whatever their strength.
+			isWall := m.api.IsWallAtPoint(utils.Point{X: x, Y: y})
+			if !isWall {
+				totalPh += prevVal
+				pointCount++
+				minPh, maxPh = math.Min(minPh, prevVal), math.Max(maxPh, prevVal)
 			}
 
+			// A cell follows its surroundings at the diffusion rate scaled by its own permeability.
+			self := permeabilityAt(x, y)
+			if self <= 0 {
+				m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal)
+				continue
+			}
 			avgAdjacentPh := avgAdjPh(x, y)
-			change := (avgAdjacentPh - prevVal) * diffFactor
+			change := (avgAdjacentPh - prevVal) * diffFactor * self
 			m.setPhAtPoint(utils.Point{X: x, Y: y}, prevVal+change)
 		}
 	}
 
+	if pointCount == 0 {
+		// Every cell is a wall: no water to report, so leave the last figures standing rather than dividing by zero.
+		return
+	}
 	m.averagePh = totalPh / pointCount
+	m.minPh, m.maxPh = minPh, maxPh
 }

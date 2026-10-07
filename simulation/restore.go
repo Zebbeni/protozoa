@@ -14,8 +14,7 @@ import (
 	"github.com/lucasb-eyer/go-colorful"
 )
 
-// RestoreFromCheckpoint opens a .pzr file and restores the simulation from
-// the last snapshot. The simulation can then continue running from that point.
+// RestoreFromCheckpoint opens a .pzr file and restores the simulation from the last snapshot.
 func RestoreFromCheckpoint(path string, options *config.Options) (*Simulation, error) {
 	reader, err := checkpoint.OpenReader(path)
 	if err != nil {
@@ -27,7 +26,6 @@ func RestoreFromCheckpoint(path string, options *config.Options) (*Simulation, e
 		return nil, fmt.Errorf("checkpoint file has no snapshots")
 	}
 
-	// Read the last snapshot
 	snap, err := reader.ReadSnapshot(reader.SnapshotCount() - 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read snapshot: %w", err)
@@ -36,9 +34,7 @@ func RestoreFromCheckpoint(path string, options *config.Options) (*Simulation, e
 	return RestoreFromSnapshot(snap, options)
 }
 
-// RestoreFromSnapshot rebuilds a full Simulation from a snapshot payload.
 func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Options) (*Simulation, error) {
-	// Restore RNG
 	rng, err := simrand.RestoreFromState(snap.RNGState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restore RNG state: %w", err)
@@ -48,9 +44,12 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 		options: options,
 		rng:     rng,
 		cycle:   snap.Cycle,
+
+		minOrganismsArmed: snap.MinOrganismsArmed,
 	}
 
 	sim.updateManager = manager.NewUpdateManager()
+	sim.wallManager = restoreWalls(sim, snap)
 	sim.environmentManager = restoreEnvironment(sim, snap)
 	sim.foodManager = restoreFood(sim, rng, snap)
 	sim.organismManager = restoreOrganisms(sim, rng, snap)
@@ -60,8 +59,7 @@ func RestoreFromSnapshot(snap *checkpoint.SnapshotPayload, options *config.Optio
 	return sim, nil
 }
 
-// ResetFromSnapshot replaces this simulation's internal state from a snapshot
-// while preserving the pointer identity (so all UI references remain valid).
+// ResetFromSnapshot replaces this simulation's internal state from a snapshot.
 func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 	rng, err := simrand.RestoreFromState(snap.RNGState)
 	if err != nil {
@@ -70,7 +68,10 @@ func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 
 	s.rng = rng
 	s.cycle = snap.Cycle
+	s.minOrganismsArmed = snap.MinOrganismsArmed
+	s.endReported = false
 	s.updateManager = manager.NewUpdateManager()
+	s.wallManager = restoreWalls(s, snap)
 	s.environmentManager = restoreEnvironment(s, snap)
 	s.foodManager = restoreFood(s, rng, snap)
 	s.organismManager = restoreOrganisms(s, rng, snap)
@@ -80,11 +81,7 @@ func (s *Simulation) ResetFromSnapshot(snap *checkpoint.SnapshotPayload) error {
 	return nil
 }
 
-// rebuildDecisionPaths walks every restored organism's chooseAction
-// once so the panel's decision-tree view has highlights immediately
-// after a snapshot restore. The serialized tree string drops the
-// per-node UsedLastCycle / WasTravelled flags; without this pass the
-// panel would render every line dim until the next sim cycle.
+// rebuildDecisionPaths walks every restored organism's chooseAction once so the panel's decision-tree view has highlights immediately after a snapshot restore.
 func rebuildDecisionPaths(s *Simulation) {
 	for _, o := range s.organismManager.Organisms() {
 		o.RebuildDecisionPath()
@@ -95,22 +92,36 @@ func restoreEnvironment(sim *Simulation, snap *checkpoint.SnapshotPayload) *mana
 	return manager.RestoreEnvironmentManager(sim, snap.CurrentPhMap, snap.PreviousPhMap)
 }
 
+func restoreWalls(sim *Simulation, snap *checkpoint.SnapshotPayload) *manager.WallManager {
+	walls := make(map[utils.Point]int, len(snap.Walls))
+	for _, w := range snap.Walls {
+		walls[utils.Point{X: int(w.X), Y: int(w.Y)}] = int(w.Strength)
+	}
+	return manager.RestoreWallManager(sim.rng, walls)
+}
+
 func restoreFood(sim *Simulation, rng *simrand.RNG, snap *checkpoint.SnapshotPayload) *manager.FoodManager {
-	return manager.RestoreFoodManager(sim, rng, snap.FoodItems)
+	return manager.RestoreFoodManager(sim, rng, snap.FoodItems, snap.BuriedFood)
 }
 
 func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.SnapshotPayload) *manager.OrganismManager {
-	// Build organisms from records. Decision tree flags get rebuilt by
-	// the caller once the manager is fully wired up — chooseAction uses
-	// the sim as its lookupAPI, and several lookups bottom out in
-	// sim.organismManager which we're still constructing here.
 	organisms := make(map[int]*organism.Organism)
+	staleAbilities := 0
 	for _, rec := range snap.Organisms {
-		o := recordToOrganism(rec, sim)
+		o, abilitiesOK := recordToOrganism(rec, sim)
+		if !abilitiesOK {
+			staleAbilities++
+		}
 		organisms[o.ID] = o
 	}
+	// Reported once for the whole file rather than once per organism.
+	if staleAbilities > 0 {
+		fmt.Printf("\nWarning: %d of %d organisms had invalid ability scores "+
+			"(snapshot predates ability scores, or is corrupt); reset to the genesis "+
+			"distribution. Re-record the file to replay it faithfully.",
+			staleAbilities, len(snap.Organisms))
+	}
 
-	// Rebuild ancestor data
 	ancestorIDs := make([]int, 0, len(snap.Ancestors))
 	ancestorColors := make(map[int]color.Color)
 	for _, a := range snap.Ancestors {
@@ -123,7 +134,8 @@ func restoreOrganisms(sim *Simulation, rng *simrand.RNG, snap *checkpoint.Snapsh
 		snap.TotalOrganismsCreated, ancestorIDs, ancestorColors)
 }
 
-func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *organism.Organism {
+func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*organism.Organism, bool) {
+	abilities, abilitiesOK := manager.AbilitiesFromRecord(rec.Abilities)
 	traits := organism.Traits{
 		OrganismColor:          colorful.Color{R: float64(rec.ColorR), G: float64(rec.ColorG), B: float64(rec.ColorB)},
 		MaxSize:                rec.MaxSize,
@@ -131,18 +143,28 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) *or
 		MinHealthToSpawn:       rec.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: int(rec.MinCyclesBetweenSpawns),
 		IdealPh:                rec.IdealPh,
+		Abilities:              abilities,
 	}
 
 	tree := d.DeserializeTree(rec.DecisionTree)
 
-	return organism.Restore(
+	o := organism.Restore(
 		int(rec.ID), int(rec.Age), rec.Health, rec.Size, int(rec.Children),
 		int(rec.TraveledDist), int(rec.CyclesSinceLastSpawn),
 		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
 		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
 		int(rec.OriginalAncestorID),
-		traits, tree, d.Action(rec.CurrentAction),
+		traits, tree, d.Action(rec.CurrentAction), organism.Status(rec.Status),
 		int(rec.AttackTotal), int(rec.AttackHits),
-		rec.PhPositive, rec.PhNegative, api,
+		rec.PhPositive, rec.PhNegative,
+		api,
 	)
+	// Set apart from the constructor rather than threading another parameter
+	// through a signature this long. 0 means nobody, which is what a snapshot
+	// written before the field existed decodes to.
+	o.KilledBy = -1
+	if rec.KilledBy > 0 {
+		o.KilledBy = int(rec.KilledBy) - 1
+	}
+	return o, abilitiesOK
 }
