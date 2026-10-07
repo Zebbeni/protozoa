@@ -130,7 +130,20 @@ func TestCurveRowResetsItsShape(t *testing.T) {
 
 	want := cs.globals.AttackCurveShape
 	seed := cs.globals.Seed
-	cs.setCurveShape(physiology.CurveAttack, physiology.ShapeQuadratic)
+	// Any shape but the one that ships: naming a fixed one made this test
+	// assert the shipped value, and it stopped detecting a change the day
+	// the defaults adopted that shape.
+	var other physiology.ShapeKind
+	for _, kind := range physiology.AllShapeKinds {
+		if string(kind) != want {
+			other = kind
+			break
+		}
+	}
+	if other == "" {
+		t.Fatal("no shape differs from the shipped one, so nothing can be changed")
+	}
+	cs.setCurveShape(physiology.CurveAttack, other)
 	if !cs.canReset(row) {
 		t.Fatal("a changed shape should offer a reset")
 	}

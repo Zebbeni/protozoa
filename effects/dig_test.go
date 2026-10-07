@@ -90,11 +90,17 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 		}
 	}
 
+	// A NET GAIN at the lowest score that should profit, not a comfortable
+	// multiple of the cost. This asked for 2x and was relaxed deliberately:
+	// the margin is bounded above by the gap between Eating 0 and Eating 1,
+	// because Eating 0 must still not pay (checked below), and on the
+	// shipped bite floor that gap is only 1.9x. Demanding 2x here and "0
+	// does not pay" there is not satisfiable at any attempt cost.
 	const size = 10
 	margin := HealthFromFood(g, MaxFoodPerEat(g, 1, size)) / cost(size)
-	if margin < 2 {
-		t.Errorf("at Eating 1 a full bite is only %.1fx its attempt cost; raise health_per_food_unit "+
-			"or lower health_change_from_eating_attempt", margin)
+	if margin <= 1 {
+		t.Errorf("at Eating 1 a full bite is %.2fx its attempt cost, so a successful eat is a net "+
+			"loss; raise health_per_food_unit or lower health_change_from_eating_attempt", margin)
 	}
 	t.Logf("at Eating 1, a full bite is %.1fx the attempt cost", margin)
 

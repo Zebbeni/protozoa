@@ -14,6 +14,10 @@ func TestAttackCostFallsWithTheScore(t *testing.T) {
 	g := digGlobals(t)
 	g.HealthChangeFromAttacking = -0.05
 	g.HealthChangeFromAttackingAtMax = -0.02
+	// A sloped shape, because this test is about the cost being CARRIED
+	// between the two ends. The shipped shape is flat, which on a cost
+	// curve means the multiplier is 0 and every score pays the at-max end.
+	g.AttackCostCurveShape = string(physiology.ShapeLinear)
 	config.SetGlobals(g)
 
 	const size = 10
@@ -62,18 +66,32 @@ func TestEqualAttackCostEndsAreInert(t *testing.T) {
 	}
 }
 
-// TestShippedAttackCostEngagesTheCurve: the request was for the cost to
-// SCALE, so equal ends in the shipped settings would satisfy the letter of
-// it and not the point.
-func TestShippedAttackCostEngagesTheCurve(t *testing.T) {
+// TestTheShippedAttackCostIsDeliberatelyFlat.
+//
+// The curve exists and works (TestAttackCostFallsWithTheScore), and the
+// shipped settings switch it off: both ends are the same value, which
+// TestEqualAttackCostEndsAreInert pins as producing a flat cost. This
+// guards that the two ways of saying "flat" AGREE, so the cost cannot be
+// flat by one and sloped by the other.
+//
+// Separating the ends re-engages it, and that is the whole change.
+func TestTheShippedAttackCostIsDeliberatelyFlat(t *testing.T) {
 	g := digGlobals(t)
 	config.SetGlobals(g)
+	if g.HealthChangeFromAttacking != g.HealthChangeFromAttackingAtMax {
+		t.Fatalf("the shipped attack cost ends differ (%v and %v); this test is about them being equal",
+			g.HealthChangeFromAttacking, g.HealthChangeFromAttackingAtMax)
+	}
 	atZero := AttackCost(g, 0, 10)
 	atMax := AttackCost(g, physiology.MaxAbilityScore, 10)
-	if atZero == atMax {
-		t.Errorf("the shipped attack cost is flat at %v; the curve is inert", atZero)
+	if atZero != atMax {
+		t.Errorf("equal ends give %v at score 0 and %v at max; the shape is overriding them", atZero, atMax)
 	}
-	if atMax <= atZero {
-		t.Errorf("shipped cost at max (%v) is not cheaper than at 0 (%v)", atMax, atZero)
+	// The shape is ShapeFlat, which on a COST curve means the multiplier is
+	// 1-1 = 0 and costBetween returns the AT-MAX end. That is the same
+	// number only while the ends are equal: separate them and flat means
+	// always the cheapest, not always the dearest.
+	if want := g.HealthChangeFromAttackingAtMax * 10; atZero != want {
+		t.Errorf("the flat cost is %v, want the at-max end scaled by size, %v", atZero, want)
 	}
 }

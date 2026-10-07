@@ -13,3 +13,13 @@ testdata/*.pzr
 # Recordings saved from the viewer's Save Recording As. Binary, and
 # capped at max_replay_size_mb (250MB by default) apiece.
 recordings/
+
+# Editor config.
+.vscode/
+
+# Output of the animation previewer's GIF export, regenerated on demand.
+gif_exports/
+
+# Superseded Aseprite sources. resources/sprites.aseprite is the one the
+# export script reads; these are earlier versions kept on disk only.
+resources/sprites_with_*.aseprite

@@ -4,11 +4,20 @@ import (
 	"math"
 	"testing"
 
+	c "github.com/Zebbeni/protozoa/config"
+
 	"github.com/Zebbeni/protozoa/utils"
 )
 
 func TestPhRangeTracksTheExtremes(t *testing.T) {
 	loadDefaultGlobals(t)
+	// Slow diffusion, which is what this test is about: it edits two cells
+	// and reads the extremes back. At the shipped ph_diffuse_factor of 1 a
+	// spike equalises with its neighbours before the scan ever sees it, so
+	// the test would be measuring the diffusion rate rather than the range.
+	g := c.GetCurrentGlobals()
+	g.PhDiffuseFactor = 0.1
+	c.SetGlobals(g)
 	m := NewEnvironmentManager(stubEnvAPI{})
 	m.Update()
 

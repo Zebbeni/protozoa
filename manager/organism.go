@@ -49,9 +49,7 @@ func newHistoryMaps() map[HistoryType]map[int]map[int]int32 {
 // OrganismManager contains 2D array of booleans showing if organism present
 type OrganismManager struct {
 	// chemoClaims counts how many chemosynthesising organisms draw on each cell this cycle, row-major. Nil when crowding is off.
-	chemoClaims []int32
-	// yieldedCells holds victims whose cell and corpse food a killer already took this cycle, so finalizeDeaths does not undo either.
-	yieldedCells   map[int]bool
+	chemoClaims    []int32
 	api            organism.API
 	rng            *simrand.RNG
 	requestManager RequestManager
@@ -1182,10 +1180,6 @@ func (m *OrganismManager) applyKillClaims() {
 		}
 		if m.claimKilledCell(killer, victim) {
 			claimed[killer] = true
-			if m.yieldedCells == nil {
-				m.yieldedCells = map[int]bool{}
-			}
-			m.yieldedCells[victim.ID] = true
 		}
 	}
 }
@@ -1266,13 +1260,27 @@ func (m *OrganismManager) finalizeDeaths() {
 		id   int
 		loc  utils.Point
 		size int
+		// yielded: a killer took this body's square in the cycle it died, and
+		// dropped its corpse there before moving in.
+		//
+		// Read off the GRID rather than remembered from last cycle. Nothing
+		// else clears a dying organism's own square, so the grid no longer
+		// naming it is exactly the claim having happened — and the grid is
+		// snapshot state, where a flag held on the manager between the claim
+		// and here is not. Snapshots are taken between cycles, which is
+		// precisely that gap, so a restore lost it and this cleared a square
+		// holding a living killer.
+		yielded bool
 	}
 	var drops []drop
 	for _, o := range m.organisms {
 		if o.Status != organism.StatusDying {
 			continue
 		}
-		drops = append(drops, drop{id: o.ID, loc: o.Location, size: corpseValue(o)})
+		drops = append(drops, drop{
+			id: o.ID, loc: o.Location, size: corpseValue(o),
+			yielded: m.organismIDGrid[o.Location.X][o.Location.Y] != o.ID,
+		})
 	}
 	// Sorted because a killer can only take one cell and two bodies can name
 	// the same one: map order would decide which, differently each run.
@@ -1283,9 +1291,9 @@ func (m *OrganismManager) finalizeDeaths() {
 	m.gridMutex.Lock()
 	m.organismMutex.Lock()
 	for _, dr := range drops {
-		// A yielded cell holds its killer now, so clearing it would erase a
-		// living organism from the grid.
-		if !m.yieldedCells[dr.id] {
+		// A yielded square holds its killer now, so clearing it would erase
+		// a living organism from the grid.
+		if !dr.yielded {
 			m.organismIDGrid[dr.loc.X][dr.loc.Y] = -1
 		}
 		delete(m.organisms, dr.id)
@@ -1294,12 +1302,13 @@ func (m *OrganismManager) finalizeDeaths() {
 	m.organismMutex.Unlock()
 	// AddFoodAtPoint takes the food-manager lock; do it outside the grid/organism critical section.
 	for _, dr := range drops {
-		if !m.yieldedCells[dr.id] {
+		// The claim dropped the corpse before it moved in, so a second one
+		// here would land on the killer, where the guard refuses it anyway.
+		if !dr.yielded {
 			m.api.AddFoodAtPoint(dr.loc, dr.size)
 		}
 		m.addUpdatedPoint(dr.loc)
 	}
-	m.yieldedCells = nil
 }
 
 func (m *OrganismManager) applySpawn(o *organism.Organism) {

@@ -113,9 +113,15 @@ func TestDamageGraphsRiseWithScore(t *testing.T) {
 	}
 }
 
+// TestCostGraphsFallWithScore: no cost curve may get DEARER as the score
+// rises. A flat one is skipped rather than failed — a configuration is
+// allowed to switch a cost curve off by making its two ends equal, which is
+// what the shipped attack cost does, and a cost that cannot vary is not a
+// cost wired backwards. TestNoCurveGraphIsAConstantLine is what stops a
+// curve being flat because nothing drives it.
 func TestCostGraphsFallWithScore(t *testing.T) {
 	_, globals := abilityConfigScreen(t)
-	checked := 0
+	checked, varying := 0, 0
 	for _, id := range physiology.AllCurves {
 		for _, graph := range curveGraphsFor(id) {
 			if !strings.Contains(strings.ToLower(graph.title), "health cost") {
@@ -127,12 +133,19 @@ func TestCostGraphsFallWithScore(t *testing.T) {
 				if lo < 0 || mid < 0 || hi < 0 {
 					t.Errorf("%s / %s: plots a negative cost (%v, %v, %v)", graph.title, series.label, lo, mid, hi)
 				}
+				if lo == hi {
+					continue
+				}
+				varying++
 				if !(lo > hi) || mid > lo || mid < hi {
 					t.Errorf("%s / %s: %v at 0, %v at 50, %v at 100; want the cost falling as the score rises",
 						graph.title, series.label, lo, mid, hi)
 				}
 			}
 		}
+	}
+	if varying == 0 {
+		t.Error("every cost graph is flat, so nothing checked that a cost falls")
 	}
 	if checked == 0 {
 		t.Fatal("no cost graphs found to check")

@@ -87,8 +87,11 @@ func runUntilDone(t *testing.T, seed, maxCycles int) (sim *Simulation, peak int)
 
 // tailOffSeed and the small grid below give a run that grows past twice the minimum and then crashes below it within about a thousand cycles.
 const (
-	// Was 4, and 1 and 2 before that. Any change to mutation can make the chosen seed survive instead.
-	tailOffSeed  = 8
+	// Any BALANCE change can make the chosen seed survive instead, not just
+	// a mutation one: this moved from 8 when health_per_food_unit went 10 to
+	// 14. SEED_PROBE=1 go test ./simulation/ -run TestFindTailOffSeed -v
+	// lists which seeds qualify; 15 of the first 24 did at that point.
+	tailOffSeed  = 15
 	tailOffGridW = 24
 	tailOffGridH = 20
 )
