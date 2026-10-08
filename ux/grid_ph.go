@@ -20,7 +20,7 @@ func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 		g.phBuffer = ebiten.NewImage(W, H)
 		refresh = true
 	}
-	cell := g.Camera.SpriteSize()
+	cell := g.Camera.PhCellSize()
 	if g.phLinear == nil || g.phLinearCell != cell {
 		g.phLinear = ebiten.NewImage((W+2)*cell, (H+2)*cell)
 		g.phLinearCell = cell
@@ -60,7 +60,7 @@ func (g *Grid) renderPh(phImage *ebiten.Image, refresh bool) {
 
 	// Place it in the layer at world-pixel size, cropping the 1-cell wrap border.
 	unit := float64(g.Camera.GridUnitSize())
-	scale := g.Camera.SpriteScale()
+	scale := g.Camera.PhScale()
 	op = &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterNearest
 	op.GeoM.Scale(scale, scale)
@@ -114,6 +114,12 @@ func (g *Grid) stampPhBorderedFromBuffer() {
 }
 
 func (g *Grid) phToColor(phVal float64) colorful.Color {
+	return phCellColor(phVal)
+}
+
+// phCellColor is what one pH reading is painted. Split out of the grid so the
+// rules screen's illustration cannot drift from the world it describes.
+func phCellColor(phVal float64) colorful.Color {
 	neutral := (config.MaxPh() + config.MinPh()) / 2.0
 	halfRange := (config.MaxPh() - config.MinPh()) / 2.0
 	weight := 0.0

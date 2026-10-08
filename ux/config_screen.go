@@ -203,7 +203,7 @@ func (cs *ConfigScreen) Update() bool {
 	}
 
 	_, wy := ebiten.Wheel()
-	cs.scrollY -= wy * 30
+	cs.scrollY -= wheelScrollSteps(wy) * 30
 	if ebiten.IsKeyPressed(ebiten.KeyDown) {
 		cs.scrollY += float64(cfgRowHeight)
 	}
@@ -312,8 +312,11 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 		}
 	} else if by+bh > clipTop && by < clipBottom {
 		cs.drawSmallButton(screen, bx, by, bw, bh, "RESTORE ALL DEFAULTS", !cs.allDefaults())
-		lx, ly, lw, lh := cs.loadSettingsRect()
-		cs.drawSmallButton(screen, lx, ly, lw, lh, "LOAD SETTINGS", true)
+		// No settings directory to browse in a browser.
+		if filesAvailable {
+			lx, ly, lw, lh := cs.loadSettingsRect()
+			cs.drawSmallButton(screen, lx, ly, lw, lh, "LOAD SETTINGS", true)
+		}
 	}
 
 	y := panelTop + cfgHeaderHeight - int(cs.scrollY)
@@ -562,7 +565,8 @@ func (cs *ConfigScreen) handleClick() {
 
 	cs.commitEdit()
 
-	if bx, by, bw, bh := cs.loadSettingsRect(); !cs.readOnly && mx >= bx && mx < bx+bw && my >= by && my < by+bh {
+	if bx, by, bw, bh := cs.loadSettingsRect(); filesAvailable && !cs.readOnly &&
+		mx >= bx && mx < bx+bw && my >= by && my < by+bh {
 		cs.openLoad()
 		return
 	}
@@ -1049,8 +1053,8 @@ func (cs *ConfigScreen) buildSections() {
 			field("Attack cost K", "attack_cost_saturating_k"),
 			field("Damage taken K", "damage_taken_cosine_k"),
 			field("Damage taken K", "damage_taken_saturating_k"),
-			field("Thorns K", "thorns_cosine_k"),
-			field("Thorns K", "thorns_saturating_k"),
+			field("Damage returned K", "thorns_cosine_k"),
+			field("Damage returned K", "thorns_saturating_k"),
 			field("pH Tolerance K", "ph_tolerance_cosine_k"),
 			field("pH Tolerance K", "ph_tolerance_saturating_k"),
 		})},

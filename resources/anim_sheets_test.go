@@ -149,3 +149,38 @@ func luaTagList(t *testing.T, script, name string) []string {
 	}
 	return out
 }
+
+// TestSpawnArtIsLoadedNotBorrowed: the spawn sheets have been in the asset
+// directory all along and nothing loaded them, because the animation had no
+// filename stem. This checks the art reaches the renderer rather than the
+// role's static image standing in for it.
+func TestSpawnArtIsLoadedNotBorrowed(t *testing.T) {
+	initSprites(t)
+
+	withArt, checked := 0, 0
+	for level, images := range ZoomImages {
+		for role := range organismRoleName {
+			for layer, frames := range images[role] {
+				if frames == nil || frames[animation.AnimIdle] == nil {
+					continue
+				}
+				checked++
+				spawn := frames[animation.AnimSpawn]
+				if spawn == nil {
+					t.Errorf("zoom %d role %d layer %d has idle art and no spawn frames", level, role, layer)
+					continue
+				}
+				if &spawn[0] != &frames[animation.AnimIdle][0] {
+					withArt++
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no role carried idle art, so nothing was checked")
+	}
+	if withArt == 0 {
+		t.Errorf("all %d layer sets fall back to idle for spawning; the sheets are not being loaded", checked)
+	}
+	t.Logf("%d of %d layer sets have spawn art of their own", withArt, checked)
+}

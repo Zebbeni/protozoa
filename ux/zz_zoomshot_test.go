@@ -24,7 +24,7 @@ import (
 // Renders the same world at Zoom8 with the 8x8 sprite set and with the
 // 16x16 set at half scale, side by side, so the two can be compared.
 // ZOOM_SHOT_CYCLES warms the world up, since a fresh one is a handful of
-// founders on empty water.
+// founders on an empty grid.
 func TestZoom8SpriteSetShot(t *testing.T) {
 	if os.Getenv("ZOOM_SHOT") == "" {
 		t.Skip("set ZOOM_SHOT=1")
@@ -80,15 +80,10 @@ func (s *zoomShot) Layout(w, h int) (int, int) { return config.ScreenWidth(), co
 // sprite set. A fresh Grid per side, because the layer images are cached
 // against the sprite size and reusing one would hand the second pass the
 // first one's.
-func (s *zoomShot) renderAt(spriteSet int, filter ebiten.Filter) *ebiten.Image {
+func (s *zoomShot) renderAt(spriteSet int) *ebiten.Image {
 	was := zoomSpriteSet[Zoom8]
 	zoomSpriteSet[Zoom8] = spriteSet
-	wasFilter := spriteDownscaleFilter
-	spriteDownscaleFilter = filter
-	defer func() {
-		zoomSpriteSet[Zoom8] = was
-		spriteDownscaleFilter = wasFilter
-	}()
+	defer func() { zoomSpriteSet[Zoom8] = was }()
 
 	grid := NewGrid(s.sim)
 	grid.Camera.Zoom = Zoom8
@@ -141,11 +136,9 @@ func (s *zoomShot) Draw(screen *ebiten.Image) {
 		return
 	}
 	s.infos = sceneInfos()
-	panels := []*ebiten.Image{
-		s.renderAt(1, ebiten.FilterNearest),
-		s.renderAt(2, ebiten.FilterNearest),
-		s.renderAt(2, ebiten.FilterLinear),
-	}
+	// The two sprite SETS. Which filter to downscale the 16x16 art with is
+	// settled (linear, a constant now), so there is no third panel.
+	panels := []*ebiten.Image{s.renderAt(1), s.renderAt(2)}
 
 	cells := envInt("ZOOM_SHOT_CELLS", 17)
 	unit := 8
@@ -174,6 +167,6 @@ func (s *zoomShot) Draw(screen *ebiten.Image) {
 	if err := png.Encode(f, canvas); err != nil {
 		s.t.Error(err)
 	}
-	s.t.Logf("wrote %s (top: 8x8 set, middle: 16x16 nearest, bottom: 16x16 linear)", s.out)
+	s.t.Logf("wrote %s (top: 8x8 set, bottom: 16x16 set at half scale)", s.out)
 	s.saved = true
 }

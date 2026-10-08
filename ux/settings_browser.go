@@ -84,7 +84,7 @@ func (cs *ConfigScreen) updateLoad() {
 		return
 	}
 	if _, dy := ebiten.Wheel(); dy != 0 {
-		cs.loadScroll -= int(dy)
+		cs.loadScroll -= int(wheelScrollSteps(dy))
 		if cs.loadScroll < 0 {
 			cs.loadScroll = 0
 		}

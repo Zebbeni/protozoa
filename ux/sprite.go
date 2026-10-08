@@ -10,13 +10,16 @@ import (
 )
 
 // drawAnimatedSprite draws a sprite rotated to face `direction`, anchored to its base cell.
-// spriteDownscaleFilter is the texture filter used when a sprite is drawn
-// SMALLER than its source, which today is only Zoom8 drawing the 16x16 art
-// at half size. Everything else in the pipeline is nearest, and an upscale
-// stays nearest whatever this says: linear on pixel art blurs it.
+// spriteDownscaleFilter is the texture filter for a sprite drawn SMALLER
+// than its source, which is Zoom8 drawing the 16x16 art at half size and
+// nothing else (TestZoom8IsTheOnlyDownscale).
 //
-// EXPERIMENT. One value to settle.
-var spriteDownscaleFilter = ebiten.FilterLinear
+// Linear, chosen by looking at the three side by side: the 8x8 set has no
+// overlay layers at all, so it draws a plain capsule, and nearest-neighbour
+// at half scale drops alternate pixels and breaks the 16x16 art into
+// speckle. Linear keeps the silhouette and the overlays legible. An UPSCALE
+// stays nearest whatever this says, because linear on pixel art blurs it.
+const spriteDownscaleFilter = ebiten.FilterLinear
 
 // spriteFilter picks the filter for a draw at this scale.
 func spriteFilter(scale float64) ebiten.Filter {

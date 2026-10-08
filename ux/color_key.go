@@ -209,7 +209,7 @@ var abilityKeyNotes = map[physiology.Ability]string{
 	physiology.AbilityMovement:       "Movement carries the organism forward and turns it. A higher score makes both cost less health",
 	physiology.AbilityDigging:        "Digging creates rock walls beside the organism while removing those ahead, or (if there are none) revealing food",
 	physiology.AbilityAttack:         "Attack damages the organism ahead, leaving a corpse of food behind when it kills",
-	physiology.AbilityDefense:        "Defense absorbs damage from attacks and turns some of it back on the attacker as thorns",
+	physiology.AbilityDefense:        "Defense absorbs damage from attacks and returns some of it to the attacker",
 	physiology.AbilityTolerance:      "Tolerance widens the band of pH the organism can sit in before the environment costs it health",
 }
 

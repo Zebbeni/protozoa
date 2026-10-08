@@ -28,6 +28,19 @@ var AllHealthSources = []HealthSource{
 	HealthFromSpawn,
 }
 
+// MaxConcurrentHealthSources is how many of the sources can be non-zero on
+// one cycle, which is what the panel reserves room for rather than the whole
+// list.
+//
+// An organism takes one action a cycle, and that is what bounds it: the pH
+// cost and the action's own cost are always available, being attacked and
+// spawning are independent of what it chose, and the action itself
+// contributes either thorns and predation (it attacked) or one of
+// chemosynthesis and eating. Six. Measured over 5.4M organism-cycles the
+// most ever seen together is five — hit, thorns, ph, act, prey — and
+// TestNoCycleMovesMoreSourcesThanThePanelReserves is the live-world guard.
+const MaxConcurrentHealthSources = 6
+
 var healthSourceLabels = [healthSourceCount]string{
 	HealthFromAttack:    "hit",
 	HealthFromThorns:    "thorns",

@@ -30,8 +30,8 @@ var zoomUnitSizes = [5]int{4, 8, 16, 32, 64}
 //
 // Zoom8 draws the 16x16 art at half scale rather than the 8x8 set: only the
 // high-res set carries the layered overlays, so the 8x8 art shows a bare
-// body with no motor, mouth or sensors. EXPERIMENT — the 8x8 set is still
-// loaded and this is a one-value revert.
+// body with no motor, mouth or sensors whatever the organism is. The 8x8
+// set is still loaded and nothing points at it.
 var zoomSpriteSet = [5]int{0, 2, 2, 2, 2}
 
 var zoomSpriteSizes = [3]int{4, 8, 16}
@@ -50,6 +50,25 @@ func (cam *Camera) SpriteFrameCount() int {
 // SpriteScale returns the factor to scale sprites up to the display unit size.
 func (cam *Camera) SpriteSize() int {
 	return zoomSpriteSizes[cam.SpriteSet()]
+}
+
+// PhCellSize is the resolution the pH field is smoothed to, in pixels a
+// cell, before being enlarged into the layer.
+//
+// The sprite size, EXCEPT where that is larger than what the display shows.
+// The field is smoothed up from one pixel a cell, so smoothing it past the
+// display resolution builds detail that the next draw immediately throws
+// away: at Zoom8, which draws the 16x16 art at half size, this was
+// 1632x1312 scaled down to 816x656 every frame. Capping it also means the
+// enlargement is always nearest-neighbour UP, like the sprites, rather than
+// a nearest downscale that drops every other row.
+func (cam *Camera) PhCellSize() int {
+	return min(cam.SpriteSize(), cam.GridUnitSize())
+}
+
+// PhScale enlarges the smoothed field to world-pixel size. Never below 1.
+func (cam *Camera) PhScale() float64 {
+	return float64(cam.GridUnitSize()) / float64(cam.PhCellSize())
 }
 
 func (cam *Camera) SpriteScale() float64 {

@@ -12,8 +12,7 @@ import (
 // land there, and they are named here so adding one is a decision.
 func TestEveryStatusRoutesSomewhere(t *testing.T) {
 	idleIsCorrect := map[organism.Status]bool{
-		organism.StatusIdle:     true,
-		organism.StatusSpawning: true,
+		organism.StatusIdle: true,
 	}
 	seen := map[Animation]organism.Status{}
 	for s := organism.Status(0); s <= organism.StatusAttackMove; s++ {
@@ -55,5 +54,18 @@ func TestAllAnimationsListsEveryAnimation(t *testing.T) {
 		if !seen[a] {
 			t.Errorf("animation %d is not in AllAnimations, so its sheets never load", a)
 		}
+	}
+}
+
+// TestSpawningPlaysItsOwnSheet: the parent used to fall through to idle, so
+// the one cycle it hands a child its health looked like a cycle doing
+// nothing. The art has been there all along; it was the routing that was
+// missing.
+func TestSpawningPlaysItsOwnSheet(t *testing.T) {
+	if got := ForStatus(organism.StatusSpawning); got != AnimSpawn {
+		t.Errorf("StatusSpawning plays animation %d, want AnimSpawn (%d)", got, AnimSpawn)
+	}
+	if ForStatus(organism.StatusSpawning) == ForStatus(organism.StatusIdle) {
+		t.Error("spawning and standing still play the same animation")
 	}
 }

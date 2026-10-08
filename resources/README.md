@@ -80,14 +80,12 @@ single `base` tag for static art:
 | `chemofail` | StatusChemoFailed |
 | `die` | StatusDying |
 | `dig` | StatusDigging |
-| `spawn` | StatusSpawning (pending) |
+| `spawn` | StatusSpawning — the parent on the cycle it hands a child its health |
 | `base` | Static, paired only with `_static` slices |
 
-The "pending" tags can be authored now. `spawn` and `dig` produce PNGs
-that sit unused until `animation.ForStatus` routes those statuses to
-dedicated animations. `attack_success` is already routed — until its
-sheets exist each one borrows the matching `attack` sheet, so drawing
-it replaces the borrowed art with no code change.
+Every tag above is routed. `attack_success` is the one still without
+art: until its sheets exist each one borrows the matching `attack`
+sheet, so drawing it replaces the borrowed art with no code change.
 
 `attack_success` is a two-cell (`_xl`) tag, and the two cells are the
 one the killer left and the one it took: the frame is anchored at the

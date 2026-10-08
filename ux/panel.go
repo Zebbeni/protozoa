@@ -23,6 +23,7 @@ import (
 	"github.com/Zebbeni/protozoa/replay"
 	r "github.com/Zebbeni/protozoa/resources"
 	s "github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/utils"
 	"github.com/Zebbeni/protozoa/ux/graph"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
@@ -151,6 +152,8 @@ type Panel struct {
 	// graphByAbility colours the population graphs gray→green by graphColorAbility instead of by lineage.
 	graphByAbility    bool
 	graphColorAbility physiology.Ability
+	// graphWheel turns a wheel reading into at most one graph zoom step; see wheel_step.go.
+	graphWheel *wheelStepper
 	// graphAbilityToggleRect / graphAbilityBtnRects are the hitboxes for the ABILITY toggle and.
 	graphAbilityToggleRect *graphButtonHitbox
 
@@ -1034,7 +1037,7 @@ func (p *Panel) HandleScroll() {
 	mx, _ := ebiten.CursorPosition()
 	if mx >= 0 && mx < panelWidth {
 		_, wy := ebiten.Wheel()
-		p.scrollY -= wy * 20
+		p.scrollY -= wheelScrollSteps(wy) * 20
 		p.clampScroll()
 	}
 }
@@ -1606,9 +1609,20 @@ func (p *Panel) graphMouseAt(mx, my, x, y, w, h int) bool {
 	}
 
 	consumed := false
-	if _, wy := ebiten.Wheel(); wy != 0 {
+	// The wheel reading is the EXPONENT here, so the browser's deltaY of
+	// about 100 a notch raised the zoom step to the hundredth power. Only
+	// the sign is used, and at most one step a gesture; see wheel_step.go.
+	if p.graphWheel == nil {
+		p.graphWheel = newWheelStepper()
+	}
+	_, wy := ebiten.Wheel()
+	if step := p.graphWheel.step(wy); step != 0 {
 		anchor := float64(mx-x) / float64(w)
-		p.graphView.zoomAt(anchor, math.Pow(graphZoomStep, wy))
+		p.graphView.zoomAt(anchor, math.Pow(graphZoomStep, float64(step)))
+		consumed = true
+	} else if wy != 0 {
+		// Still the graph's wheel event, even on a frame that does not zoom:
+		// letting it fall through would scroll the panel under the cursor.
 		consumed = true
 	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -1866,7 +1880,7 @@ const detailTabsGap = 16
 // infoTabsGap is the space between the TRAITS / STATS strip and the block it switches.
 const infoTabsGap = 6
 
-// phComfortColor tints the IDEAL PH value green→red by how much the water the organism is actually sitting in costs it, matching the grid's TOLERANCE view.
+// phComfortColor tints the IDEAL PH value green→red by how much the environment the organism is actually sitting in costs it, matching the grid's TOLERANCE view.
 func (p *Panel) phComfortColor(info *organism.Info, traits organism.Traits) color.Color {
 	distance := math.Abs(traits.IdealPh - p.simulation.GetPhAtPoint(info.Location))
 	damage := effects.PhDamage(config.GetCurrentGlobals(), traits.Abilities[physiology.AbilityTolerance], info.Size, distance)
@@ -2043,30 +2057,7 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 		frameIdx = p.grid.animState.SpriteFrameIndex(4)
 	}
 
-	const cellSize = portraitSpriteCell
-	const scale = float64(portraitScale)
-	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
-	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
-	// Portrait always renders from the 16x16 (highest-res) set.
-	const portraitZoom = 2 // 0:4x4, 1:8x8, 2:16x16
-	layers := r.OrganismLayersFor(info.Appearance)
-	stampedAny := false
-	for _, layer := range layers {
-		sprite := r.SpriteLayerAtZoom(portraitZoom, role, layer, anim, frameIdx)
-		if sprite == nil {
-			continue
-		}
-		col := info.SecondaryColor
-		if r.UsesPrimaryColor(layer) {
-			col = info.Color
-		}
-		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, col, float64(cellSize), scale)
-		stampedAny = true
-	}
-	if !stampedAny {
-		sprite := r.SpriteAtZoom(portraitZoom, role, anim, frameIdx)
-		drawAnimatedSprite(p.portraitImg, baseX, baseY, sprite, direction, info.Color, float64(cellSize), scale)
-	}
+	stampPortrait(p.portraitImg, info.Appearance, role, anim, frameIdx, direction, info.Color, info.SecondaryColor)
 
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(x), float64(y))
@@ -2078,6 +2069,34 @@ func (p *Panel) renderPortrait(panelImage *ebiten.Image, info *organism.Info, di
 	ebitenutil.DrawRect(panelImage, fx, fy+fh-1, fw, 1, border)
 	ebitenutil.DrawRect(panelImage, fx, fy, 1, fh, border)
 	ebitenutil.DrawRect(panelImage, fx+fw-1, fy, 1, fh, border)
+}
+
+// stampPortrait composites one organism into a portrait-sized image: every
+// layer its appearance unlocks, from the 16x16 set, centred in the box.
+func stampPortrait(img *ebiten.Image, app physiology.Appearance, role r.ImageRole, anim animation.Animation, frameIdx int, direction utils.Point, primary, secondary colorful.Color) {
+	const cellSize = portraitSpriteCell
+	const scale = float64(portraitScale)
+	baseX := float64(portraitSize)/2 - float64(cellSize)*scale/2
+	baseY := float64(portraitSize)/2 - float64(cellSize)*scale/2
+	// Portrait always renders from the 16x16 (highest-res) set.
+	const portraitZoom = 2 // 0:4x4, 1:8x8, 2:16x16
+	stamped := false
+	for _, layer := range r.OrganismLayersFor(app) {
+		sprite := r.SpriteLayerAtZoom(portraitZoom, role, layer, anim, frameIdx)
+		if sprite == nil {
+			continue
+		}
+		col := secondary
+		if r.UsesPrimaryColor(layer) {
+			col = primary
+		}
+		drawAnimatedSprite(img, baseX, baseY, sprite, direction, col, float64(cellSize), scale)
+		stamped = true
+	}
+	if !stamped {
+		sprite := r.SpriteAtZoom(portraitZoom, role, anim, frameIdx)
+		drawAnimatedSprite(img, baseX, baseY, sprite, direction, primary, float64(cellSize), scale)
+	}
 }
 
 // drawPortraitHealth labels the portrait's bottom-right corner with the organism's health and size as "health / size", in the theme's foreground colour.
@@ -2250,32 +2269,12 @@ func (p *Panel) renderDetailTabs(panelImage *ebiten.Image, topY int) int {
 
 // renderDecisionTreeTab draws the decision-tree text block in three tiers.
 func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.Tree, dim bool, topY int) int {
-	activeColor := themedForeground()
-	// Travelled nodes keep the original "dim" tone so they read as noticeably distinct from never-visited branches.
-	travelledColor := chrome(
-		color.RGBA{R: 80, G: 80, B: 80, A: 255},
-		color.RGBA{R: 170, G: 170, B: 180, A: 255},
-	)
-	// Untravelled nodes step further toward the background so the "dead branches" of the tree fade out.
-	dimColor := chrome(
-		color.RGBA{R: 50, G: 50, B: 55, A: 255},
-		color.RGBA{R: 205, G: 205, B: 215, A: 255},
-	)
 	// No gated styling: under ability scores every organism can express every node.
 	face := r.FontSourceCodePro10
 	lineHeight := face.Metrics().Height.Round()
 	offsetY := topY
 	for _, line := range decisionTree.PrintLines() {
-		var clr color.Color = dimColor
-		if !dim {
-			switch {
-			case line.UsedLastCycle:
-				clr = activeColor
-			case line.WasTravelled:
-				clr = travelledColor
-			}
-		}
-		text.Draw(panelImage, line.Text, face, selectedXOffset, offsetY, clr)
+		text.Draw(panelImage, line.Text, face, selectedXOffset, offsetY, decisionLineInk(line, dim))
 		offsetY += lineHeight
 	}
 	return offsetY

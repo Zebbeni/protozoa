@@ -11,6 +11,7 @@ import (
 	"golang.org/x/image/font"
 
 	"github.com/Zebbeni/protozoa/config"
+	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/resources"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
@@ -167,10 +168,10 @@ func healthColor(health, size float64) colorful.Color {
 	return gh.GreenRedColor(health / size)
 }
 
-// phToleranceMidpointDamage is the health an organism loses per cycle to the water it is sitting in at the middle of the TOLERANCE view's green→red ramp.
+// phToleranceMidpointDamage is the health an organism loses per cycle to the environment it is sitting in at the middle of the TOLERANCE view's green→red ramp.
 const phToleranceMidpointDamage = 0.01
 
-// phToleranceColor tints an organism green→red by the health per cycle the water is costing it.
+// phToleranceColor tints an organism green→red by the health per cycle the environment is costing it.
 func phToleranceColor(damage float64) colorful.Color {
 	return gh.GreenRedColor(phToleranceFraction(damage))
 }
@@ -369,4 +370,31 @@ func themedTrackHandle() color.RGBA {
 		color.RGBA{R: 150, G: 150, B: 200, A: 255},
 		color.RGBA{R: 80, G: 80, B: 140, A: 255},
 	)
+}
+
+// decisionLineInk is the tone one line of a printed decision tree is drawn
+// in: bright for the node the organism acted on last cycle, mid for a branch
+// it has travelled before, and faint for one it never has. dim drops the
+// whole tree to the faint tone.
+func decisionLineInk(line d.PrintLine, dim bool) color.Color {
+	// Travelled nodes keep the original "dim" tone so they read as noticeably distinct from never-visited branches.
+	travelled := chrome(
+		color.RGBA{R: 80, G: 80, B: 80, A: 255},
+		color.RGBA{R: 170, G: 170, B: 180, A: 255},
+	)
+	// Untravelled nodes step further toward the background so the "dead branches" of the tree fade out.
+	untravelled := chrome(
+		color.RGBA{R: 50, G: 50, B: 55, A: 255},
+		color.RGBA{R: 205, G: 205, B: 215, A: 255},
+	)
+	if dim {
+		return untravelled
+	}
+	switch {
+	case line.UsedLastCycle:
+		return themedForeground()
+	case line.WasTravelled:
+		return travelled
+	}
+	return untravelled
 }

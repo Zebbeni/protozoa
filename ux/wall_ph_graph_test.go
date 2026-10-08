@@ -65,7 +65,7 @@ func TestWallAxisSpansEveryWallStrength(t *testing.T) {
 		}
 	}
 
-	// 0 is open water, not a weak wall.
+	// 0 is no wall at all, not a weak one.
 	if manager.MinWallStrength < 1 {
 		t.Errorf("MinWallStrength is %d; the axis assumes a wall is at least 1", manager.MinWallStrength)
 	}

@@ -49,7 +49,17 @@ func TestLedgerNeverDrawsBelowWhatItReserves(t *testing.T) {
 	r.UseDirAssets("..")
 	r.Init()
 
-	for rows := 0; rows <= len(organism.AllHealthSources); rows++ {
+	// Every source at once, which no cycle produces, to show the list the
+	// renderer actually draws stays inside the reservation anyway.
+	var full organism.HealthLedger
+	full.Recorded = true
+	for i, src := range organism.AllHealthSources {
+		full.Amounts[src] = float64(i + 1)
+	}
+	if got, want := len(healthLedgerRows(full)), organism.MaxConcurrentHealthSources; got != want {
+		t.Errorf("a ledger with every source listed %d rows, want it held to %d", got, want)
+	}
+	for rows := 0; rows <= organism.MaxConcurrentHealthSources; rows++ {
 		if got, reserved := ledgerDrawnHeight(rows), healthLedgerHeight(); got > reserved {
 			t.Errorf("%d rows paint %dpx into %dpx of reserved space", rows, got, reserved)
 		}

@@ -1,6 +1,8 @@
 package ux
 
 import (
+	"runtime"
+
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -38,13 +40,27 @@ type menuButton struct {
 	choice MenuChoice
 }
 
-var mainMenuButtons = []menuButton{
-	{"New Simulation", MenuChoiceNewSimulation},
-	{"Load Previous", MenuChoiceLoadPrevious},
-	{"Saved Recordings", MenuChoiceLoadRecording},
-	{"Organism Designer", MenuChoiceDesigner},
-	{"Rules", MenuChoiceRules},
-	{"Exit", MenuChoiceExit},
+var mainMenuButtons = menuButtonsFor(filesAvailable, runtime.GOOS != "js")
+
+// menuButtonsFor is the main menu for a host with or without a filesystem.
+//
+// Saved Recordings browses a real directory and the Organism Designer reads
+// and writes design files, so neither can do anything in a browser. Load
+// Previous stays: checkpoint keeps the current run's .pzr in an in-memory
+// registry, so replaying the run just finished works. Exit stays off as
+// well, since a browser tab has nothing to quit to.
+func menuButtonsFor(files, canExit bool) []menuButton {
+	out := []menuButton{{"New Simulation", MenuChoiceNewSimulation}, {"Load Previous", MenuChoiceLoadPrevious}}
+	if files {
+		out = append(out,
+			menuButton{"Saved Recordings", MenuChoiceLoadRecording},
+			menuButton{"Organism Designer", MenuChoiceDesigner})
+	}
+	out = append(out, menuButton{"About", MenuChoiceRules})
+	if canExit {
+		out = append(out, menuButton{"Exit", MenuChoiceExit})
+	}
+	return out
 }
 
 // MainMenu renders the top-level menu shown after the splash.

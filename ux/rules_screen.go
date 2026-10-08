@@ -1,6 +1,9 @@
 package ux
 
 import (
+	"strings"
+	"time"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -10,38 +13,25 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// RulesScreen renders a scrollable explanation of how the simulated world works.
+// RulesScreen renders an explanation of how the simulated world works, split
+// across three tabs. It is the About screen; the type and its files keep the
+// rules name.
 type RulesScreen struct {
-	scrollY  float64
 	finished bool
-}
-
-// rulesParagraphs is the body text, one entry per visual paragraph.
-var rulesParagraphs = []string{
-	"# THE WORLD",
-	"Protozoa is a 2D wraparound grid of cells. Each cell has a pH value between 0 and 10 that diffuses cycle-by-cycle towards a global equilibrium. Acidic cells render green, alkaline cells pink, neutral cells dark. Walls can divide the grid into sealed pools so isolated lineages develop in parallel.",
-	"# ORGANISMS",
-	"Each organism is a coloured square with a set of inherited traits and a single decision tree. Every cycle it picks one action — chemosynthesise, eat, move, turn, attack, feed, idle, or spawn — by walking the tree against its current surroundings. Most actions cost a small amount of health (\"energy\"); chemosynthesis at a healthy pH gains a little.",
-	"An organism's health is capped by its size. When it gains more health than its size allows, it grows. When health reaches zero, it dies and leaves behind a food item with value equal to its size at death.",
-	"# TRAITS",
-	"Initial organisms are seeded with random traits. Children inherit their parent's traits with small mutations. Surviving lineages tend to converge on traits that suit the local environment.",
-	"  Color — purely visual; randomised hue/sat/brightness.",
-	"  MaxSize — biggest the organism can grow.",
-	"  SpawnHealth — health a child starts with (also subtracted from the parent).",
-	"  MinHealthToSpawn — minimum parent health required to spawn.",
-	"  MinCyclesBetweenSpawns — cooldown between spawns.",
-	"  IdealPh — centre of the organism's preferred pH range.",
-	"# pH EFFECTS",
-	"pH tolerance is global, not per-organism: every organism takes damage outside IdealPh ± Tolerance. Organisms also shape their environment by acting:",
-	"  Successful chemosynthesis pushes the local pH down (more acidic) by a small amount per organism size.",
-	"  Successful eating pushes the local pH up (more alkaline) by a small amount per food unit consumed.",
-	"Cumulative pH-shift per organism is tracked over its lifetime — colour mode \"pH effect\" tints organisms by net push.",
-	"# DECISION TREES",
-	"Trees mix conditions (\"is food ahead?\", \"is health above 50%?\") with action leaves. Random trees mean lots of redundant or unreachable branches early on; mutation slowly weeds them out. To reward parsimony, each tree node costs a tiny health drain per cycle, so simpler trees that achieve the same behaviour outpace bloated ones over time.",
-	"# DEATH AND FAMILY TREES",
-	"Every spawn is recorded against its parent, building a descendant family tree per original ancestor. The replay viewer lets you click into any node, scrub through cycles, and watch how a single lineage rose, branched, and died out. Population graphs colour each lineage by its founder's hue.",
-	"# THE REPLAY",
-	"Every run writes a deterministic .pzr replay file. The viewer re-runs the simulation against this file — same seed, same RNG, same outcomes. Scrub the timeline, change zoom, swap colour modes, or click an organism to see its traits and decision tree. \"Load Previous\" from the main menu re-opens the most recent run.",
+	// header is above the tab strip and stays put; tabs are what the strip
+	// switches between. Both are built once: assembling them walks the
+	// appearance tables and wraps every paragraph, which is not work for a
+	// draw call.
+	header []rulesBlock
+	tabs   []aboutTab
+	tab    int
+	// scroll is per tab, so switching away and back does not lose the place.
+	scroll   []float64
+	tabRects []detailTabHitbox
+	// started is the clock the sprite animations run against, so every strip
+	// on screen shows the same frame.
+	started time.Time
+	now     func() time.Time
 }
 
 const (
@@ -52,64 +42,172 @@ const (
 	rulesParaGap        = 8
 	rulesBackBtnW       = 120
 	rulesBackBtnH       = 30
+	// rulesTabGap is the space above and below the tab strip.
+	rulesTabGap = 10
+	// rulesTopMargin clears the title, which is anchored to the screen.
+	rulesTopMargin = 54
 )
 
-func NewRulesScreen() *RulesScreen { return &RulesScreen{} }
+func NewRulesScreen() *RulesScreen {
+	rs := &RulesScreen{now: time.Now}
+	rs.started = rs.now()
+	rs.header = aboutHeader()
+	rs.tabs = aboutTabs()
+	rs.scroll = make([]float64, len(rs.tabs))
+	return rs
+}
 
-func (r *RulesScreen) Update() bool {
-	if r.finished {
+// headerHeight is the summary and the organism crossing the page, which are
+// drawn above the tab strip whichever tab is up.
+func (rs *RulesScreen) headerHeight() int {
+	h := 0
+	for _, b := range rs.header {
+		h += b.height()
+	}
+	return h
+}
+
+// tabStripY is where the strip sits: under the title and the header.
+func (rs *RulesScreen) tabStripY() int {
+	return rulesTopMargin + rs.headerHeight() + rulesTabGap
+}
+
+// contentTop is the first line of the tab's own blocks.
+func (rs *RulesScreen) contentTop() int {
+	return rs.tabStripY() + tabStripHeight + rulesTabGap
+}
+
+func (rs *RulesScreen) blocks() []rulesBlock {
+	if rs.tab < 0 || rs.tab >= len(rs.tabs) {
+		return nil
+	}
+	return rs.tabs[rs.tab].blocks
+}
+
+func (rs *RulesScreen) scrollY() float64 {
+	if rs.tab < 0 || rs.tab >= len(rs.scroll) {
+		return 0
+	}
+	return rs.scroll[rs.tab]
+}
+
+func (rs *RulesScreen) setScrollY(v float64) {
+	if rs.tab >= 0 && rs.tab < len(rs.scroll) {
+		rs.scroll[rs.tab] = v
+	}
+}
+
+// rulesFrameHold is how long one sprite frame is held. The grid ties this to
+// the simulation speed; here there is no simulation, so it is a plain rate
+// slow enough to read.
+const rulesFrameHold = 180 * time.Millisecond
+
+// elapsed is how long the screen has been open, which the longer animations
+// run against.
+func (rs *RulesScreen) elapsed() time.Duration {
+	if rs.now == nil {
+		return 0
+	}
+	return rs.now().Sub(rs.started)
+}
+
+// spriteFrame is the animation frame every strip shows this draw.
+func (rs *RulesScreen) spriteFrame() int {
+	if rs.now == nil {
+		return 0
+	}
+	frames := zoomSpriteFrameCounts[r.ZoomHighRes]
+	if frames < 1 {
+		return 0
+	}
+	return int(rs.now().Sub(rs.started)/rulesFrameHold) % frames
+}
+
+func (rs *RulesScreen) Update() bool {
+	if rs.finished {
 		return true
 	}
 
+	scroll := rs.scrollY()
 	_, wy := ebiten.Wheel()
-	r.scrollY -= wy * 30
+	scroll -= wheelScrollSteps(wy) * 30
 	if ebiten.IsKeyPressed(ebiten.KeyDown) {
-		r.scrollY += 6
+		scroll += 6
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyUp) {
-		r.scrollY -= 6
+		scroll -= 6
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-		r.scrollY += 200
+		scroll += 200
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
-		r.scrollY -= 200
+		scroll -= 200
 	}
-	if r.scrollY < 0 {
-		r.scrollY = 0
+	rs.setScrollY(clampScroll(scroll, rs.maxScroll()))
+
+	// Left and right step through the tabs, the way the strip reads.
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
+		rs.selectTab(rs.tab + 1)
 	}
-	maxScroll := r.contentHeight() - c.ScreenHeight() + rulesContentPad*2 + rulesBackBtnH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if r.scrollY > float64(maxScroll) {
-		r.scrollY = float64(maxScroll)
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+		rs.selectTab(rs.tab - 1)
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		r.finished = true
+		rs.finished = true
 		return true
 	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-		bx, by := r.backButtonRect()
+		for _, rect := range rs.tabRects {
+			if mx >= rect.x && mx < rect.x+rect.w && my >= rect.y && my < rect.y+rect.h {
+				rs.selectTab(rect.tab)
+				return false
+			}
+		}
+		bx, by := rs.backButtonRect()
 		if mx >= bx && mx < bx+rulesBackBtnW && my >= by && my < by+rulesBackBtnH {
-			r.finished = true
+			rs.finished = true
 			return true
 		}
 	}
 	return false
 }
 
+// selectTab switches tabs, ignoring an index off either end so the arrow keys
+// stop rather than wrap.
+func (rs *RulesScreen) selectTab(i int) {
+	if i < 0 || i >= len(rs.tabs) {
+		return
+	}
+	rs.tab = i
+}
+
+func clampScroll(v float64, max int) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > float64(max) {
+		return float64(max)
+	}
+	return v
+}
+
+// maxScroll is how far the tab on show can be scrolled: what it does not fit
+// on screen under the header.
+func (rs *RulesScreen) maxScroll() int {
+	max := rs.contentHeight() + rs.contentTop() - c.ScreenHeight() + rulesContentPad + rulesBackBtnH
+	if max < 0 {
+		return 0
+	}
+	return max
+}
+
+// contentHeight is the height of the tab on show, not of the whole document.
 func (rs *RulesScreen) contentHeight() int {
-	h := rulesContentPad
-	for _, p := range rulesParagraphs {
-		if isHeading(p) {
-			h += rulesLineHeightHead + rulesParaGap
-			continue
-		}
-		h += len(wrapParagraph(p, rulesPanelW)) * rulesLineHeightBody
-		h += rulesParaGap
+	h := 0
+	for _, b := range rs.blocks() {
+		h += b.height()
 	}
 	return h
 }
@@ -117,32 +215,44 @@ func (rs *RulesScreen) contentHeight() int {
 func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 	fillThemeBackground(screen)
 
-	title := "RULES"
-	tb := boundString(r.FontSourceCodePro12, title)
-	tx := (c.ScreenWidth() - tb.Dx()) / 2
-	text.Draw(screen, title, r.FontSourceCodePro12, tx, 30, themedForeground())
-
 	panelX := (c.ScreenWidth() - rulesPanelW) / 2
-	y := 60 - int(rs.scrollY)
 	sh := c.ScreenHeight()
+	tick := rulesTick{frame: rs.spriteFrame(), elapsed: rs.elapsed()}
 
-	for _, p := range rulesParagraphs {
-		if isHeading(p) {
-			label := p[2:]
-			if y > -rulesLineHeightHead && y < sh {
-				text.Draw(screen, label, r.FontSourceCodePro12, panelX, y+14, themedSectionTitle())
-			}
-			y += rulesLineHeightHead + rulesParaGap
-			continue
+	// The tab's own blocks first, so anything scrolled up under the header is
+	// painted over by it rather than showing through.
+	y := rs.contentTop() - int(rs.scrollY())
+	for _, b := range rs.blocks() {
+		h := b.height()
+		// Culled by its own height, so a tall block is drawn while any part
+		// of it is on screen rather than only when its top edge is.
+		if y+h > 0 && y < sh {
+			b.draw(screen, panelX, y, tick)
 		}
-		for _, line := range wrapParagraph(p, rulesPanelW) {
-			if y > -rulesLineHeightBody && y < sh {
-				text.Draw(screen, line, r.FontSourceCodePro10, panelX, y+12, themedForegroundDim())
-			}
-			y += rulesLineHeightBody
-		}
-		y += rulesParaGap
+		y += h
 	}
+
+	// The title, the summary and the tab strip are anchored to the screen, so
+	// they need the same cover the Back button has or scrolled text runs
+	// straight through them.
+	ebitenutil.DrawRect(screen, 0, 0, float64(c.ScreenWidth()),
+		float64(rs.tabStripY()+tabStripHeight+rulesTabGap/2), themeBackgroundColor())
+
+	title := "ABOUT"
+	tb := boundString(r.FontSourceCodePro12, title)
+	text.Draw(screen, title, r.FontSourceCodePro12, (c.ScreenWidth()-tb.Dx())/2, 30, themedForeground())
+
+	hy := rulesTopMargin
+	for _, b := range rs.header {
+		b.draw(screen, panelX, hy, tick)
+		hy += b.height()
+	}
+
+	labels := make([]string, 0, len(rs.tabs))
+	for _, tab := range rs.tabs {
+		labels = append(labels, tab.label)
+	}
+	rs.tabRects = drawTabStrip(screen, panelX, rs.tabStripY(), rulesPanelW, labels, rs.tab)
 
 	// Back button (anchored to screen, not content — always reachable)
 	bx, by := rs.backButtonRect()
@@ -162,9 +272,12 @@ func (rs *RulesScreen) backButtonRect() (int, int) {
 	return bx, by
 }
 
-func isHeading(s string) bool { return len(s) >= 2 && s[0] == '#' && s[1] == ' ' }
-
 // wrapParagraph splits s into lines whose rendered width fits panelW.
+//
+// strings.Fields, not a split that keeps the whitespace it broke on: the
+// previous version handed each word back with its leading space attached and
+// then joined with another, which put two spaces between every word and one
+// in front of every line after the first.
 func wrapParagraph(s string, panelW int) []string {
 	face := r.FontSourceCodePro10
 	if boundString(face, s).Dx() <= panelW {
@@ -172,12 +285,9 @@ func wrapParagraph(s string, panelW int) []string {
 	}
 	var lines []string
 	var current string
-	words := splitWords(s)
-	for _, w := range words {
-		var trial string
-		if current == "" {
-			trial = w
-		} else {
+	for _, w := range strings.Fields(s) {
+		trial := w
+		if current != "" {
 			trial = current + " " + w
 		}
 		if boundString(face, trial).Dx() > panelW && current != "" {
@@ -191,27 +301,4 @@ func wrapParagraph(s string, panelW int) []string {
 		lines = append(lines, current)
 	}
 	return lines
-}
-
-// splitWords splits s on spaces, preserving leading whitespace runs as part of the next word so indented bullets like " Color.
-func splitWords(s string) []string {
-	var out []string
-	i := 0
-	for i < len(s) {
-		j := i
-		for j < len(s) && s[j] == ' ' {
-			j++
-		}
-		k := j
-		for k < len(s) && s[k] != ' ' {
-			k++
-		}
-		if i < j {
-			out = append(out, s[i:k])
-		} else if j < k {
-			out = append(out, s[j:k])
-		}
-		i = k
-	}
-	return out
 }

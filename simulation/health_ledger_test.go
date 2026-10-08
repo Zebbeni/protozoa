@@ -73,3 +73,44 @@ func TestARestoredOrganismHasNoLedgerYet(t *testing.T) {
 		}
 	}
 }
+
+// TestNoCycleMovesMoreSourcesThanThePanelReserves: the panel reserves room
+// for organism.MaxConcurrentHealthSources rows, and anything past that is
+// dropped rather than drawn over the tabs below. The bound is argued from
+// one action a cycle; this is the world checking the argument.
+func TestNoCycleMovesMoreSourcesThanThePanelReserves(t *testing.T) {
+	loadDefaultGlobals(t)
+	g := config.GetCurrentGlobals()
+	// Both predation settings ship off and each has a ledger line of its own.
+	g.AttackHealthGain = 0.5
+	config.SetGlobals(g)
+
+	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: 101, CheckpointInterval: 1 << 30})
+	worst, worstCycle := 0, 0
+	for cycle := 0; cycle < 2000; cycle++ {
+		sim.Update()
+		if sim.OrganismCount() == 0 {
+			break
+		}
+		for _, o := range sim.organismManager.Organisms() {
+			l := o.HealthLedger()
+			if !l.Recorded {
+				continue
+			}
+			moved := 0
+			for _, src := range organism.AllHealthSources {
+				if l.Amounts[src] != 0 {
+					moved++
+				}
+			}
+			if moved > worst {
+				worst, worstCycle = moved, cycle
+			}
+		}
+	}
+	if worst > organism.MaxConcurrentHealthSources {
+		t.Errorf("cycle %d moved %d sources for one organism, past the %d the panel reserves",
+			worstCycle, worst, organism.MaxConcurrentHealthSources)
+	}
+	t.Logf("most sources moved in one cycle: %d (reserved %d)", worst, organism.MaxConcurrentHealthSources)
+}

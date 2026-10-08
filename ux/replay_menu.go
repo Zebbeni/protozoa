@@ -46,13 +46,23 @@ type replayMenuButton struct {
 	choice ReplayMenuChoice
 }
 
-var replayMenuButtons = []replayMenuButton{
-	{"Run Again (New Seed)", replayActionChoice, ReplayMenuRunAgain},
-	{"Edit Settings", replayActionChoice, ReplayMenuEditSettings},
-	{"View Settings", replayActionViewSettings, ReplayMenuNone},
-	{"Save Recording As...", replayActionSaveAs, ReplayMenuNone},
-	{"Main Menu", replayActionChoice, ReplayMenuMainMenu},
-	{"Close", replayActionClose, ReplayMenuNone},
+var replayMenuButtons = replayMenuButtonsFor(filesAvailable)
+
+// replayMenuButtonsFor leaves out Save Recording As on a host with no
+// filesystem: it copies the run's bytes into recordings/, which a browser
+// has nowhere to put.
+func replayMenuButtonsFor(files bool) []replayMenuButton {
+	out := []replayMenuButton{
+		{"Run Again (New Seed)", replayActionChoice, ReplayMenuRunAgain},
+		{"Edit Settings", replayActionChoice, ReplayMenuEditSettings},
+		{"View Settings", replayActionViewSettings, ReplayMenuNone},
+	}
+	if files {
+		out = append(out, replayMenuButton{"Save Recording As...", replayActionSaveAs, ReplayMenuNone})
+	}
+	return append(out,
+		replayMenuButton{"Main Menu", replayActionChoice, ReplayMenuMainMenu},
+		replayMenuButton{"Close", replayActionClose, ReplayMenuNone})
 }
 
 const (
@@ -96,9 +106,19 @@ type settingsButton struct {
 	action func(m *ReplayMenu)
 }
 
-var settingsButtons = []settingsButton{
-	{"Copy Seed", settingsSmallBtnW, true, false, (*ReplayMenu).copySeed},
-	{"Save As...", settingsSmallBtnW, true, false, (*ReplayMenu).exportSettings},
+var settingsButtons = settingsButtonsFor(filesAvailable)
+
+// settingsButtonsFor drops Save As where there is no filesystem to write a
+// settings file to. Copy Seed stays: it goes to the clipboard.
+func settingsButtonsFor(files bool) []settingsButton {
+	out := []settingsButton{{"Copy Seed", settingsSmallBtnW, true, false, (*ReplayMenu).copySeed}}
+	if files {
+		out = append(out, settingsButton{"Save As...", settingsSmallBtnW, true, false, (*ReplayMenu).exportSettings})
+	}
+	return append(out, settingsButtonsTail...)
+}
+
+var settingsButtonsTail = []settingsButton{
 	{"Close", popupCancelW, false, false, (*ReplayMenu).Close},
 	{"Edit Settings", popupBtnW, false, true, func(m *ReplayMenu) {
 		m.Close()

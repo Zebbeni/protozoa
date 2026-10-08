@@ -22,6 +22,4 @@ GOOS=js GOARCH=wasm go build -o web/protozoa.wasm .
 cp "$WASM_EXEC" web/wasm_exec.js
 
 echo "built web/protozoa.wasm ($(du -h web/protozoa.wasm | cut -f1))"
-echo "to run: serve the web/ directory and open in a browser, e.g.:"
-echo "  go run github.com/jpillora/serve-static@latest -path ./web -port 8080"
-echo "  python3 -m http.server 8080 --directory web"
+echo "to run: ./web/serve.sh"

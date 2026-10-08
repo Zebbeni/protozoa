@@ -355,7 +355,7 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 		}
 	case physiology.CurveThorns:
 		return []curveGraph{
-			{title: "Thorns damage dealt back per hit", series: bySizeClass(effects.ThornsDamage)},
+			{title: "Damage returned to the attacker per hit", series: bySizeClass(effects.ThornsDamage)},
 		}
 	case physiology.CurvePhTolerance:
 		phDamage := func(g *c.Globals, score int, offset float64) float64 {
@@ -908,8 +908,8 @@ var curveSettingLabels = map[string]string{
 	"attack_damage_at_zero":                    "damage @0",
 	"health_change_from_attacking":             "attack @0",
 	"health_change_from_attacking_at_max":      "attack @max",
-	"health_change_inflicted_by_thorns":        "thorns @max",
-	"thorns_damage_at_zero":                    "thorns @0",
+	"health_change_inflicted_by_thorns":        "damage returned @max",
+	"thorns_damage_at_zero":                    "damage returned @0",
 	"unhealthy_ph_damage":                      "pH damage",
 	"max_ph_tolerance_width":                   "max width",
 }

@@ -33,6 +33,8 @@ type Interface struct {
 	replayCtrl *replay.Controller
 	// menu is the replay menu, nil outside replay mode.
 	menu *ReplayMenu
+	// zoomWheel turns a wheel reading into at most one zoom step; see wheel_step.go.
+	zoomWheel *wheelStepper
 
 	// graphPopup is the enlarged graph, opened from the expand control in the panel graph's corner.
 	graphPopup *GraphPopup
@@ -220,15 +222,14 @@ func (i *Interface) handleKeyboard() {
 func (i *Interface) handleMouse() {
 	// Zoom via mouse wheel (only when cursor is over the grid area)
 	_, wy := ebiten.Wheel()
-	if wy != 0 {
+	if i.zoomWheel == nil {
+		i.zoomWheel = newWheelStepper()
+	}
+	if step := i.zoomWheel.step(wy); step != 0 {
 		mx, my := ebiten.CursorPosition()
 		if mx >= panelWidth {
 			pivotX, pivotY := (mx-panelWidth)/GridDisplayScale, my/GridDisplayScale
-			if wy > 0 {
-				i.grid.SetZoom(i.grid.Camera.Zoom+1, pivotX, pivotY)
-			} else {
-				i.grid.SetZoom(i.grid.Camera.Zoom-1, pivotX, pivotY)
-			}
+			i.grid.SetZoom(i.grid.Camera.Zoom+ZoomLevel(step), pivotX, pivotY)
 			i.syncReplaySpeedToZoom()
 		}
 	}

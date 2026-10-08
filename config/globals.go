@@ -643,6 +643,7 @@ func LoadFile(filePath string) io.Reader {
 // GetDefaultGlobals returns the project-baseline Globals decoded from the embedded settings/default.json.
 func GetDefaultGlobals() Globals {
 	g := applyGlobalsFromJson(loadEmbeddedDefault(), Globals{})
+	platformDefaults(g)
 	return *g
 }
 

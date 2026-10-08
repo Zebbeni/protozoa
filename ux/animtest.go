@@ -152,6 +152,7 @@ var demoAnimations = []demoCell{
 	{"CHEMO FAIL", animation.AnimChemoFail},
 	{"DIE", animation.AnimDie},
 	{"DIG", animation.AnimDig},
+	{"SPAWN", animation.AnimSpawn},
 }
 
 // NewAnimationTest builds a demo game starting at 16x16 sprites with the first palette color selected.
@@ -188,7 +189,7 @@ func (a *AnimationTest) Update() error {
 	a.pollHotReload()
 
 	if _, wy := ebiten.Wheel(); wy != 0 {
-		a.panY += wy * 24
+		a.panY += wheelScrollSteps(wy) * 24
 	}
 
 	const panSpeed = 8.0

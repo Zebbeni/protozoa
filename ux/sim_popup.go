@@ -236,7 +236,7 @@ func (p *SimPopup) handleConfigFooterClicks() bool {
 
 func (p *SimPopup) handleRunningInput() {
 	_, wy := ebiten.Wheel()
-	p.scrollY -= wy * 20
+	p.scrollY -= wheelScrollSteps(wy) * 20
 	if p.scrollY < 0 {
 		p.scrollY = 0
 	}

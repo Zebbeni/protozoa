@@ -20,7 +20,9 @@
     <script>
       const status = document.getElementById('status');
       const go = new Go();
-      WebAssembly.instantiateStreaming(fetch('protozoa.wasm'), go.importObject)
+      // no-store as well as the server's own header: a cached binary means
+      // the page keeps running the previous build after a rebuild.
+      WebAssembly.instantiateStreaming(fetch('protozoa.wasm', { cache: 'no-store' }), go.importObject)
         .then(result => {
           status.remove();
           go.run(result.instance);

@@ -66,7 +66,7 @@ var curveInfo = [curveCount]struct {
 	CurveDiggingStrength: {"Digging removal", AbilityDigging, false, ShapeCosine},
 	CurveAttack:          {"Attack", AbilityAttack, false, ShapeCosine},
 	CurveDamageTaken:     {"Damage taken", AbilityDefense, true, ShapeCosine},
-	CurveThorns:          {"Thorns", AbilityDefense, false, ShapeCosine},
+	CurveThorns:          {"Damage returned", AbilityDefense, false, ShapeCosine},
 	CurvePhTolerance:     {"pH tolerance", AbilityTolerance, false, ShapeCosine},
 	CurveDiggingCreate:   {"Digging creation", AbilityDigging, false, ShapeCosine},
 	CurveChemoPhEffect:   {"Chemosynthesis pH push", AbilityChemosynthesis, false, ShapeFlat},

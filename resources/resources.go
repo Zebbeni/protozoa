@@ -32,6 +32,7 @@ var animationFileName = map[animation.Animation]string{
 	animation.AnimDie:        "die",
 	animation.AnimDig:        "dig",
 	animation.AnimAttackMove: "attack_success",
+	animation.AnimSpawn:      "spawn",
 }
 
 // animationBorrows is the sheet an animation falls back to when it has none

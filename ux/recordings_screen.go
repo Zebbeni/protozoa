@@ -87,7 +87,7 @@ func (s *RecordingsScreen) Update() RecordingsResult {
 		return RecordingsBack
 	}
 	if _, wy := ebiten.Wheel(); wy != 0 {
-		s.scroll = max(0, min(s.maxScroll(), s.scroll-int(wy)))
+		s.scroll = max(0, min(s.maxScroll(), s.scroll-int(wheelScrollSteps(wy))))
 	}
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return RecordingsNone

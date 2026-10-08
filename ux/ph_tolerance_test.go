@@ -25,12 +25,12 @@ func loadDefaults(t *testing.T) {
 	config.SetGlobals(&g)
 }
 
-// TestPhToleranceFraction: the TOLERANCE view is green where the water costs an organism nothing, half way when it is costing phToleranceMidpointDamage health per cycle.
+// TestPhToleranceFraction: the TOLERANCE view is green where the environment costs an organism nothing, half way when it is costing phToleranceMidpointDamage health per cycle.
 func TestPhToleranceFraction(t *testing.T) {
 	loadDefaults(t)
 
 	if got := phToleranceFraction(0); got != 1 {
-		t.Errorf("water at the ideal pH scores %v, want 1", got)
+		t.Errorf("a cell at the ideal pH scores %v, want 1", got)
 	}
 	if got := phToleranceFraction(-phToleranceMidpointDamage); math.Abs(got-0.5) > 1e-12 {
 		t.Errorf("losing %v health per cycle scores %v, want the midpoint 0.5",
@@ -54,7 +54,7 @@ func TestPhToleranceFraction(t *testing.T) {
 		prev = got
 	}
 
-	// A bigger organism pays more for the same water, so it reads redder.
+	// A bigger organism pays more for the same pH, so it reads redder.
 	g := config.GetCurrentGlobals()
 	const tolerance, distance = 3, 2.0
 	small := effects.PhDamage(g, tolerance, 1, distance)
@@ -64,7 +64,7 @@ func TestPhToleranceFraction(t *testing.T) {
 			phToleranceFraction(big), phToleranceFraction(small))
 	}
 
-	// A tolerant organism in the same water reads greener than one without, since it is taking less damage.
+	// A tolerant organism at the same pH reads greener than one without, since it is taking less damage.
 	wide := *g
 	wide.MaxPhToleranceWidth = 4
 	tolerant := effects.PhDamage(&wide, physiology.MaxAbilityScore, 1, 2)

@@ -32,10 +32,12 @@ func ledgerFace() font.Face { return r.FontSourceCodePro10 }
 
 func ledgerRowHeight() int { return ledgerFace().Metrics().Height.Round() }
 
-// healthLedgerHeight reserves room for every source plus the net, so the
-// info block's height does not move with what an organism did this cycle.
+// healthLedgerHeight reserves room for as many sources as one cycle can
+// move, plus the net, so the info block's height does not shift with what an
+// organism did and does not stand off the DECISION / DESCENDANT tabs by the
+// three lines no cycle can fill.
 func healthLedgerHeight() int {
-	return ledgerDrawnHeight(len(organism.AllHealthSources))
+	return ledgerDrawnHeight(organism.MaxConcurrentHealthSources)
 }
 
 // portraitColumnHeight is the portrait, its health bar and the ledger under it.
@@ -57,6 +59,12 @@ func healthLedgerRows(l organism.HealthLedger) []ledgerRow {
 		if amount := l.Amounts[src]; amount != 0 {
 			rows = append(rows, ledgerRow{amount: amount, label: src.Label()})
 		}
+	}
+	// The block reserves room for the most one cycle can move; a longer list
+	// would be drawn over the tabs below it. Nothing reaches this, which is
+	// what organism.MaxConcurrentHealthSources records.
+	if len(rows) > organism.MaxConcurrentHealthSources {
+		rows = rows[:organism.MaxConcurrentHealthSources]
 	}
 	return rows
 }

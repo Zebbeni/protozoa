@@ -42,6 +42,10 @@ const (
 	// AnimAttackMove is an attack that killed and took the victim's cell. Its
 	// two cells are the one the killer left and the one it took.
 	AnimAttackMove
+	// AnimSpawn is the parent on the cycle it hands a child its health. The
+	// child has no animation of its own: it is drawn moving out of the
+	// parent's cell (see BornThisCycle in AfterUpdate).
+	AnimSpawn
 )
 
 var AllAnimations = [...]Animation{
@@ -52,6 +56,7 @@ var AllAnimations = [...]Animation{
 	AnimDie,
 	AnimDig,
 	AnimAttackMove,
+	AnimSpawn,
 }
 
 // ForStatus maps a resolved organism.Status to the Animation sheet that should play during its cycle transition.
@@ -81,8 +86,10 @@ func ForStatus(s organism.Status) Animation {
 		return AnimDie
 	case organism.StatusDigging:
 		return AnimDig
+	case organism.StatusSpawning:
+		return AnimSpawn
 	default:
-		// Status values without dedicated animations yet (Spawning) fall back to AnimIdle.
+		// Every status has a sheet of its own; idle is what is left.
 		return AnimIdle
 	}
 }
