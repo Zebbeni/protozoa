@@ -7,6 +7,7 @@
   "theme": "dark",
   "ph_color_scheme": "",
   "ph_smoothing": true,
+  "music": true,
   "initial_organisms": 1,
   "initial_food": 10000,
   "initial_walls": 0,

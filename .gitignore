@@ -23,3 +23,6 @@ gif_exports/
 # Superseded Aseprite sources. resources/sprites.aseprite is the one the
 # export script reads; these are earlier versions kept on disk only.
 resources/sprites_with_*.aseprite
+
+# Release artifacts staged by dist.sh and uploaded by push.sh.
+dist/

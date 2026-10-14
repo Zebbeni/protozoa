@@ -16,6 +16,7 @@ import (
 	"github.com/Zebbeni/protozoa/checkpoint"
 	c "github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
+	"github.com/Zebbeni/protozoa/sound"
 )
 
 // ReplayMenuChoice is a replay menu action the runner has to carry out, since it leaves the replay viewer.
@@ -38,6 +39,9 @@ const (
 	replayActionChoice
 	// replayActionSaveAs opens the name prompt for saving a copy of the recording being viewed.
 	replayActionSaveAs
+	// replayActionToggleMusic turns the music theme on or off. Its label is
+	// built per draw rather than stored, since it reports the current state.
+	replayActionToggleMusic
 )
 
 type replayMenuButton struct {
@@ -56,6 +60,7 @@ func replayMenuButtonsFor(files bool) []replayMenuButton {
 		{"Run Again (New Seed)", replayActionChoice, ReplayMenuRunAgain},
 		{"Edit Settings", replayActionChoice, ReplayMenuEditSettings},
 		{"View Settings", replayActionViewSettings, ReplayMenuNone},
+		{"Music", replayActionToggleMusic, ReplayMenuNone},
 	}
 	if files {
 		out = append(out, replayMenuButton{"Save Recording As...", replayActionSaveAs, ReplayMenuNone})
@@ -193,6 +198,9 @@ func (m *ReplayMenu) activate(b replayMenuButton) {
 	case replayActionChoice:
 		m.Close()
 		m.pending = b.choice
+	case replayActionToggleMusic:
+		sound.Toggle()
+		c.SetMusicEnabled(sound.Enabled())
 	case replayActionSaveAs:
 		m.openNaming(namingRecording)
 	}
@@ -283,7 +291,7 @@ func (m *ReplayMenu) Draw(screen *ebiten.Image) {
 	for i, b := range replayMenuButtons {
 		br := replayMenuButtonRect(i)
 		hovered := hitRect(mx, my, br)
-		drawMenuButton(screen, br.Min.X, br.Min.Y, br.Dx(), br.Dy(), b.label, hovered, hovered && pressed, false)
+		drawMenuButton(screen, br.Min.X, br.Min.Y, br.Dx(), br.Dy(), replayMenuLabel(b), hovered, hovered && pressed, false)
 	}
 }
 
@@ -556,4 +564,17 @@ func settingsFooterRects() []popupRectT {
 
 func fillRect(screen *ebiten.Image, rect popupRectT, col color.Color) {
 	ebitenutil.DrawRect(screen, float64(rect.Min.X), float64(rect.Min.Y), float64(rect.Dx()), float64(rect.Dy()), col)
+}
+
+// replayMenuLabel is the button's text. The music button says which way it
+// is, since a button that only says "Music" leaves the reader to click it to
+// find out.
+func replayMenuLabel(b replayMenuButton) string {
+	if b.action != replayActionToggleMusic {
+		return b.label
+	}
+	if sound.Enabled() {
+		return b.label + ": On"
+	}
+	return b.label + ": Off"
 }

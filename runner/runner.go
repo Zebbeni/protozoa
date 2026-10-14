@@ -14,6 +14,7 @@ import (
 	"github.com/Zebbeni/protozoa/replay"
 	"github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/sound"
 	"github.com/Zebbeni/protozoa/ux"
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -285,6 +286,9 @@ func (r *Runner) startSimFromPopup() {
 
 	c.SetGlobals(globals)
 	resources.Init()
+	// A settings file can carry its own music preference; honour whatever is
+	// installed now rather than leaving the player out of step with it.
+	sound.SetEnabled(c.MusicEnabled())
 
 	r.checkpointPath = r.opts.CheckpointFile
 	r.activeSim = simulation.NewSimulation(r.opts)
@@ -463,6 +467,11 @@ func ensureCheckpointPath(opts *c.Options) {
 
 func RunSimulation(opts *c.Options) {
 	resources.Init()
+	// One player for the whole session, started here rather than per screen:
+	// the music runs under the menus, the simulation and the replay viewer
+	// alike, and restarting it at every state change would retrigger the
+	// loop from the top.
+	sound.Init(c.MusicEnabled())
 	ensureCheckpointPath(opts)
 
 	if opts.AnimationTest {

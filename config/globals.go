@@ -328,6 +328,13 @@ const (
 
 func PhSmoothing() bool { return constants.PhSmoothing }
 
+// MusicEnabled reports whether the music theme should be playing.
+func MusicEnabled() bool { return constants.Music }
+
+// SetMusicEnabled records the preference. Starting and stopping the track
+// itself is the sound package's job.
+func SetMusicEnabled(on bool) { constants.Music = on }
+
 func PhColorScheme() string {
 	switch constants.PhColorScheme {
 	case PhColorSchemeBlueOrange:
@@ -411,6 +418,10 @@ type Globals struct {
 	PhColorScheme string `json:"ph_color_scheme"`
 	// Whether the pH layer is blended across cell boundaries when it is enlarged. Off draws every cell as one flat colour, which is what the simulation actually holds.
 	PhSmoothing bool `json:"ph_smoothing"`
+	// Whether the music theme plays. A preference of the machine watching the
+	// simulation rather than of the simulation, like the theme and the pH
+	// palette, so loading a settings file leaves it alone.
+	Music bool `json:"music"`
 
 	InitialOrganisms    int     `json:"initial_organisms"`
 	InitialFood         int     `json:"initial_food"`

@@ -18,6 +18,7 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
+	"github.com/Zebbeni/protozoa/sound"
 )
 
 const (
@@ -760,6 +761,13 @@ func (cs *ConfigScreen) toggleBool(field configField) {
 	v := reflect.ValueOf(cs.globals).Elem()
 	fv := v.Field(field.fieldIdx)
 	fv.SetBool(!fv.Bool())
+	// Music is the one setting on this screen you can hear: it takes effect
+	// as it is clicked rather than when a run starts, since a toggle that
+	// does nothing until later reads as a broken button.
+	if field.jsonTag == "music" {
+		sound.SetEnabled(fv.Bool())
+		c.SetMusicEnabled(fv.Bool())
+	}
 }
 
 func (cs *ConfigScreen) handleSliderClick(relX int, field configField) {
@@ -958,6 +966,7 @@ func (cs *ConfigScreen) buildSections() {
 			field("Grid Units High", "grid_units_high"),
 			field("Screen Width", "screen_width"),
 			field("Screen Height", "screen_height"),
+			field("Music", "music"),
 		}},
 		{title: "— ENVIRONMENT —", fields: []configField{
 			field("Initial Organisms", "initial_organisms"),

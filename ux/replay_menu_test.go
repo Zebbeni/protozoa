@@ -198,3 +198,42 @@ func TestSaveWithNoSourceSaysSo(t *testing.T) {
 		t.Error("the prompt closed on a failed save; the user can't correct it")
 	}
 }
+
+// TestTheMusicButtonSaysWhichWayItIs: a button labelled only "Music" makes
+// you click it to find out what it will do.
+func TestTheMusicButtonSaysWhichWayItIs(t *testing.T) {
+	var music replayMenuButton
+	for _, b := range replayMenuButtonsFor(true) {
+		if b.action == replayActionToggleMusic {
+			music = b
+		}
+	}
+	if music.action != replayActionToggleMusic {
+		t.Fatal("the replay menu has no music button")
+	}
+	// No track is loaded in a test binary, so Enabled() is false and the
+	// label has to read that way rather than reporting the setting.
+	if got := replayMenuLabel(music); got != "Music: Off" {
+		t.Errorf("with nothing to play the button reads %q", got)
+	}
+	plain := replayMenuButton{label: "Close", action: replayActionClose}
+	if got := replayMenuLabel(plain); got != "Close" {
+		t.Errorf("a plain button reads %q", got)
+	}
+}
+
+// TestTheMusicButtonIsThereWithoutAFilesystem: it needs no files, so the
+// browser build keeps it where Save Recording As drops out.
+func TestTheMusicButtonIsThereWithoutAFilesystem(t *testing.T) {
+	for _, files := range []bool{true, false} {
+		found := false
+		for _, b := range replayMenuButtonsFor(files) {
+			if b.action == replayActionToggleMusic {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no music button with files=%v", files)
+		}
+	}
+}

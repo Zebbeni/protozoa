@@ -127,6 +127,7 @@ func (cs *ConfigScreen) loadSettingsFile(f c.SettingsFile) {
 	loaded.ScreenHeight = cs.globals.ScreenHeight
 	loaded.Theme = cs.globals.Theme
 	loaded.PhColorScheme = cs.globals.PhColorScheme
+	loaded.Music = cs.globals.Music
 	// The same repairs a run would apply, so the screen shows the values the
 	// simulation would use rather than the zeros absent keys decode to.
 	loaded.Repair()

@@ -27,3 +27,18 @@ func assetExists(path string) bool {
 	info, err := fs.Stat(assetsFS, path)
 	return err == nil && !info.IsDir()
 }
+
+// ReadAsset reads one file out of the asset FS, reporting whether it was
+// there. Unlike the font and image loaders this does not exit on a miss: the
+// music track is optional, and a build without it should run in silence
+// rather than refuse to start.
+func ReadAsset(path string) ([]byte, bool) {
+	if assetsFS == nil {
+		return nil, false
+	}
+	data, err := fs.ReadFile(assetsFS, path)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
