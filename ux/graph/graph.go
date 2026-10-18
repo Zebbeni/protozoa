@@ -17,8 +17,6 @@ import (
 	"github.com/Zebbeni/protozoa/ux/graph/population"
 )
 
-const selectedAncestorGenerations = 3
-
 type Mode int
 
 const (
@@ -703,7 +701,12 @@ func (g *Graph) updateSelection() {
 
 	if selID >= 0 {
 		if node := g.simulation.GetOrganismTreeNode(selID); node != nil {
-			root := node.AncestorAtGeneration(selectedAncestorGenerations)
+			// The selected organism itself, not an ancestor a few
+			// generations up: the graph answers what came OF this organism,
+			// so starting at its great-grandparent counts its siblings'
+			// lines as well and the plot is about a family it is only part
+			// of.
+			root := node
 			g.selectedSubTreeRoot = root
 			g.selStartCycle = root.StartCycle
 			startBar := g.selStartCycle / c.PopulationUpdateInterval()

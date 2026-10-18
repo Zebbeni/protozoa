@@ -99,7 +99,7 @@ func TestFamilyTinterInvalidation(t *testing.T) {
 	}
 }
 
-func TestFamilyColorsSeparateTheDirections(t *testing.T) {
+func TestOnlyTheSelectionAndItsDescendantsAreColoured(t *testing.T) {
 	hue := func(k kinship) float64 {
 		h, _, _ := familyColor(k).HSLuv()
 		return h
@@ -108,43 +108,38 @@ func TestFamilyColorsSeparateTheDirections(t *testing.T) {
 		_, s, _ := familyColor(k).HSLuv()
 		return s
 	}
+	gray := familyUnrelatedColor()
 
 	child := kinship{down: 1, related: true}
 	grandchild := kinship{down: 2, related: true}
-	parent := kinship{up: 1, related: true}
-	grandparent := kinship{up: 2, related: true}
 
-	// Descendants head for blue, ancestors for yellow — opposite ways around from the selection's green.
+	// Down the line the ramp runs green to blue with depth.
 	if !(hue(grandchild) > hue(child)) {
 		t.Errorf("descendants should move toward blue with depth: child %v, grandchild %v", hue(child), hue(grandchild))
 	}
-	if !(hue(grandparent) < hue(parent)) {
-		t.Errorf("ancestors should move toward yellow with height: parent %v, grandparent %v", hue(parent), hue(grandparent))
-	}
-
-	// Direct kin stay saturated however far out; cousins fade.
+	// However far down, a descendant stays coloured rather than fading out.
 	far := kinship{down: familyFadeGenerations * 3, related: true}
 	if sat(far) < 0.5 {
-		t.Errorf("a distant direct descendant should stay saturated, got %v", sat(far))
+		t.Errorf("a distant descendant should stay saturated, got %v", sat(far))
 	}
-	near, mid := kinship{up: 1, down: 1, related: true}, kinship{up: 2, down: 2, related: true}
-	if !(sat(mid) < sat(near)) {
-		t.Errorf("cousins should desaturate with distance: near %v, mid %v", sat(near), sat(mid))
+
+	// Everything that is not the selection or below it is background: an
+	// ancestor, a cousin, and an unrelated founder's line all read the same.
+	for _, k := range []kinship{
+		{up: 1, related: true},
+		{up: 2, related: true},
+		{up: 1, down: 1, related: true},
+		{up: 2, down: 3, related: true},
+		{},
+	} {
+		if got := familyColor(k); !sameColor(got, gray) {
+			t.Errorf("kinship up %d down %d is %v, want the background gray %v", k.up, k.down, got, gray)
+		}
 	}
 }
 
-func TestDistantCousinsAreJustBackground(t *testing.T) {
+func TestTheBackgroundGrayIsNeutral(t *testing.T) {
 	gray := familyUnrelatedColor()
-
-	far := kinship{up: familyCousinFade, down: familyCousinFade, related: true}
-	if got := familyColor(far); !sameColor(got, gray) {
-		t.Errorf("a cousin %d generations out is %v, want the unrelated gray %v",
-			far.up+far.down, got, gray)
-	}
-	if got := familyColor(kinship{}); !sameColor(got, gray) {
-		t.Errorf("an unrelated organism is %v, want gray %v", got, gray)
-	}
-
 	if !isNeutral(gray) {
 		t.Errorf("the unrelated colour %v is not neutral", gray)
 	}

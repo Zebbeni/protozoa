@@ -84,11 +84,23 @@ func TestColorKeyTextFitsItsPlate(t *testing.T) {
 	r.Init()
 
 	maxW := keyInnerWidth(testKeyWidth)
+	var keys []colorKey
 	for _, m := range allOrgColorModes {
-		k := colorKeyFor(m, physiology.AbilityChemosynthesis, d.ActEat)
-		if k.empty() {
-			continue
+		if k := colorKeyFor(m, physiology.AbilityChemosynthesis, d.ActEat); !k.empty() {
+			keys = append(keys, k)
 		}
+	}
+	// The ACTION key names its action in both the title and the note, so
+	// every button the mode offers is a different pair of strings to fit.
+	for _, b := range colorActionButtons {
+		keys = append(keys, colorKeyFor(orgColorAction, physiology.AbilityChemosynthesis, b.action))
+	}
+	// Likewise an ability's key is titled for the ability.
+	for _, a := range physiology.AllAbilities {
+		keys = append(keys, colorKeyFor(orgColorAbility, a, d.ActEat))
+	}
+
+	for _, k := range keys {
 
 		for _, line := range k.noteLines(testKeyWidth) {
 			if w := boundString(r.FontSourceCodePro8, line).Dx(); w > maxW {
@@ -298,34 +310,27 @@ func TestPhEffectKeyShowsWhatTheGridPaints(t *testing.T) {
 	}
 }
 
-func TestFamilyKeyShowsBothRamps(t *testing.T) {
+// TestTheFamilyKeyShowsTheDescentRamp: the mode colours one thing now — the
+// selection and what came of it — so the key is one bar, and its ends have to
+// be the colours the grid actually paints at those distances.
+func TestTheFamilyKeyShowsTheDescentRamp(t *testing.T) {
 	loadKeyGlobals(t)
 
 	k := colorKeyFor(orgColorFamily, physiology.AbilityDigging, d.ActEat)
-	if len(k.bars) != 2 {
-		t.Fatalf("the family key has %d bars, want 2 (descendants and cousins)", len(k.bars))
+	if len(k.bars) != 1 {
+		t.Fatalf("the family key has %d bars, want 1", len(k.bars))
 	}
-
-	desc, cousins := k.bars[0], k.bars[1]
+	desc := k.bars[0]
 	if got := desc.ramp(0); !sameColor(got, familyColor(kinship{related: true})) {
-		t.Errorf("the descendant bar starts at %v, the selection is %v", got, familyColor(kinship{related: true}))
+		t.Errorf("the bar starts at %v, the selection is %v", got, familyColor(kinship{related: true}))
 	}
 	if got := desc.ramp(1); !sameColor(got, familyColor(kinship{down: familyFadeGenerations, related: true})) {
-		t.Errorf("the descendant bar ends at %v, %d generations down is %v",
+		t.Errorf("the bar ends at %v, %d generations down is %v",
 			got, familyFadeGenerations, familyColor(kinship{down: familyFadeGenerations, related: true}))
 	}
-
-	// Every sample of the cousin bar must be a genuine cousin, not a point on the direct line the first bar already covers.
-	if got := cousins.ramp(0); !sameColor(got, familyColor(kinship{up: 1, down: 1, related: true})) {
-		t.Errorf("the cousin bar starts at %v, a sibling is %v", got, familyColor(kinship{up: 1, down: 1, related: true}))
-	}
-	if got := cousins.ramp(1); !sameColor(got, familyUnrelatedColor()) {
-		t.Errorf("the cousin bar should end at the unrelated gray %v, got %v", familyUnrelatedColor(), got)
-	}
-
-	// And the two bars must not be the same scale drawn twice.
-	if sameColor(desc.ramp(1), cousins.ramp(1)) {
-		t.Error("the two family bars end at the same colour, so one of them says nothing")
+	// The ramp has to go somewhere, or the bar is one flat colour.
+	if sameColor(desc.ramp(0), desc.ramp(1)) {
+		t.Error("the bar begins and ends on the same colour")
 	}
 }
 

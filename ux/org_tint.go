@@ -104,26 +104,26 @@ func (t orgTint) familyColor(id int) colorful.Color {
 // the ramp to 1 would spend most of the colour on shares nothing reaches.
 const actionWeightCeiling = 0.34
 
-// actionBrightest is the colour for an organism taking the action right now.
-// Past the end of the weight ramp, so "doing it" always reads brighter than
-// any amount of "built for it".
-func actionBrightest() colorful.Color { return gh.GrayGreenColor(1) }
+// actionActing is the colour for an organism taking the action right now:
+// white, off the green ramp altogether rather than the bright end of it, so
+// "doing it" cannot be read as a high amount of "built for it".
+func actionActing() colorful.Color { return colorful.Color{R: 1, G: 1, B: 1} }
 
-// actionColor is brightest for an organism performing the action this cycle,
-// and gray-to-mid green by that action's share of its tree otherwise.
+// actionColor is white for an organism performing the action this cycle, and
+// gray-to-mid green by that action's share of its tree otherwise.
 //
 // The two answer different questions — what it is doing now, and what it is
 // built to do — and the mode shows both at once because an action a tree is
 // full of but never takes is the interesting case.
 func actionColor(info *organism.Info, action d.Action) colorful.Color {
 	if info.Action == action {
-		return actionBrightest()
+		return actionActing()
 	}
 	return gh.GrayGreenColor(actionWeightFraction(info, action) * midActionGreen)
 }
 
-// midActionGreen caps the weight ramp below the brightest, so the two halves
-// of the mode stay apart at a glance.
+// midActionGreen keeps the weight ramp off its own brightest end, so the
+// green of a heavily weighted tree stays clearly green beside the white.
 const midActionGreen = 0.7
 
 // actionWeightFraction is the action's share of the tree against the ceiling,

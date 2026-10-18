@@ -100,17 +100,16 @@ func colorKeyFor(m mode, colorAbility physiology.Ability, colorAction d.Action) 
 			bars: []colorBar{{
 				subtitle: "share of the decision tree",
 				ramp: func(t float64) colorful.Color {
-					// The weight ramp only, to its own ceiling. The brightest
-					// green is reserved for acting now and is named in the
-					// note rather than drawn, since one bar cannot carry a
-					// scale and a separate state at once.
+					// The weight ramp only. White is a separate state rather
+					// than the top of this scale, and is named in the note:
+					// one bar cannot carry a scale and a state at once.
 					return gh.GrayGreenColor(t * midActionGreen)
 				},
 				axis: [3]string{"none", fmt.Sprintf("%.0f%%", actionWeightCeiling*50), fmt.Sprintf("%.0f%%+", actionWeightCeiling*100)},
 			}},
-			note: "How much of an organism's decision tree is this action, as a share of its action nodes. " +
-				"Brightest green is an organism taking the action right now, which is always brighter than any amount of the ramp. " +
-				"So a dim organism that flares is one acting on a branch it rarely reaches, and a steady mid-green one is built for the action without currently doing it.",
+			note: "How dominant a role " + d.Map[colorAction] + " plays in the organism's decision tree, as a share of its action nodes. " +
+				"White is an organism taking the action right now, whatever its tree holds. " +
+				"So a dim organism that flares white is one acting on a branch it rarely reaches, and a steady mid-green one is built for the action without currently doing it.",
 		}
 	case orgColorSuccess:
 		return colorKey{
@@ -123,32 +122,21 @@ func colorKeyFor(m mode, colorAbility physiology.Ability, colorAction d.Action) 
 			note: "Organisms colored by the percent of remaining simulation containing at least one living descendant",
 		}
 	case orgColorFamily:
-		// Two bars, because the colours fan out from the selected organism along more than one axis and one bar can only follow one of them.
 		return colorKey{
 			title: "Org Color: Family",
-			bars: []colorBar{
-				{
-					subtitle: "generations of descent",
-					ramp: func(t float64) colorful.Color {
-						return familyColor(kinship{down: int(t*familyFadeGenerations + 0.5), related: true})
-					},
-					axis: [3]string{
-						"selected",
-						fmt.Sprintf("%d", familyFadeGenerations/2),
-						fmt.Sprintf("%d+", familyFadeGenerations),
-					},
+			bars: []colorBar{{
+				subtitle: "generations of descent",
+				ramp: func(t float64) colorful.Color {
+					return familyColor(kinship{down: int(t*familyFadeGenerations + 0.5), related: true})
 				},
-				{
-					subtitle: "generations to a cousin branch",
-					// up 1 throughout, so every sample is a genuine cousin rather than the direct line the bar above already covers.
-					ramp: func(t float64) colorful.Color {
-						dist := 2 + int(t*float64(familyCousinFade-1)+0.5)
-						return familyColor(kinship{up: 1, down: dist - 1, related: true})
-					},
-					axis: [3]string{"2", fmt.Sprintf("%d", (2+familyCousinFade+1)/2), fmt.Sprintf("%d+", familyCousinFade+1)},
+				axis: [3]string{
+					"selected",
+					fmt.Sprintf("%d", familyFadeGenerations/2),
+					fmt.Sprintf("%d+", familyFadeGenerations),
 				},
-			},
-			note: "Descendants run green to blue and ancestors green to yellow. Cousin branches fade through red to the gray everything unrelated wears",
+			}},
+			note: "The selected organism and its descendants, green to blue by how many generations down the line they are. " +
+				"Everything else wears the flat gray, including the selection's own ancestors and cousin branches",
 		}
 	case orgColorAge:
 		// The subtitle says which denominator is in force.

@@ -8,6 +8,8 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/utils"
+	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 func tintFixture() (orgTint, *organism.Info) {
@@ -134,6 +136,31 @@ func TestActionModeSurvivesAShortWeightSlice(t *testing.T) {
 	for _, w := range [][]float64{nil, {}, {0.5}} {
 		if _, flat := tint.bodyColor(&organism.Info{Action: d.ActIdle, ActionWeights: w}); !flat {
 			t.Error("the action mode did not claim the tint for a short weight slice")
+		}
+	}
+}
+
+// TestActingOrganismsAreWhite: acting is a state, not the top of the weight
+// ramp, so its colour sits off the ramp altogether. On the bright end of the
+// same green an organism acting and one with a tree full of the action would
+// read alike, which is the one distinction this mode exists to draw.
+func TestActingOrganismsAreWhite(t *testing.T) {
+	loadKeyGlobals(t)
+	weights := make([]float64, 16)
+	weights[d.ActEat] = 1
+
+	tint := orgTint{mode: orgColorAction, action: d.ActEat}
+	got, _ := tint.bodyColor(&organism.Info{Action: d.ActEat, ActionWeights: weights})
+	if want := (colorful.Color{R: 1, G: 1, B: 1}); got != want {
+		t.Errorf("an acting organism is %v, want white %v", got, want)
+	}
+
+	const steps = 100
+	for i := 0; i <= steps; i++ {
+		t_ := float64(i) / steps
+		ramp := gh.GrayGreenColor(t_ * midActionGreen)
+		if dist := ramp.DistanceLab(got); dist < 0.1 {
+			t.Errorf("the weight ramp at %.2f is %v, %.3f Lab from white", t_, ramp, dist)
 		}
 	}
 }

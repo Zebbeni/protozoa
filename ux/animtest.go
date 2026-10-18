@@ -139,6 +139,15 @@ var demoRoles = []struct {
 
 var demoDirection = utils.Point{X: 1, Y: 0}
 
+// previewSpriteSets are the sets the matrix shows, by index into
+// zoomSpriteSizes.
+//
+// The 8x8 set is left out: it is loaded, but nothing draws from it — Zoom8
+// renders the 16x16 art at half scale — so a row of it is art the game never
+// puts on screen, and an artist correcting it would be fixing something
+// nobody sees.
+var previewSpriteSets = []int{0, resources.ZoomHighRes}
+
 var demoAnimations = []demoCell{
 	{"IDLE", animation.AnimIdle},
 	{"MOVE", animation.AnimMove},
@@ -146,6 +155,7 @@ var demoAnimations = []demoCell{
 	{"TURN L", animation.AnimTurnLeft},
 	{"TURN R", animation.AnimTurnRight},
 	{"ATTACK", animation.AnimAttack},
+	{"ATK MOVE", animation.AnimAttackMove},
 	{"EAT", animation.AnimEat},
 	{"EAT FAIL", animation.AnimEatFail},
 	{"CHEMO", animation.AnimChemo},
@@ -438,7 +448,8 @@ func (a *AnimationTest) drawMatrix(screen *ebiten.Image, elapsed time.Duration, 
 	}
 
 	// Rows: outer = zoom level (sprite set), inner = size.
-	for zi, nativeCell := range zoomSpriteSizes {
+	for _, zi := range previewSpriteSets {
+		nativeCell := zoomSpriteSizes[zi]
 		cellSize := float64(nativeCell)    // sprite-native px
 		scale := float64(GridDisplayScale) // unit/sprite ratio is 1 at the native pair
 		cellPx := cellSize * scale         // on-screen px per cell at this zoom
@@ -508,7 +519,8 @@ func (a *AnimationTest) drawStaticSection(screen *ebiten.Image, topPx int) int {
 		text.Draw(screen, sr.label, resources.FontSourceCodePro10, x, int(rowY)-headerGap, fg)
 	}
 
-	for zi, nativeCell := range zoomSpriteSizes {
+	for _, zi := range previewSpriteSets {
+		nativeCell := zoomSpriteSizes[zi]
 		cellSize := float64(nativeCell)
 		scale := float64(GridDisplayScale)
 		cellPx := cellSize * scale
@@ -581,7 +593,8 @@ func (a *AnimationTest) drawWallDemoSection(screen *ebiten.Image, topPx int) int
 	cols := len(wallDemoPattern[0])
 	tint := wallTintForPh(a.bgPh())
 
-	for zi, nativeCell := range zoomSpriteSizes {
+	for _, zi := range previewSpriteSets {
+		nativeCell := zoomSpriteSizes[zi]
 		cellSize := float64(nativeCell)
 		scale := float64(GridDisplayScale)
 		cellPx := cellSize * scale

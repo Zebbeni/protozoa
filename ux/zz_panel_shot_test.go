@@ -14,7 +14,7 @@ import (
 	"github.com/Zebbeni/protozoa/simulation"
 )
 
-// TestPanelShot renders the selected organism's TRAITS and STATS tabs to a PNG.
+// TestPanelShot renders each of the selected organism's four tabs to a PNG.
 func TestPanelShot(t *testing.T) {
 	if os.Getenv("PANEL_SHOT") == "" {
 		t.Skip("set PANEL_SHOT=1 to render the organism panel")
@@ -97,11 +97,11 @@ const panelShotHeight = 460
 
 func (s *panelShot) Draw(screen *ebiten.Image) {
 	// The dark theme clears to transparent rather than painting black.
-	flat := ebiten.NewImage(2*panelWidth, panelShotHeight)
+	flat := ebiten.NewImage(len(orgTabLabels)*panelWidth, panelShotHeight)
 	flat.Fill(color.RGBA{A: 255})
 
-	for tab := 0; tab < 2; tab++ {
-		s.panel.infoTab = tab
+	for tab := range orgTabLabels {
+		s.panel.selectedTab = tab
 		tile := ebiten.NewImage(panelWidth, panelShotHeight)
 		tile.Fill(themeBackgroundColor())
 		// -selectedYOffset lifts the section to the top of the tile.

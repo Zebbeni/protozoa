@@ -6,7 +6,12 @@ import (
 	"github.com/Zebbeni/protozoa/organism"
 )
 
-// The FAMILY colour mode: tint every organism by how it is related to the selected one.
+// The FAMILY colour mode: tint the selected organism and everything descended
+// from it, and leave the rest of the world as background.
+//
+// Ancestors and cousin branches are deliberately not coloured. They were, on
+// two more ramps, and the picture that answers is "who is this organism
+// related to", where the one worth looking at is "what came of it".
 type kinship struct {
 	up, down int
 	// related is false when the two share no ancestor at all, which the zero value therefore does not mean.
@@ -16,15 +21,10 @@ type kinship struct {
 // familyFadeGenerations is the distance at which each ramp reaches its far end.
 const familyFadeGenerations = 8
 
-// familyCousinFade is how far a cousin line has to diverge before it desaturates to flat gray.
-const familyCousinFade = 6
-
 // Hues on the HSLuv wheel, the same space the rest of the grid's colour ramps use.
 const (
 	familyHueSelected   = 120.0 // green
 	familyHueDescendant = 255.0 // blue
-	familyHueAncestor   = 70.0  // yellow
-	familyHueCousin     = 12.0  // red
 )
 
 // familyTinter answers "how is this organism related to the selected one" in O(1) per organism, amortised.
@@ -100,28 +100,16 @@ func (ft *familyTinter) kinshipOf(n *organism.DescendantNode) kinship {
 }
 
 func familyColor(k kinship) colorful.Color {
-	if !k.related {
+	// up is how many generations above the selection the common ancestor is,
+	// so anything but 0 is an ancestor or a cousin and reads as background.
+	if !k.related || k.up != 0 {
 		return familyUnrelatedColor()
 	}
-	switch {
-	case k.up == 0 && k.down == 0:
+	if k.down == 0 {
 		return colorful.HSLuv(familyHueSelected, 1, 0.6)
-	case k.up == 0:
-		// Straight down the line: green to blue.
-		return colorful.HSLuv(familyRamp(familyHueSelected, familyHueDescendant, k.down), 0.95, 0.55)
-	case k.down == 0:
-		// Straight up the line: green to yellow.
-		return colorful.HSLuv(familyRamp(familyHueSelected, familyHueAncestor, k.up), 0.95, 0.55)
 	}
-
-	dist := k.up + k.down
-	hue := familyRamp(familyHueAncestor, familyHueCousin, dist)
-	fade := min(1, float64(dist)/familyCousinFade)
-	sat := 0.85 * (1 - fade)
-	if sat <= 0 {
-		return familyUnrelatedColor()
-	}
-	return colorful.HSLuv(hue, sat, 0.5)
+	// Straight down the line: green to blue.
+	return colorful.HSLuv(familyRamp(familyHueSelected, familyHueDescendant, k.down), 0.95, 0.55)
 }
 
 func familyRamp(from, to float64, generations int) float64 {

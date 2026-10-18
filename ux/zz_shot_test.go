@@ -174,6 +174,21 @@ func (s *keyShot) Draw(screen *ebiten.Image) {
 		k := colorKeyFor(orgColorTolerance, physiology.AbilityDigging, d.ActEat)
 		drawColorKey(screen, k, minimapMaxW, config.ScreenHeight()-minimapPadding-minimapMaxH-minimapPadding)
 	} else {
+		if os.Getenv("KEY_ACTIONS") == "1" {
+			// One key per action, since each now names its action in both
+			// the title and the note.
+			bottom := 20
+			for _, b := range colorActionButtons {
+				k := colorKeyFor(orgColorAction, physiology.AbilityDigging, b.action)
+				bottom += k.height(minimapMaxW) + 12
+				drawColorKey(screen, k, minimapMaxW, bottom)
+			}
+			s.frame++
+			if s.frame >= 3 {
+				s.save(screen)
+			}
+			return
+		}
 		if os.Getenv("KEY_ABILITIES") == "1" {
 			// One key per ability, since each now carries its own explanation of what that ability does.
 			bottom := 20

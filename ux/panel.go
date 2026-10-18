@@ -13,6 +13,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/lucasb-eyer/go-colorful"
+	"golang.org/x/image/font"
 
 	"github.com/Zebbeni/protozoa/animation"
 	"github.com/Zebbeni/protozoa/config"
@@ -93,7 +94,7 @@ const (
 	// The stats column (label + right-aligned value per row) takes the left of the info area and the abilities column the right, sized at the panel font's 7px per character.
 	statsRowCount     = 7
 	statsColWidth     = 119
-	abilitiesColWidth = 110
+	abilitiesColWidth = 126
 	abilitiesColX     = selectedCol1X + infoAreaWidth - abilitiesColWidth
 	// The STATS tab has no ability bars to leave room for.
 	statsCol1X       = selectedCol1X
@@ -103,7 +104,8 @@ const (
 	traitRowCount    = 6
 	statsTabRowCount = 11
 	// The abilities block is a row of vertical bars, one per ability, each with its score above it and its name rotated below.
-	abilityBarWidth  = 12
+	// The bar is wider than the rotated label's line height so the name sits centred on it.
+	abilityBarWidth  = 14
 	abilityBarLength = 60
 	abilityLabelGap  = 4
 	// selectedTitleGap is the space between the SELECTED ORG line and the block below it.
@@ -192,17 +194,11 @@ type Panel struct {
 	// phColorButtonRects caches hitboxes for the PH COLOR row (GREEN/PINK / BLUE/ORANGE palette pickers).
 	phColorButtonRects []phColorButtonHitbox
 
-	// selectedTab toggles the bottom-of-panel detail view between the decision tree (0) and the descendant tree (1).
+	// selectedTab picks which of the selected organism's four tabs is showing.
 	selectedTab int
 
 	// detailTabRects caches the on-screen hitboxes for the tab buttons.
 	detailTabRects []detailTabHitbox
-
-	// infoTab toggles the info block above those tabs between TRAITS (0).
-	infoTab int
-
-	// infoTabRects caches the TRAITS / STATS hitboxes.
-	infoTabRects []detailTabHitbox
 
 	// descCollapsed tracks which descendant tree subtrees are collapsed in the descendant-tree tab.
 	descCollapsed map[int]bool
@@ -1764,7 +1760,6 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	if id < 0 {
 		// Nothing selected — skip the section entirely so the panel doesn't show an orphaned title with empty space below.
 		p.detailTabRects = nil
-		p.infoTabRects = nil
 		p.descRowRects = nil
 		p.showParentRect = nil
 		p.cachedSelID = -1
@@ -1809,17 +1804,18 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	}
 	text.Draw(panelImage, titleStr, r.FontSourceCodePro12, selectedXOffset, sY, themedForeground())
 
-	// The info block is the taller of the stats column, the abilities column and the portrait.
+	// The tab strip spans the whole panel; its content is the area left of
+	// the portrait, so the portrait, bar and ledger stay up whichever tab is
+	// showing.
 	blockY := infoY + tabStripHeight + infoTabsGap
-	statsBottom := max(blockY+portraitColumnHeight(), blockY+infoBlockHeight())
+	portraitBottom := blockY + portraitColumnHeight()
 
 	if info == nil || decisionTree == nil {
-		// We have a selection but no stats to show.
-		p.detailTabRects = nil
+		// We have a selection but no stats to show, so no portrait either:
+		// the placeholder gets the full panel width.
 		p.descRowRects = nil
 		p.showParentRect = nil
-		// The strip stays up with nothing under it.
-		p.renderInfoTabs(panelImage, infoY)
+		p.renderOrgTabs(panelImage, infoY)
 
 		// cachedSelID == id means we already attempted reconstruction for this organism (success would have populated info above.
 		triedThisOrg := p.cachedSelID == id
@@ -1832,52 +1828,48 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 		if canReconstruct || (p.reconstructInFlight && p.reconstructForID == id) {
 			msg = "Reconstructing stats from snapshot..."
 		}
-		// Centre the message inside the reserved block so the transition from placeholder to real stats doesn't shift the rest of the panel.
 		bounds := boundString(r.FontSourceCodePro10, msg)
 		msgX := selectedXOffset + (graphWidth-bounds.Dx())/2
-		msgY := blockY + (statsBottom-blockY)/2 + bounds.Dy()/2
-		text.Draw(panelImage, msg, r.FontSourceCodePro10, msgX, msgY, themedForegroundDim())
+		text.Draw(panelImage, msg, r.FontSourceCodePro10, msgX, blockY+bounds.Dy(), themedForegroundDim())
 
-		offsetY := statsBottom + detailTabsGap
-		offsetY = p.renderDetailTabs(panelImage, offsetY) + 14
-		switch p.selectedTab {
-		case 1:
-			offsetY = p.renderDescendantTreeTab(panelImage, p.effectiveDescRoot(id), id, offsetY)
+		offsetY := blockY + bounds.Dy() + 14
+		if p.selectedTab == orgTabDescendant {
+			offsetY = p.renderDescendantTreeTab(panelImage, p.effectiveDescRoot(id), id, offsetY, graphWidth)
 		}
 		return offsetY
 	}
 
+	p.renderOrgTabs(panelImage, infoY)
+
 	// Portrait — right column, flush against the right padding — with the health bar directly beneath it.
-	p.renderInfoTabs(panelImage, infoY)
 	p.renderPortrait(panelImage, info, dim, selectedPortraitX, blockY)
 	drawPortraitHealth(panelImage, info.Health, info.Size, dim, selectedPortraitX, blockY)
 	barY := blockY + portraitSize + healthBarGap
 	drawHealthBar(panelImage, info.Health, info.Size, dim, selectedPortraitX, barY)
 	drawHealthLedger(panelImage, info.HealthLedger, dim, selectedPortraitX, barY+healthBarH, portraitSize)
 
-	// Whichever tab is up, level with the top of the portrait.
-	p.renderInfoBlock(panelImage, info, traits, dim, blockY)
+	// Clipped to the content area, so a tree line longer than the column is
+	// cut off at the column's edge rather than drawn over the portrait.
+	content := panelImage.SubImage(image.Rect(
+		selectedXOffset, blockY, selectedXOffset+infoAreaWidth, panelInnerH,
+	)).(*ebiten.Image)
 
-	offsetY := statsBottom + detailTabsGap
-	offsetY = p.renderDetailTabs(panelImage, offsetY)
-	offsetY += 14
-
+	p.descRowRects = nil
+	p.showParentRect = nil
+	bottom := blockY
 	switch p.selectedTab {
-	case 1:
-		p.descRowRects = nil
-		offsetY = p.renderDescendantTreeTab(panelImage, p.effectiveDescRoot(id), id, offsetY)
+	case orgTabDecision:
+		bottom = p.renderDecisionTreeTab(content, decisionTree, dim, blockY)
+	case orgTabDescendant:
+		bottom = p.renderDescendantTreeTab(content, p.effectiveDescRoot(id), id, blockY, infoAreaWidth)
 	default:
-		p.descRowRects = nil
-		p.showParentRect = nil
-		offsetY = p.renderDecisionTreeTab(panelImage, decisionTree, dim, offsetY)
+		p.renderInfoBlock(content, info, traits, dim, blockY)
+		bottom = blockY + infoBlockHeight()
 	}
-	return offsetY
+	return max(bottom, portraitBottom)
 }
 
-// detailTabsGap is the space between the selected organism's info block (portrait, stats or abilities) and the DECISION / DESCENDANT tabs below.
-const detailTabsGap = 16
-
-// infoTabsGap is the space between the TRAITS / STATS strip and the block it switches.
+// infoTabsGap is the space between the tab strip and the block it switches.
 const infoTabsGap = 6
 
 // phComfortColor tints the IDEAL PH value green→red by how much the environment the organism is actually sitting in costs it, matching the grid's TOLERANCE view.
@@ -1945,7 +1937,7 @@ func drawColorSwatches(panelImage *ebiten.Image, colors []colorful.Color, rightX
 
 // renderInfoBlock draws the selected organism's TRAITS or STATS tab in the info area, left of the portrait.
 func (p *Panel) renderInfoBlock(panelImage *ebiten.Image, info *organism.Info, traits organism.Traits, dim bool, contentTop int) int {
-	if p.infoTab == infoTabStats {
+	if p.selectedTab == orgTabStats {
 		cols := statColumns(config.GetCurrentGlobals(), info, traits, p.simulation.GetPhAtPoint(info.Location))
 		bottom := p.renderStatColumn(panelImage, cols[0], statsCol1X, statsTabColWidth, contentTop, dim)
 		return max(bottom, p.renderStatColumn(panelImage, cols[1], statsCol2X, statsTabColWidth, contentTop, dim))
@@ -1974,9 +1966,9 @@ func (p *Panel) renderAbilities(panelImage *ebiten.Image, scores physiology.Scor
 		barCol = fadedForeground(0xB0)
 	}
 
-	valueFace := r.FontSourceCodePro8
+	valueFace := abilityFace()
 	valueH := valueFace.Metrics().Height.Round()
-	labelFace := r.FontSourceCodePro8
+	labelFace := abilityFace()
 	slotW := width / len(physiology.AllAbilities)
 	barsTop := top + valueH + 2
 	labelsTop := barsTop + abilityBarLength + abilityLabelGap
@@ -2006,6 +1998,9 @@ func (p *Panel) renderAbilities(panelImage *ebiten.Image, scores physiology.Scor
 	}
 }
 
+// abilityFace is the type the ability scores and their rotated names are set in.
+func abilityFace() font.Face { return r.FontSourceCodePro10 }
+
 func abilitiesHeight() int {
 	longest := 0
 	for _, a := range physiology.AllAbilities {
@@ -2013,9 +2008,9 @@ func abilitiesHeight() int {
 		if short, ok := abilityStatLabels[a]; ok {
 			name = short
 		}
-		longest = max(longest, textAdvance(r.FontSourceCodePro8, name))
+		longest = max(longest, textAdvance(abilityFace(), name))
 	}
-	return r.FontSourceCodePro8.Metrics().Height.Round() + 2 + abilityBarLength + abilityLabelGap + longest
+	return abilityFace().Metrics().Height.Round() + 2 + abilityBarLength + abilityLabelGap + longest
 }
 
 // abilityStatLabels shortens ability names too long for the abilities column beside the stats.
@@ -2249,21 +2244,21 @@ func drawTabStrip(img *ebiten.Image, x, y, width int, labels []string, selected 
 }
 
 const (
-	infoTabTraits = 0
-	infoTabStats  = 1
+	orgTabTraits = iota
+	orgTabStats
+	orgTabDecision
+	orgTabDescendant
 )
 
-// renderInfoTabs draws the TRAITS / STATS strip between the SELECTED ORG title and the info block it switches.
-func (p *Panel) renderInfoTabs(panelImage *ebiten.Image, topY int) int {
-	p.infoTabRects = drawTabStrip(panelImage, selectedXOffset, topY, infoAreaWidth,
-		[]string{"TRAITS", "STATS"}, p.infoTab)
-	return topY + tabStripHeight
-}
+// orgTabLabels is the one strip of tabs over the selected organism's content.
+var orgTabLabels = []string{"TRAITS", "STATS", "DECISION TREE", "DESCENDANT TREE"}
 
-// renderDetailTabs draws the DECISION / DESCENDANT tab strip just below the organism info block.
-func (p *Panel) renderDetailTabs(panelImage *ebiten.Image, topY int) int {
+// renderOrgTabs draws the tab strip between the SELECTED ORG line and the
+// content it switches. It spans the whole panel, over the portrait, while its
+// content is restricted to the column left of the portrait.
+func (p *Panel) renderOrgTabs(panelImage *ebiten.Image, topY int) int {
 	p.detailTabRects = drawTabStrip(panelImage, selectedXOffset, topY, graphWidth,
-		[]string{"DECISION TREE", "DESCENDANT TREE"}, p.selectedTab)
+		orgTabLabels, p.selectedTab)
 	return topY + tabStripHeight
 }
 
@@ -2272,7 +2267,9 @@ func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.
 	// No gated styling: under ability scores every organism can express every node.
 	face := r.FontSourceCodePro10
 	lineHeight := face.Metrics().Height.Round()
-	offsetY := topY
+	// topY is the top of the content area; the first line's baseline is a
+	// line height below it.
+	offsetY := topY + lineHeight
 	for _, line := range decisionTree.PrintLines() {
 		text.Draw(panelImage, line.Text, face, selectedXOffset, offsetY, decisionLineInk(line, dim))
 		offsetY += lineHeight
@@ -2280,8 +2277,8 @@ func (p *Panel) renderDecisionTreeTab(panelImage *ebiten.Image, decisionTree *d.
 	return offsetY
 }
 
-// renderDescendantTreeTab draws an indented, scrollable view of the rooted-at-rootID subtree.
-func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, selectedID, topY int) int {
+// renderDescendantTreeTab draws an indented, scrollable view of the rooted-at-rootID subtree, width wide.
+func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, selectedID, topY, width int) int {
 	root := p.simulation.GetTreeNodeByID(rootID)
 	if root == nil {
 		text.Draw(panelImage, "(no descendant tree)", r.FontSourceCodePro10, selectedXOffset, topY+12, themedForegroundDim())
@@ -2370,7 +2367,7 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, select
 		// Gold pill marks the live selection so the user can spot where they are after Show Parent has walked above them.
 		if n.ID == selectedID {
 			ebitenutil.DrawRect(panelImage, float64(x), float64(y),
-				float64(graphWidth-(x-selectedXOffset)), float64(rowH-2),
+				float64(width-(x-selectedXOffset)), float64(rowH-2),
 				chrome(
 					color.RGBA{R: 220, G: 175, B: 60, A: 130},
 					color.RGBA{R: 230, G: 180, B: 40, A: 160},
@@ -2388,7 +2385,7 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, select
 		}
 
 		rows = append(rows, descRowHitbox{
-			rowX: x, rowY: y, rowW: graphWidth - (x - selectedXOffset), rowH: rowH,
+			rowX: x, rowY: y, rowW: width - (x - selectedXOffset), rowH: rowH,
 			expandX: btnX, expandW: btnW,
 			nodeID: n.ID,
 		})
@@ -2413,14 +2410,8 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, select
 	return y
 }
 
-// handleDetailTabClick consumes a click on either tab strip (TRAITS / STATS above the info block, DECISION / DESCENDANT below it), the Show Parent button, or a row in the descendant-tree tab.
+// handleDetailTabClick consumes a click on the selected organism's tab strip, the Show Parent button, or a row in the descendant-tree tab.
 func (p *Panel) handleDetailTabClick(mx, my int) bool {
-	for _, t := range p.infoTabRects {
-		if mx >= t.x && mx < t.x+t.w && my >= t.y && my < t.y+t.h {
-			p.infoTab = t.tab
-			return true
-		}
-	}
 	for _, t := range p.detailTabRects {
 		if mx >= t.x && mx < t.x+t.w && my >= t.y && my < t.y+t.h {
 			p.selectedTab = t.tab
