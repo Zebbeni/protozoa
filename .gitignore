@@ -26,3 +26,9 @@ resources/sprites_with_*.aseprite
 
 # Release artifacts staged by dist.sh and uploaded by push.sh.
 dist/
+
+# The release runbook: the itch.io target, butler setup and the deploy steps.
+# Local only - it is about this account and this machine rather than about the
+# project, and resources/README.md already carries the sprite pipeline, which
+# IS part of the project.
+DEPLOY.md
