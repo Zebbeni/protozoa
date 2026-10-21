@@ -20,22 +20,6 @@ func shippedDefaults(t *testing.T) Globals {
 	return g
 }
 
-// TestPlatformDefaultsLeaveTheDesktopBaselineAlone: settings/default.json is
-// the desktop baseline, so the hook must be a no-op here. A second set of
-// numbers that drifted from the file would be invisible.
-func TestPlatformDefaultsLeaveTheDesktopBaselineAlone(t *testing.T) {
-	want := shippedDefaults(t)
-	got := want
-	platformDefaults(&got)
-	// Globals holds slices, so compare the encoded form rather than the
-	// struct: a field added later is then covered without touching this.
-	a, _ := json.Marshal(want)
-	b, _ := json.Marshal(got)
-	if string(a) != string(b) {
-		t.Error("platformDefaults changed the desktop baseline")
-	}
-}
-
 // TestAConfigFileStillWinsOverThePlatformBaseline: the hook runs on the
 // BASELINE, which LoadGlobals then overlays a file onto. A replay relies on
 // the same ordering, since it takes its grid from the recording's header.

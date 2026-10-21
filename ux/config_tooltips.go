@@ -219,6 +219,8 @@ func tooltipFor(field configField) string {
 		return nodeTypeRowTooltip
 	case rowConditionFamily:
 		return conditionFamilyRowTooltip
+	case rowWorldSize:
+		return worldSizeRowTooltip
 	}
 	if field.textOnly && field.jsonTag == "" {
 		// A section's explanatory line, e.g. the note shown when no designs have been saved yet.
@@ -229,3 +231,11 @@ func tooltipFor(field configField) string {
 	}
 	return configTooltips[field.jsonTag]
 }
+
+// worldSizeRowTooltip explains that the three buttons move four settings at
+// once, and which ones, since the two food rows they change are in a different
+// section further down the form.
+const worldSizeRowTooltip = "Sets the grid and the food stocks together, as one world at three scales. " +
+	"Each step changes both grid dimensions by 1.25x and the starting surface and buried food with the area, " +
+	"so a smaller world does not begin denser. MEDIUM is what the simulation ships with; the browser build opens on SMALL. " +
+	"Editing the grid or either food amount by hand leaves no button lit."

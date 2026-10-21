@@ -78,6 +78,9 @@ const (
 	// rowAbilityWarning is what is wrong with an ability's settings, drawn
 	// under its header and taking no height when there is nothing to say.
 	rowAbilityWarning
+	// rowWorldSize is the SMALL / MEDIUM / LARGE buttons at the top of the
+	// form, which set the grid and the two food stocks together.
+	rowWorldSize
 )
 
 type configSection struct {
@@ -372,6 +375,8 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 						cs.drawConditionFamilyRow(screen, panelX, y, field)
 					case rowAbilityWarning:
 						cs.drawAbilityWarningRow(screen, panelX, y, field)
+					case rowWorldSize:
+						cs.drawWorldSizeRow(screen, panelX, y)
 					default:
 						cs.drawRow(screen, panelX, y, rowIdx, field)
 					}
@@ -643,6 +648,9 @@ func (cs *ConfigScreen) handleClick() {
 					}
 					return
 				case rowAbilityWarning:
+					return
+				case rowWorldSize:
+					cs.clickWorldSize(panelX, y, mx, my)
 					return
 				case rowCurveHeader:
 					// Anywhere on the row opens or closes the curve's block; the controls live inside it.
@@ -976,6 +984,7 @@ func (cs *ConfigScreen) buildSections() {
 
 	cs.sections = []configSection{
 		{title: "— SIMULATION —", fields: []configField{
+			{label: "World Size", jsonTag: "", row: rowWorldSize, fieldIdx: -1},
 			textField("Seed (0 = random)", "seed"),
 		}},
 		{title: "— DISPLAY —", fields: []configField{
@@ -1663,8 +1672,10 @@ func (cs *ConfigScreen) canReset(field configField) bool {
 		return false // a section's explanatory line has nothing to reset
 	}
 	switch field.row {
-	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph, rowAbilityWarning:
-		// Rows that draw rather than hold a value.
+	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph, rowAbilityWarning, rowWorldSize:
+		// Rows that draw rather than hold a value. A world size spans four
+		// settings, so "reset" belongs to each of those rows rather than to
+		// the buttons — and MEDIUM is the reset button for all four anyway.
 		return false
 	case rowNodeType:
 		// Built from the decision pools, not a Globals field.

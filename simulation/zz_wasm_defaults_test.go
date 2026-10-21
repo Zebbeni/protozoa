@@ -29,18 +29,17 @@ func TestWasmDefaultsProbe(t *testing.T) {
 	browser := base
 	config.BrowserDefaults(&browser)
 
-	// The chemo push the browser raises is the one override worth a control:
-	// the shipped gain moved, so the multiplier it was chosen against did too.
-	browserPlainPush := browser
-	browserPlainPush.ChemoPhEffect = base.ChemoPhEffect
-
+	// Two arms, not three. There was a third holding chemo_ph_effect at the
+	// desktop value, from when BrowserDefaults raised it; it no longer does,
+	// so that arm reproduced the browser arm digit for digit and read as a
+	// control confirming something. An override is only worth an arm while
+	// there is an override.
 	for _, arm := range []struct {
 		name string
 		g    config.Globals
 	}{
 		{"desktop", base},
 		{"browser", browser},
-		{"browser, desktop chemo push", browserPlainPush},
 	} {
 		g := arm.g
 		alive, pops, phs, ends := 0, 0, 0.0, 0

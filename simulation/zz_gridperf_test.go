@@ -21,7 +21,16 @@ func TestGridPerf(t *testing.T) {
 	base := config.GetCurrentGlobals()
 	baseCells := float64(base.GridUnitsWide * base.GridUnitsHigh)
 
-	for _, d := range [][3]int{{60, 48, 1}, {60, 48, 5}, {60, 48, 10}, {60, 48, 20}} {
+	// The browser grid comes from BrowserDefaults rather than a literal, so
+	// this cannot go on measuring a size the browser has stopped using.
+	browser := *base
+	config.BrowserDefaults(&browser)
+	bw, bh := browser.GridUnitsWide, browser.GridUnitsHigh
+
+	for _, d := range [][3]int{
+		{bw, bh, 1}, {bw, bh, 5}, {bw, bh, 10}, {bw, bh, 20},
+		{base.GridUnitsWide, base.GridUnitsHigh, 1},
+	} {
 		g := *base
 		g.GridUnitsWide, g.GridUnitsHigh = d[0], d[1]
 		g.InitialOrganisms = d[2]
