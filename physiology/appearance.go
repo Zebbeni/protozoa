@@ -50,14 +50,53 @@ const (
 	SensorTasters              // pH
 )
 
+// SensedCondition is one read a brain makes and how hard that brain leans on
+// it. A decision tree leans by asking: every node weighs the same and a
+// condition asked down three branches is three of them. A net leans by weight,
+// since it reads every input on every cycle and presence alone would say
+// nothing.
+type SensedCondition struct {
+	Condition decision.Condition
+	Pull      float64
+}
+
 // AppearanceFor derives an organism's look from its scores and its decision tree.
 func AppearanceFor(scores Scores, tree *decision.Tree) Appearance {
+	return AppearanceForConditions(scores, treeConditions(tree))
+}
+
+// AppearanceForConditions is the derivation for a brain whose reads all weigh
+// the same, which is what a decision tree's nodes are.
+func AppearanceForConditions(scores Scores, conditions []decision.Condition) Appearance {
+	senses := make([]SensedCondition, 0, len(conditions))
+	for _, c := range conditions {
+		senses = append(senses, SensedCondition{Condition: c, Pull: 1})
+	}
+	return AppearanceForSenses(scores, senses)
+}
+
+// AppearanceForSenses is the same derivation with each read carrying its own
+// weight, which is what a net's inputs do.
+//
+// Sensing is a behaviour rather than a score, so the overlay follows what the
+// organism reads — and which conditions a brain reads is a question both
+// brains can answer, where "walk the tree" is not.
+func AppearanceForSenses(scores Scores, senses []SensedCondition) Appearance {
 	return Appearance{
 		Body:   bodyClassFor(scores),
 		Motor:  motorClassFor(scores),
 		Mouth:  mouthClassFor(scores),
-		Sensor: sensorClassFor(tree),
+		Sensor: sensorClassFor(senses),
 	}
+}
+
+// treeConditions is nil-safe, because Restore is handed a tree a snapshot may
+// not carry.
+func treeConditions(tree *decision.Tree) []decision.Condition {
+	if tree == nil {
+		return nil
+	}
+	return tree.ConditionNodes()
 }
 
 // bodyClassFor picks the body an organism has most earned.
@@ -118,21 +157,50 @@ func sensorCategoryOf(c decision.Condition) SensorClass {
 	}
 }
 
-// sensorClassFor returns the overlay for whichever sense the tree leans on hardest, or SensorNone when nothing clears the minimum.
-func sensorClassFor(tree *decision.Tree) SensorClass {
-	if tree == nil {
+// sensorClassFor returns the overlay for whichever sense the brain leans on
+// hardest, or SensorNone when nothing clears the minimum.
+//
+// Each read counts for its share of the average read rather than for its raw
+// pull, so the threshold is the same number of reads it has always been:
+// `sensor_min_conditions` is "this sense pulls as hard as two average reads".
+// Scaling every weight in a net changes nothing, which is the property that
+// matters — a lineage's weights drift to whatever absolute size they drift to,
+// so a raw magnitude threshold would hand out overlays by that accident.
+//
+// Reads that need no sense organ are in the average but win nothing, so a
+// brain built mostly on its own health and age grows no sensors, the same as
+// a tree full of self-checks.
+func sensorClassFor(senses []SensedCondition) SensorClass {
+	if len(senses) == 0 {
 		return SensorNone
 	}
-
-	var counts [4]int
-	for _, c := range tree.ConditionNodes() {
-		counts[sensorCategoryOf(c)]++
+	total := 0.0
+	for _, s := range senses {
+		total += s.Pull
+	}
+	// A brain that leans on nothing at all — every connection still at the 0
+	// it was introduced with, which is every founder — has no share to take,
+	// so its reads are counted instead. That is what it had before any weight
+	// could matter.
+	even := total <= 0
+	if even {
+		total = float64(len(senses))
 	}
 
-	best, bestCount := SensorNone, config.SensorMinConditions()-1
+	var shares [4]float64
+	for _, s := range senses {
+		pull := s.Pull
+		if even {
+			pull = 1
+		}
+		shares[sensorCategoryOf(s.Condition)] += pull
+	}
+
+	average := total / float64(len(senses))
+	best, bestCount := SensorNone, float64(config.SensorMinConditions())-1
 	for _, class := range []SensorClass{SensorAntennae, SensorFeelers, SensorTasters} {
-		if counts[class] > bestCount {
-			best, bestCount = class, counts[class]
+		if n := shares[class] / average; n > bestCount {
+			best, bestCount = class, n
 		}
 	}
 	return best

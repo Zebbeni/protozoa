@@ -3,28 +3,38 @@ package ux
 import (
 	"testing"
 
+	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
 // orgTabWidth is the width drawTabStrip gives each of the four tabs across the panel.
 func orgTabWidth() int {
-	n := len(orgTabLabels)
+	n := len(orgTabLabels())
 	return (graphWidth - tabStripGap*(n-1)) / n
 }
 
 // TestOrgTabLabelsFitTheirTabs measures every label against its button in the
 // font drawGraphButton draws with. Four tabs across the panel leave each 89px
 // where two left 183, so a label that fit the old strip need not fit this one.
+//
+// Both worlds are measured, since the third tab is named for whichever brain
+// the simulation runs on.
 func TestOrgTabLabelsFitTheirTabs(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
 	r.Init()
 
 	tabW := orgTabWidth()
-	for _, label := range orgTabLabels {
-		if w := textAdvance(r.FontSourceCodePro8, label); w > tabW {
-			t.Errorf("tab %q measures %dpx in a %dpx tab", label, w, tabW)
+	for _, nets := range []bool{false, true} {
+		g := *config.GetCurrentGlobals()
+		g.UseNeuralNets = nets
+		config.SetGlobals(&g)
+		for _, label := range orgTabLabels() {
+			if w := textAdvance(r.FontSourceCodePro8, label); w > tabW {
+				t.Errorf("with use_neural_nets=%v, tab %q measures %dpx in a %dpx tab",
+					nets, label, w, tabW)
+			}
 		}
 	}
 }
@@ -32,8 +42,8 @@ func TestOrgTabLabelsFitTheirTabs(t *testing.T) {
 // TestEveryOrgTabHasALabel ties the tab constants to the strip they index.
 func TestEveryOrgTabHasALabel(t *testing.T) {
 	for _, tab := range []int{orgTabTraits, orgTabStats, orgTabDecision, orgTabDescendant} {
-		if tab < 0 || tab >= len(orgTabLabels) {
-			t.Errorf("tab %d has no label in a strip of %d", tab, len(orgTabLabels))
+		if tab < 0 || tab >= len(orgTabLabels()) {
+			t.Errorf("tab %d has no label in a strip of %d", tab, len(orgTabLabels()))
 		}
 	}
 }

@@ -239,11 +239,12 @@ func TestEverySectionIsOnExactlyOneTab(t *testing.T) {
 		"ACTIONS, AND WHAT THEY LOOK LIKE": "ACTIONS",
 		"APPEARANCE":                       "ACTIONS",
 		"DECISION TREES":                   "ACTIONS",
+		"NEURAL NETWORKS":                  "ACTIONS",
 		"LINEAGES AND THE REPLAY":          "VIEWER",
 		"WHAT THE VIEWER SHOWS":            "VIEWER",
 	}
 	seen := map[string]string{}
-	for _, tab := range aboutTabs() {
+	for _, tab := range rulesTabs() {
 		for _, heading := range headingsOf(tab.blocks) {
 			if strings.HasPrefix(heading, " ") {
 				// The appearance sub-headings belong to APPEARANCE.
@@ -276,7 +277,7 @@ func TestTheHeaderStaysOutOfTheTabs(t *testing.T) {
 	loadKeyGlobals(t)
 	r.UseDirAssets("..")
 	r.Init()
-	header := aboutHeader()
+	header := rulesHeader()
 	if len(header) == 0 {
 		t.Fatal("the header is empty")
 	}
@@ -289,7 +290,7 @@ func TestTheHeaderStaysOutOfTheTabs(t *testing.T) {
 			walkers++
 		}
 	}
-	for _, tab := range aboutTabs() {
+	for _, tab := range rulesTabs() {
 		if len(tab.blocks) == 0 {
 			t.Errorf("tab %q has no blocks", tab.label)
 		}

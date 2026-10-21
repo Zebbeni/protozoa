@@ -17,6 +17,7 @@ import (
 	"github.com/Zebbeni/protozoa/physiology"
 	r "github.com/Zebbeni/protozoa/resources"
 	"github.com/Zebbeni/protozoa/simulation"
+	"github.com/Zebbeni/protozoa/sound"
 	gh "github.com/Zebbeni/protozoa/ux/graph/helpers"
 )
 
@@ -92,6 +93,12 @@ type SimPopup struct {
 
 // NewSimPopup builds the popup with a config screen ready in the initial popupConfig mode.
 func NewSimPopup(globals *c.Globals) *SimPopup {
+	// Music is a choice about this session rather than a property of the run,
+	// like the theme and the window size, so the form opens on whatever the
+	// user last set it to — the defaults and a settings file both say music
+	// is on, and neither must switch it back on under someone who turned it
+	// off. The MUSIC row is where it is turned back on.
+	globals.Music = sound.Preferred()
 	p := &SimPopup{
 		mode:    SimPopupConfig,
 		globals: globals,

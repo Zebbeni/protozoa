@@ -129,7 +129,7 @@ func TestCanMoveAndIsWallAheadDisagree(t *testing.T) {
 	// Built with the API attached, since these are the organism's own condition lookups rather than the manager's.
 	digger := organism.Restore(1, 1, 20, 20, 0, 0, 0,
 		utils.Point{X: 10, Y: 10}, utils.Point{X: 1, Y: 0}, 1,
-		organism.Traits{Abilities: scores}, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, api)
+		organism.Traits{Abilities: scores}, nil, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, api)
 
 	if !digger.CanBurrowAhead() {
 		t.Fatal("this digger should get through a strength-5 wall")

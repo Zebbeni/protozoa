@@ -58,7 +58,12 @@ type OrganismRecord struct {
 	PhPositive float64
 	PhNegative float64
 
+	// Exactly one of DecisionTree and Brain carries the organism's brain,
+	// matching the world it was recorded in. Brain is nil in every recording
+	// written before the nets existed, which gob decodes correctly as "this
+	// organism ran on a tree".
 	DecisionTree  string
+	Brain         []byte
 	CurrentAction uint8
 	// Status is the resolved outcome of the organism's most recent cycle (see organism.Status).
 	Status uint8

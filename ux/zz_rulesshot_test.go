@@ -23,6 +23,13 @@ func TestRulesShot(t *testing.T) {
 		t.Skip("set RULES_SHOT=1")
 	}
 	loadKeyGlobals(t)
+	// The light theme's fill is 240-grey, where an ink picked for the dark one
+	// is not merely wrong but invisible, so both have to be lookable at.
+	if theme := os.Getenv("RULES_SHOT_THEME"); theme != "" {
+		g := *config.GetCurrentGlobals()
+		g.Theme = theme
+		config.SetGlobals(&g)
+	}
 	r.UseDirAssets("..")
 	r.Init()
 
@@ -50,6 +57,7 @@ func TestRulesShot(t *testing.T) {
 	}
 	// RULES_SHOT_TAB picks which tab to render.
 	tab := 0
+	about := os.Getenv("RULES_SHOT_ABOUT") != ""
 	if v := os.Getenv("RULES_SHOT_TAB"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -58,7 +66,7 @@ func TestRulesShot(t *testing.T) {
 		tab = n
 	}
 	ebiten.SetWindowSize(config.ScreenWidth(), config.ScreenHeight())
-	err := ebiten.RunGame(&rulesShot{out: out, scroll: scroll, tab: tab, elapsed: elapsed, t: t})
+	err := ebiten.RunGame(&rulesShot{out: out, about: about, scroll: scroll, tab: tab, elapsed: elapsed, t: t})
 	if err != nil && err != ebiten.Termination {
 		if _, statErr := os.Stat(out); statErr != nil {
 			t.Fatal(err)
@@ -69,6 +77,7 @@ func TestRulesShot(t *testing.T) {
 
 type rulesShot struct {
 	out     string
+	about   bool
 	scroll  int
 	tab     int
 	elapsed time.Duration
@@ -94,6 +103,9 @@ func (s *rulesShot) Draw(screen *ebiten.Image) {
 		return
 	}
 	rs := NewRulesScreen()
+	if s.about {
+		rs = NewAboutScreen()
+	}
 	rs.started = rs.started.Add(-s.elapsed)
 	rs.selectTab(s.tab)
 	rs.setScrollY(float64(s.scroll))

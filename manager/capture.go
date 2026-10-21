@@ -202,7 +202,8 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		MinHealthToSpawn:       traits.MinHealthToSpawn,
 		MinCyclesBetweenSpawns: uint16(traits.MinCyclesBetweenSpawns),
 		IdealPh:                traits.IdealPh,
-		DecisionTree:           o.GetDecisionTreeCopy().Serialize(),
+		DecisionTree:           serializeTree(o),
+		Brain:                  serializeNet(o),
 		CurrentAction:          uint8(o.Action()),
 		Status:                 uint8(o.Status),
 		AttackTotal:            uint32(o.AttackTotal),
@@ -212,6 +213,24 @@ func organismToRecord(o *organism.Organism) checkpoint.OrganismRecord {
 		PhNegative:             o.PhNegative,
 		Abilities:              captureAbilities(traits.Abilities),
 	}
+}
+
+// serializeTree and serializeNet write whichever brain the organism has and
+// nothing for the other, so a record says which world it came from rather
+// than carrying an empty version of both.
+func serializeTree(o *organism.Organism) string {
+	tree := o.GetDecisionTreeCopy()
+	if tree == nil {
+		return ""
+	}
+	return tree.Serialize()
+}
+
+func serializeNet(o *organism.Organism) []byte {
+	if net := o.Net(); net != nil {
+		return net.Encode()
+	}
+	return nil
 }
 
 // The snapshot format pins the ability array to a literal length so the checkpoint package stays dependency-free.

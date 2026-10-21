@@ -151,22 +151,26 @@ func TestLongRunScratch(t *testing.T) {
 		if c%window == 0 {
 			// eatTrees is the diagnostic that says whether eating is even in the population's repertoire.
 			relTrees, eatTrees, foodTrees, live := 0.0, 0.0, 0.0, 0.0
+			brainNodes, brainIn, brainOut := 0.0, 0.0, 0.0
 			for _, o := range sim.organismManager.Organisms() {
 				live++
-				tree := o.GetDecisionTreeCopy()
-				for _, cond := range tree.ConditionNodes() {
+				conds, acts := brainReads(o)
+				brainNodes += float64(o.BrainNodes())
+				brainIn += float64(len(conds))
+				brainOut += float64(len(acts))
+				for _, cond := range conds {
 					if cond == d.IsRelativeAhead {
 						relTrees++
 						break
 					}
 				}
-				for _, cond := range tree.ConditionNodes() {
+				for _, cond := range conds {
 					if cond == d.IsFoodAhead || cond == d.IsFoodLeft || cond == d.IsFoodRight {
 						foodTrees++
 						break
 					}
 				}
-				for _, act := range tree.ActionNodes() {
+				for _, act := range acts {
 					if act == d.ActEat {
 						eatTrees++
 						break
@@ -187,11 +191,14 @@ func TestLongRunScratch(t *testing.T) {
 				wallStrength += st
 			}
 			phLo, phHi := sim.PhRange()
-			lines = append(lines, fmt.Sprintf("%d,%.0f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%.4f,%.2f,%.4f,%.4f,%.0f,%.3f,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%.3f,%.3f,%.4f,%d,%d,%.2f",
+			// Brain columns, appended at the end like the terrain and buried
+			// ones, so every existing index is untouched.
+			lines = append(lines, fmt.Sprintf("%d,%.0f,%.2f,%.2f,%.2f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d,%.4f,%.2f,%.4f,%.4f,%.0f,%.3f,%.2f,%.2f,%.4f,%.4f,%.4f,%d,%d,%.3f,%.3f,%.4f,%d,%d,%.2f,%.2f,%.2f,%.2f",
 				c, a.orgs/window, a.chemo/n, a.eat/n, a.atk/n, a.predators/n, a.grazers/n, a.chemoSpec/n,
 				a.chemoOK/n, a.eatOK/n, a.atkAct/n, sim.FoodCount(), relTrees/max(live, 1), a.def/n, a.tanks/n, a.eatSpec/n, a.maxEat, sim.AveragePh(), a.mov/n, a.dig/n,
 				eatTrees/max(live, 1), foodTrees/max(live, 1), a.eatFail/n,
-				walls, wallStrength, phLo, phHi, a.digAct/n, buriedUnits, buriedCells, a.tol/n))
+				walls, wallStrength, phLo, phHi, a.digAct/n, buriedUnits, buriedCells, a.tol/n,
+				brainNodes/max(live, 1), brainIn/max(live, 1), brainOut/max(live, 1)))
 			a = acc{}
 		}
 	}
@@ -201,4 +208,21 @@ func TestLongRunScratch(t *testing.T) {
 	}
 	out := fmt.Sprintf("TAG %s SEED %d END %s\n", tag, seed, end) + strings.Join(lines, "\n") + "\n"
 	os.WriteFile(os.Getenv("LR_OUT"), []byte(out), 0o644)
+}
+
+// brainReads is what an organism's brain asks and what it can do, under
+// either brain. A neural world has no tree at all, so the three repertoire
+// columns were being read off a nil one — the sweep panicked on its first
+// window rather than reporting anything. A net's reads are its inputs and its
+// repertoire is its outputs, which is the same question asked of the brain
+// that is there.
+func brainReads(o *organism.Organism) ([]d.Condition, []d.Action) {
+	if net := o.Net(); net != nil {
+		return net.Inputs(), net.Outputs()
+	}
+	tree := o.GetDecisionTreeCopy()
+	if tree == nil {
+		return nil, nil
+	}
+	return tree.ConditionNodes(), tree.ActionNodes()
 }

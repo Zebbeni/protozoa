@@ -44,5 +44,5 @@ func TestAverageAbilityScores(t *testing.T) {
 
 func organismWithScores(id int, location, direction utils.Point, size float64, scores physiology.Scores) *organism.Organism {
 	return organism.Restore(id, 1, size, size, 0, 0, 0, location, direction, id,
-		organism.Traits{Abilities: scores}, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, nil)
+		organism.Traits{Abilities: scores}, nil, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, nil)
 }

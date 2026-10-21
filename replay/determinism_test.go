@@ -24,6 +24,27 @@ func loadDefaultGlobalsFromDisk(t *testing.T) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		t.Fatalf("decode settings/default.json: %v", err)
 	}
+	// testdata/last.pzr was recorded before a replay carried the settings it
+	// ran with, so it falls back to whatever is active — and the shipped
+	// defaults are a NEURAL world while the fixture is a tree one. Pinning
+	// the brain here is standing in for the header that file does not have:
+	// a recording made today replays as its own world without this.
+	g.UseNeuralNets = false
+	config.SetGlobals(&g)
+}
+
+// loadShippedGlobals installs settings/default.json exactly as it ships, for a
+// test that records its own run rather than reading the fixture.
+func loadShippedGlobals(t *testing.T) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "settings", "default.json"))
+	if err != nil {
+		t.Fatalf("read settings/default.json: %v", err)
+	}
+	var g config.Globals
+	if err := json.Unmarshal(data, &g); err != nil {
+		t.Fatalf("decode settings/default.json: %v", err)
+	}
 	config.SetGlobals(&g)
 }
 
@@ -313,32 +334,51 @@ func TestDecisionTreeFlagsRestoredAfterSnapshot(t *testing.T) {
 	}
 }
 
+// TestResumeMostSuccessfulAliveAtTargetCycle: after opening a recording and
+// playing to a cycle, the Most Successful select mode has something to select.
+// The set is built from the recording's descendant trees, and an empty one
+// leaves that mode dead with nothing on screen to say why.
+//
+// It records its OWN run rather than reading testdata/last.pzr. That fixture
+// carries no settings of its own, so a replay of it runs whatever balance is
+// shipped today and the organisms it calls successful die somewhere in the
+// 1,567 cycles — which made this a test of the shipped BALANCE rather than of
+// the select mode, and it duly broke when the defaults changed. A recording
+// made here carries its own header, so the replay reproduces the run exactly
+// and "who was successful" means the same thing on both sides.
 func TestResumeMostSuccessfulAliveAtTargetCycle(t *testing.T) {
-	const targetCycle = 1567
+	loadShippedGlobals(t)
 
-	loadDefaultGlobalsFromDisk(t)
+	const targetCycle = 2000
+	path := filepath.Join(t.TempDir(), "successful.pzr")
 
-	fixture := filepath.Join("..", "testdata", "last.pzr")
-	opts := &config.Options{IsHeadless: true, ReplayFile: fixture}
+	recorded := simulation.NewSimulation(&config.Options{
+		IsHeadless:         true,
+		Seed:               53,
+		CheckpointInterval: 500,
+		CheckpointFile:     path,
+	})
+	for recorded.Cycle() < targetCycle && recorded.OrganismCount() > 0 {
+		recorded.Update()
+	}
+	recorded.CloseRecorder()
+	if recorded.OrganismCount() == 0 {
+		t.Skip("the recorded world died, so there is no successful lineage to find")
+	}
 
-	ctrl, err := NewController(fixture, opts)
+	ctrl, err := NewController(path, &config.Options{IsHeadless: true, ReplayFile: path})
 	if err != nil {
-		t.Skipf("skipping: cannot open %s: %v", fixture, err)
+		t.Fatalf("open the recording: %v", err)
 	}
 	defer ctrl.Close()
 
 	sim := ctrl.Simulation()
-	if sim.Cycle() > targetCycle {
-		t.Fatalf("target cycle %d is before first snapshot cycle %d", targetCycle, sim.Cycle())
-	}
-
 	sim.Pause(false)
 	for sim.Cycle() < targetCycle {
 		sim.Update()
 	}
 
-	living := sim.GetMostSuccessfulIds()
-	if len(living) == 0 {
+	if living := sim.GetMostSuccessfulIds(); len(living) == 0 {
 		t.Fatalf("at cycle %d: no organisms in most-successful set are alive (total alive=%d)",
 			targetCycle, sim.OrganismCount())
 	}

@@ -179,6 +179,7 @@ var (
 type LayeredFrames map[Layer]FrameSet
 
 var (
+	FontInversionz64    font.Face
 	FontInversionz40    font.Face
 	FontSourceCodePro12 font.Face
 	FontSourceCodePro10 font.Face
@@ -278,6 +279,7 @@ func spriteFromSet(images map[ImageRole]LayeredFrames, role ImageRole, layer Lay
 func initFonts() {
 	inversionz := loadFont("resources/fonts/Inversionz.ttf")
 	FontInversionz40 = fontFace(inversionz, 40)
+	FontInversionz64 = fontFace(inversionz, 64)
 	sourceCode := loadFont("resources/fonts/SourceCodePro-Regular.ttf")
 	FontSourceCodePro12 = fontFace(sourceCode, 12)
 	FontSourceCodePro10 = fontFace(sourceCode, 10)

@@ -82,7 +82,7 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 
 	for _, size := range []float64{1, 2, 10, 40, 100} {
 		for score := 1; score <= 100; score++ {
-			gain := HealthFromFood(g, MaxFoodPerEat(g, score, size))
+			gain := HealthFromFood(g, score, MaxFoodPerEat(g, score, size))
 			if gain <= cost(size) {
 				t.Fatalf("size %g at Eating %d: a full bite gains %.3f health but the attempt costs %.3f",
 					size, score, gain, cost(size))
@@ -97,7 +97,7 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 	// shipped bite floor that gap is only 1.9x. Demanding 2x here and "0
 	// does not pay" there is not satisfiable at any attempt cost.
 	const size = 10
-	margin := HealthFromFood(g, MaxFoodPerEat(g, 1, size)) / cost(size)
+	margin := HealthFromFood(g, 1, MaxFoodPerEat(g, 1, size)) / cost(size)
 	if margin <= 1 {
 		t.Errorf("at Eating 1 a full bite is %.2fx its attempt cost, so a successful eat is a net "+
 			"loss; raise health_per_food_unit or lower health_change_from_eating_attempt", margin)
@@ -109,7 +109,7 @@ func TestSuccessfulEatPaysForItsAttempt(t *testing.T) {
 	// score cannot eat AT ALL; a small floor says it can and should not
 	// bother. Either is fine; what is not is a free bite, which removes the
 	// reason to invest in the ability.
-	if zero := HealthFromFood(g, MaxFoodPerEat(g, 0, size)); zero > cost(size) {
+	if zero := HealthFromFood(g, 0, MaxFoodPerEat(g, 0, size)); zero > cost(size) {
 		t.Errorf("at Eating 0 a full bite returns %.4f against a %.4f attempt cost, "+
 			"so eating pays without investing in it", zero, cost(size))
 	}

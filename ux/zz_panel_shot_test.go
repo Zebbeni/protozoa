@@ -25,6 +25,14 @@ func TestPanelShot(t *testing.T) {
 		g.Theme = theme
 		config.SetGlobals(&g)
 	}
+	// PANEL_SHOT_NETS=1 renders the same four tabs for a world running on
+	// neural nets, where the third one is the BRAIN diagram rather than a
+	// printed decision tree.
+	if os.Getenv("PANEL_SHOT_NETS") == "1" {
+		g := *config.GetCurrentGlobals()
+		g.UseNeuralNets = true
+		config.SetGlobals(&g)
+	}
 	r.UseDirAssets("..")
 	r.Init()
 
@@ -37,7 +45,21 @@ func TestPanelShot(t *testing.T) {
 		}
 		cycles = n
 	}
-	sim := simulation.NewSimulation(&config.Options{Seed: 1})
+	// PANEL_SHOT_SEED picks the world. Worth having now that the panel can be
+	// shot in two: a seed that survives thousands of cycles on decision trees
+	// need not survive them on neural nets, and an empty world draws nothing.
+	seed := 1
+	if v := os.Getenv("PANEL_SHOT_SEED"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seed = n
+	}
+	// No checkpoints: this is a screenshot, not a recording, and the warm-up
+	// becomes I/O bound without it — a neural organism's snapshot record
+	// carries its whole net, which is kilobytes apiece.
+	sim := simulation.NewSimulation(&config.Options{Seed: seed, CheckpointInterval: 1 << 30})
 	for i := 0; i < cycles && sim.OrganismCount() > 0; i++ {
 		sim.Update()
 	}
@@ -45,13 +67,26 @@ func TestPanelShot(t *testing.T) {
 	if len(all) == 0 {
 		t.Fatal("no organisms survived the warm-up; nothing to draw")
 	}
-	// The largest one alive, so the size-scaled figures aren't all the same small number.
-	best, bestSize := -1, -1.0
+	// The largest one alive, so the size-scaled figures aren't all the same
+	// small number. PANEL_SHOT_PICK=brain picks the biggest NET instead,
+	// which is what the BRAIN tab's layout wants: the largest organism often
+	// carries a two-node brain, and a two-node brain says nothing about how
+	// a twenty-row diagram lays out.
+	byBrain := os.Getenv("PANEL_SHOT_PICK") == "brain"
+	best, bestScore := -1, -1.0
 	for id, info := range all {
-		if info.Size > bestSize {
-			best, bestSize = id, info.Size
+		score := info.Size
+		if byBrain {
+			score = 0
+			if net := sim.GetOrganismNeuralNetByID(id); net != nil {
+				score = float64(net.Nodes())
+			}
+		}
+		if score > bestScore {
+			best, bestScore = id, score
 		}
 	}
+	bestSize := all[best].Size
 	sim.Select(best)
 	t.Logf("selected organism %d, size %.1f", best, bestSize)
 
@@ -93,14 +128,15 @@ func (s *panelShot) Update() error {
 	return nil
 }
 
-const panelShotHeight = 460
-
 func (s *panelShot) Draw(screen *ebiten.Image) {
+	// A screen tall, because the BRAIN tab spreads its rows into what is left
+	// of the screen below it and this tile is what it is measuring against.
+	panelShotHeight := config.ScreenHeight()
 	// The dark theme clears to transparent rather than painting black.
-	flat := ebiten.NewImage(len(orgTabLabels)*panelWidth, panelShotHeight)
+	flat := ebiten.NewImage(len(orgTabLabels())*panelWidth, panelShotHeight)
 	flat.Fill(color.RGBA{A: 255})
 
-	for tab := range orgTabLabels {
+	for tab := range orgTabLabels() {
 		s.panel.selectedTab = tab
 		tile := ebiten.NewImage(panelWidth, panelShotHeight)
 		tile.Fill(themeBackgroundColor())

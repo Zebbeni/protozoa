@@ -200,7 +200,10 @@ func (m *ReplayMenu) activate(b replayMenuButton) {
 		m.pending = b.choice
 	case replayActionToggleMusic:
 		sound.Toggle()
-		c.SetMusicEnabled(sound.Enabled())
+		// The choice, not the effective state: on a build with no track the
+		// effective state is always off, and recording that would quietly
+		// turn the setting off for everyone switching it on.
+		c.SetMusicEnabled(sound.Preferred())
 	case replayActionSaveAs:
 		m.openNaming(namingRecording)
 	}

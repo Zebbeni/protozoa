@@ -74,7 +74,7 @@ func statColumns(g *config.Globals, info *organism.Info, traits organism.Traits,
 	right := []statRow{
 		// Two numbers, because eating is two quantities.
 		{label: "FOOD/EAT:", value: fmt.Sprintf("%.1f", maxEat)},
-		{label: "HP/EAT:", value: signedValue("%+.2f", effects.HealthFromFood(g, maxEat))},
+		{label: "HP/EAT:", value: signedValue("%+.2f", effects.HealthFromFood(g, scores[physiology.AbilityEating], maxEat))},
 		// Both are damage this organism deals, already multiplied by its own size.
 		{label: "ATK DMG:", value: fmt.Sprintf("%.2f", effects.AttackDamage(g, scores[physiology.AbilityAttack], size))},
 		{label: "DEF DMG:", value: fmt.Sprintf("%.2f", effects.ThornsDamage(g, scores[physiology.AbilityDefense], size))},

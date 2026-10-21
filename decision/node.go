@@ -199,6 +199,15 @@ func Deserialize(s string) (*Node, int) {
 		consumed += yesConsumed
 		no, noConsumed := Deserialize(s[consumed:])
 		consumed += noConsumed
+		// A condition with nothing to choose between cannot be walked, so a
+		// child that did not parse makes the whole node unusable. This used
+		// to read yes.size straight through and PANIC: a string that is
+		// truncated, or that was written by a build whose node codes differ
+		// from this one, crashed the process rather than failing to decode.
+		// Reachable from the UI by opening or seeking an old recording.
+		if yes == nil || no == nil {
+			return nil, 0
+		}
 		node.YesNode = yes
 		node.NoNode = no
 		node.size = 1 + yes.size + no.size

@@ -42,3 +42,46 @@ func TestSerializeRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestADamagedTreeFailsToDecodeRatherThanPanicking: a serialized tree can be
+// truncated, or can come from a build whose node codes differ from this one —
+// testdata/last.pzr holds both, and seeking it crashed the process on
+// yes.size of a child that never parsed. A brain that will not decode has to
+// report that, so the caller can drop the organism the way an unreadable
+// neural net already is.
+func TestADamagedTreeFailsToDecodeRatherThanPanicking(t *testing.T) {
+	full := TreeFromAction(ActChemosynthesis).Serialize()
+	root := NodeFromCondition(IsFoodAhead)
+	root.YesNode = NodeFromAction(ActEat)
+	root.NoNode = NodeFromAction(ActMove)
+	branching := TreeFromNode(root).Serialize()
+
+	for _, s := range []string{
+		"",                           // nothing at all
+		"9",                          // half a code
+		branching[:len(branching)-2], // a condition missing its No branch
+		branching[:2],                // a condition with neither branch
+		branching + "99",             // a trailing code this build does not know
+		"9999",                       // codes this build does not know at all
+	} {
+		// Deserialize may legitimately return a node and a short count — it
+		// is a recursive descent and reports what it consumed. It is
+		// DeserializeTree that has to reject the string.
+		if tree := DeserializeTree(s); tree != nil {
+			t.Errorf("DeserializeTree(%q) built a tree from a damaged string: %q",
+				s, tree.Serialize())
+		}
+	}
+
+	// And the undamaged ones still round-trip, so the guard did not simply
+	// start refusing everything.
+	for _, s := range []string{full, branching} {
+		tree := DeserializeTree(s)
+		if tree == nil {
+			t.Fatalf("DeserializeTree(%q) refused a tree this build wrote", s)
+		}
+		if got := tree.Serialize(); got != s {
+			t.Errorf("round trip of %q gave %q", s, got)
+		}
+	}
+}

@@ -107,9 +107,7 @@ func colorKeyFor(m mode, colorAbility physiology.Ability, colorAction d.Action) 
 				},
 				axis: [3]string{"none", fmt.Sprintf("%.0f%%", actionWeightCeiling*50), fmt.Sprintf("%.0f%%+", actionWeightCeiling*100)},
 			}},
-			note: "How dominant a role " + d.Map[colorAction] + " plays in the organism's decision tree, as a share of its action nodes. " +
-				"White is an organism taking the action right now, whatever its tree holds. " +
-				"So a dim organism that flares white is one acting on a branch it rarely reaches, and a steady mid-green one is built for the action without currently doing it.",
+			note: actionKeyNote(colorAction),
 		}
 	case orgColorSuccess:
 		return colorKey{
@@ -323,4 +321,25 @@ func colorfulToRGBA(c colorful.Color) color.RGBA {
 		return uint8(min(1, max(0, v))*254 + 0.5)
 	}
 	return color.RGBA{R: clamp(c.R), G: clamp(c.G), B: clamp(c.B), A: 255}
+}
+
+// actionKeyNote explains the ACTION ramp for whichever brain the world runs
+// on, because the number being coloured is not the same in the two.
+//
+// A tree's weight is how much of the TREE the action occupies, so an action
+// reached down three branches weighs three times one reached down one. A net
+// has no branch structure to weigh: every output is reachable from every
+// input, so its weight is a flat share of what it can choose at all, and an
+// organism is either able to take the action or not. The white half means the
+// same thing in both.
+func actionKeyNote(a d.Action) string {
+	if c.UseNeuralNets() {
+		return "How large a share of what this organism can choose at all is " + d.Map[a] + ". " +
+			"A neural net has no branches to weigh, so every action it can output counts equally: " +
+			"the fewer actions an organism has evolved, the greener each one reads. " +
+			"White is an organism taking the action right now, whatever its net holds."
+	}
+	return "How dominant a role " + d.Map[a] + " plays in the organism's decision tree, as a share of its action nodes. " +
+		"White is an organism taking the action right now, whatever its tree holds. " +
+		"So a dim organism that flares white is one acting on a branch it rarely reaches, and a steady mid-green one is built for the action without currently doing it."
 }

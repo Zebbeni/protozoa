@@ -11,6 +11,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/manager"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simulation"
 )
@@ -110,6 +111,7 @@ func recordedGlobals(header checkpoint.FileHeader) config.Globals {
 	g.GridUnitsHigh = header.GridUnitsHigh
 	g.ScreenWidth, g.ScreenHeight = current.ScreenWidth, current.ScreenHeight
 	g.Theme, g.PhColorScheme = current.Theme, current.PhColorScheme
+	g.Music = current.Music
 	return g
 }
 
@@ -168,29 +170,68 @@ func (c *Controller) pushRing() {
 }
 
 // StepBackward rolls the playback back exactly one cycle.
+//
+// It restores the cycle BEFORE the target and plays that cycle, rather than
+// restoring the target itself. A snapshot carries what the world IS, not what
+// each brain was computing when it chose its action: a net's activations are
+// display state filled in by Choose, so a state restored without playing a
+// cycle leaves the panel's SIGNAL view with nothing flowing through the net
+// and the health ledger with no cycle to report, until some later cycle fills
+// them in. The replayed cycle is the one that was recorded, since the restore
+// carries the rng with it.
 func (c *Controller) StepBackward() bool {
 	target := c.sim.Cycle() - 1
 	if target < 0 {
 		return false
 	}
-	if snap, ok := c.ring.Lookup(target); ok {
-		if err := c.sim.ResetFromSnapshot(snap); err == nil {
-			if c.trees != nil {
-				c.sim.InstallDescendantTrees(c.trees)
-			}
-			if c.historyPayload != nil {
-				c.sim.RestoreHistory(c.historyPayload)
-			}
-			c.AnimState.Frames = map[int]animation.Frame{}
-			c.AnimState.ResetClock()
-			c.SeekCount++
+	if target > 0 {
+		if snap, ok := c.ringLookup(target - 1); ok && c.restoreRingState(snap) {
+			c.replayOneCycle()
 			return true
 		}
+	}
+	if snap, ok := c.ringLookup(target); ok && c.restoreRingState(snap) {
+		return true
 	}
 	if err := c.SeekToCycle(target); err != nil {
 		return false
 	}
 	return true
+}
+
+func (c *Controller) ringLookup(cycle int) (*checkpoint.SnapshotPayload, bool) {
+	if c.ring == nil {
+		return nil, false
+	}
+	return c.ring.Lookup(cycle)
+}
+
+// restoreRingState puts the simulation back to one of the ring's states and
+// reinstalls the sections a restore drops.
+func (c *Controller) restoreRingState(snap *checkpoint.SnapshotPayload) bool {
+	if err := c.sim.ResetFromSnapshot(snap); err != nil {
+		return false
+	}
+	if c.trees != nil {
+		c.sim.InstallDescendantTrees(c.trees)
+	}
+	if c.historyPayload != nil {
+		c.sim.RestoreHistory(c.historyPayload)
+	}
+	c.AnimState.Frames = map[int]animation.Frame{}
+	c.AnimState.ResetClock()
+	c.SeekCount++
+	return true
+}
+
+// replayOneCycle plays the cycle the restored state stands in front of. No
+// animation batch is captured: a step backward is not a transition to animate.
+func (c *Controller) replayOneCycle() {
+	wasPaused := c.sim.IsPaused()
+	c.sim.Pause(false)
+	c.sim.Update()
+	c.sim.Pause(wasPaused)
+	c.pushRing()
 }
 
 func (c *Controller) SeekToSnapshot(index int) error {
@@ -229,6 +270,13 @@ func (c *Controller) SeekToCycle(target int) error {
 		} else {
 			break
 		}
+	}
+	// A snapshot landing exactly on the target would play no cycles at all,
+	// which leaves every per-cycle reading empty — see StepBackward. Starting
+	// one snapshot earlier costs an interval of forward play and is the only
+	// way to arrive with the target cycle actually played.
+	if bestIdx > 0 && c.snapshots[bestIdx].Cycle == target {
+		bestIdx--
 	}
 
 	if err := c.SeekToSnapshot(bestIdx); err != nil {
@@ -318,10 +366,13 @@ func (c *Controller) EnableAutoSpeed(unitSize int) {
 
 // ReconstructionResult is the panel-relevant snapshot of an organism reconstructed from an earlier point in the recording.
 type ReconstructionResult struct {
-	Info         *organism.Info
-	Traits       organism.Traits
-	TraitsValid  bool
+	Info        *organism.Info
+	Traits      organism.Traits
+	TraitsValid bool
+	// Exactly one of DecisionTree and Net carries the organism's brain, the
+	// same split the snapshot it came from holds.
 	DecisionTree *d.Tree
+	Net          *neural.Net
 	Err          error
 }
 
@@ -365,6 +416,7 @@ func (c *Controller) ReconstructOrganismAt(targetCycle, orgID int) Reconstructio
 	res := ReconstructionResult{
 		Info:         sim.GetOrganismInfoByID(orgID),
 		DecisionTree: sim.GetOrganismDecisionTreeByID(orgID),
+		Net:          sim.GetOrganismNeuralNetByID(orgID),
 	}
 	res.Traits, res.TraitsValid = sim.GetOrganismTraitsByID(orgID)
 	return res

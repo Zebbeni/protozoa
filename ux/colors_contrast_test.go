@@ -68,6 +68,15 @@ func TestThemedInksStayLegible(t *testing.T) {
 		{"themedOK", themedOK, nil},
 		{"themedBad", themedBad, nil},
 		{"themedSelectedInk", themedSelectedInk, themedSelectedRow},
+		// The lit brain label is drawn over its own plate rather than over
+		// the window, and the pair is reversed between the themes, which is
+		// exactly the arrangement that goes wrong when one theme is assumed.
+		{"brainLitPlateInk", func() color.RGBA { return brainLitPlateInk(false) },
+			func() color.RGBA { return brainLitPlateFill(false) }},
+		{"brainLitPlateInk (dead)", func() color.RGBA {
+			return overBackground(brainLitPlateInk(true), overBackground(brainLitPlateFill(true), backgroundRGBA()))
+		},
+			func() color.RGBA { return overBackground(brainLitPlateFill(true), backgroundRGBA()) }},
 	}
 
 	for _, theme := range []string{"dark", "light"} {
@@ -84,6 +93,17 @@ func TestThemedInksStayLegible(t *testing.T) {
 			}
 		}
 	}
+}
+
+// overBackground composites a premultiplied colour onto an opaque one, which
+// is what a partly transparent ink or plate actually reaches the screen as —
+// a dead organism's panel draws both of those faded.
+func overBackground(c, bg color.RGBA) color.RGBA {
+	a := uint32(c.A)
+	mix := func(fg, under uint8) uint8 {
+		return uint8(uint32(fg) + uint32(under)*(255-a)/255)
+	}
+	return color.RGBA{R: mix(c.R, bg.R), G: mix(c.G, bg.G), B: mix(c.B, bg.B), A: 255}
 }
 
 // minSurfaceContrast is what a *surface* has to clear — a slider track, a selection band, a small button's fill.
@@ -104,6 +124,7 @@ func TestThemedSurfacesAreDistinguishable(t *testing.T) {
 		{"themedTrack", themedTrack, nil},
 		{"themedTrackFill", themedTrackFill, themedTrack},
 		{"themedTrackHandle", themedTrackHandle, themedTrackFill},
+		{"brainLitPlateFill", func() color.RGBA { return brainLitPlateFill(false) }, nil},
 	}
 
 	for _, theme := range []string{"dark", "light"} {

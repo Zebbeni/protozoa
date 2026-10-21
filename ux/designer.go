@@ -636,7 +636,25 @@ func (dz *Designer) drawTreeColumn(screen *ebiten.Image, x, y, w int) {
 	text.Draw(screen, fmt.Sprintf("DECISION TREE   %d / %d nodes", dz.treeSize(), c.MaxDecisionTreeSize()),
 		r.FontSourceCodePro10, x, y+12, themedForegroundDim())
 	y += designerRowH
+	// A design describes a tree, and a simulation running on neural nets has
+	// no use for one: it takes the traits and gives every founder the same
+	// minimal net. Said here rather than left to be discovered, since the
+	// editor below otherwise looks like it is deciding behaviour.
+	if c.UseNeuralNets() {
+		for _, line := range designerNeuralNote {
+			text.Draw(screen, line, r.FontSourceCodePro10, x, y+12, themedMuted())
+			y += designerRowH
+		}
+	}
 	dz.drawTreeNode(screen, dz.tree, x, &y, w, 0, "")
+}
+
+// designerNeuralNote is what the tree editor says in a world running on
+// neural nets. Two short lines rather than one long one, since the column is
+// the width of a tree row.
+var designerNeuralNote = []string{
+	"(Neural nets are on: a founder from this design",
+	" takes its traits and starts from a blank net.)",
 }
 
 // drawTreeNode paints one node and its branches, depth-first, so the shape on screen is the shape of the tree.

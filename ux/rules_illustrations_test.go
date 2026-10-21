@@ -1,7 +1,9 @@
 package ux
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -599,5 +601,118 @@ func TestTheFoodPictureFitsThePanel(t *testing.T) {
 		if pile.surface > config.MaxFoodValue() {
 			t.Errorf("a pile of %d is past the %d a cell can hold", pile.surface, config.MaxFoodValue())
 		}
+	}
+}
+
+// TestTheExampleNetIsTheOneTheRulesDescribe: the paragraph beside the diagram
+// quotes all three output scores and says which action wins, and the diagram
+// draws those same numbers down its right-hand side. A weight edited in
+// exampleNet without the prose following it leaves the page describing a
+// picture it is not showing, which nothing else would catch.
+func TestTheExampleNetIsTheOneTheRulesDescribe(t *testing.T) {
+	loadKeyGlobals(t)
+	b := newRulesNeuralBlock()
+
+	if b.acting != d.ActEat {
+		t.Errorf("the example net chose %v; the rules say it eats", b.acting)
+	}
+
+	prose := rulesProse(t)
+	values := b.net.LastOutputs()
+	for i, a := range b.net.Outputs() {
+		// The same formatting drawBrainOutputLabels writes beside each action.
+		shown := fmt.Sprintf("%.2f", values[i])
+		if !strings.Contains(prose, shown) {
+			t.Errorf("the diagram shows %v scoring %s and the rules never say so", a, shown)
+		}
+	}
+}
+
+// TestTheExampleNetIsThreeTwoThree: the shape is what the section is showing —
+// a column of conditions, a hidden column narrower than it, and a column of
+// actions — so a net that grew or lost one would make the paragraph about
+// "every condition feeds every unit" harder to read, not easier.
+func TestTheExampleNetIsThreeTwoThree(t *testing.T) {
+	net := exampleNet()
+	if got := len(net.Inputs()); got != 3 {
+		t.Errorf("the example net reads %d conditions, want 3", got)
+	}
+	if got := net.LayerSizes(); len(got) != 2 || got[0] != 2 || got[1] != 3 {
+		t.Errorf("the example net's columns are %v, want one hidden layer of 2 and 3 outputs", got)
+	}
+	if got := len(net.Outputs()); got != 3 {
+		t.Errorf("the example net can choose between %d actions, want 3", got)
+	}
+}
+
+// TestTheExampleNetShowsALitAndAnUnlitInput: the diagram reverses a condition
+// reading true out of a filled plate, so a reading where all three were true
+// would show three identical plates and teach nothing about what lit means.
+func TestTheExampleNetShowsALitAndAnUnlitInput(t *testing.T) {
+	b := newRulesNeuralBlock()
+	values := b.net.Activations(0)
+	lit := 0
+	for _, v := range values {
+		if v != 0 {
+			lit++
+		}
+	}
+	if lit == 0 || lit == len(values) {
+		t.Errorf("%d of the %d conditions read true; the picture needs both states", lit, len(values))
+	}
+}
+
+// TestTheExampleNetUsesBothSigns: blue adds and red takes away, and the
+// paragraph says so, so the picture has to contain a weight of each sign.
+func TestTheExampleNetUsesBothSigns(t *testing.T) {
+	net := exampleNet()
+	var positive, negative bool
+	cols := append([]int{len(net.Inputs())}, net.LayerSizes()...)
+	for layer := 0; layer < len(cols)-1; layer++ {
+		for unit := 0; unit < cols[layer+1]; unit++ {
+			for prev := 0; prev < cols[layer]; prev++ {
+				switch w := net.WeightAt(layer, unit, prev); {
+				case w > 0:
+					positive = true
+				case w < 0:
+					negative = true
+				}
+			}
+		}
+	}
+	if !positive || !negative {
+		t.Errorf("the example net has positive weights: %v, negative weights: %v; it needs both",
+			positive, negative)
+	}
+}
+
+// TestTheNeuralCaptionNamesTheNetsOwnShape: the caption under the diagram
+// counts the columns in words, so it is the one part of the picture that can
+// be wrong without looking wrong. Every number in it is built from the net
+// here rather than read, so editing exampleNet without the caption following
+// it fails.
+func TestTheNeuralCaptionNamesTheNetsOwnShape(t *testing.T) {
+	loadKeyGlobals(t)
+	r.UseDirAssets("..")
+	r.Init()
+	b := newRulesNeuralBlock()
+
+	cols := b.net.LayerSizes()
+	hidden := cols[:len(cols)-1]
+	if len(hidden) != 1 {
+		t.Fatalf("the net has %d hidden layers; the caption says a single one", len(hidden))
+	}
+	for _, want := range []string{
+		fmt.Sprintf("%d inputs", len(b.net.Inputs())),
+		fmt.Sprintf("%d-node layer", hidden[0]),
+		fmt.Sprintf("%d outputs", len(b.net.Outputs())),
+	} {
+		if !strings.Contains(b.caption, want) {
+			t.Errorf("the caption does not say %q: %q", want, b.caption)
+		}
+	}
+
+	if w := boundString(r.FontSourceCodePro8, b.caption).Dx(); w > rulesPanelW {
+		t.Errorf("the caption is %dpx against a %dpx panel: %q", w, rulesPanelW, b.caption)
 	}
 }

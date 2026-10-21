@@ -3,11 +3,13 @@ package simulation
 import (
 	"fmt"
 	"image/color"
+	"log"
 
 	"github.com/Zebbeni/protozoa/checkpoint"
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/manager"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
@@ -146,7 +148,30 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*o
 		Abilities:              abilities,
 	}
 
-	tree := d.DeserializeTree(rec.DecisionTree)
+	// A record carries one brain or the other. A net that will not decode is
+	// not recoverable as a tree either, so the organism is dropped rather
+	// than restored with a brain that is not the one recorded.
+	var tree *d.Tree
+	var net *neural.Net
+	if len(rec.Brain) > 0 {
+		decoded, err := neural.Decode(rec.Brain)
+		if err != nil {
+			log.Printf("replay: organism %d has an unreadable neural net (%v); dropping it", rec.ID, err)
+			return nil, false
+		}
+		net = decoded
+	} else {
+		tree = d.DeserializeTree(rec.DecisionTree)
+		// The same answer the net branch above gives, for the same reason: a
+		// brain that will not decode is not the brain that was recorded, and
+		// an organism restored without one would act on nothing. It used to
+		// pass the nil straight through.
+		if tree == nil && rec.DecisionTree != "" {
+			log.Printf("replay: organism %d has an unreadable decision tree (%q); dropping it",
+				rec.ID, rec.DecisionTree)
+			return nil, false
+		}
+	}
 
 	o := organism.Restore(
 		int(rec.ID), int(rec.Age), rec.Health, rec.Size, int(rec.Children),
@@ -154,7 +179,7 @@ func recordToOrganism(rec checkpoint.OrganismRecord, api organism.LookupAPI) (*o
 		utils.Point{X: int(rec.LocationX), Y: int(rec.LocationY)},
 		utils.Point{X: int(rec.DirectionX), Y: int(rec.DirectionY)},
 		int(rec.OriginalAncestorID),
-		traits, tree, d.Action(rec.CurrentAction), organism.Status(rec.Status),
+		traits, tree, net, d.Action(rec.CurrentAction), organism.Status(rec.Status),
 		int(rec.AttackTotal), int(rec.AttackHits),
 		rec.PhPositive, rec.PhNegative,
 		api,

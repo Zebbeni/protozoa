@@ -28,6 +28,7 @@ func (g *Globals) Repair() {
 	g.repairWallBreak()
 	g.repairDecisionNodes()
 	g.repairMutationWeights()
+	g.repairNeuralNet()
 	g.repairChemoPhWidth()
 }
 
@@ -45,10 +46,12 @@ var settingSigns = map[string]int{
 	"health_change_from_attacking":             -1,
 	"health_change_from_digging":               -1,
 	"health_change_from_blocked_move":          -1,
+	"health_change_per_brain_node":             -1,
 	"health_change_inflicted_by_attack":        1,
 	"health_change_inflicted_by_thorns":        1,
 	"max_chemosynthesis_gain":                  1,
 	"health_per_food_unit":                     1,
+	"health_per_food_unit_at_zero":             1,
 	"unhealthy_ph_damage":                      1,
 	"chemo_ph_effect":                          1,
 	"eating_ph_effect":                         1,
@@ -136,6 +139,44 @@ func (g *Globals) repairMutationWeights() {
 	if g.MutationWeightSwapCondition+g.MutationWeightPruneBranch == 0 {
 		g.MutationWeightSwapCondition = DefaultMutationWeight
 		g.MutationWeightPruneBranch = DefaultMutationWeight
+	}
+}
+
+// DefaultNeuralNetWidth and DefaultNeuralNetDepth are what a settings file
+// or replay header written before the nets existed decodes to: 0 and 0,
+// which would be a net that cannot hold a hidden layer at all. They are
+// filled in only when BOTH are zero, so a user who deliberately wants a
+// depth of 0 (inputs wired straight to outputs) says so with a width.
+const (
+	DefaultNeuralNetWidth = 8
+	DefaultNeuralNetDepth = 2
+)
+
+// repairNeuralNet fills in the shape caps and the mutation weights for a
+// file written before the nets existed. It does NOT touch UseNeuralNets:
+// absent means false, which is the decision-tree world every recording
+// already on disk was made in.
+func (g *Globals) repairNeuralNet() {
+	if g.MaxNeuralNetWidth == 0 && g.MaxNeuralNetDepth == 0 {
+		g.MaxNeuralNetWidth = DefaultNeuralNetWidth
+		g.MaxNeuralNetDepth = DefaultNeuralNetDepth
+	}
+	// All of them at zero is the absent case; a user zeroing one kind to hold
+	// it back keeps that. Tested on the whole set rather than per pair,
+	// because every kind is drawn from one pool — a net has no counterpart to
+	// the tree's split between what an action node and a condition node may
+	// become.
+	if g.MutationWeightAddInput+g.MutationWeightRemoveInput+
+		g.MutationWeightAddOutput+g.MutationWeightRemoveOutput+
+		g.MutationWeightAddLayer+g.MutationWeightWidenLayer+
+		g.MutationWeightNarrowLayer == 0 {
+		g.MutationWeightAddInput = DefaultMutationWeight
+		g.MutationWeightRemoveInput = DefaultMutationWeight
+		g.MutationWeightAddOutput = DefaultMutationWeight
+		g.MutationWeightRemoveOutput = DefaultMutationWeight
+		g.MutationWeightAddLayer = DefaultMutationWeight
+		g.MutationWeightWidenLayer = DefaultMutationWeight
+		g.MutationWeightNarrowLayer = DefaultMutationWeight
 	}
 }
 
@@ -270,6 +311,23 @@ func MaxLifespan() int                     { return constants.MaxLifespan }
 func InitialDecisionTreeMutations() int   { return constants.InitialDecisionTreeMutations }
 func ChanceToMutateDecisionTree() float64 { return constants.ChanceToMutateDecisionTree }
 func MaxDecisionTreeSize() int            { return constants.MaxDecisionTreeSize }
+
+// --- Neural nets ---
+func UseNeuralNets() bool                 { return constants.UseNeuralNets }
+func MaxNeuralNetWidth() int              { return constants.MaxNeuralNetWidth }
+func MinNeuralNetInputs() int             { return constants.MinNeuralNetInputs }
+func MaxNeuralNetDepth() int              { return constants.MaxNeuralNetDepth }
+func ChanceToMutateNeuralNet() float64    { return constants.ChanceToMutateNeuralNet }
+func NeuralWeightMutationStep() float64   { return constants.NeuralWeightMutationStep }
+func InitialNeuralNetMutations() int      { return constants.InitialNeuralNetMutations }
+func MutationWeightAddInput() float64     { return constants.MutationWeightAddInput }
+func MutationWeightRemoveInput() float64  { return constants.MutationWeightRemoveInput }
+func MutationWeightAddOutput() float64    { return constants.MutationWeightAddOutput }
+func MutationWeightRemoveOutput() float64 { return constants.MutationWeightRemoveOutput }
+func MutationWeightAddLayer() float64     { return constants.MutationWeightAddLayer }
+func MutationWeightWidenLayer() float64   { return constants.MutationWeightWidenLayer }
+func MutationWeightNarrowLayer() float64  { return constants.MutationWeightNarrowLayer }
+func HealthChangePerBrainNode() float64   { return constants.HealthChangePerBrainNode }
 
 // --- Health Changes --- Per-action costs/gains paid by the actor; size-scaled at the apply site.
 func MaxChemosynthesisGain() float64         { return constants.MaxChemosynthesisGain }
@@ -478,8 +536,10 @@ type Globals struct {
 	MaxFoodPerEatAtFullEating float64 `json:"max_bite_at_full_eating"`
 	// MaxFoodPerEatAtZeroEating is what one bite takes at 0 Eating.
 	MaxFoodPerEatAtZeroEating float64 `json:"max_bite_at_zero_eating"`
-	// HealthPerFoodUnit is the health one unit of food is worth to whoever eats it.
+	// HealthPerFoodUnit is the health one unit of food is worth at full Eating: how well a specialist digests it.
 	HealthPerFoodUnit float64 `json:"health_per_food_unit"`
+	// HealthPerFoodUnitAtZero is what one unit of food is worth at 0 Eating.
+	HealthPerFoodUnitAtZero float64 `json:"health_per_food_unit_at_zero"`
 	// EatingGrowthFactor is the share of health gained from eating, beyond an organism's current size, that turns into growth.
 	EatingGrowthFactor float64 `json:"eating_growth_factor"`
 	MaximumMaxSize     float64 `json:"maximum_max_size"`
@@ -518,6 +578,11 @@ type Globals struct {
 	HealthChangeFromDigging        float64 `json:"health_change_from_digging"`
 	// HealthChangeFromBlockedMove is charged on top of the move cost, per unit of size, when an organism walks into something that was already there.
 	HealthChangeFromBlockedMove float64 `json:"health_change_from_blocked_move"`
+	// HealthChangePerBrainNode is the upkeep one node of a neural net costs
+	// per cycle, per unit of size — the price of running a bigger brain.
+	// Charged every cycle whatever the organism does, like pH damage, and
+	// only in a world running on nets.
+	HealthChangePerBrainNode float64 `json:"health_change_per_brain_node"`
 	// AttackDamageAtFullAttack is the damage an attacker with 100 Attack deals per unit of its size, before the target's Defense.
 	AttackDamageAtFullAttack float64 `json:"health_change_inflicted_by_attack"`
 	// AttackDamageAtZeroAttack is the damage an attack deals at 0 Attack.
@@ -547,13 +612,15 @@ type Globals struct {
 	TeethMouthThreshold    int `json:"teeth_mouth_threshold"`
 	FangsMouthThreshold    int `json:"fangs_mouth_threshold"`
 	TusksMouthThreshold    int `json:"tusks_mouth_threshold"`
-	// SensorMinConditions is how many conditions of one sense category a decision tree must contain before the matching sensor overlay is drawn.
+	// SensorMinConditions is how many reads of one sense category a brain must lean on before the matching sensor overlay is drawn: nodes for a decision tree, shares of the average weight leaving an input for a neural net.
 	SensorMinConditions int `json:"sensor_min_conditions"`
 
 	ChemosynthesisCosineK      float64 `json:"chemosynthesis_cosine_k"`
 	ChemosynthesisSaturatingK  float64 `json:"chemosynthesis_saturating_k"`
 	EatingCosineK              float64 `json:"eating_cosine_k"`
 	EatingSaturatingK          float64 `json:"eating_saturating_k"`
+	EatingDigestionCosineK     float64 `json:"eating_digestion_cosine_k"`
+	EatingDigestionSaturatingK float64 `json:"eating_digestion_saturating_k"`
 	MovementCostCosineK        float64 `json:"movement_cost_cosine_k"`
 	MovementCostSaturatingK    float64 `json:"movement_cost_saturating_k"`
 	DiggingCostCosineK         float64 `json:"digging_cost_cosine_k"`
@@ -581,6 +648,7 @@ type Globals struct {
 
 	ChemosynthesisCurveShape  string `json:"chemosynthesis_curve_shape"`
 	EatingCurveShape          string `json:"eating_curve_shape"`
+	EatingDigestionCurveShape string `json:"eating_digestion_curve_shape"`
 	MovementCostCurveShape    string `json:"movement_cost_curve_shape"`
 	DiggingCostCurveShape     string `json:"digging_cost_curve_shape"`
 	DiggingStrengthCurveShape string `json:"digging_strength_curve_shape"`
@@ -633,6 +701,51 @@ type Globals struct {
 	MutationWeightGrowBranch    float64 `json:"mutation_weight_grow_branch"`
 	MutationWeightSwapCondition float64 `json:"mutation_weight_swap_condition"`
 	MutationWeightPruneBranch   float64 `json:"mutation_weight_prune_branch"`
+
+	// --- Neural nets ---
+	// UseNeuralNets swaps every organism's decision tree for a feed-forward
+	// network. A whole-world choice rather than a per-organism one: the two
+	// brains mutate differently and comparing lineages across them would be
+	// comparing two simulations.
+	UseNeuralNets bool `json:"use_neural_nets"`
+	// MaxNeuralNetWidth is the most units one HIDDEN layer may hold, and
+	// MaxNeuralNetDepth the most hidden layers. Inputs and outputs are
+	// bounded by their own pools instead, since a net cannot wire a
+	// condition or an action twice.
+	MaxNeuralNetWidth int `json:"max_neural_net_width"`
+	MaxNeuralNetDepth int `json:"max_neural_net_depth"`
+	// MinNeuralNetInputs is the fewest conditions a net may be left reading.
+	// Mutation will not remove an input below it and a founder starts at it,
+	// so no lineage can arrive at a brain that senses nothing and repeats one
+	// action whatever the world does. 0 is no floor, which is what a settings
+	// file written before this decodes to.
+	MinNeuralNetInputs int `json:"min_neural_net_inputs"`
+	// ChanceToMutateNeuralNet is the chance a child's net gains a structural
+	// change: an input, an output, a layer or a unit.
+	ChanceToMutateNeuralNet float64 `json:"chance_to_mutate_neural_net"`
+	// NeuralWeightMutationStep is how far each weight and bias may drift on
+	// every birth, either way. Unlike the structural change this is not a
+	// chance — it is the "small mutations" a lineage's weights arrive by.
+	NeuralWeightMutationStep float64 `json:"neural_weight_mutation_step"`
+	// InitialNeuralNetMutations is how many structural mutations a FOUNDER's
+	// net starts with, the net counterpart of
+	// initial_organism_decision_tree_mutations.
+	InitialNeuralNetMutations int `json:"initial_neural_net_mutations"`
+	// The relative likelihood of each kind of structural mutation. A kind
+	// that cannot apply — every condition already wired, the depth cap
+	// reached — is left out of the draw rather than wasting the mutation.
+	//
+	// Three of them come in add/remove pairs. Without the removals a net can
+	// only ever get bigger, so every lineage marches to the whole condition
+	// pool and pays the upkeep for all of it; the per-node cost can then only
+	// kill a world, never prune a brain.
+	MutationWeightAddInput     float64 `json:"mutation_weight_add_input"`
+	MutationWeightRemoveInput  float64 `json:"mutation_weight_remove_input"`
+	MutationWeightAddOutput    float64 `json:"mutation_weight_add_output"`
+	MutationWeightRemoveOutput float64 `json:"mutation_weight_remove_output"`
+	MutationWeightAddLayer     float64 `json:"mutation_weight_add_layer"`
+	MutationWeightWidenLayer   float64 `json:"mutation_weight_widen_layer"`
+	MutationWeightNarrowLayer  float64 `json:"mutation_weight_narrow_layer"`
 	// Food a dig roots up in the cell ahead when it isn't a wall or occupied.
 	FoodFromDiggingSmall  int `json:"food_from_digging_small"`
 	FoodFromDiggingMedium int `json:"food_from_digging_medium"`

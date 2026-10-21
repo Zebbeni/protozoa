@@ -9,6 +9,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
 
 	c "github.com/Zebbeni/protozoa/config"
 	r "github.com/Zebbeni/protozoa/resources"
@@ -23,6 +24,7 @@ const (
 	MenuChoiceLoadRecording
 	MenuChoiceDesigner
 	MenuChoiceRules
+	MenuChoiceAbout
 	MenuChoiceExit
 )
 
@@ -56,7 +58,9 @@ func menuButtonsFor(files, canExit bool) []menuButton {
 			menuButton{"Saved Recordings", MenuChoiceLoadRecording},
 			menuButton{"Organism Designer", MenuChoiceDesigner})
 	}
-	out = append(out, menuButton{"About", MenuChoiceRules})
+	// Two documents, two entries: Rules is how the world works, About is who
+	// made it. Rules carried the About label while it was the only one.
+	out = append(out, menuButton{"Rules", MenuChoiceRules}, menuButton{"About", MenuChoiceAbout})
 	if canExit {
 		out = append(out, menuButton{"Exit", MenuChoiceExit})
 	}
@@ -113,9 +117,15 @@ func (m *MainMenu) Draw(screen *ebiten.Image) {
 	}
 }
 
-// drawTitle paints the menu title using the same Inversionz face the replay panel uses for its top-left "protozoa" label, drawn at native size for an unambiguous "this is the same UI" cue.
+// mainMenuTitleFace is the menu's own display size, bigger than the 40pt the
+// replay panel and the splash draw "protozoa" at: the menu has a screen to
+// itself where those two share theirs. A function because resources.initFonts
+// runs after package-level vars are initialised.
+func mainMenuTitleFace() font.Face { return r.FontInversionz64 }
+
+// drawTitle paints the menu title in the same Inversionz face the replay panel uses for its top-left "protozoa" label.
 func (m *MainMenu) drawTitle(screen *ebiten.Image) {
-	face := r.FontInversionz40
+	face := mainMenuTitleFace()
 	bounds := boundString(face, mainMenuTitle)
 	tx := (c.ScreenWidth() - bounds.Dx()) / 2
 	ty := m.titleY()
@@ -124,7 +134,7 @@ func (m *MainMenu) drawTitle(screen *ebiten.Image) {
 
 // titleY returns the baseline-y coordinate of the title so the title + gap + button stack renders vertically centred on screen.
 func (m *MainMenu) titleY() int {
-	titleH := boundString(r.FontInversionz40, mainMenuTitle).Dy()
+	titleH := boundString(mainMenuTitleFace(), mainMenuTitle).Dy()
 	totalH := titleH + mainMenuTitleGap +
 		len(mainMenuButtons)*mainMenuButtonH + (len(mainMenuButtons)-1)*mainMenuGap
 	top := (c.ScreenHeight() - totalH) / 2

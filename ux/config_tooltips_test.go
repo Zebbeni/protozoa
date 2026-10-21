@@ -13,6 +13,9 @@ func TestEveryConfigFieldHasTooltip(t *testing.T) {
 			if field.row == rowCurveGraph || field.row == rowWallPhGraph {
 				continue // a graph explains itself, and has no label to hover
 			}
+			if field.row == rowAbilityWarning {
+				continue // the warning IS the explanation, and edits no setting
+			}
 			if tooltipFor(field) == "" {
 				t.Errorf("%s: %q has no tooltip", section.title, field.label)
 			}

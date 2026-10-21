@@ -13,6 +13,7 @@ const (
 	HealthFromFood
 	HealthFromPredation // fed back from a hit this organism landed
 	HealthFromSpawn
+	HealthFromBrain // per-cycle upkeep of a neural net, by node count
 	healthSourceCount
 )
 
@@ -26,6 +27,7 @@ var AllHealthSources = []HealthSource{
 	HealthFromFood,
 	HealthFromPredation,
 	HealthFromSpawn,
+	HealthFromBrain,
 }
 
 // MaxConcurrentHealthSources is how many of the sources can be non-zero on
@@ -33,13 +35,17 @@ var AllHealthSources = []HealthSource{
 // list.
 //
 // An organism takes one action a cycle, and that is what bounds it: the pH
-// cost and the action's own cost are always available, being attacked and
-// spawning are independent of what it chose, and the action itself
-// contributes either thorns and predation (it attacked) or one of
-// chemosynthesis and eating. Six. Measured over 5.4M organism-cycles the
-// most ever seen together is five — hit, thorns, ph, act, prey — and
+// cost, the action's own cost and — in a world running on neural nets — the
+// brain's upkeep are always available, being attacked and spawning are
+// independent of what it chose, and the action itself contributes either
+// thorns and predation (it attacked) or one of chemosynthesis and eating.
+// Seven. Measured over 5.4M organism-cycles on decision trees the most ever
+// seen together is five — hit, thorns, ph, act, prey — and
 // TestNoCycleMovesMoreSourcesThanThePanelReserves is the live-world guard.
-const MaxConcurrentHealthSources = 6
+//
+// It was six before the nets: brain upkeep is charged every cycle, so a net
+// world adds one to whatever a tree world reaches.
+const MaxConcurrentHealthSources = 7
 
 var healthSourceLabels = [healthSourceCount]string{
 	HealthFromAttack:    "hit",
@@ -50,6 +56,7 @@ var healthSourceLabels = [healthSourceCount]string{
 	HealthFromFood:      "eat",
 	HealthFromPredation: "prey",
 	HealthFromSpawn:     "spawn",
+	HealthFromBrain:     "brain",
 }
 
 func (s HealthSource) Label() string {

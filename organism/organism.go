@@ -9,6 +9,7 @@ import (
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
@@ -60,7 +61,12 @@ type Organism struct {
 
 	traits Traits
 
+	// Exactly one of decisionTree and net is set, decided for the whole world
+	// by `use_neural_nets` rather than per organism: the two mutate
+	// differently, so a world holding both would be two simulations whose
+	// lineages could not be compared.
 	decisionTree *d.Tree
+	net          *neural.Net
 	action       d.Action
 	// Status is the resolved outcome of the most recent apply* pass — see the Status enum.
 	Status Status
@@ -89,9 +95,15 @@ func (o *Organism) Appearance() physiology.Appearance {
 // NewRandom initializes organism at with random grid location and direction
 func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Organism {
 	traits := newRandomTraits(rng)
-	decisionTree := d.TreeFromAction(d.ActChemosynthesis)
-	for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
-		decisionTree = d.MutateTree(rng, decisionTree)
+	var decisionTree *d.Tree
+	var net *neural.Net
+	if c.UseNeuralNets() {
+		net = NewFounderNet(rng)
+	} else {
+		decisionTree = d.TreeFromAction(d.ActChemosynthesis)
+		for mutations := 0; mutations < c.InitialDecisionTreeMutations(); mutations++ {
+			decisionTree = d.MutateTree(rng, decisionTree)
+		}
 	}
 	organism := Organism{
 		ID:                   id,
@@ -106,10 +118,11 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 
 		traits:        traits,
 		decisionTree:  decisionTree,
+		net:           net,
 		action:        d.ActChemosynthesis,
 		KilledBy:      -1,
-		appearance:    physiology.AppearanceFor(traits.Abilities, decisionTree),
-		actionWeights: decisionTree.ActionWeights(),
+		appearance:    appearanceOf(traits.Abilities, decisionTree, net),
+		actionWeights: actionWeightsOf(decisionTree, net),
 
 		lookupAPI: api,
 	}
@@ -119,9 +132,15 @@ func NewRandom(rng *simrand.RNG, id int, point utils.Point, api LookupAPI) *Orga
 // NewChild initializes and returns a new organism with a copied TreeLibrary from its parent.
 func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, direction utils.Point, api LookupAPI) *Organism {
 	traits := o.traits.copyMutated(rng)
-	inheritedTree := o.GetDecisionTreeCopy()
-	if rng.Float64() < c.ChanceToMutateDecisionTree() {
-		inheritedTree = d.MutateTree(rng, inheritedTree)
+	var inheritedTree *d.Tree
+	var inheritedNet *neural.Net
+	if o.net != nil {
+		inheritedNet = neural.Inherit(rng, o.net)
+	} else {
+		inheritedTree = o.GetDecisionTreeCopy()
+		if rng.Float64() < c.ChanceToMutateDecisionTree() {
+			inheritedTree = d.MutateTree(rng, inheritedTree)
+		}
 	}
 	startHealth := o.InitialHealth()
 	organism := Organism{
@@ -137,10 +156,11 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 
 		traits:        traits,
 		decisionTree:  inheritedTree,
+		net:           inheritedNet,
 		action:        d.ActChemosynthesis,
 		KilledBy:      -1,
-		appearance:    physiology.AppearanceFor(traits.Abilities, inheritedTree),
-		actionWeights: inheritedTree.ActionWeights(),
+		appearance:    appearanceOf(traits.Abilities, inheritedTree, inheritedNet),
+		actionWeights: actionWeightsOf(inheritedTree, inheritedNet),
 		BornThisCycle: true,
 
 		lookupAPI: api,
@@ -148,10 +168,12 @@ func (o *Organism) NewChild(rng *simrand.RNG, id int, point utils.Point, directi
 	return &organism
 }
 
-// Restore creates an organism from fully specified state (for checkpoint restore).
+// Restore creates an organism from fully specified state. Exactly one of tree
+// and net carries its brain, matching how the snapshot recorded it rather than
+// what the active settings say — a recording is replayed as the world it was.
 func Restore(id, age int, health, size float64, children, traveledDist, cyclesSinceLastSpawn int,
 	location, direction utils.Point, ancestorID int,
-	traits Traits, tree *d.Tree, action d.Action, status Status,
+	traits Traits, tree *d.Tree, net *neural.Net, action d.Action, status Status,
 	attackTotal, attackHits int, phPositive, phNegative float64,
 	api LookupAPI) *Organism {
 	return &Organism{
@@ -167,10 +189,11 @@ func Restore(id, age int, health, size float64, children, traveledDist, cyclesSi
 		OriginalAncestorID:   ancestorID,
 		traits:               traits,
 		decisionTree:         tree,
+		net:                  net,
 		action:               action,
 		KilledBy:             -1,
-		appearance:           physiology.AppearanceFor(traits.Abilities, tree),
-		actionWeights:        tree.ActionWeights(),
+		appearance:           appearanceOf(traits.Abilities, tree, net),
+		actionWeights:        actionWeightsOf(tree, net),
 		Status:               status,
 		AttackTotal:          attackTotal,
 		AttackHits:           attackHits,
@@ -213,16 +236,75 @@ func (o *Organism) Info() *Info {
 func (o *Organism) UpdateStats() {
 	o.Age++
 	o.CyclesSinceLastSpawn++
-	o.decisionTree.ResetUsedLastCycle()
+	if o.decisionTree != nil {
+		o.decisionTree.ResetUsedLastCycle()
+	}
 	// Birth flag lives for exactly the spawn cycle (set in NewChild, consumed by the animation layer in AfterUpdate).
 	o.BornThisCycle = false
 	// Status is consumed within the cycle that sets it (every apply* handler stamps the outcome).
 	o.Status = StatusIdle
 }
 
-// UpdateAction picks the decision tree's action and stores it on the organism.
+// UpdateAction asks the organism's brain what to do and stores the answer.
 func (o *Organism) UpdateAction() {
+	if o.net != nil {
+		o.action = o.net.Choose(o.readsTrue)
+		return
+	}
 	o.action = o.chooseAction(o.decisionTree.Node)
+}
+
+// readsTrue is the net's view of one input: the same reads a tree's condition
+// nodes ask, typed, so the two brains cannot answer the same question
+// differently.
+func (o *Organism) readsTrue(cond d.Condition) bool { return o.isConditionTrue(cond) }
+
+// appearanceOf and actionWeightsOf read whichever brain the organism has, so
+// the three construction paths cannot drift on how they treat a net.
+func appearanceOf(scores physiology.Scores, tree *d.Tree, net *neural.Net) physiology.Appearance {
+	if net != nil {
+		return physiology.AppearanceForSenses(scores, netSenses(net))
+	}
+	return physiology.AppearanceFor(scores, tree)
+}
+
+// netSenses is what the net reads and how hard it leans on each read. A tree
+// leans on a condition by asking it more often; a net reads every input every
+// cycle, so what it leans on is where its weight is.
+func netSenses(net *neural.Net) []physiology.SensedCondition {
+	inputs := net.Inputs()
+	senses := make([]physiology.SensedCondition, len(inputs))
+	for i, c := range inputs {
+		senses[i] = physiology.SensedCondition{Condition: c, Pull: net.InputPull(i)}
+	}
+	return senses
+}
+
+func actionWeightsOf(tree *d.Tree, net *neural.Net) []float64 {
+	if net != nil {
+		return net.ActionWeights()
+	}
+	return tree.ActionWeights()
+}
+
+// NewFounderNet is the net a founder starts with, so the random and designed
+// paths cannot drift on what "a new brain" means.
+func NewFounderNet(rng *simrand.RNG) *neural.Net {
+	return neural.NewFounder(rng, d.ActChemosynthesis)
+}
+
+// Net is the organism's neural net, or nil when it runs on a decision tree.
+func (o *Organism) Net() *neural.Net { return o.net }
+
+// BrainNodes is what the per-cycle brain upkeep is charged on. A decision
+// tree costs nothing, which is the asymmetry `health_change_per_brain_node`
+// exists to let a user price: the two brains are not meant to be run in one
+// world, so there is nothing to make comparable.
+func (o *Organism) BrainNodes() int {
+	if o.net == nil {
+		return 0
+	}
+	return o.net.Nodes()
 }
 
 // PromoteToSpawn is called by the manager during the decide phase when an organism is eligible to spawn AND the grid has room for a child.
@@ -266,6 +348,9 @@ const (
 	veryUnhealthyFraction = 0.2
 )
 
+// isConditionTrue answers one read of the world. The tree hands it the
+// NodeType it holds, which is an interface value; a net hands it a typed
+// condition, which converts to the same thing.
 func (o *Organism) isConditionTrue(cond interface{}) bool {
 	switch cond {
 	case d.CanMove:
@@ -354,7 +439,11 @@ func (o *Organism) X() int { return o.Location.X }
 
 func (o *Organism) Y() int { return o.Location.Y }
 
+// GetDecisionTreeCopy is nil for an organism running on a neural net.
 func (o *Organism) GetDecisionTreeCopy() *d.Tree {
+	if o.decisionTree == nil {
+		return nil
+	}
 	return o.decisionTree.CopyTree()
 }
 

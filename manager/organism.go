@@ -12,6 +12,7 @@ import (
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/effects"
 	"github.com/Zebbeni/protozoa/food"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
@@ -681,6 +682,38 @@ func (m *OrganismManager) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	return nil
 }
 
+// brainDescription is what the running log prints for an organism's brain:
+// the tree, or the net's shape, since a net has no printed form — every input
+// reaches every output and the weights say nothing a line of text can carry.
+func brainDescription(o *organism.Organism) string {
+	if net := o.Net(); net != nil {
+		return fmt.Sprintf("neural net: %d inputs, layers %v, %d nodes",
+			len(net.Inputs()), net.LayerSizes(), net.Nodes())
+	}
+	if tree := o.GetDecisionTreeCopy(); tree != nil {
+		return tree.Print()
+	}
+	return "(no brain)"
+}
+
+// GetOrganismNeuralNetByID returns a copy of the given organism's neural net,
+// or nil when it has none — which is every organism in a world running on
+// decision trees.
+func (m *OrganismManager) GetOrganismNeuralNetByID(id int) *neural.Net {
+	m.organismMutex.RLock()
+	defer m.organismMutex.RUnlock()
+
+	if o, ok := m.organisms[id]; ok {
+		if net := o.Net(); net != nil {
+			// A copy, like the tree accessor returns: the panel reads this on
+			// the main goroutine while the simulation may be writing to the
+			// organism's own.
+			return net.Copy()
+		}
+	}
+	return nil
+}
+
 func (m *OrganismManager) GetOrganismInfoByID(id int) *organism.Info {
 	m.organismMutex.RLock()
 	defer m.organismMutex.RUnlock()
@@ -778,6 +811,21 @@ func (m *OrganismManager) Organisms() []*organism.Organism {
 }
 
 // IsMostSuccessful reports whether the given organism ID is on the surviving (or, in extinct recordings, longest-lived) lineage.
+// MostSuccessfulSet is every descendant node on a line that still has a
+// survivor, for a caller asking about many ids at once.
+//
+// Live, there is no cache behind it — the set changes as organisms die, so it
+// is rebuilt by walking every descendant tree. That walk is the whole family
+// history, so a caller with a list of ids has to take the set ONCE and test
+// against it, rather than calling IsMostSuccessful per id. The panel's
+// descendant tab did the latter, which made drawing one screen of rows a
+// thousand full walks of the history.
+func (m *OrganismManager) MostSuccessfulSet() map[int]struct{} {
+	return m.mostSuccessfulSet()
+}
+
+// IsMostSuccessful answers for ONE id. See MostSuccessfulSet before calling it
+// in a loop.
 func (m *OrganismManager) IsMostSuccessful(id int) bool {
 	set := m.mostSuccessfulSet()
 	if set == nil {
@@ -899,9 +947,17 @@ func (m *OrganismManager) applyCycleHealthChanges(o *organism.Organism) {
 			}
 		}
 	}
+	// Running a neural net costs health every cycle, whatever the organism
+	// did with it. Folded into the same apply as the pH damage and the
+	// incoming attacks rather than applied separately, because three applies
+	// and one are different floats once the growth and cap logic has run on
+	// each, and that difference is a replay divergence. The ledger records
+	// the three parts beside it.
+	brain := effects.BrainUpkeep(c.GetCurrentGlobals(), o.BrainNodes(), o.Size)
 	o.RecordHealth(organism.HealthFromPh, o.Size*phEffect)
 	o.RecordHealth(organism.HealthFromAttack, healthEffects)
-	m.applyRecordedHealthChange(o, o.Size*phEffect+healthEffects)
+	o.RecordHealth(organism.HealthFromBrain, brain)
+	m.applyRecordedHealthChange(o, o.Size*phEffect+healthEffects+brain)
 	// Only an attack that actually killed hands its cell over; starving
 	// after being hit is not a kill.
 	o.KilledBy = -1
@@ -1329,7 +1385,8 @@ func (m *OrganismManager) applyEat(o *organism.Organism) {
 	amountToEat := m.calculateValueToEat(o, target)
 	m.api.RemoveFoodAtPoint(target, int(math.Ceil(amountToEat)))
 	// Food removed and health gained are two different quantities.
-	gain := effects.HealthFromFood(c.GetCurrentGlobals(), amountToEat)
+	gain := effects.HealthFromFood(c.GetCurrentGlobals(),
+		o.Abilities()[physiology.AbilityEating], amountToEat)
 	// A meal's overflow past the eater's size grows it at EatingGrowthFactor rather than the general GrowthFactor.
 	prevSize := o.Size
 	o.RecordHealth(organism.HealthFromFood, gain)
@@ -1514,5 +1571,5 @@ func (m *OrganismManager) printOrganismInfo(o *organism.Organism) string {
 		o.OriginalAncestorID,
 		o.Health,
 		o.Size, o.MaxSize(),
-		o.GetDecisionTreeCopy().Print())
+		brainDescription(o))
 }

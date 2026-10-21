@@ -98,8 +98,17 @@ func MaxFoodPerEat(g *config.Globals, score int, size float64) float64 {
 		Multiplier(g, physiology.CurveEating, score))
 }
 
-func HealthFromFood(g *config.Globals, food float64) float64 {
-	return food * g.HealthPerFoodUnit
+// HealthFromFood is what an amount of food is worth to its eater: health per
+// unit carried between both endpoints along the DIGESTION curve, so a higher
+// Eating score absorbs more health from the same food.
+//
+// Separate from MaxFoodPerEat, which is how much one attempt takes. The score
+// buys both — capacity, and how much of what was taken is digested — and the
+// two multiply, so the first point of Eating is worth more than either curve
+// alone says.
+func HealthFromFood(g *config.Globals, score int, food float64) float64 {
+	return food * effectBetween(g.HealthPerFoodUnitAtZero, g.HealthPerFoodUnit,
+		Multiplier(g, physiology.CurveEatingDigestion, score))
 }
 
 func effectBetween(atZero, atMax, multiplier float64) float64 {
@@ -261,4 +270,23 @@ func PhDamage(g *config.Globals, toleranceScore int, size, distance float64) flo
 // PhToleranceWidth is T: the pH offset an organism's Tolerance lets it bear for one unit of damage.
 func PhToleranceWidth(g *config.Globals, toleranceScore int) float64 {
 	return 1 + (g.MaxPhToleranceWidth-1)*Multiplier(g, physiology.CurvePhTolerance, toleranceScore)
+}
+
+// BrainUpkeep is the health an organism loses each cycle to running a neural
+// net of `nodes` nodes, per unit of its size.
+//
+// Per-size like every other health change in this file, which is what keeps
+// it biting as an organism grows: a flat cost would make a complex brain
+// lethal to a founder and free to anything large, so brain complexity would
+// be decided by body size rather than by whether the brain earned its keep.
+// No ability scales it — no score makes thinking cheaper.
+//
+// A decision tree pays nothing, so this is not a cost the two brains share.
+// They are never run in one world, so there is no comparison to keep fair;
+// what the setting prices is how much a net has to earn to be worth its size.
+func BrainUpkeep(g *config.Globals, nodes int, size float64) float64 {
+	if nodes <= 0 {
+		return 0
+	}
+	return size * float64(nodes) * g.HealthChangePerBrainNode
 }
