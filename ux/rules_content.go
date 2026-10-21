@@ -112,14 +112,15 @@ func budgetParagraph() rulesText {
 // when it comes from an ability score, and described a per-node health drain
 // that was never implemented.
 
-// aboutTab is one tab's name and the blocks under it.
-type aboutTab struct {
+// docTab is one tab's name and the blocks under it. A document with a single
+// tab draws no strip, so that tab's label is never read.
+type docTab struct {
 	label  string
 	blocks []rulesBlock
 }
 
-// aboutHeader is drawn above the tab strip on every tab.
-func aboutHeader() []rulesBlock {
+// rulesHeader is drawn above the tab strip on every tab of the RULES screen.
+func rulesHeader() []rulesBlock {
 	return []rulesBlock{
 		rulesText{"Protozoa is a simulation of organisms navigating a simple environment according " +
 			"to inherited traits and decision trees. Successful organisms pass these down to their " +
@@ -129,8 +130,8 @@ func aboutHeader() []rulesBlock {
 	}
 }
 
-func aboutTabs() []aboutTab {
-	return []aboutTab{
+func rulesTabs() []docTab {
+	return []docTab{
 		{label: "WORLD", blocks: worldBlocks()},
 		{label: "ORGANISMS", blocks: organismBlocks()},
 		{label: "ACTIONS", blocks: actionBlocks()},
@@ -141,8 +142,8 @@ func aboutTabs() []aboutTab {
 // rulesContent is the whole document in reading order, which is what the
 // tests that are about the writing rather than the layout walk.
 func rulesContent() []rulesBlock {
-	blocks := aboutHeader()
-	for _, tab := range aboutTabs() {
+	blocks := rulesHeader()
+	for _, tab := range rulesTabs() {
 		blocks = append(blocks, tab.blocks...)
 	}
 	return blocks
@@ -268,6 +269,28 @@ func actionBlocks() []rulesBlock {
 			"that does nothing useful. Nothing selects for a better tree except surviving long " +
 			"enough to spawn, and a branch that never pays off is only removed by chance, so " +
 			"lineages improve slowly and unevenly."},
+
+		rulesHeading{"NEURAL NETWORKS"},
+		rulesText{"A simulation runs on trees or on networks, decided before it starts, and never " +
+			"both at once. A network reads the same conditions and picks between the same actions; " +
+			"what changes is how it gets from one to the other. There are no branches and nothing " +
+			"is skipped — every condition it reads feeds every unit in the next column, those feed " +
+			"every action, and the whole net runs every cycle."},
+		newRulesNeuralBlock(),
+		rulesText{"Each line is a connection and the number on it is its weight: how much of what " +
+			"the node on the left is holding gets passed along it. Blue adds, red takes away, and " +
+			"the heavier the weight the brighter and thicker the line. The number above a node is " +
+			"its bias, added to whatever reaches it — which is why a unit with nothing flowing in " +
+			"can still be holding something. Anything that comes out below zero is clipped to zero."},
+		rulesText{"The action with the highest score is the one taken, and those scores are on the " +
+			"right. This organism has food underneath it and a clear way ahead, but is not healthy. " +
+			"Eating scores 2.07 against 0.76 for chemosynthesis and -0.34 for moving, so it eats."},
+		rulesText{"A child inherits its parent's network with every weight nudged, and now and " +
+			"then one change to its shape: a condition or an action added or dropped, a layer made " +
+			"wider or narrower. Anything added arrives weighing nothing, so it changes no decision " +
+			"on the cycle it appears and has to earn its place afterwards. Running a network costs " +
+			"health every cycle in proportion to how big it has grown, so one that senses more than " +
+			"it uses is paying for the difference."},
 	}
 }
 

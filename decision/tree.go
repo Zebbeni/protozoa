@@ -32,8 +32,17 @@ func TreeFromNode(node *Node) *Tree {
 
 // DeserializeTree reconstructs a Tree from a serialized string produced by Serialize().
 func DeserializeTree(s string) *Tree {
-	node, _ := Deserialize(s)
+	node, consumed := Deserialize(s)
 	if node == nil {
+		return nil
+	}
+	// The whole string or nothing. Serialize writes exactly the tree, so a
+	// string with characters left over is one this build parses differently
+	// from the build that wrote it — and the tree it yields is a PREFIX of
+	// what was recorded, whose ID would then claim content it does not have.
+	// testdata/last.pzr holds several ("121000140308040302" parses as 14 of
+	// its 18 characters).
+	if consumed != len(s) {
 		return nil
 	}
 	return &Tree{

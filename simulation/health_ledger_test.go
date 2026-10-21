@@ -13,12 +13,19 @@ import (
 // arithmetic a replay depends on — and the cost of that is a source nothing
 // writes to, which shows as a panel line permanently absent with nothing to
 // say so.
+//
+// Two sources need a setting turned on to be reachable at all, and each is
+// turned on here rather than left uncovered: predation ships off, and the
+// brain upkeep only exists in a world running on neural nets.
 func TestEveryHealthSourceIsReachedInALiveWorld(t *testing.T) {
 	loadDefaultGlobals(t)
 	g := config.GetCurrentGlobals()
-	// Both predation settings ship off and each has a ledger line, so they
-	// are turned on here rather than left uncovered.
 	g.AttackHealthGain = 0.5
+	g.UseNeuralNets = true
+	// A founder's net is one node, so the upkeep at the shipped per-node
+	// value is far too small to show against a growing organism's health. The
+	// line is about whether anything charges it, not about the balance.
+	g.HealthChangePerBrainNode = -0.01
 	config.SetGlobals(g)
 
 	sim := NewSimulation(&config.Options{IsHeadless: true, Seed: 101, CheckpointInterval: 1 << 30})

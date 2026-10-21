@@ -26,6 +26,8 @@ const (
 	stateSplash runnerState = iota
 	stateMainMenu
 	stateRules
+	// stateAbout is the credits, a second document screen.
+	stateAbout
 	stateRecordings
 	stateDesigner
 	// stateMainMenuPopup overlays the New Simulation popup on the main menu.
@@ -34,6 +36,10 @@ const (
 	stateLoadingReplay
 	// stateReplay is the full replay viewer (unchanged).
 	stateReplay
+	// stateCount is how many states there are and must stay last. It is what
+	// makes allRunnerStates checkable: a state inserted anywhere above moves
+	// it, and the music table's test fails until the new one is listed.
+	stateCount
 )
 
 type Runner struct {
@@ -42,7 +48,8 @@ type Runner struct {
 
 	splash   *ux.Splash
 	mainMenu *ux.MainMenu
-	rules    *ux.RulesScreen
+	rules    *ux.DocScreen
+	about    *ux.DocScreen
 	designer *ux.Designer
 	// recordings is the saved-recordings browser, rebuilt on each visit so a recording saved since the last one shows up.
 	recordings *ux.RecordingsScreen
@@ -54,6 +61,10 @@ type Runner struct {
 
 	checkpointPath string
 	pressedKeys    map[ebiten.Key]bool
+
+	// lastUpdate is when the previous frame ran, which the music's
+	// turn-taking advances on.
+	lastUpdate time.Time
 
 	// lastHealthCycle is the most recent cycle for which logReplayHealth fired.
 	lastHealthCycle int
@@ -77,7 +88,33 @@ type replayLoadResult struct {
 // stepSimulationBudget caps how long we spend advancing the headless simulation per ebiten Update tick.
 const stepSimulationBudget = 25 * time.Millisecond
 
+// maxFrameStep is the largest step the music clock will take in one frame, so
+// a window dragged or a machine put to sleep does not skip a piece's whole
+// turn in a single tick.
+const maxFrameStep = 250 * time.Millisecond
+
+// sinceLastUpdate is how long the previous frame took, which is what the
+// music's turn-taking advances on.
+func (r *Runner) sinceLastUpdate() time.Duration {
+	now := time.Now()
+	if r.lastUpdate.IsZero() {
+		r.lastUpdate = now
+		return 0
+	}
+	dt := now.Sub(r.lastUpdate)
+	r.lastUpdate = now
+	return min(dt, maxFrameStep)
+}
+
 func (r *Runner) Update() error {
+	// One call rather than one per transition: the scene follows the state,
+	// and SetScene leaves a scene that is already current alone.
+	sound.SetScene(stateScenes[r.state])
+	// A scene of several pieces takes turns, so it needs the clock. The
+	// frame time rather than a wall clock: music stops with the game, and a
+	// scene that is not on screen is not taking its turn.
+	sound.Update(r.sinceLastUpdate())
+
 	switch r.state {
 	case stateSplash:
 		if r.splash.Update() {
@@ -101,11 +138,18 @@ func (r *Runner) Update() error {
 		case ux.MenuChoiceRules:
 			r.rules = ux.NewRulesScreen()
 			r.state = stateRules
+		case ux.MenuChoiceAbout:
+			r.about = ux.NewAboutScreen()
+			r.state = stateAbout
 		case ux.MenuChoiceExit:
 			os.Exit(0)
 		}
 	case stateRules:
 		if r.rules.Update() {
+			r.state = stateMainMenu
+		}
+	case stateAbout:
+		if r.about.Update() {
 			r.state = stateMainMenu
 		}
 	case stateRecordings:
@@ -286,8 +330,8 @@ func (r *Runner) startSimFromPopup() {
 
 	c.SetGlobals(globals)
 	resources.Init()
-	// A settings file can carry its own music preference; honour whatever is
-	// installed now rather than leaving the player out of step with it.
+	// The form opened on the session's own music choice (NewSimPopup), so
+	// this applies that rather than overriding it from the run's settings.
 	sound.SetEnabled(c.MusicEnabled())
 
 	r.checkpointPath = r.opts.CheckpointFile
@@ -325,6 +369,8 @@ func (r *Runner) Draw(screen *ebiten.Image) {
 		r.mainMenu.Draw(screen)
 	case stateRules:
 		r.rules.Draw(screen)
+	case stateAbout:
+		r.about.Draw(screen)
 	case stateRecordings:
 		r.recordings.Draw(screen)
 	case stateDesigner:
@@ -467,10 +513,8 @@ func ensureCheckpointPath(opts *c.Options) {
 
 func RunSimulation(opts *c.Options) {
 	resources.Init()
-	// One player for the whole session, started here rather than per screen:
-	// the music runs under the menus, the simulation and the replay viewer
-	// alike, and restarting it at every state change would retrigger the
-	// loop from the top.
+	// The context only; which track plays is the scene's answer, and the
+	// first Update sets that from whichever state the game opens in.
 	sound.Init(c.MusicEnabled())
 	ensureCheckpointPath(opts)
 

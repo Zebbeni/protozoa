@@ -22,11 +22,13 @@ import (
 )
 
 const (
-	cfgPanelWidth   = 700
-	cfgLabelWidth   = 340
-	cfgSliderWidth  = 200
-	cfgValueWidth   = 120
-	cfgRowHeight    = 18
+	cfgPanelWidth  = 700
+	cfgLabelWidth  = 340
+	cfgSliderWidth = 200
+	cfgValueWidth  = 120
+	cfgRowHeight   = 18
+	// cfgWarnLineH is one line of an ability's warning.
+	cfgWarnLineH    = 12
 	cfgPadding      = 10
 	cfgHeaderHeight = 30
 	cfgButtonHeight = 30
@@ -73,6 +75,9 @@ const (
 	rowNodeType
 	// rowConditionFamily is the indented "include advanced" tick under a condition family's basic read.
 	rowConditionFamily
+	// rowAbilityWarning is what is wrong with an ability's settings, drawn
+	// under its header and taking no height when there is nothing to say.
+	rowAbilityWarning
 )
 
 type configSection struct {
@@ -365,6 +370,8 @@ func (cs *ConfigScreen) Draw(screen *ebiten.Image) {
 						cs.drawNodeTypeRow(screen, panelX, y, field)
 					case rowConditionFamily:
 						cs.drawConditionFamilyRow(screen, panelX, y, field)
+					case rowAbilityWarning:
+						cs.drawAbilityWarningRow(screen, panelX, y, field)
 					default:
 						cs.drawRow(screen, panelX, y, rowIdx, field)
 					}
@@ -635,6 +642,8 @@ func (cs *ConfigScreen) handleClick() {
 						cs.toggleConditionFamily(field.familyRoot)
 					}
 					return
+				case rowAbilityWarning:
+					return
 				case rowCurveHeader:
 					// Anywhere on the row opens or closes the curve's block; the controls live inside it.
 					cs.graphExpanded[field.curveAbility] = !cs.graphExpanded[field.curveAbility]
@@ -877,6 +886,14 @@ func (cs *ConfigScreen) getSliderRange(field configField) (float64, float64) {
 var fixedBounds = map[string][2]float64{
 	// A one-node tree is a lone action.
 	"max_decision_tree_size": {1, 32},
+	// A hidden layer narrower than one unit is no layer, and a depth of 0 is
+	// inputs wired straight to outputs — both ends are meaningful.
+	"max_neural_net_width": {1, 32},
+	"max_neural_net_depth": {0, 8},
+	// 0 is no floor. The enabled condition pool is the real ceiling, and it
+	// is not a constant, so this is set well above anything measured: nets
+	// evolve to 0.9-5.8 reads on the shipped settings.
+	"min_neural_net_inputs": {0, 8},
 	// Chemosynthesis uses the saturating curve, whose K is a score scale.
 	"chemosynthesis_curve_k": {physiology.MinSaturatingK, physiology.MaxSaturatingK},
 	// No unlimited option on purpose.
@@ -1021,6 +1038,23 @@ func (cs *ConfigScreen) buildSections() {
 			field("\"Much Smaller\" Size Ratio", "much_smaller_size_ratio"),
 			field("\"Much Food\" Per Size", "much_food_per_size"),
 		}, nodeTypeFields()...)},
+		{title: "— NEURAL NETS —", fields: []configField{
+			field("Use Neural Nets", "use_neural_nets"),
+			field("Max Width", "max_neural_net_width"),
+			field("Max Depth (hidden layers)", "max_neural_net_depth"),
+			field("Min Inputs", "min_neural_net_inputs"),
+			field("Initial Mutations", "initial_neural_net_mutations"),
+			field("Chance to Mutate", "chance_to_mutate_neural_net"),
+			field("Weight Mutation Step", "neural_weight_mutation_step"),
+			field("Weight: Add Input", "mutation_weight_add_input"),
+			field("Weight: Remove Input", "mutation_weight_remove_input"),
+			field("Weight: Add Output", "mutation_weight_add_output"),
+			field("Weight: Remove Output", "mutation_weight_remove_output"),
+			field("Weight: Add Layer", "mutation_weight_add_layer"),
+			field("Weight: Widen Layer", "mutation_weight_widen_layer"),
+			field("Weight: Narrow Layer", "mutation_weight_narrow_layer"),
+			field("Health Per Brain Node", "health_change_per_brain_node"),
+		}},
 		{title: "— HEALTH CHANGES —", fields: []configField{
 			// Costs and gains that belong to no single ability.
 			field("Idle", "health_change_from_idle"),
@@ -1044,6 +1078,8 @@ func (cs *ConfigScreen) buildSections() {
 			field("Chemosynthesis pH push K", "chemo_ph_effect_saturating_k"),
 			field("Eating K", "eating_cosine_k"),
 			field("Eating K", "eating_saturating_k"),
+			field("Digestion K", "eating_digestion_cosine_k"),
+			field("Digestion K", "eating_digestion_saturating_k"),
 			field("Eating pH push K", "eating_ph_effect_cosine_k"),
 			field("Eating pH push K", "eating_ph_effect_saturating_k"),
 			field("Eating cost K", "eating_cost_cosine_k"),
@@ -1627,7 +1663,7 @@ func (cs *ConfigScreen) canReset(field configField) bool {
 		return false // a section's explanatory line has nothing to reset
 	}
 	switch field.row {
-	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph:
+	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph, rowAbilityWarning:
 		// Rows that draw rather than hold a value.
 		return false
 	case rowNodeType:
@@ -1653,7 +1689,7 @@ func (cs *ConfigScreen) resetField(field configField) {
 	cs.selectedRow = -1
 	cs.editingValue = ""
 	switch field.row {
-	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph:
+	case rowAbilityTotal, rowCurveGraph, rowWallPhGraph, rowAbilityWarning:
 		return
 	case rowNodeType:
 		if nodeDisabled(cs.defaults.DisabledDecisionNodes, field.jsonTag) !=
@@ -1700,9 +1736,9 @@ func (cs *ConfigScreen) allDefaults() bool {
 
 // restoreAllDefaults sets every setting on the screen back to the shipped defaults.
 func (cs *ConfigScreen) restoreAllDefaults() {
-	theme, phScheme := cs.globals.Theme, cs.globals.PhColorScheme
+	theme, phScheme, music := cs.globals.Theme, cs.globals.PhColorScheme, cs.globals.Music
 	*cs.globals = cs.defaults
-	cs.globals.Theme, cs.globals.PhColorScheme = theme, phScheme
+	cs.globals.Theme, cs.globals.PhColorScheme, cs.globals.Music = theme, phScheme, music
 	cs.globals.InitialAbilityScores = normalizedInitialScores(cs.defaults.InitialAbilityScores)
 	cs.selectedRow = -1
 	cs.editingValue = ""
@@ -1732,6 +1768,11 @@ func (cs *ConfigScreen) rowHeight(field configField) int {
 	}
 	if field.row == rowWallPhGraph {
 		return wallPhGraphHeight
+	}
+	if field.row == rowAbilityWarning {
+		// Measured every frame, not when the screen was built: the warning
+		// has to appear and go as the sliders above it are dragged.
+		return len(abilityWarnings(cs.globals, field.curveAbility)) * cfgWarnLineH
 	}
 	return cfgRowHeight
 }

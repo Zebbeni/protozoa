@@ -2,28 +2,33 @@
 
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
-// These run only in a js build: GOOS=js GOARCH=wasm go test ./config/
-func TestBrowserDefaultsShrinkTheWorldAndScaleItsCounts(t *testing.T) {
-	g := shippedDefaults(t)
-	before := g
-	platformDefaults(&g)
+// TestTheBrowserHookAppliesTheBrowserDefaults is all that is left for the js
+// build to say: WHAT those defaults are is checked on every platform by
+// browser_defaults_test.go, now that they live in an untagged file. This is
+// the wiring — that the browser build's platformDefaults is that function and
+// not a second set of numbers.
+//
+// Runs only in a js build: GOOS=js GOARCH=wasm go test ./config/
+func TestTheBrowserHookAppliesTheBrowserDefaults(t *testing.T) {
+	base := shippedDefaults(t)
 
-	if g.GridUnitsWide != wasmGridWide || g.GridUnitsHigh != wasmGridHigh {
-		t.Errorf("grid is %dx%d, want %dx%d",
-			g.GridUnitsWide, g.GridUnitsHigh, wasmGridWide, wasmGridHigh)
+	viaHook := base
+	platformDefaults(&viaHook)
+
+	direct := base
+	BrowserDefaults(&direct)
+
+	a, _ := json.Marshal(viaHook)
+	b, _ := json.Marshal(direct)
+	if string(a) != string(b) {
+		t.Error("the browser build's platformDefaults is not BrowserDefaults")
 	}
-	if g.GridUnitsWide*g.GridUnitsHigh >= before.GridUnitsWide*before.GridUnitsHigh {
-		t.Error("the browser world is not smaller than the desktop one")
-	}
-	// Item counts, not densities: they have to come down with the area or
-	// the smaller world starts several times denser.
-	if g.InitialFood >= before.InitialFood {
-		t.Errorf("initial_food stayed at %d in a world %d times the area",
-			g.InitialFood, before.GridUnitsWide*before.GridUnitsHigh)
-	}
-	if g.ChemoPhEffect != wasmChemoPhEffect {
-		t.Errorf("chemo_ph_effect is %v, want %v", g.ChemoPhEffect, wasmChemoPhEffect)
+	if viaHook.GridUnitsWide == base.GridUnitsWide {
+		t.Error("the hook did nothing at all, so this test would pass against an empty one")
 	}
 }

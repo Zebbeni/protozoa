@@ -38,6 +38,8 @@ type Interface struct {
 
 	// graphPopup is the enlarged graph, opened from the expand control in the panel graph's corner.
 	graphPopup *GraphPopup
+	// brainPopup is the enlarged neural net, opened the same way from the BRAIN tab.
+	brainPopup *BrainPopup
 
 	gridOptions  *ebiten.DrawImageOptions
 	panelOptions *ebiten.DrawImageOptions
@@ -70,6 +72,7 @@ func NewInterface(sim *simulation.Simulation) *Interface {
 	i.gridOptions.GeoM.Translate(panelWidth, 0)
 
 	i.graphPopup = NewGraphPopup(i.panel)
+	i.brainPopup = NewBrainPopup(i.panel)
 	i.debug = NewDebug(sim)
 	i.debugOptions = &ebiten.DrawImageOptions{}
 	i.debugOptions.GeoM.Translate(panelWidth, 0)
@@ -136,6 +139,7 @@ func (i *Interface) Render(screen *ebiten.Image) {
 	i.renderPanel(screen)
 	// Over the panel, since it is modal and the panel is what it covers.
 	i.graphPopup.Draw(screen)
+	i.brainPopup.Draw(screen)
 	if i.menu != nil {
 		i.menu.Draw(screen)
 	}
@@ -164,16 +168,27 @@ func (i *Interface) HandleUserInput() {
 	if i.graphPopup.Update() {
 		return
 	}
+	// The expanded net is not modal: it takes the mouse only while the cursor
+	// is over it, so the rest of the panel stays live and an open net can be
+	// watched while the replay is stepped cycle by cycle behind it.
+	brainHasMouse := i.brainPopup.Update()
+
 	// Advance any in-flight smooth-pan animation before reading input.
 	i.grid.Camera.UpdatePan()
 	i.handleKeyboard()
+	if brainHasMouse {
+		return
+	}
 	// Graph zoom/pan gets first claim on the mouse.
 	if i.panel.TakeGraphExpandRequest() {
 		i.graphPopup.Open()
 	}
-	if !i.panel.HandleGraphInput() {
+	if !i.panel.HandleGraphInput() && !i.panel.HandleBrainInput() {
 		i.panel.HandleScroll()
 		i.handleMouse()
+	}
+	if i.panel.TakeBrainExpandRequest() {
+		i.brainPopup.Open()
 	}
 	i.minimap.Update()
 	if i.menu != nil && (i.panel.TakeMenuRequest() || inpututil.IsKeyJustPressed(ebiten.KeyEscape)) {

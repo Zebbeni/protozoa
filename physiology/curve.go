@@ -12,6 +12,13 @@ type CurveID int
 const (
 	CurveChemosynthesis CurveID = iota
 	CurveEating
+	// CurveEatingDigestion is how much health one unit of food is worth: how well the eater digests what it took.
+	//
+	// Defaults to ShapeFlat, which is 1 at every score, because health per food
+	// unit was a plain constant before this curve was put behind it — so a
+	// settings file or replay header written without the shape runs the world it
+	// recorded rather than a rebalanced one.
+	CurveEatingDigestion
 	CurveMovementCost
 	CurveDiggingCost
 	CurveDiggingStrength
@@ -37,6 +44,7 @@ const (
 var AllCurves = []CurveID{
 	CurveChemosynthesis,
 	CurveEating,
+	CurveEatingDigestion,
 	CurveMovementCost,
 	CurveDiggingCost,
 	CurveDiggingStrength,
@@ -61,6 +69,7 @@ var curveInfo = [curveCount]struct {
 }{
 	CurveChemosynthesis:  {"Chemosynthesis", AbilityChemosynthesis, false, ShapeSaturating},
 	CurveEating:          {"Eating", AbilityEating, false, ShapeCosine},
+	CurveEatingDigestion: {"Digestion", AbilityEating, false, ShapeFlat},
 	CurveMovementCost:    {"Movement cost", AbilityMovement, true, ShapeCosine},
 	CurveDiggingCost:     {"Digging cost", AbilityDigging, true, ShapeCosine},
 	CurveDiggingStrength: {"Digging removal", AbilityDigging, false, ShapeCosine},
@@ -179,6 +188,8 @@ func curveShapeName(g *config.Globals, id CurveID) string {
 		return g.ChemosynthesisCurveShape
 	case CurveEating:
 		return g.EatingCurveShape
+	case CurveEatingDigestion:
+		return g.EatingDigestionCurveShape
 	case CurveMovementCost:
 		return g.MovementCostCurveShape
 	case CurveDiggingCost:
@@ -223,6 +234,8 @@ func cosineK(g *config.Globals, id CurveID) float64 {
 		return g.ChemosynthesisCosineK
 	case CurveEating:
 		return g.EatingCosineK
+	case CurveEatingDigestion:
+		return g.EatingDigestionCosineK
 	case CurveMovementCost:
 		return g.MovementCostCosineK
 	case CurveDiggingCost:
@@ -257,6 +270,8 @@ func saturatingK(g *config.Globals, id CurveID) float64 {
 		return g.ChemosynthesisSaturatingK
 	case CurveEating:
 		return g.EatingSaturatingK
+	case CurveEatingDigestion:
+		return g.EatingDigestionSaturatingK
 	case CurveMovementCost:
 		return g.MovementCostSaturatingK
 	case CurveDiggingCost:

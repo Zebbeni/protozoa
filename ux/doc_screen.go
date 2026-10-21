@@ -13,17 +13,27 @@ import (
 	r "github.com/Zebbeni/protozoa/resources"
 )
 
-// RulesScreen renders an explanation of how the simulated world works, split
-// across three tabs. It is the About screen; the type and its files keep the
-// rules name.
-type RulesScreen struct {
+// DocScreen renders one scrolling document under a title, optionally split
+// across a strip of tabs. Two are built from it: RULES, which explains how the
+// simulated world works, and ABOUT, which is the credits.
+//
+// One type rather than two screens, because what a document screen does — the
+// scroll keys, the wheel, the back button, culling blocks that are off screen,
+// covering the anchored chrome so scrolled text does not run through it — has
+// nothing to do with which document is in it. The block vocabulary it draws is
+// still named rulesBlock, rulesText and so on; those were the document's types
+// before there was a second document.
+type DocScreen struct {
+	// title is what is drawn at the top, and is the only thing on screen that
+	// says which document this is.
+	title    string
 	finished bool
 	// header is above the tab strip and stays put; tabs are what the strip
 	// switches between. Both are built once: assembling them walks the
 	// appearance tables and wraps every paragraph, which is not work for a
 	// draw call.
 	header []rulesBlock
-	tabs   []aboutTab
+	tabs   []docTab
 	tab    int
 	// scroll is per tab, so switching away and back does not lose the place.
 	scroll   []float64
@@ -48,18 +58,38 @@ const (
 	rulesTopMargin = 54
 )
 
-func NewRulesScreen() *RulesScreen {
-	rs := &RulesScreen{now: time.Now}
+// NewRulesScreen is the world explained: a header above a strip of tabs.
+func NewRulesScreen() *DocScreen {
+	return newDocScreen("RULES", rulesHeader(), rulesTabs())
+}
+
+// NewAboutScreen is the credits: one document, so no strip is drawn.
+func NewAboutScreen() *DocScreen {
+	return newDocScreen("ABOUT", nil, []docTab{{blocks: creditsBlocks()}})
+}
+
+func newDocScreen(title string, header []rulesBlock, tabs []docTab) *DocScreen {
+	rs := &DocScreen{title: title, now: time.Now}
 	rs.started = rs.now()
-	rs.header = aboutHeader()
-	rs.tabs = aboutTabs()
+	rs.header = header
+	rs.tabs = tabs
 	rs.scroll = make([]float64, len(rs.tabs))
 	return rs
 }
 
+// stripHeight is the tab strip's, which a one-tab document does not draw: a
+// strip with a single tab on it is a control that can only be left where it
+// is.
+func (rs *DocScreen) stripHeight() int {
+	if len(rs.tabs) < 2 {
+		return 0
+	}
+	return tabStripHeight + rulesTabGap
+}
+
 // headerHeight is the summary and the organism crossing the page, which are
 // drawn above the tab strip whichever tab is up.
-func (rs *RulesScreen) headerHeight() int {
+func (rs *DocScreen) headerHeight() int {
 	h := 0
 	for _, b := range rs.header {
 		h += b.height()
@@ -68,30 +98,30 @@ func (rs *RulesScreen) headerHeight() int {
 }
 
 // tabStripY is where the strip sits: under the title and the header.
-func (rs *RulesScreen) tabStripY() int {
+func (rs *DocScreen) tabStripY() int {
 	return rulesTopMargin + rs.headerHeight() + rulesTabGap
 }
 
 // contentTop is the first line of the tab's own blocks.
-func (rs *RulesScreen) contentTop() int {
-	return rs.tabStripY() + tabStripHeight + rulesTabGap
+func (rs *DocScreen) contentTop() int {
+	return rs.tabStripY() + rs.stripHeight()
 }
 
-func (rs *RulesScreen) blocks() []rulesBlock {
+func (rs *DocScreen) blocks() []rulesBlock {
 	if rs.tab < 0 || rs.tab >= len(rs.tabs) {
 		return nil
 	}
 	return rs.tabs[rs.tab].blocks
 }
 
-func (rs *RulesScreen) scrollY() float64 {
+func (rs *DocScreen) scrollY() float64 {
 	if rs.tab < 0 || rs.tab >= len(rs.scroll) {
 		return 0
 	}
 	return rs.scroll[rs.tab]
 }
 
-func (rs *RulesScreen) setScrollY(v float64) {
+func (rs *DocScreen) setScrollY(v float64) {
 	if rs.tab >= 0 && rs.tab < len(rs.scroll) {
 		rs.scroll[rs.tab] = v
 	}
@@ -104,7 +134,7 @@ const rulesFrameHold = 180 * time.Millisecond
 
 // elapsed is how long the screen has been open, which the longer animations
 // run against.
-func (rs *RulesScreen) elapsed() time.Duration {
+func (rs *DocScreen) elapsed() time.Duration {
 	if rs.now == nil {
 		return 0
 	}
@@ -112,7 +142,7 @@ func (rs *RulesScreen) elapsed() time.Duration {
 }
 
 // spriteFrame is the animation frame every strip shows this draw.
-func (rs *RulesScreen) spriteFrame() int {
+func (rs *DocScreen) spriteFrame() int {
 	if rs.now == nil {
 		return 0
 	}
@@ -123,7 +153,7 @@ func (rs *RulesScreen) spriteFrame() int {
 	return int(rs.now().Sub(rs.started)/rulesFrameHold) % frames
 }
 
-func (rs *RulesScreen) Update() bool {
+func (rs *DocScreen) Update() bool {
 	if rs.finished {
 		return true
 	}
@@ -176,7 +206,7 @@ func (rs *RulesScreen) Update() bool {
 
 // selectTab switches tabs, ignoring an index off either end so the arrow keys
 // stop rather than wrap.
-func (rs *RulesScreen) selectTab(i int) {
+func (rs *DocScreen) selectTab(i int) {
 	if i < 0 || i >= len(rs.tabs) {
 		return
 	}
@@ -195,7 +225,7 @@ func clampScroll(v float64, max int) float64 {
 
 // maxScroll is how far the tab on show can be scrolled: what it does not fit
 // on screen under the header.
-func (rs *RulesScreen) maxScroll() int {
+func (rs *DocScreen) maxScroll() int {
 	max := rs.contentHeight() + rs.contentTop() - c.ScreenHeight() + rulesContentPad + rulesBackBtnH
 	if max < 0 {
 		return 0
@@ -204,7 +234,7 @@ func (rs *RulesScreen) maxScroll() int {
 }
 
 // contentHeight is the height of the tab on show, not of the whole document.
-func (rs *RulesScreen) contentHeight() int {
+func (rs *DocScreen) contentHeight() int {
 	h := 0
 	for _, b := range rs.blocks() {
 		h += b.height()
@@ -212,7 +242,7 @@ func (rs *RulesScreen) contentHeight() int {
 	return h
 }
 
-func (rs *RulesScreen) Draw(screen *ebiten.Image) {
+func (rs *DocScreen) Draw(screen *ebiten.Image) {
 	fillThemeBackground(screen)
 
 	panelX := (c.ScreenWidth() - rulesPanelW) / 2
@@ -236,11 +266,10 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 	// they need the same cover the Back button has or scrolled text runs
 	// straight through them.
 	ebitenutil.DrawRect(screen, 0, 0, float64(c.ScreenWidth()),
-		float64(rs.tabStripY()+tabStripHeight+rulesTabGap/2), themeBackgroundColor())
+		float64(rs.tabStripY()+rs.stripHeight()), themeBackgroundColor())
 
-	title := "ABOUT"
-	tb := boundString(r.FontSourceCodePro12, title)
-	text.Draw(screen, title, r.FontSourceCodePro12, (c.ScreenWidth()-tb.Dx())/2, 30, themedForeground())
+	tb := boundString(r.FontSourceCodePro12, rs.title)
+	text.Draw(screen, rs.title, r.FontSourceCodePro12, (c.ScreenWidth()-tb.Dx())/2, 30, themedForeground())
 
 	hy := rulesTopMargin
 	for _, b := range rs.header {
@@ -248,11 +277,14 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 		hy += b.height()
 	}
 
-	labels := make([]string, 0, len(rs.tabs))
-	for _, tab := range rs.tabs {
-		labels = append(labels, tab.label)
+	rs.tabRects = nil
+	if len(rs.tabs) > 1 {
+		labels := make([]string, 0, len(rs.tabs))
+		for _, tab := range rs.tabs {
+			labels = append(labels, tab.label)
+		}
+		rs.tabRects = drawTabStrip(screen, panelX, rs.tabStripY(), rulesPanelW, labels, rs.tab)
 	}
-	rs.tabRects = drawTabStrip(screen, panelX, rs.tabStripY(), rulesPanelW, labels, rs.tab)
 
 	// Back button (anchored to screen, not content — always reachable)
 	bx, by := rs.backButtonRect()
@@ -266,7 +298,7 @@ func (rs *RulesScreen) Draw(screen *ebiten.Image) {
 	drawMenuButton(screen, bx, by, rulesBackBtnW, rulesBackBtnH, "Back", hovered, pressed, false)
 }
 
-func (rs *RulesScreen) backButtonRect() (int, int) {
+func (rs *DocScreen) backButtonRect() (int, int) {
 	bx := (c.ScreenWidth() - rulesBackBtnW) / 2
 	by := c.ScreenHeight() - rulesBackBtnH - 15
 	return bx, by

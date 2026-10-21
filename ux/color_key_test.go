@@ -91,10 +91,19 @@ func TestColorKeyTextFitsItsPlate(t *testing.T) {
 		}
 	}
 	// The ACTION key names its action in both the title and the note, so
-	// every button the mode offers is a different pair of strings to fit.
-	for _, b := range colorActionButtons {
-		keys = append(keys, colorKeyFor(orgColorAction, physiology.AbilityChemosynthesis, b.action))
+	// every button the mode offers is a different pair of strings to fit —
+	// and the note is worded differently for each brain, so both worlds are
+	// measured.
+	original := *config.GetCurrentGlobals()
+	for _, nets := range []bool{false, true} {
+		g := original
+		g.UseNeuralNets = nets
+		config.SetGlobals(&g)
+		for _, b := range colorActionButtons {
+			keys = append(keys, colorKeyFor(orgColorAction, physiology.AbilityChemosynthesis, b.action))
+		}
 	}
+	config.SetGlobals(&original)
 	// Likewise an ability's key is titled for the ability.
 	for _, a := range physiology.AllAbilities {
 		keys = append(keys, colorKeyFor(orgColorAbility, a, d.ActEat))

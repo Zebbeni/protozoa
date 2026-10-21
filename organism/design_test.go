@@ -24,7 +24,60 @@ func loadDesignGlobals(t *testing.T) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		t.Fatalf("decode settings/default.json: %v", err)
 	}
+	// A design describes a TREE, so these tests set the brain they are about
+	// rather than inheriting whichever one ships. In a neural world a design
+	// supplies the traits only and the organism gets the same minimal net
+	// every founder gets, which is a different claim and has its own test.
+	g.UseNeuralNets = false
 	config.SetGlobals(&g)
+}
+
+// loadNeuralDesignGlobals is the same baseline with the other brain.
+func loadNeuralDesignGlobals(t *testing.T) {
+	t.Helper()
+	loadDesignGlobals(t)
+	g := *config.GetCurrentGlobals()
+	g.UseNeuralNets = true
+	config.SetGlobals(&g)
+}
+
+// TestADesignedOrganismInANeuralWorldGetsANet: a design's tree is not
+// converted — the same behaviour expressed as weights is a different search
+// space, and a converted founder would start somewhere no evolved lineage
+// could reach. It supplies the traits, and the brain is the minimal net every
+// other founder gets.
+func TestADesignedOrganismInANeuralWorldGetsANet(t *testing.T) {
+	loadNeuralDesignGlobals(t)
+	ds := NewDesign("grazer")
+	ds.Abilities = []int{1, physiology.MaxAbilityScore, 1, 1, 1, 1, physiology.PointTotal - physiology.MaxAbilityScore - 5}
+	root := d.NodeFromCondition(d.IsFoodAhead)
+	root.YesNode = d.NodeFromAction(d.ActEat)
+	root.NoNode = d.NodeFromAction(d.ActMove)
+	ds.DecisionTree = d.TreeFromNode(root).Serialize()
+
+	o, err := NewDesigned(simrand.New(1), 7, utils.Point{X: 3, Y: 4}, nil, ds)
+	if err != nil {
+		t.Fatalf("building from a design: %v", err)
+	}
+	if o.GetDecisionTreeCopy() != nil {
+		t.Error("a designed organism in a neural world carries a decision tree")
+	}
+	net := o.Net()
+	if net == nil {
+		t.Fatal("a designed organism in a neural world has no brain at all")
+	}
+	// The traits ARE taken from the design; it is only the brain that is not.
+	want, _ := ds.Scores()
+	if o.Traits().Abilities != want {
+		t.Errorf("abilities %v, want the design's %v", o.Traits().Abilities, want)
+	}
+	// The same brain a random founder gets, rather than anything derived from
+	// the tree the design carries.
+	if plain := NewRandom(simrand.New(1), 8, utils.Point{X: 1, Y: 1}, nil); plain.Net() != nil {
+		if got, want := net.Nodes(), plain.Net().Nodes(); got != want {
+			t.Errorf("the designed net has %d nodes against a random founder's %d", got, want)
+		}
+	}
 }
 
 func sameDesign(a, b Design) bool {

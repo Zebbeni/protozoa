@@ -43,21 +43,30 @@ func themedForegroundDim() color.Color {
 	return color.RGBA{R: 180, G: 180, B: 180, A: 255}
 }
 
-// fadedForeground returns the primary foreground colour with its alpha replaced by the given value.
-func fadedForeground(alpha uint8) color.Color {
-	var r, g, b uint8
-	if config.IsLightTheme() {
-		r, g, b = 30, 30, 35
-	} else {
-		r, g, b = 255, 255, 255
-	}
+// withAlpha returns an opaque colour at the given alpha.
+//
+// color.RGBA is PREMULTIPLIED, so the channels have to be scaled by the alpha
+// and not merely accompanied by it. Setting .A alone leaves more colour in the
+// channels than the alpha allows, which composites as a nearly opaque line of
+// the full colour — an alpha ramp written that way is a saturation ramp that
+// never fades.
+func withAlpha(c color.RGBA, alpha uint8) color.RGBA {
 	a := uint32(alpha)
 	return color.RGBA{
-		R: uint8(uint32(r) * a / 255),
-		G: uint8(uint32(g) * a / 255),
-		B: uint8(uint32(b) * a / 255),
+		R: uint8(uint32(c.R) * a / 255),
+		G: uint8(uint32(c.G) * a / 255),
+		B: uint8(uint32(c.B) * a / 255),
 		A: alpha,
 	}
+}
+
+// fadedForeground returns the primary foreground colour with its alpha replaced by the given value.
+func fadedForeground(alpha uint8) color.Color {
+	fg := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	if config.IsLightTheme() {
+		fg = color.RGBA{R: 30, G: 30, B: 35, A: 255}
+	}
+	return withAlpha(fg, alpha)
 }
 
 // chrome picks one of two RGBA values based on the active theme.

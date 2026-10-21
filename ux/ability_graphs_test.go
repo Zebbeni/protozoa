@@ -755,3 +755,53 @@ func TestEveryCurveIsRegisteredEverywhere(t *testing.T) {
 		}
 	}
 }
+
+// graphsNotDrivenByTheirOwnCurve are the score-axis plots that legitimately
+// keep moving when their own curve is set to flat, named with the reason.
+// Burrowing compares a threshold against a wall's strength, so it reads the
+// RAW Digging score rather than a curve (effects.WallBreakStrength), and both
+// sides of that comparison should be readable without knowing what shape the
+// curve is in. Listing it makes it a decision rather than a hole in the rule.
+var graphsNotDrivenByTheirOwnCurve = map[string]bool{
+	"Wall strength it can burrow straight through": true,
+}
+
+// TestAFlatCurveDrawsAFlatLineInItsOwnSection: a curve's section graphs that
+// curve, so ShapeFlat — the shape that means "this curve isn't wanted" — has
+// to flatten every score-axis line under it. A graph that folds ANOTHER
+// curve's work into the plot keeps moving, which reads as the shape buttons
+// not working.
+//
+// Reported by a user against the eating pH push, which was drawn per unit of
+// FOOD: the push is the health a meal gave times this curve, and digestion
+// decides that health, so the digestion curve was being drawn in the pH push
+// section. It is per unit of health gained now.
+func TestAFlatCurveDrawsAFlatLineInItsOwnSection(t *testing.T) {
+	_, active := abilityConfigScreen(t)
+
+	for _, id := range physiology.AllCurves {
+		g := *active
+		setCurveShape(&g, id, physiology.ShapeFlat)
+
+		for _, graph := range curveGraphsFor(id) {
+			// A pH axis is not a scale of the score, so a line across it moves
+			// for reasons that have nothing to do with this curve's shape.
+			if graph.axis != nil || graphsNotDrivenByTheirOwnCurve[graph.title] {
+				continue
+			}
+			for _, series := range graph.series {
+				axis := graph.xAxis()
+				first := axis.read(series, &g, 0, physiology.MaxAbilityScore)
+				for i := 1; i <= physiology.MaxAbilityScore; i++ {
+					v := axis.read(series, &g, i, physiology.MaxAbilityScore)
+					if math.Abs(v-first) > 1e-9 {
+						t.Errorf("%s set to flat still draws a line that moves: graph %q series %q "+
+							"is %v at score 0 and %v at score %d",
+							id.Name(), graph.title, series.label, first, v, i)
+						break
+					}
+				}
+			}
+		}
+	}
+}

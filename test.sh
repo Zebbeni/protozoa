@@ -7,7 +7,13 @@
 # some of the time and passes the rest. Both of its slowest tests are
 # long-horizon guards that are supposed to take that long.
 #
+# It is 1,299s now, measured on an idle machine with everything passing, and
+# TestEverySpecialistIsReachable alone is 525s. Worlds that used to collapse
+# to ~150 organisms by cycle 4,000 hold 5,000-7,000 for the whole run under
+# the current food economy, so every cycle costs more. 40m rather than 25m
+# because the figure above moved by that much once already.
+#
 # Any extra arguments are passed through: ./test.sh ./manager/ -run Kill
 set -u
 cd "$(dirname "$0")"
-exec go test -timeout 20m "${@:-./...}"
+exec go test -timeout 40m "${@:-./...}"

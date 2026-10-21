@@ -31,7 +31,7 @@ func crowdWorld(t *testing.T, penalty float64, points ...utils.Point) (*Organism
 	var out []*organism.Organism
 	for i, p := range points {
 		o := organism.Restore(i+1, 1, 20, 20, 0, 0, 0, p, utils.Point{X: 1, Y: 0}, i+1,
-			organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil,
+			organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil, nil,
 			d.ActChemosynthesis, organism.StatusIdle, 0, 0, 0, 0, nil)
 		m.organisms[o.ID] = o
 		m.organismIDGrid[p.X][p.Y] = o.ID

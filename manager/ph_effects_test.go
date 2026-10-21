@@ -57,7 +57,7 @@ func chemoOrganism(t *testing.T, score int, ph float64) (*OrganismManager, *orga
 	traits := organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}
 	o := organism.Restore(1, 1, 20, 20, 0, 0, 0,
 		utils.Point{X: 10, Y: 10}, utils.Point{X: 1, Y: 0}, 1,
-		traits, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, nil)
+		traits, nil, nil, d.ActIdle, organism.StatusIdle, 0, 0, 0, 0, nil)
 	return m, o, api
 }
 

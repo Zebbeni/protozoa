@@ -12,6 +12,7 @@ import (
 
 	c "github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
 	"github.com/Zebbeni/protozoa/utils"
@@ -143,9 +144,23 @@ func NewDesigned(rng *simrand.RNG, id int, point utils.Point, api LookupAPI, ds 
 	if err != nil {
 		return nil, err
 	}
+	// The tree is read even in a world running on neural nets, so a design
+	// whose tree is unreadable is still refused rather than quietly founding
+	// an organism from half a file.
 	tree, err := ds.Tree()
 	if err != nil {
 		return nil, err
+	}
+	var net *neural.Net
+	if c.UseNeuralNets() {
+		// A design describes a tree, and there is no sense in which a tree
+		// converts to a net: the same behaviour expressed as weights is a
+		// different search space, and a converted founder would start where
+		// no evolved lineage could. So in a neural world a design supplies
+		// the traits and the brain starts from the same minimal net every
+		// other founder gets. The designer screen says so.
+		tree = nil
+		net = NewFounderNet(rng)
 	}
 	return &Organism{
 		ID:                 id,
@@ -155,11 +170,13 @@ func NewDesigned(rng *simrand.RNG, id int, point utils.Point, api LookupAPI, ds 
 		Direction:          utils.GetRandomDirection(rng),
 		OriginalAncestorID: id,
 
-		traits:       traits,
-		decisionTree: tree,
-		action:       d.ActChemosynthesis,
-		KilledBy:     -1,
-		appearance:   physiology.AppearanceFor(traits.Abilities, tree),
+		traits:        traits,
+		decisionTree:  tree,
+		net:           net,
+		action:        d.ActChemosynthesis,
+		KilledBy:      -1,
+		appearance:    appearanceOf(traits.Abilities, tree, net),
+		actionWeights: actionWeightsOf(tree, net),
 
 		lookupAPI: api,
 	}, nil

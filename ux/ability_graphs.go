@@ -285,9 +285,16 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 			}},
 		}
 	case physiology.CurveEating:
-		// Health per food unit is deliberately not a graph.
 		return []curveGraph{
 			{title: "Food units removed per eating attempt", series: bySizeClass(effects.MaxFoodPerEat)},
+		}
+	case physiology.CurveEatingDigestion:
+		return []curveGraph{
+			{title: "Health gained per unit of food eaten", series: []curveGraphSeries{
+				{label: "health", value: func(g *c.Globals, score int) float64 {
+					return effects.HealthFromFood(g, score, 1)
+				}},
+			}},
 		}
 	case physiology.CurveChemoPhEffect:
 		return []curveGraph{
@@ -296,10 +303,15 @@ func curveGraphsFor(id physiology.CurveID) []curveGraph {
 		}
 	case physiology.CurveEatingPhEffect:
 		return []curveGraph{
-			// Against the score rather than against pH.
-			{title: "pH pushed up per unit of food eaten", series: []curveGraphSeries{
+			// Against the score rather than against pH, and per unit of the
+			// HEALTH a meal gave rather than per unit of food. The push is that
+			// gain times this curve, and digestion is what decides the gain, so
+			// measuring it per unit of food draws a rising line under a shape
+			// set to flat — which is this curve's section, showing another
+			// curve's work.
+			{title: "pH pushed up per unit of health gained", series: []curveGraphSeries{
 				{label: "push", value: func(g *c.Globals, score int) float64 {
-					return effects.EatingPhPush(g, score, effects.HealthFromFood(g, 1))
+					return effects.EatingPhPush(g, score, 1)
 				}},
 			}},
 		}
@@ -747,6 +759,8 @@ var curveKTags = map[string]struct {
 	"chemo_ph_effect_cosine_k":      {physiology.CurveChemoPhEffect, physiology.ShapeCosine},
 	"chemo_ph_effect_saturating_k":  {physiology.CurveChemoPhEffect, physiology.ShapeSaturating},
 	"eating_ph_effect_cosine_k":     {physiology.CurveEatingPhEffect, physiology.ShapeCosine},
+	"eating_digestion_cosine_k":     {physiology.CurveEatingDigestion, physiology.ShapeCosine},
+	"eating_digestion_saturating_k": {physiology.CurveEatingDigestion, physiology.ShapeSaturating},
 	"eating_cost_cosine_k":          {physiology.CurveEatingCost, physiology.ShapeCosine},
 	"attack_cost_cosine_k":          {physiology.CurveAttackCost, physiology.ShapeCosine},
 	"eating_cost_saturating_k":      {physiology.CurveEatingCost, physiology.ShapeSaturating},
@@ -779,6 +793,15 @@ func withCurveGraphs(fields []configField) []configField {
 				curve:        tag.curve,
 				curveAbility: ability,
 				graphToggle:  true,
+			})
+			// Directly under the header, and OUTSIDE the block's toggle: a
+			// warning a reader has to expand a section to find is one they
+			// will not find. It takes no height unless it has something to
+			// say, so an ability whose settings are sound looks as it did.
+			out = append(out, configField{
+				row:          rowAbilityWarning,
+				fieldIdx:     -1,
+				curveAbility: ability,
 			})
 		}
 		f.curve = tag.curve
@@ -855,8 +878,9 @@ func globalsField(jsonTag string) (int, reflect.Kind) {
 // curveSettingTags lists the settings each curve scales, shown as sliders in the curve's block under its shape buttons.
 var curveSettingTags = map[physiology.CurveID][]string{
 	physiology.CurveChemosynthesis: {"max_chemosynthesis_gain", "max_chemosynthesis_ph_width"},
-	physiology.CurveEating: {"max_bite_at_full_eating", "max_bite_at_zero_eating", "health_per_food_unit",
+	physiology.CurveEating: {"max_bite_at_full_eating", "max_bite_at_zero_eating",
 		"eating_growth_factor"},
+	physiology.CurveEatingDigestion: {"health_per_food_unit", "health_per_food_unit_at_zero"},
 	physiology.CurveMovementCost: {"health_change_from_moving", "health_change_from_moving_at_max",
 		"health_change_from_turning", "health_change_from_turning_at_max"},
 	physiology.CurveDiggingCost: {"health_change_from_digging", "health_change_from_digging_at_max"},
@@ -882,7 +906,8 @@ var curveSettingLabels = map[string]string{
 	"eating_ph_effect":                         "pH push",
 	"max_bite_at_full_eating":                  "food eaten @max",
 	"max_bite_at_zero_eating":                  "food eaten @0",
-	"health_per_food_unit":                     "health/food",
+	"health_per_food_unit":                     "health/food @max",
+	"health_per_food_unit_at_zero":             "health/food @0",
 	"health_change_from_eating_attempt":        "attempt at 0",
 	"health_change_from_eating_attempt_at_max": "attempt at max",
 	"eating_growth_factor":                     "growth",
@@ -928,6 +953,7 @@ var curveShapeTags = map[physiology.CurveID]string{
 	physiology.CurvePhTolerance:     "ph_tolerance_curve_shape",
 	physiology.CurveChemoPhEffect:   "chemo_ph_effect_curve_shape",
 	physiology.CurveEatingPhEffect:  "eating_ph_effect_curve_shape",
+	physiology.CurveEatingDigestion: "eating_digestion_curve_shape",
 	physiology.CurveEatingCost:      "eating_cost_curve_shape",
 	physiology.CurveAttackCost:      "attack_cost_curve_shape",
 }
@@ -935,6 +961,7 @@ var curveShapeTags = map[physiology.CurveID]string{
 var curveFieldTags = map[physiology.CurveID]struct{ last string }{
 	physiology.CurveChemosynthesis:  {"chemosynthesis_saturating_k"},
 	physiology.CurveEating:          {"eating_saturating_k"},
+	physiology.CurveEatingDigestion: {"eating_digestion_saturating_k"},
 	physiology.CurveMovementCost:    {"movement_cost_saturating_k"},
 	physiology.CurveDiggingCost:     {"digging_cost_saturating_k"},
 	physiology.CurveDiggingStrength: {"digging_strength_saturating_k"},
@@ -952,6 +979,7 @@ var curveFieldTags = map[physiology.CurveID]struct{ last string }{
 var curveFieldNames = map[physiology.CurveID]struct{ cosineK, saturatingK, shape string }{
 	physiology.CurveChemosynthesis:  {"ChemosynthesisCosineK", "ChemosynthesisSaturatingK", "ChemosynthesisCurveShape"},
 	physiology.CurveEating:          {"EatingCosineK", "EatingSaturatingK", "EatingCurveShape"},
+	physiology.CurveEatingDigestion: {"EatingDigestionCosineK", "EatingDigestionSaturatingK", "EatingDigestionCurveShape"},
 	physiology.CurveMovementCost:    {"MovementCostCosineK", "MovementCostSaturatingK", "MovementCostCurveShape"},
 	physiology.CurveDiggingCost:     {"DiggingCostCosineK", "DiggingCostSaturatingK", "DiggingCostCurveShape"},
 	physiology.CurveDiggingStrength: {"DiggingStrengthCosineK", "DiggingStrengthSaturatingK", "DiggingStrengthCurveShape"},

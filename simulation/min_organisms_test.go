@@ -151,21 +151,52 @@ func TestMinOrganismsArmedSurvivesSnapshot(t *testing.T) {
 	}
 }
 
+// maxCyclesSeed has to SURVIVE past the limit below, which is the opposite of
+// what tailOffSeed is picked for — the cycle limit cannot be what stopped a
+// run that went extinct first. It runs on the same small grid to stay quick,
+// and that grid is fragile by design, so this is a seed with room to spare:
+// it holds about 400 organisms at the limit where seed 1, which this used to
+// be, now dies at cycle 250. A balance change can take it the same way, and
+// TestFindMaxCyclesSeed below is how to pick the next one.
+const maxCyclesSeed = 10
+
 func TestMaxCyclesStopsARunningSim(t *testing.T) {
 	const limit = 300
 	globalsForTailOff(t, 0) // minimum off, so only the cycle limit can fire
 	config.GetCurrentGlobals().MaxCycles = limit
 
-	sim, _ := runUntilDone(t, 1, limit*4)
+	sim, _ := runUntilDone(t, maxCyclesSeed, limit*4)
 	if !sim.IsDone() {
 		t.Fatalf("the run passed %d cycles without stopping", limit*4)
 	}
 	if got := sim.EndCondition(); got != EndMaxCycles {
-		t.Errorf("stopped for %v at cycle %d with %d alive, want the cycle limit",
-			got, sim.Cycle(), sim.OrganismCount())
+		t.Errorf("stopped for %v at cycle %d with %d alive, want the cycle limit — seed %d no longer "+
+			"survives to %d, so run SEED_PROBE=1 TestFindMaxCyclesSeed and pick a new maxCyclesSeed",
+			got, sim.Cycle(), sim.OrganismCount(), maxCyclesSeed, limit)
 	}
 	if sim.Cycle() != limit {
 		t.Errorf("stopped at cycle %d, want exactly %d", sim.Cycle(), limit)
+	}
+}
+
+// TestFindMaxCyclesSeed prints which seeds survive the cycle limit on the
+// small grid, so replacing maxCyclesSeed after a balance change is one run
+// rather than a hand search. The same service TestFindTailOffSeed does for
+// the other end. Asserts nothing.
+func TestFindMaxCyclesSeed(t *testing.T) {
+	if os.Getenv("SEED_PROBE") == "" {
+		t.Skip("set SEED_PROBE=1 to list the seeds that reach the cycle limit")
+	}
+	const limit = 300
+	for seed := 1; seed <= 24; seed++ {
+		globalsForTailOff(t, 0)
+		config.GetCurrentGlobals().MaxCycles = limit
+		sim, _ := runUntilDone(t, seed, limit*4)
+		if sim.EndCondition() == EndMaxCycles {
+			t.Logf("seed %2d reaches the limit with %d alive", seed, sim.OrganismCount())
+			continue
+		}
+		t.Logf("seed %2d is NOT usable: %v at cycle %d", seed, sim.EndCondition(), sim.Cycle())
 	}
 }
 

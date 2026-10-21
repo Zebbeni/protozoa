@@ -38,7 +38,7 @@ func predationWorld(t *testing.T, gain float64, defenderHealth float64) (*Organi
 	target := at.Add(utils.Point{X: 1, Y: 0})
 	mk := func(id int, p utils.Point, health float64, scores physiology.Scores, act d.Action) *organism.Organism {
 		o := organism.Restore(id, 1, health, 20, 0, 0, 0, p, utils.Point{X: 1, Y: 0}, id,
-			organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil,
+			organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil, nil,
 			act, organism.StatusIdle, 0, 0, 0, 0, nil)
 		m.organisms[id] = o
 		m.organismIDGrid[p.X][p.Y] = id
@@ -114,7 +114,7 @@ func TestTwoAttackersSplitOneKill(t *testing.T) {
 
 	second := organism.Restore(3, 1, 20, 20, 0, 0, 0,
 		defender.Location.Add(utils.Point{X: 1, Y: 0}), utils.Point{X: -1, Y: 0}, 3,
-		organism.Traits{IdealPh: 5, Abilities: first.Abilities(), MaxSize: 100}, nil,
+		organism.Traits{IdealPh: 5, Abilities: first.Abilities(), MaxSize: 100}, nil, nil,
 		d.ActAttack, organism.StatusIdle, 0, 0, 0, 0, nil)
 	m.organisms[3] = second
 
@@ -151,7 +151,7 @@ func attackScores(attack int) physiology.Scores {
 // place puts an organism into the manager, replacing whatever held the id.
 func place(m *OrganismManager, id int, p utils.Point, scores physiology.Scores, act d.Action) *organism.Organism {
 	o := organism.Restore(id, 1, 20, 20, 0, 0, 0, p, utils.Point{X: 1, Y: 0}, id,
-		organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil,
+		organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}, nil, nil,
 		act, organism.StatusIdle, 0, 0, 0, 0, nil)
 	m.organisms[id] = o
 	m.organismIDGrid[p.X][p.Y] = id

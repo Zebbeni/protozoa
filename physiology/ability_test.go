@@ -97,6 +97,8 @@ func setCurveK(g *config.Globals, id CurveID, k float64) {
 		g.DiggingStrengthCosineK = k
 	case CurveAttack:
 		g.AttackCosineK = k
+	case CurveEatingDigestion:
+		g.EatingDigestionCosineK = k
 	case CurveDamageTaken:
 		g.DamageTakenCosineK = k
 	case CurveThorns:
@@ -114,6 +116,8 @@ func setCurveShape(g *config.Globals, id CurveID, kind ShapeKind) {
 		g.ChemosynthesisCurveShape = name
 	case CurveEating:
 		g.EatingCurveShape = name
+	case CurveEatingDigestion:
+		g.EatingDigestionCurveShape = name
 	case CurveMovementCost:
 		g.MovementCostCurveShape = name
 	case CurveDiggingCost:

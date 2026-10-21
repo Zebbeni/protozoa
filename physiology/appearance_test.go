@@ -230,3 +230,132 @@ func TestSensorPicksDominantCategory(t *testing.T) {
 		t.Errorf("4 food vs 2 wall checks should give antennae, got %v", got)
 	}
 }
+
+// sensesWith pairs each condition with the pull given beside it.
+func sensesWith(t *testing.T, conditions []decision.Condition, pulls []float64) []SensedCondition {
+	t.Helper()
+	if len(conditions) != len(pulls) {
+		t.Fatalf("%d conditions against %d pulls", len(conditions), len(pulls))
+	}
+	out := make([]SensedCondition, len(conditions))
+	for i, c := range conditions {
+		out[i] = SensedCondition{Condition: c, Pull: pulls[i]}
+	}
+	return out
+}
+
+// TestAWeightedBrainFollowsWhereItsWeightIs is the difference between a net
+// and a tree. A net reads every input it has on every cycle, so holding an
+// input says nothing about how much of the brain is built on it; what says so
+// is the weight leaving it. Four reads it barely uses lose to two it leans on.
+func TestAWeightedBrainFollowsWhereItsWeightIs(t *testing.T) {
+	loadGlobals(t)
+
+	senses := sensesWith(t,
+		[]decision.Condition{
+			decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight, decision.IsOrganismAhead,
+			decision.IsWallAhead, decision.IsWallLeft,
+		},
+		[]float64{0.01, 0.01, 0.01, 0.01, 4.0, 4.0},
+	)
+	if got := AppearanceForSenses(plainScores(), senses).Sensor; got != SensorFeelers {
+		t.Errorf("four reads at 0.01 against two at 4.0 gave %v, not the feelers the weight is in", got)
+	}
+	// Counting the same reads, which is what a tree does, answers the other
+	// way — so the two rules are genuinely different and this is testing the
+	// new one.
+	counted := make([]decision.Condition, 0, len(senses))
+	for _, s := range senses {
+		counted = append(counted, s.Condition)
+	}
+	if got := AppearanceForConditions(plainScores(), counted).Sensor; got != SensorAntennae {
+		t.Errorf("counting the same reads gave %v, so the test is not measuring the weighting", got)
+	}
+}
+
+// TestScalingEveryWeightChangesNothing is the property that makes this a share
+// and not a magnitude. A lineage's weights drift to whatever absolute size
+// they drift to, with no ceiling anywhere, so an overlay handed out on raw
+// magnitude would be handed out by that accident.
+func TestScalingEveryWeightChangesNothing(t *testing.T) {
+	loadGlobals(t)
+
+	conditions := []decision.Condition{
+		decision.IsFoodAhead, decision.IsFoodLeft, decision.IsWallAhead, decision.IsHealthy,
+	}
+	base := []float64{3, 2, 0.5, 1}
+	want := AppearanceForSenses(plainScores(), sensesWith(t, conditions, base)).Sensor
+	if want == SensorNone {
+		t.Fatal("the sample grows no sensor, so scaling it proves nothing")
+	}
+	for _, factor := range []float64{0.001, 0.1, 10, 1000} {
+		scaled := make([]float64, len(base))
+		for i, p := range base {
+			scaled[i] = p * factor
+		}
+		if got := AppearanceForSenses(plainScores(), sensesWith(t, conditions, scaled)).Sensor; got != want {
+			t.Errorf("scaling every weight by %v changed the sensor from %v to %v", factor, want, got)
+		}
+	}
+}
+
+// TestAnInputTheBrainIgnoresGrowsNoSensor: a net can hold a read for
+// generations with nothing built on it, since a connection arrives at exactly
+// 0 and drift moves it slowly. Those should not dress the organism.
+func TestAnInputTheBrainIgnoresGrowsNoSensor(t *testing.T) {
+	loadGlobals(t)
+
+	senses := sensesWith(t,
+		[]decision.Condition{
+			decision.IsFoodAhead, decision.IsFoodLeft, decision.IsFoodRight,
+			decision.IsHealthy, decision.IsAgeMultipleOfTwo,
+		},
+		[]float64{0.001, 0.001, 0.001, 5, 5},
+	)
+	if got := AppearanceForSenses(plainScores(), senses).Sensor; got != SensorNone {
+		t.Errorf("a brain built on its own health and age gave %v", got)
+	}
+}
+
+// TestEqualPullsCountTheWayATreeDoes keeps the two brains comparable: with
+// nothing to tell its reads apart, a weighted brain is read exactly as a
+// counted one, which is what `sensor_min_conditions` still means.
+func TestEqualPullsCountTheWayATreeDoes(t *testing.T) {
+	loadGlobals(t)
+
+	sets := [][]decision.Condition{
+		{decision.IsFoodAhead, decision.IsFoodLeft},
+		{decision.IsFoodAhead},
+		{decision.IsWallAhead, decision.IsWallLeft, decision.IsFoodAhead},
+		{decision.IsHealthierPhAhead, decision.IsHealthierPhAhead, decision.IsHealthy},
+		{decision.IsHealthy, decision.IsAgeMultipleOfTen},
+		nil,
+	}
+	for _, conditions := range sets {
+		pulls := make([]float64, len(conditions))
+		for i := range pulls {
+			pulls[i] = 7 // any one value, since only the shares matter
+		}
+		want := AppearanceForConditions(plainScores(), conditions).Sensor
+		if got := AppearanceForSenses(plainScores(), sensesWith(t, conditions, pulls)).Sensor; got != want {
+			t.Errorf("%v: weighted evenly gave %v where counting gives %v", conditions, got, want)
+		}
+	}
+}
+
+// TestABrainThatLeansOnNothingIsReadByItsReads: every connection a net is
+// given starts at exactly 0, so a founder's whole brain pulls nothing. There
+// is no share to take then, and the reads themselves are what is left.
+func TestABrainThatLeansOnNothingIsReadByItsReads(t *testing.T) {
+	loadGlobals(t)
+
+	conditions := []decision.Condition{decision.IsFoodAhead, decision.IsFoodLeft, decision.IsWallAhead}
+	zeroed := sensesWith(t, conditions, []float64{0, 0, 0})
+	want := AppearanceForConditions(plainScores(), conditions).Sensor
+	if got := AppearanceForSenses(plainScores(), zeroed).Sensor; got != want {
+		t.Errorf("a brain with every weight still at 0 gave %v, not the %v its reads give", got, want)
+	}
+	if got := AppearanceForSenses(plainScores(), nil).Sensor; got != SensorNone {
+		t.Errorf("a brain with no reads at all gave %v", got)
+	}
+}

@@ -31,8 +31,15 @@ const (
 	graphPopupScale   = 0.75
 )
 
-func (g *GraphPopup) rect() popupRectT {
-	// Scaled off the old near-fullscreen box and centred, rather than by growing the margin.
+func (g *GraphPopup) rect() popupRectT { return popupBoxRect() }
+
+// popupBoxRect is the box an expanded panel view opens in. One box for all of
+// them, so opening the graph and opening the brain do not move the window
+// between them.
+//
+// Scaled off the old near-fullscreen box and centred, rather than by growing
+// the margin.
+func popupBoxRect() popupRectT {
 	w := int(float64(config.ScreenWidth()-2*graphPopupMargin) * graphPopupScale)
 	h := int(float64(config.ScreenHeight()-2*graphPopupMargin) * graphPopupScale)
 	return newRect((config.ScreenWidth()-w)/2, (config.ScreenHeight()-h)/2, w, h)

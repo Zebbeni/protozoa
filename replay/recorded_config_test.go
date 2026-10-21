@@ -29,6 +29,7 @@ func TestReplayRecordsItsSettings(t *testing.T) {
 	changed := g
 	changed.MaxLifespan = 1
 	changed.Theme = "light"
+	changed.Music = !g.Music
 	config.SetGlobals(&changed)
 
 	ctrl, err := NewController(path, opts)
@@ -46,6 +47,12 @@ func TestReplayRecordsItsSettings(t *testing.T) {
 	}
 	if got.Theme != "light" {
 		t.Errorf("theme %q: display preferences should stay the viewer's own", got.Theme)
+	}
+	// Music is the fourth of those, beside the window size and the pH palette:
+	// a recording that was made with music on must not switch it back on for
+	// a viewer who turned it off.
+	if got.Music != changed.Music {
+		t.Errorf("music %v, want the viewer's own %v", got.Music, changed.Music)
 	}
 	if config.MaxLifespan() != g.MaxLifespan {
 		t.Errorf("replay runs with max_lifespan %d, want the recorded %d", config.MaxLifespan(), g.MaxLifespan)

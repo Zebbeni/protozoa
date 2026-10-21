@@ -12,6 +12,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 	"github.com/Zebbeni/protozoa/food"
 	"github.com/Zebbeni/protozoa/manager"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/simrand"
@@ -487,9 +488,19 @@ func (s *Simulation) IsMostSuccessful(id int) bool {
 	return s.organismManager.IsMostSuccessful(id)
 }
 
+// MostSuccessfulSet is the whole set at once, for a caller testing many ids.
+func (s *Simulation) MostSuccessfulSet() map[int]struct{} {
+	return s.organismManager.MostSuccessfulSet()
+}
+
 // GetOrganismDecisionTreeByID returns a copy of the currently-used decision tree of the given organism (nil if no organism found)
 func (s *Simulation) GetOrganismDecisionTreeByID(id int) *d.Tree {
 	return s.organismManager.GetOrganismDecisionTreeByID(id)
+}
+
+// GetOrganismNeuralNetByID returns a copy of the given organism's neural net, or nil when it runs on a decision tree.
+func (s *Simulation) GetOrganismNeuralNetByID(id int) *neural.Net {
+	return s.organismManager.GetOrganismNeuralNetByID(id)
 }
 
 func (s *Simulation) GetHistory(histType manager.HistoryType) map[int]map[int]int32 {

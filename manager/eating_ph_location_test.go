@@ -45,7 +45,7 @@ func eatingOrganism(t *testing.T) (*OrganismManager, *organism.Organism, *eating
 	traits := organism.Traits{IdealPh: 5, Abilities: scores, MaxSize: 100}
 	o := organism.Restore(1, 1, 20, 20, 0, 0, 0,
 		at, utils.Point{X: 1, Y: 0}, 1,
-		traits, nil, d.ActEat, organism.StatusIdle, 0, 0, 0, 0, nil)
+		traits, nil, nil, d.ActEat, organism.StatusIdle, 0, 0, 0, 0, nil)
 	return m, o, api
 }
 

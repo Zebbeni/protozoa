@@ -19,6 +19,7 @@ import (
 	"github.com/Zebbeni/protozoa/config"
 	d "github.com/Zebbeni/protozoa/decision"
 	"github.com/Zebbeni/protozoa/effects"
+	"github.com/Zebbeni/protozoa/neural"
 	"github.com/Zebbeni/protozoa/organism"
 	"github.com/Zebbeni/protozoa/physiology"
 	"github.com/Zebbeni/protozoa/replay"
@@ -151,6 +152,31 @@ type Panel struct {
 	// graphExpandRequested is set by a click on the expand control and taken by the runner.
 	graphExpandRequested bool
 
+	// brainExpandRect is the BRAIN tab's expand hitbox, set while the cursor is over the tab and nil otherwise.
+	brainExpandRect *graphRect
+
+	// brainExpandRequested is set by a click on that control and taken by the runner.
+	brainExpandRequested bool
+
+	// brainView is which quantity the net's connections are drawn at, shared
+	// by the tab and the expanded view so switching in one holds in the other.
+	brainView brainView
+	// brainNumbersHidden is the expanded view's NUMBERS button. Held as
+	// hidden rather than shown so the zero value is the numbers being drawn,
+	// which is what the diagram did before there was a button — otherwise
+	// every Panel built without going through NewPanel would open silently
+	// unannotated.
+	brainNumbersHidden bool
+	// brainControls holds whichever row drew last, which is safe because the
+	// expanded view is drawn after the panel and claims the mouse over its
+	// own box.
+	brainControls brainControls
+
+	// The net the BRAIN tab last drew, kept so the expanded view can redraw the same one bigger.
+	lastBrainNet    *neural.Net
+	lastBrainActing d.Action
+	lastBrainDim    bool
+
 	// graphByAbility colours the population graphs gray→green by graphColorAbility instead of by lineage.
 	graphByAbility    bool
 	graphColorAbility physiology.Ability
@@ -215,6 +241,7 @@ type Panel struct {
 	cachedTraits       organism.Traits
 	cachedTraitsValid  bool
 	cachedDecisionTree *d.Tree
+	cachedNet          *neural.Net
 
 	// descRootID is the displayed root of the descendant tree.
 	descRootID int
@@ -542,8 +569,22 @@ func (p *Panel) drawExpandButton(dst *ebiten.Image, gx, gy, gw int, hovered bool
 		p.graphExpandRect = nil
 		return
 	}
-	rect := graphRect{x: gx + gw - expandButtonSize - 2, y: gy + 2, w: expandButtonSize, h: expandButtonSize}
+	rect := drawExpandControl(dst, gx, gy, gw)
 	p.graphExpandRect = &rect
+}
+
+// expandControlRect is where the control sits in the box given: its top-right
+// corner. Separate from the drawing so the placement can be measured against
+// the column it lands in without a surface to draw on.
+func expandControlRect(gx, gy, gw int) graphRect {
+	return graphRect{x: gx + gw - expandButtonSize - 2, y: gy + 2, w: expandButtonSize, h: expandButtonSize}
+}
+
+// drawExpandControl draws the expand control in the top-right corner of the box
+// given and returns its hitbox, in whatever space the box was in. Shared by the
+// graph and the brain tab, which open the same kind of bigger view.
+func drawExpandControl(dst *ebiten.Image, gx, gy, gw int) graphRect {
+	rect := expandControlRect(gx, gy, gw)
 
 	ebitenutil.DrawRect(dst, float64(rect.x), float64(rect.y), float64(rect.w), float64(rect.h),
 		chrome(color.RGBA{R: 40, G: 40, B: 52, A: 220}, color.RGBA{R: 235, G: 235, B: 242, A: 220}))
@@ -557,6 +598,7 @@ func (p *Panel) drawExpandButton(dst *ebiten.Image, gx, gy, gw int, hovered bool
 	ebitenutil.DrawRect(dst, l, t, 1, arm, ink)
 	ebitenutil.DrawRect(dst, rgt-arm, b-1, arm, 1, ink)
 	ebitenutil.DrawRect(dst, rgt-1, b-arm, 1, arm, ink)
+	return rect
 }
 
 func (p *Panel) drawGraphInto(dst *ebiten.Image, graphImage *ebiten.Image, x, y, w, h int) {
@@ -1278,6 +1320,9 @@ func (p *Panel) HandleReplayClick(mx, my int) bool {
 	if p.handleGraphButtonClick(mx, scrolledY) {
 		return true
 	}
+	if p.takeBrainControlClick(p.brainControls, mx, scrolledY) {
+		return true
+	}
 	if p.handleDetailTabClick(mx, scrolledY) {
 		return true
 	}
@@ -1742,6 +1787,13 @@ func (p *Panel) graphCycleRange() (start, end int) {
 func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	p.drainReconstruction()
 
+	// Both are the BRAIN tab's to set while it draws, so every path that does
+	// not draw it leaves the expanded view with nothing to show and no stale
+	// control to click.
+	p.brainExpandRect = nil
+	p.brainControls = brainControls{}
+	p.lastBrainNet = nil
+
 	sY := selectedYOffset + yOff
 	titleHeight := r.FontSourceCodePro12.Metrics().Height.Round()
 	infoY := sY + titleHeight + selectedTitleGap
@@ -1766,13 +1818,16 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 		p.cachedInfo = nil
 		p.cachedTraitsValid = false
 		p.cachedDecisionTree = nil
+		p.cachedNet = nil
 		return sY
 	}
 
 	liveInfo := p.simulation.GetOrganismInfoByID(id)
 	liveTraits, traitsFound := p.simulation.GetOrganismTraitsByID(id)
 	liveTree := p.simulation.GetOrganismDecisionTreeByID(id)
-	alive := liveInfo != nil && traitsFound && liveTree != nil
+	liveNet := p.simulation.GetOrganismNeuralNetByID(id)
+	// An organism has one brain or the other, so "alive" is having either.
+	alive := liveInfo != nil && traitsFound && (liveTree != nil || liveNet != nil)
 
 	// Refresh the cache from the live snapshot whenever it's available.
 	if alive {
@@ -1781,6 +1836,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 		p.cachedTraits = liveTraits
 		p.cachedTraitsValid = true
 		p.cachedDecisionTree = liveTree
+		p.cachedNet = liveNet
 	}
 
 	// Pick the data to render: live values when present, otherwise the last-seen cache for the same id.
@@ -1788,13 +1844,15 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 		info         *organism.Info
 		traits       organism.Traits
 		decisionTree *d.Tree
+		net          *neural.Net
 		dim          = !alive
 	)
 	switch {
 	case alive:
-		info, traits, decisionTree = liveInfo, liveTraits, liveTree
-	case p.cachedSelID == id && p.cachedInfo != nil && p.cachedTraitsValid && p.cachedDecisionTree != nil:
-		info, traits, decisionTree = p.cachedInfo, p.cachedTraits, p.cachedDecisionTree
+		info, traits, decisionTree, net = liveInfo, liveTraits, liveTree, liveNet
+	case p.cachedSelID == id && p.cachedInfo != nil && p.cachedTraitsValid &&
+		(p.cachedDecisionTree != nil || p.cachedNet != nil):
+		info, traits, decisionTree, net = p.cachedInfo, p.cachedTraits, p.cachedDecisionTree, p.cachedNet
 	}
 
 	// Section title — drawn only when there's something to show below.
@@ -1810,7 +1868,7 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	blockY := infoY + tabStripHeight + infoTabsGap
 	portraitBottom := blockY + portraitColumnHeight()
 
-	if info == nil || decisionTree == nil {
+	if info == nil || (decisionTree == nil && net == nil) {
 		// We have a selection but no stats to show, so no portrait either:
 		// the placeholder gets the full panel width.
 		p.descRowRects = nil
@@ -1859,7 +1917,11 @@ func (p *Panel) renderSelected(panelImage *ebiten.Image, yOff int) int {
 	bottom := blockY
 	switch p.selectedTab {
 	case orgTabDecision:
-		bottom = p.renderDecisionTreeTab(content, decisionTree, dim, blockY)
+		if net != nil {
+			bottom = p.drawBrainTab(content, net, info.Action, dim, selectedXOffset, blockY, infoAreaWidth)
+		} else {
+			bottom = p.renderDecisionTreeTab(content, decisionTree, dim, blockY)
+		}
 	case orgTabDescendant:
 		bottom = p.renderDescendantTreeTab(content, p.effectiveDescRoot(id), id, blockY, infoAreaWidth)
 	default:
@@ -2224,6 +2286,7 @@ func (p *Panel) drainReconstruction() {
 			p.cachedTraits = payload.result.Traits
 			p.cachedTraitsValid = payload.result.TraitsValid
 			p.cachedDecisionTree = payload.result.DecisionTree
+			p.cachedNet = payload.result.Net
 		default:
 			return
 		}
@@ -2251,14 +2314,22 @@ const (
 )
 
 // orgTabLabels is the one strip of tabs over the selected organism's content.
-var orgTabLabels = []string{"TRAITS", "STATS", "DECISION TREE", "DESCENDANT TREE"}
+// The third is named for whichever brain the world runs on, since a tab
+// called DECISION TREE over a neural net would be naming the wrong thing.
+func orgTabLabels() []string {
+	brain := "DECISION TREE"
+	if config.UseNeuralNets() {
+		brain = "BRAIN"
+	}
+	return []string{"TRAITS", "STATS", brain, "DESCENDANT TREE"}
+}
 
 // renderOrgTabs draws the tab strip between the SELECTED ORG line and the
 // content it switches. It spans the whole panel, over the portrait, while its
 // content is restricted to the column left of the portrait.
 func (p *Panel) renderOrgTabs(panelImage *ebiten.Image, topY int) int {
 	p.detailTabRects = drawTabStrip(panelImage, selectedXOffset, topY, graphWidth,
-		orgTabLabels, p.selectedTab)
+		orgTabLabels(), p.selectedTab)
 	return topY + tabStripHeight
 }
 
@@ -2301,6 +2372,10 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, select
 	}
 
 	currentCycle := p.simulation.Cycle()
+	// Taken once for the whole render: live, this set is rebuilt by walking
+	// every descendant tree, so asking per row made one screen of rows a
+	// thousand walks of the family history.
+	successful := p.simulation.MostSuccessfulSet()
 	rows := make([]descRowHitbox, 0, 64)
 	rowH := r.FontSourceCodePro10.Metrics().Height.Round() + 2
 	expandW := 14
@@ -2380,7 +2455,7 @@ func (p *Panel) renderDescendantTreeTab(panelImage *ebiten.Image, rootID, select
 		}
 		text.Draw(panelImage, nodeLabel, r.FontSourceCodePro10, labelX, y+rowH-4, clr)
 		// Fake-bold nodes on the most-successful lineage by drawing the label a second time one pixel to the right.
-		if p.simulation.IsMostSuccessful(n.ID) {
+		if _, best := successful[n.ID]; best {
 			text.Draw(panelImage, nodeLabel, r.FontSourceCodePro10, labelX+1, y+rowH-4, clr)
 		}
 
@@ -2452,4 +2527,35 @@ func (p *Panel) TakeGraphExpandRequest() bool {
 	req := p.graphExpandRequested
 	p.graphExpandRequested = false
 	return req
+}
+
+func (p *Panel) TakeBrainExpandRequest() bool {
+	req := p.brainExpandRequested
+	p.brainExpandRequested = false
+	return req
+}
+
+// HandleBrainInput consumes the mouse over the BRAIN tab's expand control, the
+// same way HandleGraphInput does over the graph's.
+func (p *Panel) HandleBrainInput() bool {
+	rect := p.brainExpandRect
+	if rect == nil {
+		return false
+	}
+	mx, my := ebiten.CursorPosition()
+	if !rect.contains(mx, my+int(p.scrollY)) {
+		return false
+	}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		p.brainExpandRequested = true
+	}
+	p.setGraphCursor(ebiten.CursorShapePointer)
+	return true
+}
+
+// ExpandedBrain is the net the BRAIN tab last drew, for the expanded view.
+// Nothing is returned when that tab is not showing one, so the popup says so
+// rather than drawing a net the panel has stopped describing.
+func (p *Panel) ExpandedBrain() (*neural.Net, d.Action, bool, bool) {
+	return p.lastBrainNet, p.lastBrainActing, p.lastBrainDim, p.lastBrainNet != nil
 }
