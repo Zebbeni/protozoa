@@ -103,7 +103,11 @@ func WorldSizeOf(g *Globals) (WorldSize, bool) {
 // Applied to the BASELINE only, so it is overridden the way any default is: a
 // -config file that names a grid wins, and a replay takes its grid from the
 // recording's header, which is what keeps a recording replayable.
-func BrowserDefaults(g *Globals) { ApplyWorldSize(g, BrowserWorldSize) }
+func BrowserDefaults(g *Globals) {
+	ApplyWorldSize(g, BrowserWorldSize)
+	// Also disable music by default for the browser. It doesn't seem to handle well
+	g.Music = false
+}
 
 // The browser used to raise chemo_ph_effect from 0.01 to 0.025 as well, so the
 // pH cycle would show inside the minute or two a visitor watches for. It was
