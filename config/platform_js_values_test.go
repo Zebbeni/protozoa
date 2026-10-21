@@ -9,7 +9,7 @@ import (
 
 // TestTheBrowserHookAppliesTheBrowserDefaults is all that is left for the js
 // build to say: WHAT those defaults are is checked on every platform by
-// browser_defaults_test.go, now that they live in an untagged file. This is
+// world_size_test.go, now that they live in an untagged file. This is
 // the wiring — that the browser build's platformDefaults is that function and
 // not a second set of numbers.
 //

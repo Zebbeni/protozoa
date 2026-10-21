@@ -108,10 +108,12 @@ python3 -m http.server 8080 --directory web # then open http://localhost:8080/
 
 Notes and current limitations:
 
-- The browser gets a smaller world — an 80x64 grid against the desktop's
-  100x80, with the per-world item counts scaled down by the same area share.
-  Exactly four of the 172 settings differ, and those are the four; everything
-  else is the desktop's. See `config/browser_defaults.go`.
+- The browser opens on the **SMALL** world size — an 80x64 grid against the
+  desktop's 100x80, with the starting food stocks scaled down by the same area
+  share. It is the same preset the settings screen offers, so a desktop user
+  can run the browser's world with one click. Exactly four of the 172 settings
+  differ, and those are the four; everything else is the desktop's. See
+  `config/world_size.go`.
 - The in-browser file system is virtual, so a recording does not survive a page
   reload. The replay controls work within a session; `-resume` and `-replay` are
   desktop-only.

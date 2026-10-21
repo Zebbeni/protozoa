@@ -125,7 +125,7 @@ flowchart TD
     E["settings/default.json (go:embed)"] --> GD[GetDefaultGlobals]
     GD --> PD[platformDefaults]
     PD -->|desktop| NOOP[no-op]
-    PD -->|js build| BD["BrowserDefaults: grid 100x80 to 80x64, item counts scaled by area share"]
+    PD -->|js build| BD["ApplyWorldSize(SMALL): grid 100x80 to 80x64, food stocks scaled by area"]
     GD --> BASE[baseline Globals]
     BASE --> CF["-config file, decoded over the baseline"]
     BASE --> SCR[config screen edits]
@@ -136,6 +136,17 @@ flowchart TD
     REP --> CUR[(package-level currentGlobals)]
     CUR --> ACC["accessors, and effects functions taking *Globals"]
 ```
+
+**World size is a preset, not three loose settings.** `config/world_size.go`
+holds SMALL / MEDIUM / LARGE as one grid plus the two food stocks that go with
+it — each dimension steps by 1.25, so the area steps by 1.5625 and the stocks
+step with the area, keeping the density constant across sizes. **MEDIUM is what
+`settings/default.json` ships**, enforced by `TestTheMediumWorldIsTheShippedDefault`,
+and the browser's `platformDefaults` is `ApplyWorldSize(g, WorldSmall)`. The
+settings screen's first row is the three buttons; `WorldSizeOf` reports which
+one a configuration is on, or none when the grid or a stock has been
+hand-edited. `ApplyWorldSize` writes fixed values rather than scaling what is
+there, so clicking between sizes cannot compound.
 
 Three properties worth knowing:
 
@@ -564,7 +575,7 @@ really is `BrowserDefaults`. To run them, point `-exec` at Go's node shim
 GOOS=js GOARCH=wasm go test -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./config/
 ```
 
-Worth doing after any change to `config/browser_defaults.go`. A desktop-only
+Worth doing after any change to `config/world_size.go`. A desktop-only
 assertion left untagged compiles into the wasm test binary too, and fails
 there silently — `TestPlatformDefaultsLeaveTheDesktopBaselineAlone` is tagged
 `!js` for exactly that reason.
