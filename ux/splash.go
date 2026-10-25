@@ -36,7 +36,7 @@ func NewSplash() *Splash {
 
 // bakeTitle renders the title text once into a tight offscreen image so every Draw can DrawImage it (scaled + tinted) instead of re-rasterising the glyphs each frame.
 func (s *Splash) bakeTitle() {
-	face := r.FontInversionz40
+	face := r.FontInversionz64
 	bounds := boundString(face, splashTitle)
 	pad := 4
 	w, h := bounds.Dx()+pad*2, bounds.Dy()+pad*2

@@ -8,10 +8,6 @@ package ux
 // project where a guess becomes a claim about somebody else's work, so nothing
 // is written here that was not read off the thing it credits.
 //
-// The music bundle is CC0 and asks for no attribution at all, but names the
-// credit it would like: the artist name "Abstraction" and a link to the pack
-// or to abstractionmusic.com. Both are used as asked rather than reworded.
-//
 // Inversionz is the one typeface here that was BOUGHT. Its own name table
 // says "donationware", which is how it is listed on dafont and is not what
 // this project uses it under: the Hawtpixel Standard licence grants full
@@ -29,10 +25,10 @@ func creditsBlocks() []rulesBlock {
 			"and exported to the per-resolution sheets the game loads."},
 
 		rulesHeading{"MUSIC"},
-		rulesText{"Music by Abstraction (abstractionmusic.com)."},
-		rulesText{"The pieces are Reverence and Forget About Us, from the Music Loop Bundle at " +
-			"tallbeard.itch.io/music-loop-bundle, released under CC0. The menus play one and " +
-			"the replay viewer alternates between two takes of the other."},
+		rulesText{"Music by CAPTNPHANTOM (captnphantom.itch.io)."},
+		rulesText{"The pieces used are Far Below and Out of Bounds, from the Liminal Worlds " +
+			"Music & Ambience Pack at https://captnphantom.itch.io/liminal-worlds, and Acid Drift, " +
+			"from the Underground Techno Pack at https://captnphantom.itch.io/underground-techno-pack."},
 
 		rulesHeading{"TYPEFACES"},
 		rulesText{"Source Code Pro by Paul D. Hunt and Teo Tuominen for Adobe, under the SIL " +

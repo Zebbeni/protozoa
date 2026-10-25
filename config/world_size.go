@@ -39,7 +39,7 @@ type worldSizeSpec struct {
 }
 
 var worldSizes = map[WorldSize]worldSizeSpec{
-	WorldSmall:  {"SMALL", 80, 64, 6400, 6400},
+	WorldSmall:  {"SMALL", 50, 40, 5000, 5000},
 	WorldMedium: {"MEDIUM", 100, 80, 10000, 10000},
 	WorldLarge:  {"LARGE", 125, 100, 15625, 15625},
 }
