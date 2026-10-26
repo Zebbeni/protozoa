@@ -183,6 +183,8 @@ func TestBrowserDefaultsChangeNothingElse(t *testing.T) {
 	// balance change that drifted in rather than being decided.
 	g.GridUnitsWide, g.GridUnitsHigh = before.GridUnitsWide, before.GridUnitsHigh
 	g.InitialFood, g.InitialBuriedFood = before.InitialFood, before.InitialBuriedFood
+	// also accommodate the browser-only default to turn music off
+	g.Music = before.Music
 
 	a, _ := json.Marshal(before)
 	b, _ := json.Marshal(g)

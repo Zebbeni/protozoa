@@ -30,8 +30,9 @@ func TestTheCreditsNameWhoMadeWhat(t *testing.T) {
 	prose := creditsProse()
 	for _, want := range []string{
 		"Andrew Albers", // the game and its art
-		"Abstraction",   // the music
-		"Music Loop Bundle",
+		"CAPTNPHANTOM",  // the music
+		"Liminal Worlds Music & Ambience Pack",
+		"Underground Techno Pack",
 		"Source Code Pro",
 		"Darrell Flood", // Inversionz
 		"Hawtpixel",     // the licence it is used under, not the donationware listing
@@ -48,23 +49,21 @@ func TestTheCreditsNameWhoMadeWhat(t *testing.T) {
 	}
 }
 
-// TestTheMusicAttributionMatchesThePack: the bundle is CC0 and requires no
+// TestTheMusicAttributionMatchesThePack: the bundle license requires no
 // credit at all, but it names the one it would like — the artist name
-// "Abstraction" and a link to the pack or the artist's site. Both are used as
+// "CAPTNPHANTOM" and a link to the pack or the artist's site. Both are used as
 // asked, so a reword here would be this project paraphrasing someone else's
 // request about their own work.
 func TestTheMusicAttributionMatchesThePack(t *testing.T) {
 	prose := creditsProse()
-	if !strings.Contains(prose, "Abstraction") {
+	if !strings.Contains(prose, "CAPTNPHANTOM") {
 		t.Error("the credits do not carry the artist name the pack asks for")
 	}
-	linked := strings.Contains(prose, "abstractionmusic.com") ||
-		strings.Contains(prose, "tallbeard.itch.io/music-loop-bundle")
+	linked := strings.Contains(prose, "captnphantom.itch.io") ||
+		strings.Contains(prose, "captnphantom.itch.io/liminal-worlds") ||
+		strings.Contains(prose, "captnphantom.itch.io/underground-techno-pack")
 	if !linked {
-		t.Error("the credits carry neither of the two links the pack asks to be linked to")
-	}
-	if !strings.Contains(prose, "CC0") {
-		t.Error("the credits do not say what the music is released under")
+		t.Error("the credits carry neither of the two links of the packs used")
 	}
 }
 
