@@ -27,8 +27,8 @@ func creditsBlocks() []rulesBlock {
 		rulesHeading{"MUSIC"},
 		rulesText{"Music by CAPTNPHANTOM (captnphantom.itch.io)."},
 		rulesText{"The pieces used are Far Below and Out of Bounds, from the Liminal Worlds " +
-			"Music & Ambience Pack at https://captnphantom.itch.io/liminal-worlds, and Acid Drift, " +
-			"from the Underground Techno Pack at https://captnphantom.itch.io/underground-techno-pack."},
+			"Music & Ambience Pack (captnphantom.itch.io/liminal-worlds), and Acid Drift, " +
+			"from the Underground Techno Pack (captnphantom.itch.io/underground-techno-pack)"},
 
 		rulesHeading{"TYPEFACES"},
 		rulesText{"Source Code Pro by Paul D. Hunt and Teo Tuominen for Adobe, under the SIL " +
